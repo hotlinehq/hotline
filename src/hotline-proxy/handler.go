@@ -56,6 +56,8 @@ type handler struct {
 	own *own
 	// buffers are the copy buffers calls borrow.
 	buffers bufferPool
+	// bodies hold the copies of bodies kept for the checks.
+	bodies bodyPool
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
@@ -119,7 +121,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		in:         r,
 		timeout:    settings.VendorTimeout,
 		transport:  transport,
-		reqBody:    &tap{ReadCloser: r.Body, limit: keepFor(api), mac: macFor(api)},
+		reqBody:    &tap{ReadCloser: r.Body, limit: keepFor(api), mac: macFor(api), pool: &h.bodies, expect: r.ContentLength},
 		reqCheck:   newSpecCheck(),
 		replyCheck: newSpecCheck(),
 	}
@@ -441,7 +443,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepFor(c.api), mac: macFor(c.api), done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: keepFor(c.api), mac: macFor(c.api), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -634,12 +636,21 @@ type tap struct {
 
 	limit int
 	mac   hash.Hash
+	// pool lends the buffer the copy is kept in; expect is the body's
+	// Content-Length, or -1 when it was not sent.
+	pool   *bodyPool
+	expect int64
 
 	mu   sync.Mutex
 	size int64
 	err  error
 	kept []byte
+	// buf is the borrowed buffer kept sits in, nil until the first byte.
+	buf  *bodyBuffer
 	over bool
+	// handed is set once the copy has gone to the check: from then on the
+	// copy never changes, and its buffer is never swapped.
+	handed bool
 }
 
 func (t *tap) Read(p []byte) (int, error) {
@@ -652,9 +663,9 @@ func (t *tap) Read(p []byte) (int, error) {
 	if t.mac != nil {
 		t.mac.Write(p[:n])
 	}
-	if t.limit > 0 {
+	if t.limit > 0 && !t.handed {
 		room := min(n, t.limit-len(t.kept))
-		t.kept = append(t.kept, p[:room]...)
+		t.keep(p[:room])
 		t.over = t.over || room < n
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -691,19 +702,75 @@ func (t *tap) signed() string {
 	return base64.StdEncoding.EncodeToString(t.mac.Sum(nil))
 }
 
-// drop lets go of the copy, once it has been checked.
+// keep adds b to the copy. The first bytes borrow a buffer the size of the
+// whole body, when its Content-Length says so; a copy that outgrows its
+// buffer moves to a larger one and gives the old one back.
+func (t *tap) keep(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	need := len(t.kept) + len(b)
+	if t.buf == nil || need > cap(t.buf.data) {
+		want := int64(need)
+		if t.buf == nil && t.expect > want {
+			want = t.expect
+		}
+		buf := t.pool.get(int(min(want, int64(t.limit))))
+		buf.data = append(buf.data, t.kept...)
+		if t.buf != nil {
+			t.pool.put(t.buf)
+		}
+		t.buf = buf
+	}
+	t.buf.data = append(t.buf.data, b...)
+	t.kept = t.buf.data
+}
+
+// drop gives the copy's buffer back, once the check of the copy has ended.
 func (t *tap) drop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.kept, t.limit = nil, 0
+	if t.buf != nil {
+		t.pool.put(t.buf)
+	}
+	t.kept, t.buf, t.limit = nil, nil, 0
 }
 
-// copied is the copy of the body kept so far.
+// copied is the copy of the body kept so far. The check reads it after the
+// lock is let go, so the copy stays as it is until drop.
 func (t *tap) copied() spec.Body {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.handed = true
 	return spec.Body{Data: t.kept, TooLarge: t.over}
 }
+
+// bodyPool lends the buffers bodies are kept in, in eight sizes from 16 KB
+// to 2 MiB, each twice the one before, so a buffer given back fits the
+// next body of about its size (Peter, 2026-11-02, found by the load test).
+type bodyPool struct{ sizes [8]sync.Pool }
+
+// bodyBuffer is a borrowed buffer and the pool of its size.
+type bodyBuffer struct {
+	data []byte
+	size int
+}
+
+// get lends an empty buffer of at least n bytes, up to the largest size.
+func (p *bodyPool) get(n int) *bodyBuffer {
+	i := 0
+	for 16<<10<<i < n && i < len(p.sizes)-1 {
+		i++
+	}
+	if b, ok := p.sizes[i].Get().(*bodyBuffer); ok {
+		b.data = b.data[:0]
+		return b
+	}
+	return &bodyBuffer{data: make([]byte, 0, 16<<10<<i), size: i}
+}
+
+// put gives a buffer back to the pool of its size.
+func (p *bodyPool) put(b *bodyBuffer) { p.sizes[b.size].Put(b) }
 
 func (t *tap) finish() {
 	if t.done != nil {
