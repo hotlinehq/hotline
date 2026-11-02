@@ -1,0 +1,40 @@
+# Weekly clean-up of old main builds in GitHub's registry (Peter, 2026-11-02).
+# Keeps every release (1.0.1, 1.0, latest, any v* name), keeps edge, and keeps
+# the 5 newest sha- builds. Older sha- builds are deleted together with their
+# platform images, SBOM, provenance and cosign signature. Detail:
+# docs/proxy-docker-image.md.
+name: image cleanup
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Mondays 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: only list what would be deleted
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write   # delete package versions
+    steps:
+      # This action knows that a multi-platform image is several package
+      # versions, and deletes a build's parts only together with it.
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f   # v1.2.2
+        with:
+          package: hotline-proxy
+          exclude-tags: 'edge,latest,*.*,v*'
+          delete-tags: 'sha-*'
+          keep-n-tagged: 5
+          delete-untagged: true
+          delete-orphaned-images: true
+          validate: true
+          # For now scheduled runs only list. Once a listed run looks right,
+          # drop the schedule part so they delete.
+          dry-run: ${{ github.event_name == 'schedule' || inputs.dry-run }}
