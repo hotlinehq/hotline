@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -106,7 +107,7 @@ var _ = Describe("A run with the proxy at a tiny rate", func() {
 		out := GinkgoT().TempDir()
 		dir, err := run.Run(run.Config{
 			Proxy: proxy, Spec: spec, K6: k6, OutDir: out,
-			Shape: "small-json", Rate: 5, Duration: "3s", Repeats: 3,
+			Shape: "small-json", Rate: 5, Duration: "3s", Repeats: 3, Settle: 2 * time.Second,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(filepath.Base(dir)).To(Equal("run-001"))
@@ -126,5 +127,32 @@ var _ = Describe("A run with the proxy at a tiny rate", func() {
 		}
 		Expect(filepath.Join(dir, "repeat-1", "proxy-summary.json")).To(BeAnExistingFile())
 		Expect(filepath.Join(dir, "repeat-1", "direct-summary.json")).To(BeAnExistingFile())
+	})
+})
+
+var _ = Describe("The scenario line", func() {
+	It("says which call, how big the reply, how fast and how long", func() {
+		line, err := run.Scenario(run.Config{Shape: "large-json", Rate: 200, Duration: "20s", Repeats: 3})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(line).To(Equal("scenario: large-json (AmazonSSM.GetParametersByPath, reply about 115 KB), " +
+			"200 calls a second for 20s, 3 repeats, each direct then through the proxy"))
+	})
+
+	It("shows a small reply in bytes", func() {
+		line, err := run.Scenario(run.Config{Shape: "small-json", Rate: 500, Duration: "20s", Repeats: 1})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(line).To(ContainSubstring("AmazonSSM.GetParameter, reply about 200 bytes"))
+		Expect(line).To(ContainSubstring("1 repeat,"))
+	})
+
+	It("refuses a shape it does not know", func() {
+		_, err := run.Scenario(run.Config{Shape: "nonsense"})
+		Expect(err).To(MatchError(ContainSubstring(`no call shape called "nonsense"`)))
+	})
+})
+
+var _ = Describe("Waiting for the proxy's memory number", func() {
+	It("waits longer than the 15 seconds the runtime library keeps its last reading", func() {
+		Expect(run.DefaultSettle).To(BeNumerically(">", 15*time.Second))
 	})
 })
