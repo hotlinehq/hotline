@@ -54,6 +54,8 @@ type handler struct {
 	tunnels *tunnels
 	// own are the proxy's own numbers.
 	own *own
+	// buffers are the copy buffers calls borrow.
+	buffers bufferPool
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
@@ -149,7 +151,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		Transport:     c,
-		BufferPool:    copyBuffers,
+		BufferPool:    &h.buffers,
 		FlushInterval: -1,
 		ErrorHandler:  c.fail,
 		ErrorLog:      log.New(io.Discard, "", 0),
@@ -160,22 +162,18 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = http.NewResponseController(app).Flush()
 }
 
-// copyBuffers lends each call the buffer it copies bodies through, so a
-// call does not make a new 32 KB buffer of its own (Peter, 2026-11-02,
-// found by the load test spike).
-var copyBuffers = &bufferPool{pool: sync.Pool{New: func() any {
-	b := make([]byte, 32<<10)
-	return &b
-}}}
-
-// bufferPool is the httputil.BufferPool of the proxy's copy buffers. It
+// bufferPool lends each call the 32 KB buffer it copies bodies through, so
+// a call does not make a new buffer of its own (Peter, 2026-11-02, found by
+// the load test spike). It is the httputil.BufferPool of every call, and
 // keeps pointers to slices, so giving a buffer back costs a few bytes, not
 // a new buffer.
 type bufferPool struct{ pool sync.Pool }
 
 func (p *bufferPool) Get() []byte {
-	b, _ := p.pool.Get().(*[]byte)
-	return *b
+	if b, ok := p.pool.Get().(*[]byte); ok {
+		return *b
+	}
+	return make([]byte, 32<<10)
 }
 
 func (p *bufferPool) Put(b []byte) { p.pool.Put(&b) }
