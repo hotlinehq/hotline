@@ -37,8 +37,9 @@ func NewOwn(t *config.Telemetry, roots *x509.CertPool, service Service, timing T
 			sdkmetric.WithInterval(t.Exporter.MetricInterval),
 			sdkmetric.WithTimeout(timing.Timeout))),
 	}
-	// Four of the runtime's numbers are enough (Peter, 2026-11-01).
-	for _, name := range append(slices.Clone(t.Disable), "go.memory.allocated", "go.memory.allocations",
+	// Five of the runtime's numbers are enough (Peter, 2026-11-01), with
+	// go.memory.allocated added for the load test (Peter, 2026-11-02).
+	for _, name := range append(slices.Clone(t.Disable), "go.memory.allocations",
 		"go.processor.limit", "go.config.gogc") {
 		options = append(options, sdkmetric.WithView(sdkmetric.NewView(
 			sdkmetric.Instrument{Name: name},

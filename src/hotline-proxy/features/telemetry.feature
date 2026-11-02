@@ -169,13 +169,14 @@ Feature: The proxy's own telemetry
       | that allows only TLS 1.1 opens TLS               | tls_version          | none      |
       | that does not trust the issuer opens a tunnel    | tls_untrusted_by_app | connect   |
 
-  Scenario: The Go runtime, four numbers
-    go.memory.limit is the fourth, sent only when a memory limit is set
-    with GOMEMLIMIT.
+  Scenario: The Go runtime, five numbers
+    go.memory.limit is the fifth, sent only when a memory limit is set
+    with GOMEMLIMIT. go.memory.allocated, the memory handed out since the
+    start, is there for the load test (Peter, 2026-11-02).
     When the proxy starts
     Then the telemetry receiver gets the metrics go.memory.used and go.goroutine.count
     And the telemetry receiver gets the metric go.memory.gc.goal
-    And the telemetry receiver gets no metric go.memory.allocated
+    And the telemetry receiver gets the metric go.memory.allocated
     And the telemetry receiver gets no metric go.memory.allocations
     And the telemetry receiver gets no metric go.processor.limit
     And the telemetry receiver gets no metric go.config.gogc
@@ -199,6 +200,7 @@ Feature: The proxy's own telemetry
       | hotline.certificate.not_after | s            |
       | go.memory.used                | By           |
       | go.goroutine.count            | {goroutine}  |
+      | go.memory.allocated           | By           |
 
   Scenario: Failed TLS setups have their unit and a description
     Given the proxy port takes TLS

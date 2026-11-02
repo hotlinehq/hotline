@@ -1,0 +1,67 @@
+# Runs the load test (make load, see load/README.md) when someone starts it
+# by hand: Actions tab, "load test", Run workflow, and pick the branch to
+# measure. It never runs on its own (Peter, 2026-11-02).
+#
+# Every repeat is kept as it came, nothing averaged: the whole load/results
+# folder is saved as the artifact load-results-<run number>, for the
+# comparison with earlier runs that comes later.
+name: load test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  K6_VERSION: v1.3.0
+  # The checksum of the release file, so a changed download is refused.
+  K6_SHA256: 84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd
+
+jobs:
+  load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.3'
+          check-latest: false
+          cache-dependency-path: |
+            src/hotline-proxy/go.sum
+            load/go.sum
+            go.work.sum
+
+      - name: install k6
+        run: |
+          curl -sSfL -o k6.tgz "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz"
+          echo "${K6_SHA256}  k6.tgz" | sha256sum --check
+          tar xzf k6.tgz
+          sudo install "k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: run the load test
+        run: make load
+
+      # What the numbers were measured on, next to them.
+      - name: note the commit and the computer
+        if: always()
+        run: |
+          mkdir -p load/results
+          {
+            echo "commit: ${GITHUB_SHA}"
+            echo "ref: ${GITHUB_REF}"
+            echo "run: ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}"
+            echo "processor cores: $(nproc)"
+            echo "k6: $(k6 version)"
+            echo "go: $(go version)"
+          } > load/results/info.txt
+
+      - name: keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: load-results-${{ github.run_number }}
+          path: load/results
+          if-no-files-found: error
+          retention-days: 90

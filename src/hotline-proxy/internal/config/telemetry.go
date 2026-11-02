@@ -36,6 +36,7 @@ func OwnMetrics() []string {
 		"hotline.config.restart_needed",
 		"hotline.certificate.not_after",
 		"go.memory.used",
+		"go.memory.allocated",
 		"go.memory.limit",
 		"go.memory.gc.goal",
 		"go.goroutine.count",

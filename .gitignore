@@ -6,3 +6,5 @@ cover.func.txt
 /src/otelcol-dev/otelcol-dev
 e2e-cover/
 e2e-cover.out
+load/out/
+load/results/

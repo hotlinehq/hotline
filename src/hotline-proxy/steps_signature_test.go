@@ -4,12 +4,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -243,39 +243,30 @@ func hmacOf(body []byte) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// checkSignature rebuilds the signed text from a record as
-// docs/proxy-signatures.md describes it, and checks the signature with the
-// key, the way any checker that has only the record would.
+// checkSignature rebuilds the signed bytes from a record as
+// docs/proxy-signatures.md describes them, and checks the signature with
+// the key, the way any checker that has only the record would.
 func checkSignature(r receivedRecord, key string) error {
 	signature, _ := r.attrs["hotline.signature"].(string)
-	lines := make([]string, 0, len(r.attrs))
-	for name, v := range r.attrs {
-		if name == "hotline.signature" {
-			continue
+	var b signedBytes
+	for _, name := range slices.Sorted(maps.Keys(r.attrs)) {
+		if name != "hotline.signature" {
+			b.entry(name, r.attrs[name])
 		}
-		value, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		lines = append(lines, strconv.Quote(name)+": "+string(value))
 	}
-	sort.Strings(lines)
-	lines = append(lines,
-		`"log.record.timestamp": `+strconv.FormatUint(r.timestamp, 10),
-		`"log.record.trace_id": "`+r.traceID+`"`,
-		`"log.record.span_id": "`+r.spanID+`"`,
-		`"log.record.trace_flags": "`+fmt.Sprintf("%02x", r.flags)+`"`)
-	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write([]byte(strings.Join(lines, "\n")))
-	if want := base64.StdEncoding.EncodeToString(mac.Sum(nil)); signature != want {
+	b.entry("log.record.timestamp", int64(r.timestamp)) //nolint:gosec // nanoseconds since 1970 fit
+	b.entry("log.record.trace_id", r.traceID)
+	b.entry("log.record.span_id", r.spanID)
+	b.entry("log.record.trace_flags", fmt.Sprintf("%02x", r.flags))
+	if want := b.sign(key); signature != want {
 		return failf("the signature %q does not check out", signature)
 	}
 	return nil
 }
 
-// checkTraceSignature rebuilds a trace's signed text from its spans as
-// docs/proxy-traces.md describes it, and checks it against the record's
-// hotline.trace.signature with the key.
+// checkTraceSignature rebuilds a trace's signed bytes from its spans as
+// docs/proxy-traces.md describes them, and checks them against the
+// record's hotline.trace.signature with the key.
 func checkTraceSignature(t callTrace, key string) error {
 	signature, _ := t.record.attrs["hotline.trace.signature"].(string)
 	spans := slices.Clone(t.spans)
@@ -285,32 +276,78 @@ func checkTraceSignature(t callTrace, key string) error {
 		}
 		return spans[i].spanID < spans[j].spanID
 	})
-	line := func(name string, v any) string {
-		// The receiver's values are plain types and finite numbers.
-		value, _ := json.Marshal(v) //nolint:errchkjson // see above
-		return strconv.Quote(name) + ": " + string(value)
-	}
-	lines := []string{line("trace.trace_id", t.record.traceID)}
+	var b signedBytes
+	b.entry("trace.trace_id", t.record.traceID)
 	for _, s := range spans {
-		lines = append(lines,
-			line("span.span_id", s.spanID),
-			line("span.parent_span_id", s.parent),
-			line("span.name", s.name),
-			line("span.kind", s.kind),
-			line("span.start_time", s.start),
-			line("span.end_time", s.end),
-			line("span.status", s.status))
-		var attrs []string
-		for name, v := range s.attrs {
-			attrs = append(attrs, line(name, v))
+		b.entry("span.span_id", s.spanID)
+		b.entry("span.parent_span_id", s.parent)
+		b.entry("span.name", s.name)
+		b.entry("span.kind", s.kind)
+		b.entry("span.start_time", s.start)
+		b.entry("span.end_time", s.end)
+		b.entry("span.status", s.status)
+		b.entry("span.attribute_count", int64(len(s.attrs)))
+		for _, name := range slices.Sorted(maps.Keys(s.attrs)) {
+			b.entry(name, s.attrs[name])
 		}
-		sort.Strings(attrs)
-		lines = append(lines, attrs...)
 	}
-	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write([]byte(strings.Join(lines, "\n")))
-	if want := base64.StdEncoding.EncodeToString(mac.Sum(nil)); signature != want {
+	if want := b.sign(key); signature != want {
 		return failf("the trace signature %q does not check out", signature)
 	}
 	return nil
+}
+
+// signedBytes are the bytes a signature covers, built the way a checker in
+// any language would: each piece is its length as 8 bytes, then its bytes;
+// each entry is its name as a piece, then its value.
+type signedBytes struct{ buf []byte }
+
+func (b *signedBytes) piece(p []byte) {
+	b.buf = binary.BigEndian.AppendUint64(b.buf, uint64(len(p)))
+	b.buf = append(b.buf, p...)
+}
+
+func (b *signedBytes) entry(name string, v any) {
+	b.piece([]byte(name))
+	b.value(v)
+}
+
+// value is a type letter, then: text as a piece; a whole or decimal number
+// as 8 bytes; true or false as one byte; a list or map as its count in 8
+// bytes, then each item, a map's in name order.
+func (b *signedBytes) value(v any) {
+	switch x := v.(type) {
+	case string:
+		b.buf = append(b.buf, 's')
+		b.piece([]byte(x))
+	case int64:
+		b.buf = append(b.buf, 'i')
+		b.buf = binary.BigEndian.AppendUint64(b.buf, uint64(x)) //nolint:gosec // the bits as they are
+	case float64:
+		b.buf = append(b.buf, 'f')
+		b.buf = binary.BigEndian.AppendUint64(b.buf, math.Float64bits(x))
+	case bool:
+		b.buf = append(b.buf, 'b', map[bool]byte{false: 0, true: 1}[x])
+	case []any:
+		b.buf = append(b.buf, 'l')
+		b.buf = binary.BigEndian.AppendUint64(b.buf, uint64(len(x)))
+		for _, item := range x {
+			b.value(item)
+		}
+	case map[string]any:
+		b.buf = append(b.buf, 'm')
+		b.buf = binary.BigEndian.AppendUint64(b.buf, uint64(len(x)))
+		for _, name := range slices.Sorted(maps.Keys(x)) {
+			b.entry(name, x[name])
+		}
+	default:
+		panic(fmt.Sprintf("a value of type %T cannot be signed", v))
+	}
+}
+
+// sign is the HMAC-SHA256 of the bytes with the key, in base64.
+func (b *signedBytes) sign(key string) string {
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write(b.buf)
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
