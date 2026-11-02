@@ -74,6 +74,14 @@ docker buildx build -f src/hotline-proxy/Dockerfile --build-arg VERSION=v0.1.0 \
 
 Pull requests run `image-pr.yml`; main and release tags run `image-release.yml`. Both use the same `build` and `smoke` jobs from `image-build.yml`. `build` builds both platforms once, with the SBOM and provenance, and saves the image as a file. `smoke` loads the `linux/amd64` image from that file and checks it (version, `validate` and `run` of the sidecar example's config on a read-only filesystem, `/readyz`, the user). Then `image-release.yml` alone runs `publish`, which copies the same file to ghcr.io with `skopeo`, which comes with the GitHub runner, and signs it, so the published image is the one that was checked. Pull requests run `build` and `smoke` and push nothing.
 
+## Cleaning up old images
+
+Every main push adds an image named `edge` and `sha-<commit>`, so old main builds pile up. `image-cleanup.yml` runs every Monday and by hand. It never touches releases (`1.0.1`, `1.0`, `latest`, any `v*` name) or `edge`, keeps the 5 newest `sha-` builds, and deletes older ones together with their platform images, SBOM, provenance and cosign signature (Peter, 2026-11-02).
+
+Each build is several entries in the registry: only the top one carries a name, and the platform images and attached records show as "untagged". A plain "delete untagged" tool would delete parts of live images, so the job uses `dataaxiom/ghcr-cleanup-action`, which deletes those parts only with their image.
+
+For now every run only lists what it would delete. Once a listed run looks right, the scheduled run is switched to deleting. The log prints each deleted version's id, and GitHub can restore a deleted version for 30 days.
+
 ## Later
 
 A shared proxy example (a Deployment behind a Service, with `listen.tls` or `listen.connect`), and a Helm chart.
