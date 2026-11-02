@@ -10,6 +10,7 @@ test:
 	go test  ./src/otel-hotline/...
 	go test  ./examples/aws-shop/...
 	go test  ./tools/aws-openapi/...
+	go test  ./load/...
 	$(MAKE) e2e
 	tail -n +2 e2e-cover.out >> cover.out
 
@@ -22,6 +23,17 @@ e2e:
 	HOTLINE_PROXY=$(CURDIR)/e2e-cover/hotline-proxy GOCOVERDIR=$(CURDIR)/e2e-cover/data \
 		go test -tags e2e -count=1 -run TestEndToEnd ./src/hotline-proxy/
 	go tool covdata textfmt -i=e2e-cover/data -o e2e-cover.out
+
+# load builds the proxy and runs the load test: the fakes, the proxy and k6
+# (which must be installed), each call shape at its rates, three repeats
+# each, one folder load/results/run-NNN per line below. See load/README.md.
+load:
+	mkdir -p load/out
+	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 2000
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 200
 
 clean-cache:
 	go clean -testcache
@@ -42,3 +54,4 @@ lint:
 	golangci-lint run ./src/otel-hotline/...
 	golangci-lint run ./examples/aws-shop/...
 	golangci-lint run ./tools/aws-openapi/...
+	golangci-lint run ./load/...

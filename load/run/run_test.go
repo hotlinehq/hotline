@@ -1,0 +1,110 @@
+package run_test
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"hotline-load/run"
+)
+
+var _ = Describe("Reading k6's summary", func() {
+	It("takes the calls, failures and delay percentiles", func() {
+		summary := `{"metrics":{"http_reqs":{"count":1000,"rate":50},
+			"http_req_failed":{"passes":3,"fails":997,"value":0.003},
+			"http_req_duration":{"med":0.8,"p(95)":2.3,"p(99)":5.5,"avg":1,"max":9}}}`
+		got, err := run.ReadSummary([]byte(summary))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(run.Latency{Calls: 1000, Failed: 3, P50: 0.8, P95: 2.3, P99: 5.5}))
+	})
+
+	It("refuses a file that is not a k6 summary", func() {
+		_, err := run.ReadSummary([]byte(`{"metrics":{}}`))
+		Expect(err).To(MatchError(ContainSubstring("http_reqs")))
+	})
+})
+
+var _ = Describe("Result folders", func() {
+	It("never reuse a folder: each run gets the next number", func() {
+		out := GinkgoT().TempDir()
+		first, err := run.NextRunDir(out)
+		Expect(err).NotTo(HaveOccurred())
+		second, err := run.NextRunDir(out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(filepath.Base(first)).To(Equal("run-001"))
+		Expect(filepath.Base(second)).To(Equal("run-002"))
+	})
+})
+
+var _ = Describe("A run that cannot start", func() {
+	cfg := func() run.Config {
+		return run.Config{OutDir: GinkgoT().TempDir(), Shape: "small-json", Rate: 5, Duration: "3s", Repeats: 1}
+	}
+
+	It("says plainly when k6 is not installed", func() {
+		c := cfg()
+		c.K6 = "/no/such/k6"
+		_, err := run.Run(c)
+		Expect(err).To(MatchError(ContainSubstring("k6 is not installed")))
+	})
+
+	It("says plainly when it does not know the call shape", func() {
+		c := cfg()
+		c.Shape = "nonsense"
+		_, err := run.Run(c)
+		Expect(err).To(MatchError(ContainSubstring(`no call shape called "nonsense"`)))
+	})
+
+	It("says plainly when the proxy cannot be started", func() {
+		c := cfg()
+		c.K6 = "k6"
+		c.Proxy = "/no/such/hotline-proxy"
+		c.Spec = "/no/such/spec.yaml"
+		_, err := run.Run(c)
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+// The whole run, against the real proxy and k6. It needs both: set
+// HOTLINE_PROXY to the built program, HOTLINE_SPEC to the SSM spec, and have
+// k6 on the path (or K6).
+var _ = Describe("A run with the proxy at a tiny rate", func() {
+	It("finishes with no failed calls and writes every repeat", func() {
+		proxy, spec := os.Getenv("HOTLINE_PROXY"), os.Getenv("HOTLINE_SPEC")
+		k6 := os.Getenv("K6")
+		if k6 == "" {
+			k6 = "k6"
+		}
+		if _, err := exec.LookPath(k6); err != nil || proxy == "" || spec == "" {
+			Skip("needs k6, and HOTLINE_PROXY and HOTLINE_SPEC (make load-test sets them)")
+		}
+		out := GinkgoT().TempDir()
+		dir, err := run.Run(run.Config{
+			Proxy: proxy, Spec: spec, K6: k6, OutDir: out,
+			Shape: "small-json", Rate: 5, Duration: "3s", Repeats: 3,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(filepath.Base(dir)).To(Equal("run-001"))
+		for _, n := range []string{"1", "2", "3"} {
+			raw, err := os.ReadFile(filepath.Join(dir, "repeat-"+n, "result.json")) //nolint:gosec // the run folder the test made
+			Expect(err).NotTo(HaveOccurred())
+			var r run.Result
+			Expect(json.Unmarshal(raw, &r)).To(Succeed())
+			Expect(r.Direct.Failed).To(BeZero())
+			Expect(r.Proxy.Failed).To(BeZero())
+			Expect(r.Proxy.Calls).To(BeNumerically(">=", 10))
+			Expect(r.CPUMicrosPerCall).To(BeNumerically(">", 0))
+			// Go reports memory handed out in lumps, so a run of 15 calls can
+			// show none; the figure is meant for runs of hundreds of calls a second.
+			Expect(r.AllocatedBytesPerCall).To(BeNumerically(">=", 0))
+			Expect(strings.TrimSpace(r.Shape)).To(Equal("small-json"))
+		}
+		Expect(filepath.Join(dir, "repeat-1", "proxy-summary.json")).To(BeAnExistingFile())
+		Expect(filepath.Join(dir, "repeat-1", "direct-summary.json")).To(BeAnExistingFile())
+	})
+})

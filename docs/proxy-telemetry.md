@@ -38,6 +38,7 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `hotline.spec_check.queue.size` | up and down count | `{check}` | none | spec checks waiting for a worker now | `hotline_spec_check_queue_size` |
 | `hotline.spec_check.dropped` | count | `{check}` | none | spec checks skipped because the line was full; their records say `hotline.schema.skipped=overloaded` | `hotline_spec_check_dropped_total` |
 | `go.memory.used`, `go.memory.limit`, `go.memory.gc.goal`, `go.goroutine.count` | gauges | `By`, `{goroutine}` | as the standard says | the Go runtime's memory and goroutines; the limit only when `GOMEMLIMIT` is set | `go_memory_used_bytes` and so on |
+| `go.memory.allocated` | count | `By` | as the standard says | memory the program handed out since it started, counting memory freed again; the load test divides its growth by the calls made | `go_memory_allocated_bytes_total` |
 
 `hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record`, `span` or `count` (the `hotline.requests` numbers).
 
@@ -59,7 +60,7 @@ The first set had 27 metrics, many overlapping. Reworked to 14:
 - **`hotline.proxy.overhead` is gone:** every record and trace already carries the proxy's own time on each call.
 - **The ten `otel.sdk.*` metrics and `hotline.destination.state` are replaced by four `hotline.exporter.*` ones,** named after the config's word, `exporters`, all with the same exporter label, so one exporter's numbers line up on one board row. The queue's capacity is gone: it is the `queueSize` setting.
 - **Config is two 1 or 0 gauges,** `hotline.config.reload_failed` and `hotline.config.restart_needed`. `hotline.config.info`, `hotline.config.reloads` and `hotline.config.reload.last_success` are gone, and so are the TLS and CONNECT flags, which are in the config.
-- **Four Go numbers,** not eight: `go.memory.allocated`, `go.memory.allocations`, `go.processor.limit` and `go.config.gogc` are not sent.
+- **Five Go numbers,** not eight: `go.memory.allocated` was added on 2026-11-02 for the load test. `go.memory.allocations`, `go.processor.limit` and `go.config.gogc` are not sent.
 - **Every metric has a description and a unit** Grafana can chart.
 
 ## Decisions (Peter, 2026-10-31)
