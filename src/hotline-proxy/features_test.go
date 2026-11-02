@@ -78,6 +78,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	traceSteps(sc, w)
 	reloadSteps(sc, w)
 	telemetrySteps(sc, w)
+	memorySteps(sc, w)
 }
 
 var errCheck = errors.New("check failed")
