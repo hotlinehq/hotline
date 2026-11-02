@@ -6,3 +6,10 @@ updates:
     directory: /src/hotline-proxy
     schedule:
       interval: weekly
+
+  # Keeps the GitHub Actions pinned to exact commits up to date, so pinning
+  # does not leave us on old versions (Aikido finding, 2026-11-02).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
