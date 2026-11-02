@@ -68,6 +68,18 @@ Feature: Marked body fields and headers are copied into the record
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2,"customer":{"country":"SK"}}
       Then the record holds shop.customer.country = SK
 
+    Scenario: Each call's fields come from its own body
+      The proxy borrows the buffer it keeps a body in from a shared pool
+      and gives it back once the call's checks are done (Peter,
+      2026-11-02). A buffer given back too early would let one call's
+      check read another call's body. The calls here run eight at a time,
+      their bodies differ in size, and every other one comes in chunks,
+      with no Content-Length, so the calls use buffers of several sizes
+      and swap them as they fill.
+      Given the vendor answers 201
+      When apps send 40 orders at once, each of a different size
+      Then each order's record holds its own item and quantity, and its check passed
+
     Scenario: A field of a form body
       When the app sends POST /payments and the form body amount=100&currency=EUR
       Then the record holds shop.payment.currency = EUR
