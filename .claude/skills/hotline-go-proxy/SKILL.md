@@ -191,7 +191,7 @@ While agreeing a chapter's requirements, ask one question at a time, and always 
 
 Mark the chapter as done everywhere it is tracked, in the same session:
 - The chapter's requirement file in the project files (for example `connect-interception/requirements.md`): change its status line to say it is built and merged, with the pull request number and the `docs/` file where the detail now lives. Take "(draft)" out of the title.
-- `memory.md`: mark the chapter as built in the slice plan, with the pull request and the `docs/` file.
+- `memory.md`: add the chapter to the "Built" line of the slice plan, and its full entry, with the pull request and the `docs/` file, to `docs/decisions/slice-plan.md`.
 - `proxy-spec.md` in `hotline-strategic`: if it still lists the chapter as "Later" or not built, open a pull request there to fix it.
 
 ## 10. Reviewing proxy code
