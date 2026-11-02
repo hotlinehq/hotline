@@ -1,6 +1,6 @@
 # Hotline Project
 
-Read [memory.md](memory.md) first: it lists decisions already made, the slice plan, and where the detail lives. Add new decisions there.
+Read [memory.md](memory.md) first: it is a short index of decisions already made, the slice plan, and where the detail lives. Add new decisions to the matching file in `docs/decisions/`, and keep memory.md short.
 
 ## Development Approach
 
