@@ -149,6 +149,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		Transport:     c,
+		BufferPool:    copyBuffers,
 		FlushInterval: -1,
 		ErrorHandler:  c.fail,
 		ErrorLog:      log.New(io.Discard, "", 0),
@@ -158,6 +159,26 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(app, r.WithContext(ctx))
 	_ = http.NewResponseController(app).Flush()
 }
+
+// copyBuffers lends each call the buffer it copies bodies through, so a
+// call does not make a new 32 KB buffer of its own (Peter, 2026-11-02,
+// found by the load test spike).
+var copyBuffers = &bufferPool{pool: sync.Pool{New: func() any {
+	b := make([]byte, 32<<10)
+	return &b
+}}}
+
+// bufferPool is the httputil.BufferPool of the proxy's copy buffers. It
+// keeps pointers to slices, so giving a buffer back costs a few bytes, not
+// a new buffer.
+type bufferPool struct{ pool sync.Pool }
+
+func (p *bufferPool) Get() []byte {
+	b, _ := p.pool.Get().(*[]byte)
+	return *b
+}
+
+func (p *bufferPool) Put(b []byte) { p.pool.Put(&b) }
 
 // toApp writes the reply to the app and notes whether the app had already
 // gone when a part of the reply was ready for it, or a write to it failed.
