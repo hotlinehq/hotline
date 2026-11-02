@@ -76,7 +76,7 @@ Feature: The proxy's own telemetry
   Scenario: Spans sent fine are counted
     Given a vendor reached over a new https connection
     When a call ends
-    Then hotline.exporter.sent counts 12 for that exporter and hotline.signal span
+    Then hotline.exporter.sent counts 14 for that exporter and hotline.signal span
 
   Scenario: Counts sent to an exporter are counted too
     When a call ends

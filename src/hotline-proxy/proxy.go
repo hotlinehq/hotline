@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -68,6 +69,9 @@ type Options struct {
 	// LookupEnv reads the environment, for secrets the config reads from
 	// it.
 	LookupEnv func(string) (string, bool)
+	// CheckWorkers is how many spec checks run at once: by default one
+	// per processor core the proxy may use.
+	CheckWorkers int
 }
 
 // Proxy is a running proxy.
@@ -127,6 +131,11 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		own:    newOwn(telemetry.Meter()),
 	}
 	h.cfg.Store(cfg)
+	workers := o.CheckWorkers
+	if workers == 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	h.checks = newCheckLine(workers, cfg.CheckQueueMemory, o.Clock, h.own.checkDropped)
 	if cfg.Connect != nil {
 		h.intercept = newInterceptor(cfg.Connect, o.Clock, o.Logger)
 	}
@@ -265,7 +274,12 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-finished:
+		p.handler.checks.stop(false)
 	case <-ctx.Done():
+		// Checks still waiting are skipped, so their calls hand over their
+		// records now.
+		skipped := p.handler.checks.stop(true)
+		p.handler.logger.Warn("stop ran out of time, skipped the spec checks still waiting", "skipped", skipped)
 	}
 	for _, t := range p.transports {
 		t.CloseIdleConnections()

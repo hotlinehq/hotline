@@ -34,6 +34,9 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `hotline.config.reload_failed` | gauge, 1 or 0 | none | none | 1 while the last reload failed and the proxy still runs the config before it | `hotline_config_reload_failed` |
 | `hotline.config.restart_needed` | gauge, 1 or 0 | none | none | 1 while a changed listen address, exporter or telemetry setting waits for a restart | `hotline_config_restart_needed` |
 | `hotline.certificate.not_after` | gauge | `s` | `hotline.certificate.use` (`listen.tls`, `listen.connect`) | when the proxy's own certificate or the CONNECT issuer expires, in seconds since 1970 | `hotline_certificate_not_after_seconds` |
+| `hotline.spec_check.queue.memory.usage` | up and down count | `By` | none | memory the bodies of spec checks waiting for a worker hold now; at most `specChecks.queueMemory` | `hotline_spec_check_queue_memory_usage_bytes` |
+| `hotline.spec_check.queue.size` | up and down count | `{check}` | none | spec checks waiting for a worker now | `hotline_spec_check_queue_size` |
+| `hotline.spec_check.dropped` | count | `{check}` | none | spec checks skipped because the line was full; their records say `hotline.schema.skipped=overloaded` | `hotline_spec_check_dropped_total` |
 | `go.memory.used`, `go.memory.limit`, `go.memory.gc.goal`, `go.goroutine.count` | gauges | `By`, `{goroutine}` | as the standard says | the Go runtime's memory and goroutines; the limit only when `GOMEMLIMIT` is set | `go_memory_used_bytes` and so on |
 
 `hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record`, `span` or `count` (the `hotline.requests` numbers).

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,9 @@ type Config struct {
 	// NotPassed applies to calls without a known integration ID, and to
 	// calls to a host outside the integration's apis.
 	NotPassed Settings
+	// CheckQueueMemory is how much memory, in bytes, the bodies of spec
+	// checks waiting for a worker may hold (Peter, 2026-11-02).
+	CheckQueueMemory int64
 	// Name is the config file's name, without its folder.
 	Name string
 	// Fingerprint is the first 12 hex characters of a SHA-256 of the
@@ -164,7 +168,10 @@ type file struct {
 		TLS     *pairFile `yaml:"tls"`
 		Connect *pairFile `yaml:"connect"`
 	} `yaml:"listen"`
-	Telemetry *telemetryFile `yaml:"telemetry"`
+	Telemetry  *telemetryFile `yaml:"telemetry"`
+	SpecChecks struct {
+		QueueMemory string `yaml:"queueMemory"`
+	} `yaml:"specChecks"`
 	// APIs are the vendor apis, each written once and named by the
 	// integrations that use it.
 	APIs map[string]struct {
@@ -344,6 +351,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		c.Exporters = append(c.Exporters, l.exporter(e.OTLP, now))
 	}
 	c.Telemetry = l.telemetry(f.Telemetry, now)
+	c.CheckQueueMemory = l.size("specChecks.queueMemory", f.SpecChecks.QueueMemory, 64<<20)
 	apis := map[string]*API{}
 	hosts := map[string][]string{}
 	for _, name := range slices.Sorted(maps.Keys(f.APIs)) {
@@ -750,4 +758,26 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 	}
 	l.specs[name] = s
 	return s
+}
+
+// size reads a number of bytes, written plainly or with KiB, MiB or GiB,
+// such as 64MiB. An empty one is the default.
+func (l *loader) size(label, text string, def int64) int64 {
+	if text == "" {
+		return def
+	}
+	number, unit := text, int64(1)
+	for suffix, bytes := range map[string]int64{"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30} {
+		if cut, found := strings.CutSuffix(text, suffix); found {
+			number, unit = cut, bytes
+		}
+	}
+	n, err := strconv.ParseInt(number, 10, 64)
+	switch {
+	case err != nil:
+		l.problem("%s must be a size such as 64MiB, not %q", label, text)
+	case n < 1:
+		l.problem("%s must be at least 1 byte", label)
+	}
+	return n * unit
 }

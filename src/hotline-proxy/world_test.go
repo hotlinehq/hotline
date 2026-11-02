@@ -35,6 +35,13 @@ var (
 // world is one scenario's system under test: the proxy, and the fakes at
 // its edges (vendors, network, OTLP receivers). Every scenario starts clean.
 type world struct {
+	// checkWorkers is how many spec checks run at once; 0 is one per core.
+	checkWorkers int
+	// topExtra is added to the config's top level.
+	// stoppedEarly says the proxy was stopped with no time left, which cuts off
+	// the exporters' sends.
+	stoppedEarly bool
+	topExtra     string
 	// lastSent are the headers of the app's last call.
 	lastSent []string
 	dir      string
@@ -401,6 +408,7 @@ func (w *world) config() string {
 			fmt.Fprintf(&b, "    - %q\n", name)
 		}
 	}
+	b.WriteString(w.topExtra)
 	b.WriteString(w.apisSection())
 	if len(w.integrations) > 0 {
 		b.WriteString("integrations:\n" + strings.Join(w.integrations, ""))
@@ -448,6 +456,7 @@ func (w *world) start() error {
 		Clock:         clock,
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		ExportTimeout: w.exportTimeout,
+		CheckWorkers:  w.checkWorkers,
 		Version:       "1.0.0-test",
 		InstanceID:    "proxy-test-1",
 		LookupEnv: func(name string) (string, bool) {

@@ -76,9 +76,9 @@ func (c *call) record(end time.Time) {
 		attrs = append(attrs, c.full(req.With(reply))...)
 		// Each side was checked alongside the call, so its step may end
 		// after the call span (Peter, 2026-10-31).
-		spans = append(spans, c.checkSpan("request spec check", c.reqCheck, req.Request, req.Skipped))
+		spans = append(spans, c.checkSpans("request spec check", c.reqCheck, req.Request, req.Skipped)...)
 		if replied {
-			spans = append(spans, c.checkSpan("reply spec check", c.replyCheck, reply.Reply, reply.Skipped))
+			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
 		attrs = append(attrs, traceSignature(c.trace, spans, c.api.SigningKey))
 		attrs = append(attrs, signature(attrs, c.start, c.trace, c.api.SigningKey)...)
@@ -88,13 +88,23 @@ func (c *call) record(end time.Time) {
 	})
 }
 
-// checkSpan is the step of one side's check: error when that side broke
-// the spec, ok when it passed, unset when part of it was skipped.
-func (c *call) checkSpan(name string, s *specCheck, found []spec.Result, skipped string) export.Span {
-	return export.Span{
+// checkSpans are the step of one side's check, error when that side broke
+// the spec, ok when it passed, unset when part of it was skipped, and under
+// it the wait for a free worker. The wait is an error with error.type
+// overloaded when the check gave way in a full line (Peter, 2026-11-02).
+func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skipped string) []export.Span {
+	check := export.Span{
 		ID: tracectx.NewSpanID(), Parent: c.trace.SpanID(), Name: name, Kind: trace.SpanKindInternal,
 		Start: s.start, End: s.end, Failed: len(found) > 0, OK: len(found) == 0 && skipped == "",
 	}
+	wait := export.Span{
+		ID: tracectx.NewSpanID(), Parent: check.ID, Name: "wait for check worker", Kind: trace.SpanKindInternal,
+		Start: s.start, End: s.waited, Failed: s.dropped,
+	}
+	if s.dropped {
+		wait.Attrs = []attribute.KeyValue{semconv.ErrorTypeKey.String("overloaded")}
+	}
+	return []export.Span{check, wait}
 }
 
 // refused records a request the proxy read but did not forward, with a
