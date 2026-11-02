@@ -28,7 +28,7 @@ Feature: Each call's timings are a trace
     Scenario: A call on a new https connection
       Given a vendor reached over a new https connection
       When a call ends
-      Then the trace has the spans "hotline call", "routing", "vendor call", "dns lookup", "tcp connect", "vendor tls handshake", "send call", "wait for vendor", "receive reply", "reply to app", "request spec check" and "reply spec check"
+      Then the trace has the spans "hotline call", "routing", "vendor call", "dns lookup", "tcp connect", "vendor tls handshake", "send call", "wait for vendor", "receive reply", "reply to app", "request spec check", "reply spec check", "wait for check worker" and "wait for check worker"
       And "routing", "vendor call" and "reply to app" are under "hotline call", one after another
       And "dns lookup", "tcp connect", "vendor tls handshake", "send call", "wait for vendor" and "receive reply" are under "vendor call", one after another
       And every span but the spec checks is within its parent

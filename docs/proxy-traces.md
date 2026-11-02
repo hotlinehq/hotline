@@ -21,6 +21,7 @@ A trace is a set of spans; a span is one step with a start time and an end time.
 | `reply to app` | internal | the vendor's reply ended | the last byte went to the app |
 | `request spec check` | internal | the call was fully sent | the request's check against the spec ended. Full records only |
 | `reply spec check` | internal | the vendor's reply ended | the reply's check ended. Full records with a reply only |
+| `wait for check worker`, under each spec check | internal | the check joined the line | a worker took it, or it was skipped as overloaded |
 
 - A step that did not happen has no span: no `dns lookup` for an IP address, no `vendor tls handshake` for plain http, none of the three on a reused connection.
 - Each side is checked against the spec as soon as it is whole, alongside the call: the request while the proxy waits for the vendor, the reply while the proxy sends it on (Peter, 2026-10-31). Both spans sit under `hotline call` and may end after it. A request never sent, such as when the vendor refused the connection, is checked when the call ends. The record waits for both checks, but the app never does.
@@ -30,7 +31,7 @@ A trace is a set of spans; a span is one step with a start time and an end time.
 
 ## When a span fails
 
-Only a breakdown fails a span; the vendor's own answer never does, a 404 or a 503 included (Peter, 2026-10-31). Why it failed is only in the record's `error.type`.
+Only a breakdown fails a span; the vendor's own answer never does, a 404 or a 503 included (Peter, 2026-10-31). Why it failed is in the record's `error.type`; only `wait for check worker` also carries it on the span.
 
 | Span | Status error when |
 |---|---|
@@ -46,6 +47,7 @@ Only a breakdown fails a span; the vendor's own answer never does, a 404 or a 50
 | `wait for vendor` | the vendor did not answer in time |
 | `receive reply` | the vendor's reply broke off |
 | `request spec check`, `reply spec check` | that side broke the spec |
+| `wait for check worker` | the line of waiting checks was full and this check gave way; the span has `error.type=overloaded`, and its spec check ends there too, unset (Peter, 2026-11-02) |
 
 A failed step ends at the failure. The two spec checks are the only spans set to ok on purpose: when their side passed. A skipped check leaves it unset, since nothing was proven. The check's status itself is only on the record, as `hotline.schema.status`: `valid`, `invalid` or `skipped`.
 

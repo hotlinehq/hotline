@@ -206,4 +206,4 @@ Any of them can be turned off with `telemetry.disable`. Units, labels and detail
 
 ## Where the spec and the code differ
 
-They match since 2026-10-31. One thing in the spec is not built yet: `hotline.schema.skipped=overloaded`, which comes with the load test.
+They match since 2026-10-31. `hotline.schema.skipped=overloaded` is built since 2026-11-02: a check skipped because the line of waiting checks was full.

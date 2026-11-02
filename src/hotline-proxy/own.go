@@ -23,6 +23,7 @@ type own struct {
 	active   metric.Int64UpDownCounter
 	duration metric.Float64Histogram
 	appTLS   metric.Int64Counter
+	dropped  metric.Int64Counter
 	// reloadFailed is 1 while the last reload failed, restart 1 while a
 	// change waits for a restart.
 	reloadFailed atomic.Int64
@@ -43,8 +44,15 @@ func newOwn(meter metric.Meter) *own {
 	o.appTLS, _ = meter.Int64Counter("hotline.app_tls.failures", metric.WithUnit("{connection}"),
 		metric.WithDescription("App connections that failed to set up TLS with the proxy, before any call was made, "+
 			"so no record exists for them. error.type says why, such as an app that does not trust the proxy's certificate."))
+	o.dropped, _ = meter.Int64Counter("hotline.spec_check.dropped", metric.WithUnit("{check}"),
+		metric.WithDescription("Spec checks skipped because the line of checks waiting for a worker was full: "+
+			"the oldest waiting checks give way, and their call's record says hotline.schema.skipped=overloaded. "+
+			"A growing number means the proxy needs more processor time or a larger specChecks.queueMemory."))
 	return o
 }
+
+// checkDropped counts a spec check skipped as overloaded.
+func (o *own) checkDropped() { o.dropped.Add(context.Background(), 1) }
 
 // observe sends what the proxy is now: whether the last reload failed,
 // whether a change waits for a restart, and when its certificates expire.
@@ -59,6 +67,12 @@ func (o *own) observe(p *Proxy) {
 		metric.WithDescription("When a certificate of the proxy's own expires, in seconds since 1970: listen.tls is "+
 			"the proxy port's certificate, listen.connect the issuer for CONNECT tunnels. "+
 			"Once it expires, apps stop trusting the proxy."))
+	memory, _ := o.meter.Int64ObservableUpDownCounter("hotline.spec_check.queue.memory.usage", metric.WithUnit("By"),
+		metric.WithDescription("Memory the bodies of spec checks waiting for a worker hold now. "+
+			"It stays at most specChecks.queueMemory: beyond it, the oldest waiting checks are skipped."))
+	waiting, _ := o.meter.Int64ObservableUpDownCounter("hotline.spec_check.queue.size", metric.WithUnit("{check}"),
+		metric.WithDescription("Spec checks waiting for a worker now. A number that stays high means the checks "+
+			"cannot keep up with the calls."))
 	_, _ = o.meter.RegisterCallback(func(_ context.Context, ob metric.Observer) error {
 		ob.ObserveInt64(failed, o.reloadFailed.Load())
 		ob.ObserveInt64(restart, o.restart.Load())
@@ -70,8 +84,11 @@ func (o *own) observe(p *Proxy) {
 			ob.ObserveInt64(notAfter, p.handler.intercept.issuer.get().Leaf.NotAfter.Unix(),
 				metric.WithAttributes(attribute.String("hotline.certificate.use", "listen.connect")))
 		}
+		held, size := p.handler.checks.held()
+		ob.ObserveInt64(memory, held)
+		ob.ObserveInt64(waiting, int64(size))
 		return nil
-	}, failed, restart, notAfter)
+	}, failed, restart, notAfter, memory, waiting)
 }
 
 // started counts a call in flight, until the returned func is called.

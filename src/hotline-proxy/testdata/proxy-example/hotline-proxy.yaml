@@ -21,6 +21,9 @@ telemetry:                        # the proxy's own health data, kept separate
   otlp:
     endpoint: otel-collector.observability:4317
 
+# specChecks:
+#   queueMemory: 64MiB            # memory the bodies of checks waiting for a worker may take; beyond it the oldest are skipped as overloaded
+
 apis:                             # each vendor api once; its spec is read once and shared
   talon-one:
     hosts: [api.talon.one]

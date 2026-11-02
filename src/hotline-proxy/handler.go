@@ -58,6 +58,8 @@ type handler struct {
 	buffers bufferPool
 	// bodies hold the copies of bodies kept for the checks.
 	bodies bodyPool
+	// checks run the spec checks of every call.
+	checks *checkLine
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
@@ -724,6 +726,17 @@ func (t *tap) keep(b []byte) {
 	}
 	t.buf.data = append(t.buf.data, b...)
 	t.kept = t.buf.data
+}
+
+// held is the memory the copy's buffer takes, or none before the first
+// byte.
+func (t *tap) held() int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.buf == nil {
+		return 0
+	}
+	return int64(cap(t.buf.data))
 }
 
 // drop gives the copy's buffer back, once the check of the copy has ended.

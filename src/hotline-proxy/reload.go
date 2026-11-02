@@ -95,6 +95,7 @@ func (p *Proxy) load() {
 		p.handler.intercept.issuer.set(cfg.Connect)
 	}
 	p.handler.cfg.Store(cfg)
+	p.handler.checks.resize(cfg.CheckQueueMemory)
 	r.own.reloaded(true, len(needRestart(r.started, cfg)) > 0)
 	r.logger.Info("config reloaded", "config_version", cfg.Label())
 }
