@@ -12,7 +12,6 @@ on:
     # (Peter, 2026-11-02).
     paths:
       - 'src/hotline-proxy/**'
-      - 'deploy/kubernetes/sidecar/**'
     tags:
       - 'v*'
 
