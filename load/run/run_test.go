@@ -29,6 +29,26 @@ var _ = Describe("Reading k6's summary", func() {
 	})
 })
 
+var _ = Describe("Reading processor time from ps, for computers without /proc", func() {
+	DescribeTable("gives hundredths of a second",
+		func(text string, want int64) {
+			got, err := run.ParsePSTime(text)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(got).To(Equal(want))
+		},
+		Entry("minutes, seconds and hundredths, as macOS writes it", "0:12.34", int64(1234)),
+		Entry("with hours", "1:02:03.50", int64(372350)),
+		Entry("with whole seconds, as Linux writes it", "00:00:07", int64(700)),
+		Entry("with days", "2-03:04:05", int64(((2*24+3)*3600+4*60+5)*100)),
+		Entry("with spaces around it", "  0:00.27 ", int64(27)),
+	)
+
+	It("refuses text that is not a time", func() {
+		_, err := run.ParsePSTime("soon")
+		Expect(err).To(HaveOccurred())
+	})
+})
+
 var _ = Describe("Result folders", func() {
 	It("never reuse a folder: each run gets the next number", func() {
 		out := GinkgoT().TempDir()
