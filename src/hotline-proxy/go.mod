@@ -60,3 +60,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 )
+
+replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102210838-eac946c93c1d
