@@ -27,6 +27,7 @@ e2e:
 # load builds the proxy and runs the load test: the fakes, the proxy and k6
 # (which must be installed), each call shape at its rates, three repeats
 # each, one folder load/results/run-NNN per line below. See load/README.md.
+.PHONY: load
 load:
 	mkdir -p load/out
 	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
