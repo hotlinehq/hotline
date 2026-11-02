@@ -13,33 +13,33 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           check-latest: false
       - name: golangci-lint-hotline
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13
+          version: v2.15
           working-directory: ./src/hotline
       - name: golangci-lint-hotline-proxy
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13
+          version: v2.15
           working-directory: ./src/hotline-proxy
       - name: golangci-lint-otel-hotline
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13
+          version: v2.15
           working-directory: ./src/otel-hotline
       - name: golangci-lint-example-aws-shop
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13
+          version: v2.15
           working-directory: ./examples/aws-shop
       - name: golangci-lint-tools-aws-openapi
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13
+          version: v2.15
           working-directory: ./tools/aws-openapi
