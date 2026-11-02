@@ -1,7 +1,7 @@
-# On pull requests that change the proxy's code, its Dockerfile, the sidecar
-# example the smoke test runs, or the image workflows themselves: builds and
-# checks the image, and pushes nothing. A pull request that only changes the
-# load test, docs or anything else builds no image (Peter, 2026-11-02).
+# On pull requests that change the proxy's code, its Dockerfile or the sidecar
+# example the smoke test runs: builds and checks the image, and pushes
+# nothing. A pull request that only changes the load test, docs or any
+# workflow (the image workflows too) builds no image (Peter, 2026-11-02).
 # The jobs are in image-build.yml. Detail: docs/proxy-docker-image.md.
 name: image pr
 on:
@@ -9,8 +9,6 @@ on:
     paths:
       - 'src/hotline-proxy/**'
       - 'deploy/kubernetes/sidecar/**'
-      - '.github/workflows/image-build.yml'
-      - '.github/workflows/image-pr.yml'
 
 permissions:
   contents: read
