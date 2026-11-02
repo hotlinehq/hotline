@@ -15,10 +15,12 @@ func main() {
 	flag.StringVar(&cfg.Spec, "spec", "", "the SSM spec the proxy checks calls against (required)")
 	flag.StringVar(&cfg.K6, "k6", "", "the k6 program (default: the one on the path)")
 	flag.StringVar(&cfg.OutDir, "out", "load/results", "where the run folders go")
-	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, large-json or slow")
+	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json or slow")
 	flag.IntVar(&cfg.Rate, "rate", 500, "calls a second")
 	flag.StringVar(&cfg.Duration, "duration", "20s", "how long each repeat lasts")
 	flag.IntVar(&cfg.Repeats, "repeats", 3, "how many times direct and proxy are each run")
+	flag.StringVar(&cfg.Label, "label", "", "names what is measured (for example main or branch), kept in every result")
+	flag.BoolVar(&cfg.Profile, "profile", false, "after the repeats, save a processor and a memory profile (needs a proxy built with -tags loadprofile)")
 	flag.Parse()
 	if cfg.Proxy == "" || cfg.Spec == "" {
 		fmt.Fprintln(os.Stderr, "-proxy and -spec are required")

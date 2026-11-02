@@ -2,6 +2,8 @@ package run_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,6 +140,15 @@ var _ = Describe("The scenario line", func() {
 			"200 calls a second for 20s, 3 repeats, each direct then through the proxy"))
 	})
 
+	It("gives the medium and huge replies the same call as the large one", func() {
+		for shape, size := range map[string]string{"medium-json": "30 KB", "huge-json": "5"} {
+			line, err := run.Scenario(run.Config{Shape: shape, Rate: 100, Duration: "20s", Repeats: 3})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(line).To(ContainSubstring("AmazonSSM.GetParametersByPath"))
+			Expect(line).To(ContainSubstring("reply about " + size))
+		}
+	})
+
 	It("shows a small reply in bytes", func() {
 		line, err := run.Scenario(run.Config{Shape: "small-json", Rate: 500, Duration: "20s", Repeats: 1})
 		Expect(err).NotTo(HaveOccurred())
@@ -154,5 +165,51 @@ var _ = Describe("The scenario line", func() {
 var _ = Describe("Waiting for the proxy's memory number", func() {
 	It("waits longer than the 15 seconds the runtime library keeps its last reading", func() {
 		Expect(run.DefaultSettle).To(BeNumerically(">", 15*time.Second))
+	})
+})
+
+var _ = Describe("Saving a profile from the proxy", func() {
+	It("saves what the proxy's profiling page answers into the file", func() {
+		page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("profile of " + r.URL.RequestURI()))
+		}))
+		DeferCleanup(page.Close)
+		file := filepath.Join(GinkgoT().TempDir(), "cpu.pprof")
+		Expect(run.FetchProfile(page.URL+"/debug/pprof/allocs", file)).To(Succeed())
+		got, err := os.ReadFile(file) //nolint:gosec // the file the test made
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(got)).To(Equal("profile of /debug/pprof/allocs"))
+	})
+
+	It("says plainly when the proxy was not built for profiling", func() {
+		page := httptest.NewServer(http.NotFoundHandler())
+		DeferCleanup(page.Close)
+		err := run.FetchProfile(page.URL+"/debug/pprof/allocs", filepath.Join(GinkgoT().TempDir(), "x"))
+		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
+	})
+})
+
+var _ = Describe("Reading memory handed out from the proxy's own page", func() {
+	It("takes the total allocated bytes from the page, with no wait", func() {
+		page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			Expect(r.URL.Path).To(Equal("/debug/vars"))
+			_, _ = w.Write([]byte(`{"cmdline":["x"],"memstats":{"Alloc":5,"TotalAlloc":123456789,"Mallocs":7}}`))
+		}))
+		DeferCleanup(page.Close)
+		got, err := run.TotalAllocated(page.URL[len("http://"):])
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(uint64(123456789)))
+	})
+
+	It("says there is no page when the proxy was not built for the load test", func() {
+		page := httptest.NewServer(http.NotFoundHandler())
+		DeferCleanup(page.Close)
+		_, err := run.TotalAllocated(page.URL[len("http://"):])
+		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
+	})
+
+	It("says there is no page when nothing listens", func() {
+		_, err := run.TotalAllocated("127.0.0.1:1")
+		Expect(err).To(HaveOccurred())
 	})
 })

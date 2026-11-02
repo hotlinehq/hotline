@@ -71,6 +71,18 @@ var _ = Describe("The fake vendor", func() {
 		Expect(len(body)).To(BeNumerically("~", 115*1024, 15*1024))
 	})
 
+	It("answers a medium call with about 30 KB of JSON", func() {
+		start("medium-json")
+		_, body := post(http.DefaultClient, "http://"+vendor.PlainAddr+"/")
+		Expect(len(body)).To(BeNumerically("~", 30*1024, 5*1024))
+	})
+
+	It("answers a huge call with about 500 KB of JSON", func() {
+		start("huge-json")
+		_, body := post(http.DefaultClient, "http://"+vendor.PlainAddr+"/")
+		Expect(len(body)).To(BeNumerically("~", 500*1024, 50*1024))
+	})
+
 	It("answers an XML call with XML", func() {
 		start("xml")
 		resp, body := post(http.DefaultClient, "http://"+vendor.PlainAddr+"/")
@@ -97,6 +109,8 @@ var _ = Describe("The fake vendor", func() {
 	It("names the call shapes it knows", func() {
 		Expect(fakes.Shapes()).To(HaveKey("small-json"))
 		Expect(fakes.Shapes()).To(HaveKey("large-json"))
+		Expect(fakes.Shapes()).To(HaveKey("medium-json"))
+		Expect(fakes.Shapes()).To(HaveKey("huge-json"))
 		Expect(fakes.Shapes()).To(HaveKey("xml"))
 		Expect(fakes.Shapes()).To(HaveKey("slow"))
 	})

@@ -8,6 +8,12 @@
 name: load test
 on:
   workflow_dispatch:
+    inputs:
+      compare_with:
+        description: 'Branch or tag to measure against in turn (for example main). Empty: just measure the picked branch.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -20,7 +26,7 @@ env:
 jobs:
   load:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -41,7 +47,25 @@ jobs:
           k6 version
 
       - name: run the load test
+        if: ${{ inputs.compare_with == '' }}
         run: make load
+
+      # The other build is checked out next to this one and built from its
+      # own source; the two take turns, see "load-compare" in the Makefile.
+      - name: check out the build to compare with
+        if: ${{ inputs.compare_with != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.compare_with }}
+          path: base
+
+      - name: run the load test against the other build in turn
+        if: ${{ inputs.compare_with != '' }}
+        env:
+          BASE_LABEL: ${{ inputs.compare_with }}
+        run: |
+          (cd base/src/hotline-proxy && go build -o "$GITHUB_WORKSPACE/load/out-base-proxy" ./cmd)
+          make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"
 
       # What the numbers were measured on, next to them.
       - name: note the commit and the computer
