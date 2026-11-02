@@ -1,14 +1,9 @@
 package proxy
 
 import (
+	"bytes"
 	"cmp"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -108,56 +103,48 @@ func callSpan(sc trace.SpanContext, parent trace.SpanID, from, to time.Time, fai
 
 // traceSignature signs a call's trace with the integration's key, so the
 // record, which carries it, covers the trace too (Peter, 2026-10-31). The
-// signed text is a line with the trace id, then one block per span in start
-// order, a tie going by span id: its span id, parent span id, name, kind,
-// start, end and status, then its attributes sorted by name. Each line is a
-// name and a value, both as JSON.
+// signed bytes are the trace id, then for each span in start order, a tie
+// going by span id: its span id, parent span id, name, kind, start, end,
+// status and number of attributes, then its attributes sorted by name, all
+// as entries (docs/proxy-traces.md).
 func traceSignature(sc trace.SpanContext, spans []export.Span, key []byte) attribute.KeyValue {
 	spans = slices.Clone(spans)
 	slices.SortFunc(spans, func(a, b export.Span) int {
 		if c := cmp.Compare(a.Start.UnixNano(), b.Start.UnixNano()); c != 0 {
 			return c
 		}
-		return strings.Compare(a.ID.String(), b.ID.String())
+		return bytes.Compare(a.ID[:], b.ID[:])
 	})
-	line := func(name string, v any) string {
-		// The values are plain types and finite numbers, so they always
-		// turn into JSON.
-		value, _ := json.Marshal(v) //nolint:errchkjson // see above
-		return strconv.Quote(name) + ": " + string(value)
-	}
-	lines := []string{line("trace.trace_id", sc.TraceID().String())}
-	for _, s := range spans {
-		parent, status := "", "unset"
-		if s.Parent.IsValid() {
-			parent = s.Parent.String()
-		}
-		if s.Failed {
+	s := newSigner(key)
+	traceID := sc.TraceID()
+	s.hex("trace.trace_id", traceID[:])
+	for _, span := range spans {
+		status := "unset"
+		if span.Failed {
 			status = "error"
 		}
-		if s.OK {
+		if span.OK {
 			status = "ok"
 		}
-		kind := map[trace.SpanKind]string{trace.SpanKindServer: "server", trace.SpanKindClient: "client"}[s.Kind]
+		kind := map[trace.SpanKind]string{trace.SpanKindServer: "server", trace.SpanKindClient: "client"}[span.Kind]
 		if kind == "" {
 			kind = "internal"
 		}
-		lines = append(lines,
-			line("span.span_id", s.ID.String()),
-			line("span.parent_span_id", parent),
-			line("span.name", s.Name),
-			line("span.kind", kind),
-			line("span.start_time", s.Start.UnixNano()),
-			line("span.end_time", s.End.UnixNano()),
-			line("span.status", status))
-		attrs := make([]string, 0, len(s.Attrs))
-		for _, kv := range s.Attrs {
-			attrs = append(attrs, line(string(kv.Key), plain(kv.Value)))
+		s.hex("span.span_id", span.ID[:])
+		if span.Parent.IsValid() {
+			s.hex("span.parent_span_id", span.Parent[:])
+		} else {
+			s.text("span.parent_span_id", "")
 		}
-		slices.Sort(attrs)
-		lines = append(lines, attrs...)
+		s.text("span.name", span.Name)
+		s.text("span.kind", kind)
+		s.int("span.start_time", span.Start.UnixNano())
+		s.int("span.end_time", span.End.UnixNano())
+		s.text("span.status", status)
+		s.int("span.attribute_count", int64(len(span.Attrs)))
+		for _, kv := range slices.SortedFunc(slices.Values(span.Attrs), byKey) {
+			s.entry(kv)
+		}
 	}
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(strings.Join(lines, "\n")))
-	return attribute.String("hotline.trace.signature", base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	return attribute.String("hotline.trace.signature", s.sum())
 }
