@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -35,7 +36,8 @@ var (
 	errNoAllocated   = errors.New("the proxy has not sent go.memory.allocated to the telemetry destination")
 	errProxyStopped  = errors.New("the proxy stopped while starting")
 	errProxyNotReady = errors.New("the proxy was not ready within 20 seconds")
-	errProcStat      = errors.New("unreadable /proc stat")
+	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
+	errPSTime        = errors.New("not a time from ps")
 )
 
 // Config is what a run needs.
@@ -85,7 +87,7 @@ type Result struct {
 	ExtraP95 float64 `json:"extraP95Ms"`
 	ExtraP99 float64 `json:"extraP99Ms"`
 	// CPUMicrosPerCall is the processor time the proxy process used during
-	// the proxy run (from /proc), divided by the calls made, in microseconds.
+	// the proxy run (from /proc, or ps on a Mac), divided by the calls made, in microseconds.
 	CPUMicrosPerCall float64 `json:"proxyCpuMicrosPerCall"`
 	// AllocatedBytesPerCall is the growth of the proxy's go.memory.allocated
 	// during the run and the 2 seconds after, divided by the calls made.
@@ -427,11 +429,16 @@ func (p *proxyProcess) stop() {
 }
 
 // cpuTicks is the processor time the proxy has used so far, user and
-// system, in hundredths of a second, from /proc.
+// system, in hundredths of a second. It comes from /proc where there is
+// one (Linux), else from ps (macOS).
 func (p *proxyProcess) cpuTicks() (int64, error) {
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", p.cmd.Process.Pid))
 	if err != nil {
-		return 0, err
+		out, psErr := exec.CommandContext(context.Background(), "ps", "-o", "time=", "-p", strconv.Itoa(p.cmd.Process.Pid)).Output() //nolint:gosec // ps with our own child's number
+		if psErr != nil {
+			return 0, fmt.Errorf("%w: %w", errProcStat, psErr)
+		}
+		return ParsePSTime(string(out))
 	}
 	// The name in brackets may hold spaces; the fields count from after it.
 	rest := string(raw[strings.LastIndexByte(string(raw), ')')+2:])
@@ -444,6 +451,49 @@ func (p *proxyProcess) cpuTicks() (int64, error) {
 	return user + system, nil
 }
 
+// ParsePSTime reads the time column of ps ("0:12.34", "1:02:03.50",
+// "00:00:07" or "2-03:04:05") as hundredths of a second.
+func ParsePSTime(text string) (int64, error) {
+	text = strings.TrimSpace(text)
+	var days int64
+	if d, rest, ok := strings.Cut(text, "-"); ok {
+		n, err := strconv.ParseInt(d, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %q", errPSTime, text)
+		}
+		days, text = n, rest
+	}
+	var seconds float64
+	for _, part := range strings.Split(text, ":") {
+		n, err := strconv.ParseFloat(part, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %q", errPSTime, text)
+		}
+		seconds = seconds*60 + n
+	}
+	return int64(math.Round((float64(days)*86400 + seconds) * 100)), nil
+}
+
+// residentKB is the proxy's resident memory now, in kilobytes: from
+// /proc where there is one (Linux), else from ps (macOS).
+func (p *proxyProcess) residentKB() int {
+	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", p.cmd.Process.Pid)); err == nil {
+		for _, line := range strings.Split(string(raw), "\n") {
+			if f := strings.Fields(line); len(f) >= 2 && f[0] == "VmRSS:" {
+				kb, _ := strconv.Atoi(f[1])
+				return kb
+			}
+		}
+		return 0
+	}
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "rss=", "-p", strconv.Itoa(p.cmd.Process.Pid)).Output() //nolint:gosec // ps with our own child's number
+	if err != nil {
+		return 0
+	}
+	kb, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return kb
+}
+
 // sampleMemory reads the proxy's resident memory once a second until the
 // returned function is called, which gives the highest value in kilobytes.
 func (p *proxyProcess) sampleMemory() func() int {
@@ -452,18 +502,10 @@ func (p *proxyProcess) sampleMemory() func() int {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	read := func() {
-		raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", p.cmd.Process.Pid))
-		if err != nil {
-			return
-		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			if f := strings.Fields(line); len(f) >= 2 && f[0] == "VmRSS:" {
-				kb, _ := strconv.Atoi(f[1])
-				mu.Lock()
-				peak = max(peak, kb)
-				mu.Unlock()
-			}
-		}
+		kb := p.residentKB()
+		mu.Lock()
+		peak = max(peak, kb)
+		mu.Unlock()
 	}
 	go func() {
 		defer close(done)
