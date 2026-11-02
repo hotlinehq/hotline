@@ -1,7 +1,6 @@
-# Only the proxy's source and the vendor specs go into the image build.
+# Only the proxy's source goes into the image build.
 *
 !src/hotline-proxy/
-!specs/
 src/hotline-proxy/testdata/
 src/hotline-proxy/**/*_test.go
 src/hotline-proxy/features/

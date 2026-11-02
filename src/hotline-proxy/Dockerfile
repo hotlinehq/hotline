@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# The hotline-proxy image. Build it from the root of the repo, which holds
-# both the proxy and the vendor specs:
+# The hotline-proxy image: only the program. Vendor specs come with the
+# config, next to it in /etc/hotline/config/. Build it from the root of the repo:
 #
 #   docker buildx build -f src/hotline-proxy/Dockerfile --build-arg VERSION=v0.1.0 .
 #
@@ -26,9 +26,6 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # Google's distroless static image: CA bundle, time zone data and the
 # nonroot user, with no shell and no package manager.
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
-# The stable vendor specs, in their own layer: they change rarely, so a new
-# program reuses this layer. A config points to them by absolute path.
-COPY specs/ /usr/share/hotline/specs/
 COPY --from=build /out/hotline-proxy /hotline-proxy
 USER 65532:65532
 EXPOSE 8080 8081
