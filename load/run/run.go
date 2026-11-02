@@ -58,6 +58,9 @@ type Config struct {
 	Duration string
 	// Repeats is how many times direct and proxy are each run, alternating.
 	Repeats int
+	// Settle is the wait before and after each proxy run for the proxy's
+	// memory number; zero means DefaultSettle.
+	Settle time.Duration
 	// Out is where the table goes; nil means nowhere.
 	Out io.Writer
 }
@@ -90,13 +93,13 @@ type Result struct {
 	// the proxy run (from /proc, or ps on a Mac), divided by the calls made, in microseconds.
 	CPUMicrosPerCall float64 `json:"proxyCpuMicrosPerCall"`
 	// AllocatedBytesPerCall is the growth of the proxy's go.memory.allocated
-	// during the run and the 2 seconds after, divided by the calls made.
+	// during the run and the 16 seconds after, divided by the calls made.
 	AllocatedBytesPerCall float64 `json:"proxyAllocatedBytesPerCall"`
 	// PeakRSSKB is the highest resident memory of the proxy process sampled
 	// once a second during the proxy run, in kilobytes.
 	PeakRSSKB int `json:"proxyPeakRssKb"`
 	// OTLPRequests and OTLPBytes are what the receiver got during the proxy
-	// run and the 2 seconds after.
+	// run and the wait after it.
 	OTLPRequests int64 `json:"otlpRequests"`
 	OTLPBytes    int64 `json:"otlpBytes"`
 }
@@ -155,11 +158,34 @@ func callFor(shape string) (call, error) {
 	return call{}, fmt.Errorf("%w: %q", errShapeNotWired, shape)
 }
 
+// Scenario says in one line what a run does: the call, the size of the
+// reply, the rate, how long each repeat lasts and how many there are.
+func Scenario(cfg Config) (string, error) {
+	c, err := callFor(cfg.Shape)
+	if err != nil {
+		return "", err
+	}
+	size := len(fakes.Shapes()[cfg.Shape].Body)
+	reply := fmt.Sprintf("%d bytes", (size+50)/100*100)
+	if size >= 1000 {
+		reply = fmt.Sprintf("%d KB", size/1000)
+	}
+	repeats := fmt.Sprintf("%d repeats", cfg.Repeats)
+	if cfg.Repeats == 1 {
+		repeats = "1 repeat"
+	}
+	return fmt.Sprintf("scenario: %s (%s, reply about %s), %d calls a second for %s, %s, each direct then through the proxy",
+		cfg.Shape, c.action, reply, cfg.Rate, cfg.Duration, repeats), nil
+}
+
 // Run does the whole run and returns its folder.
 func Run(cfg Config) (string, error) {
 	c, err := callFor(cfg.Shape)
 	if err != nil {
 		return "", err
+	}
+	if line, err := Scenario(cfg); err == nil && cfg.Out != nil {
+		_, _ = fmt.Fprintln(cfg.Out, line)
 	}
 	k6 := cfg.K6
 	if k6 == "" {
@@ -200,7 +226,10 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	_, vendorPort, _ := net.SplitHostPort(vendor.TLSAddr)
-	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate}
+	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle}
+	if d.settle == 0 {
+		d.settle = DefaultSettle
+	}
 	d.directURL = "http://" + vendor.PlainAddr + "/"
 	d.proxyURL = "http://" + p.addr + "/https://localhost:" + vendorPort + "/"
 	// A short warm-up, so connections and caches are not part of the numbers.
@@ -254,6 +283,7 @@ type driver struct {
 	k6, script          string
 	call                call
 	rate                int
+	settle              time.Duration
 	directURL, proxyURL string
 }
 
@@ -275,13 +305,17 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (L
 	return ReadSummary(raw)
 }
 
-// settle is how long to wait after a run for the proxy's last numbers: its
-// telemetry goes every second.
-const settle = 2200 * time.Millisecond
+// DefaultSettle is how long to wait before and after each proxy run for the
+// proxy's memory number. The proxy sends its telemetry every second, but the
+// OpenTelemetry Go runtime library re-reads Go's counters at most every 15
+// seconds, so a shorter wait can read a stale value and lose part of the
+// memory handed out (the cause of the 90, 35 and 45 KB per call that the same
+// load showed in three repeats).
+const DefaultSettle = 16 * time.Second
 
 // measured runs k6 through the proxy and reads the proxy's own cost.
 func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, duration string) (Result, error) {
-	time.Sleep(settle)
+	time.Sleep(d.settle)
 	alloc0, ok := receiver.Allocated()
 	if !ok {
 		return Result{}, errNoAllocated
@@ -301,7 +335,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	if err != nil {
 		return Result{}, err
 	}
-	time.Sleep(settle)
+	time.Sleep(d.settle)
 	alloc1, _ := receiver.Allocated()
 	calls := float64(l.Calls)
 	return Result{

@@ -7,6 +7,11 @@ on:
   push:
     branches:
       - main
+    # Main publishes a new edge image only when the proxy changes. Release
+    # tags always build; GitHub does not apply paths to tag pushes
+    # (Peter, 2026-11-02).
+    paths:
+      - 'src/hotline-proxy/**'
     tags:
       - 'v*'
 

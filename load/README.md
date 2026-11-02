@@ -14,7 +14,7 @@ One call: `go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/
 
 - **extra p50, p95, p99** are the proxy's delay minus the direct delay, in milliseconds, from k6's `http_req_duration`. p50 is the middle call, p95 and p99 the calls slower than 95 and 99 out of 100. Each repeat runs at a fixed rate (calls keep coming on schedule even when replies slow down).
 - **cpu us/call** is the processor time the proxy process used during the run (from `/proc`, or `ps` on a Mac) divided by the calls made, in microseconds. `/proc` counts in hundredths of a second, so very short runs are coarse.
-- **allocated KB/call** is the growth of `go.memory.allocated` (memory the proxy handed out, counting memory freed again), from the proxy's own telemetry, from the start of the run to 2 seconds after, divided by the calls made. Go reports it in lumps, so use runs of hundreds of calls a second or more.
+- **allocated KB/call** is the growth of `go.memory.allocated` (memory the proxy handed out, counting memory freed again), from the proxy's own telemetry, from 16 seconds before the run to 16 seconds after it, divided by the calls made. The OpenTelemetry Go library re-reads Go's counters at most every 15 seconds, so the test waits 16 seconds before and after each proxy run; a shorter wait read a stale value and showed 90, 35 and 45 KB for the same load. Use runs of hundreds of calls a second or more. The first line printed names the scenario (call, reply size, rate, length, repeats).
 - **peak memory** is the highest resident memory of the proxy, sampled once a second during the run.
 
 The fake vendor, receiver and k6 run on the same computer as the proxy, so the numbers compare builds with each other, not with a real deployment.
