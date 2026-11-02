@@ -1,7 +1,7 @@
 # A small Hotline proxy config for the image: one app, one SQS queue. The
-# vendor spec ships inside the image, under /usr/share/hotline/specs/; the
-# config and its overlays come from a ConfigMap at /etc/hotline/config/, and the
-# key from a Secret at /etc/hotline/keys/. The image's smoke test in CI
+# config and the vendor spec come from one ConfigMap at /etc/hotline/config/
+# (the spec is a copy of specs/aws/sqs/2012-11-05.openapi.yaml), and the key
+# from a Secret at /etc/hotline/keys/. The image's smoke test in CI
 # validates and runs this file.
 
 listen:
@@ -19,7 +19,7 @@ telemetry:                         # the proxy's own numbers, to the same collec
 apis:
   aws-sqs-invoices:
     hosts: [sqs.eu-west-1.amazonaws.com]
-    spec: /usr/share/hotline/specs/aws/sqs/2012-11-05.openapi.yaml
+    spec: ./aws-sqs.openapi.yaml
     vendorTimeout: 25s             # above SQS's 20 second long polling
 
 integrations:

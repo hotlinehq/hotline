@@ -4,10 +4,11 @@
 resources:
   - deployment.yaml
 configMapGenerator:
-  # The config and its overlays in one ConfigMap, so they change in one step.
+  # The config, its spec and overlays in one ConfigMap, so they change in one step.
   - name: hotline-proxy-config
     files:
       - hotline-proxy.yaml
+      - aws-sqs.openapi.yaml
     options:
       # Keep the name fixed: the proxy picks up a changed ConfigMap by
       # itself within 5 seconds, with no restart.
