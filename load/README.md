@@ -21,4 +21,14 @@ The fake vendor, receiver and k6 run on the same computer as the proxy, so the n
 
 ## Call shapes
 
-`small-json` (SSM `GetParameter`, 200 bytes), `large-json` (SSM `GetParametersByPath`, 115 KB) and `slow` (small, after 50 ms). The fake vendor also has an `xml` shape, but the runner has no S3 call for it yet.
+`small-json` (SSM `GetParameter`, 200 bytes), `medium-json`, `large-json` and `huge-json` (SSM `GetParametersByPath`, about 30 KB, 115 KB and 500 KB) and `slow` (small, after 50 ms). The fake vendor also has an `xml` shape, but the runner has no S3 call for it yet.
+
+## Judging a fix against main
+
+`make load-compare BASE_PROXY=<the built hotline-proxy of main>` runs one repeat of main and one of this checkout, taking turns, three times over for each of five shapes (small 1000 a second, 30 KB at 400, 115 KB at 200 and 500, 500 KB at 50). Nothing is averaged. The table at the end (also in `load/results/compare.txt`) lists every repeat and gives the range of change of the branch against main: from its best repeat to its worst. If even the worst repeat is below main, the fix is real, not noise.
+
+In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `compare_with` (for example `main`).
+
+## Profiles
+
+`make load` builds the proxy with `-tags loadprofile`, a build for the load test only that serves Go's profiling pages on a local port when the runner asks. The lines marked `-profile` (115 KB at 200 a second, 500 KB at 50) run once more after the repeats, not counted in the numbers, and save `profile/cpu.pprof` (where processor time goes) and `profile/allocs.pprof` (where memory is handed out) in the run folder. Open one with `go tool pprof -http=: load/results/run-005/profile/allocs.pprof`. The proxy that ships is built without the tag and has no profiling page.

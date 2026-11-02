@@ -36,6 +36,7 @@ var (
 	errNoAllocated   = errors.New("the proxy has not sent go.memory.allocated to the telemetry destination")
 	errProxyStopped  = errors.New("the proxy stopped while starting")
 	errProxyNotReady = errors.New("the proxy was not ready within 20 seconds")
+	errNoProfile     = errors.New("the proxy has no profiling page: build it with -tags loadprofile")
 	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
 	errPSTime        = errors.New("not a time from ps")
 )
@@ -50,7 +51,7 @@ type Config struct {
 	K6 string
 	// OutDir holds one folder per run.
 	OutDir string
-	// Shape names the call shape: small-json, large-json or slow.
+	// Shape names the call shape: small-json, medium-json, large-json, huge-json or slow.
 	Shape string
 	// Rate is calls a second; Duration is how long each repeat lasts, as k6
 	// writes it ("20s").
@@ -61,6 +62,13 @@ type Config struct {
 	// Settle is the wait before and after each proxy run for the proxy's
 	// memory number; zero means DefaultSettle.
 	Settle time.Duration
+	// Profile adds one more proxy run after the repeats, not counted in the
+	// numbers, that saves a processor and a memory profile into the run
+	// folder. The proxy must be built with -tags loadprofile.
+	Profile bool
+	// Label names what is measured (for example the branch), kept in every
+	// result so runs of two builds can be set side by side.
+	Label string
 	// Out is where the table goes; nil means nowhere.
 	Out io.Writer
 }
@@ -78,6 +86,7 @@ type Latency struct {
 
 // Result is one repeat, kept as it came.
 type Result struct {
+	Label    string  `json:"label,omitempty"`
 	Shape    string  `json:"shape"`
 	Rate     int     `json:"ratePerSecond"`
 	Duration string  `json:"duration"`
@@ -150,7 +159,7 @@ func callFor(shape string) (call, error) {
 		return call{}, fmt.Errorf("%w: no call shape called %q", errUnknownShape, shape)
 	}
 	switch shape {
-	case "large-json":
+	case "medium-json", "large-json", "huge-json":
 		return call{"AmazonSSM.GetParametersByPath", `{"Path":"/shop"}`}, nil
 	case "small-json", "slow":
 		return call{"AmazonSSM.GetParameter", `{"Name":"/shop/db-url","WithDecryption":true}`}, nil
@@ -251,7 +260,7 @@ func Run(cfg Config) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("proxy run %d: %w", n, err)
 		}
-		r.Shape, r.Rate, r.Duration, r.Repeat, r.Direct = cfg.Shape, cfg.Rate, cfg.Duration, n, direct
+		r.Label, r.Shape, r.Rate, r.Duration, r.Repeat, r.Direct = cfg.Label, cfg.Shape, cfg.Rate, cfg.Duration, n, direct
 		r.ExtraP50, r.ExtraP95, r.ExtraP99 = r.Proxy.P50-direct.P50, r.Proxy.P95-direct.P95, r.Proxy.P99-direct.P99
 		raw, err := json.MarshalIndent(r, "", "  ") //nolint:errchkjson // plain numbers and text; a NaN would only come from zero calls
 		if err != nil {
@@ -265,7 +274,64 @@ func Run(cfg Config) (string, error) {
 	if cfg.Out != nil {
 		table(cfg.Out, results)
 	}
+	if cfg.Profile {
+		if err := d.profileRun(p, filepath.Join(dir, "profile"), cfg.Duration); err != nil {
+			return "", fmt.Errorf("profile run: %w", err)
+		}
+	}
 	return dir, nil
+}
+
+// profileRun runs the proxy once more under load and saves a processor
+// profile of the middle of the run and the memory profile after it.
+func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
+	if err := os.Mkdir(folder, 0o750); err != nil {
+		return err
+	}
+	length, err := time.ParseDuration(duration)
+	if err != nil {
+		return err
+	}
+	seconds := max(1, int(length.Seconds())-4)
+	cpu := make(chan error, 1)
+	go func() {
+		time.Sleep(2 * time.Second)
+		cpu <- FetchProfile(fmt.Sprintf("http://%s/debug/pprof/profile?seconds=%d", p.pprofAddr, seconds), filepath.Join(folder, "cpu.pprof"))
+	}()
+	if _, err := d.k6run(filepath.Join(folder, "proxy-summary.json"), duration, d.proxyURL, true, d.rate); err != nil {
+		return err
+	}
+	if err := <-cpu; err != nil {
+		return err
+	}
+	return FetchProfile("http://"+p.pprofAddr+"/debug/pprof/allocs", filepath.Join(folder, "allocs.pprof"))
+}
+
+// FetchProfile saves what a profiling page answers into a file.
+func FetchProfile(url, file string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w (%s answered %s)", errNoProfile, url, resp.Status)
+	}
+	out, err := os.Create(file) //nolint:gosec // a file in the run folder
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // table prints one line per repeat.
@@ -352,6 +418,8 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 type proxyProcess struct {
 	cmd  *exec.Cmd
 	addr string
+	// pprofAddr is where the proxy serves profiles, when asked to.
+	pprofAddr string
 }
 
 func freeAddr() (string, error) {
@@ -414,10 +482,17 @@ integrations:
 		return nil, err
 	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
+	pprofAddr := ""
+	if cfg.Profile {
+		if pprofAddr, err = freeAddr(); err != nil {
+			return nil, err
+		}
+		cmd.Env = append(os.Environ(), "HOTLINE_LOAD_PPROF_ADDR="+pprofAddr)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("the proxy could not be started: %w", err)
 	}
-	p := &proxyProcess{cmd: cmd, addr: proxyAddr}
+	p := &proxyProcess{cmd: cmd, addr: proxyAddr, pprofAddr: pprofAddr}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	deadline := time.Now().Add(20 * time.Second)

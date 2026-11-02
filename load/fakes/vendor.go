@@ -29,23 +29,29 @@ type Shape struct {
 	Delay       time.Duration
 }
 
+// parameters is the body of an SSM GetParametersByPath reply with n
+// parameters, each about 290 bytes.
+func parameters(n int) []byte {
+	var b strings.Builder
+	b.WriteString(`{"Parameters":[`)
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"Name":"/shop/param-%d","Type":"String","Value":"value-%0200d","Version":1,"DataType":"text"}`, i, i)
+	}
+	b.WriteString(`]}`)
+	return []byte(b.String())
+}
+
 // Shapes are the call shapes by name: a small JSON reply (an SSM
-// GetParameter), a large one (about 115 KB, an SSM GetParametersByPath of
-// 400 parameters), an XML reply (an S3 listing), and a small reply after a
+// GetParameter), JSON replies of about 30 KB, 115 KB and 500 KB (an SSM
+// GetParametersByPath of 105, 400 and 1780 parameters), an XML reply (an S3 listing), and a small reply after a
 // wait of 50 ms.
 func Shapes() map[string]Shape {
 	const json = "application/x-amz-json-1.1"
 	small := []byte(`{"Parameter":{"Name":"/shop/db-url","Type":"String","Value":"postgres://db:5432/shop",` +
 		`"Version":3,"ARN":"arn:aws:ssm:eu-west-1:192325781350:parameter/shop/db-url","DataType":"text"}}`)
-	var large strings.Builder
-	large.WriteString(`{"Parameters":[`)
-	for i := range 400 {
-		if i > 0 {
-			large.WriteByte(',')
-		}
-		fmt.Fprintf(&large, `{"Name":"/shop/param-%d","Type":"String","Value":"value-%0200d","Version":1,"DataType":"text"}`, i, i)
-	}
-	large.WriteString(`]}`)
 	var xml strings.Builder
 	xml.WriteString(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<Name>shop-invoices</Name><Prefix></Prefix><KeyCount>50</KeyCount><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated>`)
@@ -55,10 +61,12 @@ func Shapes() map[string]Shape {
 	}
 	xml.WriteString(`</ListBucketResult>`)
 	return map[string]Shape{
-		"small-json": {Body: small, ContentType: json},
-		"large-json": {Body: []byte(large.String()), ContentType: json},
-		"xml":        {Body: []byte(xml.String()), ContentType: "application/xml"},
-		"slow":       {Body: small, ContentType: json, Delay: 50 * time.Millisecond},
+		"small-json":  {Body: small, ContentType: json},
+		"medium-json": {Body: parameters(105), ContentType: json},
+		"large-json":  {Body: parameters(400), ContentType: json},
+		"huge-json":   {Body: parameters(1780), ContentType: json},
+		"xml":         {Body: []byte(xml.String()), ContentType: "application/xml"},
+		"slow":        {Body: small, ContentType: json, Delay: 50 * time.Millisecond},
 	}
 }
 

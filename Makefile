@@ -26,15 +26,45 @@ e2e:
 
 # load builds the proxy and runs the load test: the fakes, the proxy and k6
 # (which must be installed), each call shape at its rates, three repeats
-# each, one folder load/results/run-NNN per line below. See load/README.md.
+# each, one folder load/results/run-NNN per line below. The proxy is built
+# with -tags loadprofile so the two lines marked -profile can also save a
+# processor and a memory profile. See load/README.md.
 .PHONY: load
 load:
 	mkdir -p load/out
-	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
+	cd src/hotline-proxy && go build -tags loadprofile -o ../../load/out/hotline-proxy ./cmd
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 2000
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 200
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape medium-json -rate 400
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 200 -profile
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 400
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 500
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape huge-json -rate 50 -profile
+
+# load-compare measures two builds in turn, so a fix can be judged against
+# main on the same computer in the same job: BASE_PROXY is the built
+# hotline-proxy of the other build (default label main; this checkout is
+# labelled branch). Each shape and rate runs one repeat of main, one of the
+# branch, three times over; nothing is averaged. The table at the end sets
+# every repeat side by side and gives the range of change.
+BASE_LABEL ?= main
+CAND_LABEL ?= branch
+LOAD_RUNS = "small-json 1000" "medium-json 400" "large-json 200" "large-json 500" "huge-json 50"
+.PHONY: load-compare
+load-compare:
+	test -n "$(BASE_PROXY)" || { echo "set BASE_PROXY to the built hotline-proxy of the build to compare with"; exit 1; }
+	mkdir -p load/out
+	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
+	go build -o load/out/load ./load/cmd/load
+	for line in $(LOAD_RUNS); do \
+		set -- $$line; \
+		for i in 1 2 3; do \
+			load/out/load -proxy $(BASE_PROXY) -label $(BASE_LABEL) -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape $$1 -rate $$2 -repeats 1 || exit 1; \
+			load/out/load -proxy load/out/hotline-proxy -label $(CAND_LABEL) -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape $$1 -rate $$2 -repeats 1 || exit 1; \
+		done; \
+	done
+	go run ./load/cmd/compare load/results | tee load/results/compare.txt
 
 clean-cache:
 	go clean -testcache
