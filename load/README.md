@@ -29,6 +29,8 @@ The fake vendor, receiver and k6 run on the same computer as the proxy, so the n
 
 In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `compare_with` (for example `main`).
 
-## Profiles
+## Profiles and the exact memory number
 
 `make load` builds the proxy with `-tags loadprofile`, a build for the load test only that serves Go's profiling pages on a local port when the runner asks. The lines marked `-profile` (115 KB at 200 a second, 500 KB at 50) run once more after the repeats, not counted in the numbers, and save `profile/cpu.pprof` (where processor time goes) and `profile/allocs.pprof` (where memory is handed out) in the run folder. Open one with `go tool pprof -http=: load/results/run-005/profile/allocs.pprof`. The proxy that ships is built without the tag and has no profiling page.
+
+The same build also serves `/debug/vars`. When the runner finds that page, it reads the proxy's total bytes handed out from it at once, so it does not wait the 2 times 16 seconds for the telemetry number (about 32 seconds less per repeat). A proxy built without the tag (for example an older `main`) is still measured the old way, with the wait.

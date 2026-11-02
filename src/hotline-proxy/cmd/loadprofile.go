@@ -4,11 +4,13 @@ package main
 
 // A build for the load test only (go build -tags loadprofile): when the
 // load runner sets HOTLINE_LOAD_PPROF_ADDR, the proxy also serves Go's
-// profiling pages there, so the runner can save where processor time and
-// memory go. The program that ships is built without the tag and has none of
+// profiling pages and /debug/vars there, so the runner can save where
+// processor time and memory go and read the bytes handed out at once, with
+// no wait for the telemetry. The program that ships is built without the tag and has none of
 // this.
 
 import (
+	_ "expvar" // /debug/vars, with the exact total of bytes handed out
 	"net"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // load test build only, on 127.0.0.1

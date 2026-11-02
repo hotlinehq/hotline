@@ -239,6 +239,8 @@ func Run(cfg Config) (string, error) {
 	if d.settle == 0 {
 		d.settle = DefaultSettle
 	}
+	_, probe := TotalAllocated(p.pprofAddr)
+	d.exact = probe == nil
 	d.directURL = "http://" + vendor.PlainAddr + "/"
 	d.proxyURL = "http://" + p.addr + "/https://localhost:" + vendorPort + "/"
 	// A short warm-up, so connections and caches are not part of the numbers.
@@ -307,6 +309,35 @@ func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
 	return FetchProfile("http://"+p.pprofAddr+"/debug/pprof/allocs", filepath.Join(folder, "allocs.pprof"))
 }
 
+// TotalAllocated is the proxy's total bytes handed out so far, read from the
+// page a proxy built with -tags loadprofile serves at addr. It is exact at
+// once, unlike the telemetry number that lags up to 15 seconds.
+func TotalAllocated(addr string) (uint64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/debug/vars", http.NoBody)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%w (%s answered %s)", errNoProfile, addr, resp.Status)
+	}
+	var vars struct {
+		Memstats struct {
+			TotalAlloc uint64
+		}
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&vars); err != nil {
+		return 0, fmt.Errorf("%s/debug/vars is not JSON: %w", addr, err)
+	}
+	return vars.Memstats.TotalAlloc, nil
+}
+
 // FetchProfile saves what a profiling page answers into a file.
 func FetchProfile(url, file string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -351,6 +382,8 @@ type driver struct {
 	rate                int
 	settle              time.Duration
 	directURL, proxyURL string
+	// exact says the proxy serves its own memory number, so no waiting.
+	exact bool
 }
 
 func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (Latency, error) {
@@ -381,8 +414,18 @@ const DefaultSettle = 16 * time.Second
 
 // measured runs k6 through the proxy and reads the proxy's own cost.
 func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, duration string) (Result, error) {
-	time.Sleep(d.settle)
-	alloc0, ok := receiver.Allocated()
+	allocated := func() (uint64, bool) {
+		if d.exact {
+			n, err := TotalAllocated(p.pprofAddr)
+			return n, err == nil
+		}
+		n, ok := receiver.Allocated()
+		return uint64(n), ok //nolint:gosec // a byte count, never negative
+	}
+	if !d.exact {
+		time.Sleep(d.settle)
+	}
+	alloc0, ok := allocated()
 	if !ok {
 		return Result{}, errNoAllocated
 	}
@@ -401,8 +444,10 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	if err != nil {
 		return Result{}, err
 	}
-	time.Sleep(d.settle)
-	alloc1, _ := receiver.Allocated()
+	if !d.exact {
+		time.Sleep(d.settle)
+	}
+	alloc1, _ := allocated()
 	calls := float64(l.Calls)
 	return Result{
 		Proxy:                 l,
@@ -482,13 +527,13 @@ integrations:
 		return nil, err
 	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	pprofAddr := ""
-	if cfg.Profile {
-		if pprofAddr, err = freeAddr(); err != nil {
-			return nil, err
-		}
-		cmd.Env = append(os.Environ(), "HOTLINE_LOAD_PPROF_ADDR="+pprofAddr)
+	// A proxy built with -tags loadprofile serves memory and profile pages
+	// here; any other build ignores the variable.
+	pprofAddr, err := freeAddr()
+	if err != nil {
+		return nil, err
 	}
+	cmd.Env = append(os.Environ(), "HOTLINE_LOAD_PPROF_ADDR="+pprofAddr)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("the proxy could not be started: %w", err)
 	}

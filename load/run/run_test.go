@@ -188,3 +188,28 @@ var _ = Describe("Saving a profile from the proxy", func() {
 		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
 	})
 })
+
+var _ = Describe("Reading memory handed out from the proxy's own page", func() {
+	It("takes the total allocated bytes from the page, with no wait", func() {
+		page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			Expect(r.URL.Path).To(Equal("/debug/vars"))
+			_, _ = w.Write([]byte(`{"cmdline":["x"],"memstats":{"Alloc":5,"TotalAlloc":123456789,"Mallocs":7}}`))
+		}))
+		DeferCleanup(page.Close)
+		got, err := run.TotalAllocated(page.URL[len("http://"):])
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(uint64(123456789)))
+	})
+
+	It("says there is no page when the proxy was not built for the load test", func() {
+		page := httptest.NewServer(http.NotFoundHandler())
+		DeferCleanup(page.Close)
+		_, err := run.TotalAllocated(page.URL[len("http://"):])
+		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
+	})
+
+	It("says there is no page when nothing listens", func() {
+		_, err := run.TotalAllocated("127.0.0.1:1")
+		Expect(err).To(HaveOccurred())
+	})
+})
