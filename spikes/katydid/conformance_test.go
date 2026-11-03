@@ -23,7 +23,7 @@ import (
 // and no namespace rules (we ignore namespaces on purpose).
 // Well-formed bodies must read without an error; not-well-formed bodies must give one.
 // Set XMLCONF_DIR to the unpacked "xmlconf" folder to run it; it is skipped otherwise. See README.md.
-// The streaming reader must get every case right. The tree reader is only reported (Go's XML reader is lenient).
+// The reader must get every case right.
 
 type confCase struct {
 	id, path, section string
@@ -109,32 +109,25 @@ var _ = Describe("W3C XML conformance suite", func() {
 		return
 	}
 
-	for name, check := range map[string]func(*katydidcheck.Checker, []byte) (bool, error){
-		"tree reader":      (*katydidcheck.Checker).CheckXML,
-		"streaming reader": (*katydidcheck.Checker).CheckXMLStream,
-	} {
-		It(name+" agrees with the suite", func() {
-			cases, left := loadCases(dir)
-			Expect(len(cases)).To(BeNumerically(">", 200))
-			c, err := katydidcheck.Compile([]byte(`{"type":"object"}`))
+	It("the XML reader agrees with the suite", func() {
+		cases, left := loadCases(dir)
+		Expect(len(cases)).To(BeNumerically(">", 200))
+		c, err := katydidcheck.Compile([]byte(`{"type":"object"}`))
+		Expect(err).NotTo(HaveOccurred())
+		var wrong []string
+		for _, tc := range cases {
+			body, err := os.ReadFile(tc.path)
 			Expect(err).NotTo(HaveOccurred())
-			var wrong []string
-			for _, tc := range cases {
-				body, err := os.ReadFile(tc.path)
-				Expect(err).NotTo(HaveOccurred())
-				_, rerr := check(c, body)
-				switch {
-				case tc.wellFormed && rerr != nil:
-					wrong = append(wrong, fmt.Sprintf("refused a well-formed body: %s (section %s): %v", tc.id, tc.section, rerr))
-				case !tc.wellFormed && rerr == nil:
-					wrong = append(wrong, fmt.Sprintf("accepted a not well-formed body: %s (section %s)", tc.id, tc.section))
-				}
+			_, rerr := c.CheckXML(body)
+			switch {
+			case tc.wellFormed && rerr != nil:
+				wrong = append(wrong, fmt.Sprintf("refused a well-formed body: %s (section %s): %v", tc.id, tc.section, rerr))
+			case !tc.wellFormed && rerr == nil:
+				wrong = append(wrong, fmt.Sprintf("accepted a not well-formed body: %s (section %s)", tc.id, tc.section))
 			}
-			sort.Strings(wrong)
-			fmt.Printf("\n%s: %d of %d cases wrong (left out: %v)\n%s\n", name, len(wrong), len(cases), left, strings.Join(wrong, "\n"))
-			if name == "streaming reader" {
-				Expect(wrong).To(BeEmpty())
-			}
-		})
-	}
+		}
+		sort.Strings(wrong)
+		fmt.Printf("\n%d of %d cases wrong (left out: %v)\n%s\n", len(wrong), len(cases), left, strings.Join(wrong, "\n"))
+		Expect(wrong).To(BeEmpty())
+	})
 })

@@ -53,25 +53,6 @@ var _ = Describe("streaming reader", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("gives katydid exactly the pieces the tree reader gives", func() {
-		for _, x := range []string{
-			`<R xmlns="http://x/"><Name>a</Name><KeyCount>7</KeyCount><Ratio>1.5</Ratio><IsTruncated>true</IsTruncated></R>`,
-			`<?xml version="1.0"?><R><Tags>a</Tags><Tags>b</Tags><Owner><ID>007</ID><Size>3</Size></Owner></R>`,
-			`<R><Contents><ID>a</ID></Contents><Contents><ID>b</ID><Size>2</Size></Contents><Name/></R>`,
-			`<R><Name></Name></R>`,
-			`<R><Name>a &amp; b &lt;c&gt; &#65;</Name></R>`,
-			`<R><Name><![CDATA[<x>]]></Name></R>`,
-			`<R><Name>a</Name><!-- note --><KeyCount>1</KeyCount></R>`,
-			`<R><KeyCount>abc</KeyCount><IsTruncated>maybe</IsTruncated></R>`,
-		} {
-			tree, err := toHedge([]byte(x), c.root, c.defs)
-			Expect(err).NotTo(HaveOccurred(), x)
-			want := dump(newFixed(tree))
-			c.sp.Init([]byte(x))
-			Expect(dump(c.sp)).To(Equal(want), x)
-		}
-	})
-
 	It("gives katydid the same pieces as its own JSON reader for the same data", func() {
 		j := kj.NewJSONSchemaParser()
 		j.Init([]byte(`{"Name":"a","KeyCount":7,"Ratio":1.5,"IsTruncated":false,"Owner":{},"Tags":["a","b"],"Contents":[{"ID":"x","Size":2}]}`))
@@ -81,48 +62,48 @@ var _ = Describe("streaming reader", func() {
 	})
 
 	It("reads attributes as fields", func() {
-		ok, err := c.CheckXMLStream([]byte(`<R><Owner Size="5" ID="x"/></R>`))
+		ok, err := c.CheckXML([]byte(`<R><Owner Size="5" ID="x"/></R>`))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ok).To(BeTrue())
-		ok, _ = c.CheckXMLStream([]byte(`<R><Owner Size="five"/></R>`))
+		ok, _ = c.CheckXML([]byte(`<R><Owner Size="five"/></R>`))
 		Expect(ok).To(BeFalse())
 	})
 
 	It("keeps exact text through entities and CDATA", func() {
 		c2, _ := Compile([]byte(`{"type":"object","properties":{"Name":{"type":"string","pattern":"^a & b <c>$"}}}`))
-		ok, err := c2.CheckXMLStream([]byte(`<R><Name>a &amp; b <![CDATA[<c>]]></Name></R>`))
+		ok, err := c2.CheckXML([]byte(`<R><Name>a &amp; b <![CDATA[<c>]]></Name></R>`))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ok).To(BeTrue())
 	})
 
 	It("reports a repeated element that is not next to its siblings", func() {
-		_, err := c.CheckXMLStream([]byte(`<R><Tags>a</Tags><Name>n</Name><Tags>b</Tags></R>`))
+		_, err := c.CheckXML([]byte(`<R><Tags>a</Tags><Name>n</Name><Tags>b</Tags></R>`))
 		Expect(err).To(MatchError(errNotNear))
 	})
 
 	It("reports elements where the schema expects text", func() {
-		_, err := c.CheckXMLStream([]byte(`<R><Name><x/></Name></R>`))
+		_, err := c.CheckXML([]byte(`<R><Name><x/></Name></R>`))
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("refuses a mismatched end tag and text after the root", func() {
-		_, err := c.CheckXMLStream([]byte(`<R><Name>a</Nom></R>`))
+		_, err := c.CheckXML([]byte(`<R><Name>a</Nom></R>`))
 		Expect(err).To(HaveOccurred())
-		_, err = c.CheckXMLStream([]byte(`<R/><R/>`))
+		_, err = c.CheckXML([]byte(`<R/><R/>`))
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("can be reused for the next body after an error", func() {
-		_, err := c.CheckXMLStream([]byte(`<R><Name>`))
+		_, err := c.CheckXML([]byte(`<R><Name>`))
 		Expect(err).To(HaveOccurred())
-		ok, err := c.CheckXMLStream([]byte(`<R><Name>a</Name></R>`))
+		ok, err := c.CheckXML([]byte(`<R><Name>a</Name></R>`))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ok).To(BeTrue())
 	})
 
 	It("reads a body with no schema information for an element, by what it holds", func() {
 		c3, _ := Compile([]byte(`{"type":"object"}`))
-		ok, err := c3.CheckXMLStream([]byte(`<R><Free><A>1</A></Free><Text>x</Text></R>`))
+		ok, err := c3.CheckXML([]byte(`<R><Free><A>1</A></Free><Text>x</Text></R>`))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ok).To(BeTrue())
 	})

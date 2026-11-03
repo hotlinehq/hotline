@@ -35,20 +35,9 @@ func (c *Checker) CheckJSON(body []byte) (bool, error) {
 	return c.m.MatchBytes(body)
 }
 
-// CheckXML reports whether the XML body is valid, reading it by the same schema.
-// The error is set only when the body is not well-formed XML or has a DOCTYPE.
+// CheckXML reports whether the XML body is valid, reading it by the same schema. The body is read piece by piece
+// straight into the matcher, with no tree. The error is set when the body is not well-formed XML or has a DOCTYPE.
 func (c *Checker) CheckXML(body []byte) (bool, error) {
-	h, err := toHedge(body, c.root, c.defs)
-	if err != nil {
-		return false, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.m.MatchParser(newFixed(h))
-}
-
-// CheckXMLStream is CheckXML without any tree: the body is read piece by piece straight into the matcher.
-func (c *Checker) CheckXMLStream(body []byte) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sp.Init(body)

@@ -51,13 +51,7 @@ var _ = Describe("Checker", func() {
 		})
 	})
 
-	for name, check := range map[string]func(*katydidcheck.Checker, []byte) (bool, error){
-		"tree reader":      (*katydidcheck.Checker).CheckXML,
-		"streaming reader": (*katydidcheck.Checker).CheckXMLStream,
-	} {
-		check := check
-		describeXML(name, func() *katydidcheck.Checker { return c }, check)
-	}
+	describeXML(func() *katydidcheck.Checker { return c })
 
 	It("gives right answers when many goroutines share one checker", func() {
 		var wg sync.WaitGroup
@@ -70,9 +64,7 @@ var _ = Describe("Checker", func() {
 					b, _ := c.CheckJSON([]byte(`{"KeyCount":"x"}`))
 					d, _ := c.CheckXML([]byte(`<R><KeyCount>1</KeyCount></R>`))
 					e, _ := c.CheckXML([]byte(`<R><KeyCount>x</KeyCount></R>`))
-					f, _ := c.CheckXMLStream([]byte(`<R><KeyCount>1</KeyCount></R>`))
-					g, _ := c.CheckXMLStream([]byte(`<R><KeyCount>x</KeyCount></R>`))
-					if !a || b || !d || e || !f || g {
+					if !a || b || !d || e {
 						mu.Lock()
 						wrong++
 						mu.Unlock()
@@ -85,8 +77,9 @@ var _ = Describe("Checker", func() {
 	})
 })
 
-func describeXML(name string, get func() *katydidcheck.Checker, check func(*katydidcheck.Checker, []byte) (bool, error)) {
-	Describe("XML, same schema, "+name, func() {
+func describeXML(get func() *katydidcheck.Checker) {
+	check := (*katydidcheck.Checker).CheckXML
+	Describe("XML, same schema", func() {
 		ok := func(x string) {
 			GinkgoHelper()
 			got, err := check(get(), []byte(x))
