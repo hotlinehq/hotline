@@ -173,10 +173,14 @@ func (p *XMLStreamingParser) push(h parse.Hint, k parse.Kind, s []byte, n uint64
 	p.q = append(p.q, event{h, k, s, n})
 }
 
-func (p *XMLStreamingParser) fieldName(name []byte) { p.push(parse.FieldHint, parse.StringKind, name, 0) }
-func (p *XMLStreamingParser) fieldIndex(i int64)    { p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i)) }
-func (p *XMLStreamingParser) enter()                { p.push(parse.EnterHint, parse.UnknownKind, nil, 0) }
-func (p *XMLStreamingParser) leave()                { p.push(parse.LeaveHint, parse.UnknownKind, nil, 0) }
+func (p *XMLStreamingParser) fieldName(name []byte) {
+	p.push(parse.FieldHint, parse.StringKind, name, 0)
+}
+func (p *XMLStreamingParser) fieldIndex(i int64) {
+	p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i))
+}
+func (p *XMLStreamingParser) enter() { p.push(parse.EnterHint, parse.UnknownKind, nil, 0) }
+func (p *XMLStreamingParser) leave() { p.push(parse.LeaveHint, parse.UnknownKind, nil, 0) }
 func (p *XMLStreamingParser) tag(t string) {
 	p.push(parse.FieldHint, parse.TagKind, unsafe.Slice(unsafe.StringData(t), len(t)), 0)
 }
