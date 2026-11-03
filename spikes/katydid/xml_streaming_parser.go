@@ -10,14 +10,14 @@ import (
 	"go.katydid.org.za/parser-go/parse"
 )
 
-// streamParser reads XML bytes and hands katydid's matcher the same pieces its JSON reader does
+// XMLStreamingParser reads XML bytes and hands katydid's matcher the same pieces its JSON reader does
 // (enter, field, value, leave, with object and array marks), one at a time and without a tree.
 // It follows the schema to know what each element is. It copies nothing from the body, except
 // text that holds entities such as &amp;, which is decoded into a scratch buffer.
 //
 // Limits (see streaming-xml-requirements.md): repeated elements that are not side by side are an
 // error, and schema choices (oneOf, anyOf, allOf) are read by taking the first member that names a property or type.
-type streamParser struct {
+type XMLStreamingParser struct {
 	r    *resolver
 	root schema
 
@@ -71,12 +71,12 @@ var (
 	errNestedArr = errors.New("xml: list inside a list is not supported")
 )
 
-func newStreamParser(r *resolver, root schema) *streamParser {
-	return &streamParser{r: r, root: r.deref(root)}
+func newXMLStreamingParser(r *resolver, root schema) *XMLStreamingParser {
+	return &XMLStreamingParser{r: r, root: r.deref(root)}
 }
 
 // Init restarts the parser with a new body, reusing its buffers.
-func (p *streamParser) Init(body []byte) {
+func (p *XMLStreamingParser) Init(body []byte) {
 	p.body, p.pos, p.state = body, 0, stStart
 	if bytes.HasPrefix(body, []byte("\xef\xbb\xbf")) {
 		p.pos = 3
@@ -86,7 +86,7 @@ func (p *streamParser) Init(body []byte) {
 	p.err = checkChars(body)
 }
 
-func (p *streamParser) Next() (parse.Hint, error) {
+func (p *XMLStreamingParser) Next() (parse.Hint, error) {
 	if p.err != nil {
 		return parse.UnknownHint, p.err
 	}
@@ -105,7 +105,7 @@ func (p *streamParser) Next() (parse.Hint, error) {
 	return p.cur.hint, nil
 }
 
-func (p *streamParser) Token() (parse.Kind, []byte, error) {
+func (p *XMLStreamingParser) Token() (parse.Kind, []byte, error) {
 	e := &p.cur
 	switch e.kind {
 	case parse.Int64Kind, parse.Float64Kind:
@@ -118,7 +118,7 @@ func (p *streamParser) Token() (parse.Kind, []byte, error) {
 }
 
 // Skip follows katydid's meaning: after enter or value it skips the rest of the container, after a field it skips the value.
-func (p *streamParser) Skip() error {
+func (p *XMLStreamingParser) Skip() error {
 	err := p.skip()
 	if err != nil && p.err == nil {
 		p.err = err
@@ -128,7 +128,7 @@ func (p *streamParser) Skip() error {
 
 // finish reads the rest of the body, so a body that is cut off or broken after the matcher
 // has made up its mind (it skips the rest) is still reported as broken.
-func (p *streamParser) finish() error {
+func (p *XMLStreamingParser) finish() error {
 	if p.err != nil {
 		return p.err
 	}
@@ -141,7 +141,7 @@ func (p *streamParser) finish() error {
 	}
 }
 
-func (p *streamParser) skip() error {
+func (p *XMLStreamingParser) skip() error {
 	switch p.last {
 	case parse.LeaveHint, parse.UnknownHint:
 		return nil
@@ -169,20 +169,20 @@ func (p *streamParser) skip() error {
 	}
 }
 
-func (p *streamParser) push(h parse.Hint, k parse.Kind, s []byte, n uint64) {
+func (p *XMLStreamingParser) push(h parse.Hint, k parse.Kind, s []byte, n uint64) {
 	p.q = append(p.q, event{h, k, s, n})
 }
 
-func (p *streamParser) fieldName(name []byte) { p.push(parse.FieldHint, parse.StringKind, name, 0) }
-func (p *streamParser) fieldIndex(i int64)    { p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i)) }
-func (p *streamParser) enter()                { p.push(parse.EnterHint, parse.UnknownKind, nil, 0) }
-func (p *streamParser) leave()                { p.push(parse.LeaveHint, parse.UnknownKind, nil, 0) }
-func (p *streamParser) tag(t string) {
+func (p *XMLStreamingParser) fieldName(name []byte) { p.push(parse.FieldHint, parse.StringKind, name, 0) }
+func (p *XMLStreamingParser) fieldIndex(i int64)    { p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i)) }
+func (p *XMLStreamingParser) enter()                { p.push(parse.EnterHint, parse.UnknownKind, nil, 0) }
+func (p *XMLStreamingParser) leave()                { p.push(parse.LeaveHint, parse.UnknownKind, nil, 0) }
+func (p *XMLStreamingParser) tag(t string) {
 	p.push(parse.FieldHint, parse.TagKind, unsafe.Slice(unsafe.StringData(t), len(t)), 0)
 }
 
 // fill scans the body until at least one event is queued.
-func (p *streamParser) fill() error {
+func (p *XMLStreamingParser) fill() error {
 	for len(p.q) == 0 {
 		switch p.state {
 		case stStart:
@@ -223,7 +223,7 @@ func (p *streamParser) fill() error {
 }
 
 // skipMisc skips spaces, comments and processing lines (<?xml ...?>), and refuses a DOCTYPE.
-func (p *streamParser) skipMisc() error {
+func (p *XMLStreamingParser) skipMisc() error {
 	for p.pos < len(p.body) {
 		switch c := p.body[p.pos]; {
 		case c == ' ' || c == '\n' || c == '\t' || c == '\r':
@@ -245,7 +245,7 @@ func (p *streamParser) skipMisc() error {
 	return nil
 }
 
-func (p *streamParser) skipComment() error {
+func (p *XMLStreamingParser) skipComment() error {
 	start := p.pos + 4
 	if err := p.skipTo("-->"); err != nil {
 		return err
@@ -253,7 +253,7 @@ func (p *streamParser) skipComment() error {
 	return checkComment(p.body[start : p.pos-3])
 }
 
-func (p *streamParser) skipPI() error {
+func (p *XMLStreamingParser) skipPI() error {
 	start := p.pos + 2
 	bom := bytes.HasPrefix(p.body, []byte("\xef\xbb\xbf"))
 	atStart := p.pos == 0 || p.pos == 3 && bom
@@ -263,7 +263,7 @@ func (p *streamParser) skipPI() error {
 	return checkPI(p.body[start:p.pos-2], atStart, bom && atStart)
 }
 
-func (p *streamParser) skipTo(end string) error {
+func (p *XMLStreamingParser) skipTo(end string) error {
 	i := bytes.Index(p.body[p.pos:], []byte(end))
 	if i < 0 {
 		return errSyntax
@@ -273,7 +273,7 @@ func (p *streamParser) skipTo(end string) error {
 }
 
 // content handles markup inside an object element until it queues something.
-func (p *streamParser) content() error {
+func (p *XMLStreamingParser) content() error {
 	for len(p.q) == 0 {
 		i := bytes.IndexByte(p.body[p.pos:], '<')
 		if i < 0 {
@@ -325,7 +325,7 @@ func (p *streamParser) content() error {
 	return nil
 }
 
-func (p *streamParser) skipSpace() {
+func (p *XMLStreamingParser) skipSpace() {
 	for p.pos < len(p.body) {
 		switch p.body[p.pos] {
 		case ' ', '\n', '\t', '\r':
@@ -362,7 +362,7 @@ func localName(n []byte) []byte {
 }
 
 // readStartTag reads <name attr="v" ...> or <name .../> at p.pos and fills p.attrs. xmlns attributes are dropped.
-func (p *streamParser) readStartTag() (name []byte, selfClosing bool, err error) {
+func (p *XMLStreamingParser) readStartTag() (name []byte, selfClosing bool, err error) {
 	name, n, err := readName(p.body[p.pos+1:])
 	if err != nil {
 		return nil, false, err
@@ -432,7 +432,7 @@ func (p *streamParser) readStartTag() (name []byte, selfClosing bool, err error)
 }
 
 // startElement handles a start tag: the root (root true) or a child of the open object.
-func (p *streamParser) startElement(root bool) error {
+func (p *XMLStreamingParser) startElement(root bool) error {
 	name, selfClosing, err := p.readStartTag()
 	if err != nil {
 		return err
@@ -498,7 +498,7 @@ func (p *streamParser) startElement(root bool) error {
 }
 
 // nextIsElement looks ahead past spaces: is the first thing inside the element another element?
-func (p *streamParser) nextIsElement() bool {
+func (p *XMLStreamingParser) nextIsElement() bool {
 	i := p.pos
 	for i < len(p.body) && (p.body[i] == ' ' || p.body[i] == '\n' || p.body[i] == '\t' || p.body[i] == '\r') {
 		i++
@@ -513,7 +513,7 @@ func (p *streamParser) nextIsElement() bool {
 	return true
 }
 
-func (p *streamParser) closeArray(f *frame) {
+func (p *XMLStreamingParser) closeArray(f *frame) {
 	if f.arr == nil {
 		return
 	}
@@ -523,7 +523,7 @@ func (p *streamParser) closeArray(f *frame) {
 	f.arr = nil
 }
 
-func (p *streamParser) closeFrame() {
+func (p *XMLStreamingParser) closeFrame() {
 	f := &p.stack[len(p.stack)-1]
 	p.closeArray(f)
 	p.leave()
@@ -533,7 +533,7 @@ func (p *streamParser) closeFrame() {
 }
 
 // emitAttrs queues the attributes of the element just opened as fields of its object.
-func (p *streamParser) emitAttrs() {
+func (p *XMLStreamingParser) emitAttrs() {
 	f := &p.stack[len(p.stack)-1]
 	for _, a := range p.attrs {
 		p.fieldName(a.name)
@@ -542,7 +542,7 @@ func (p *streamParser) emitAttrs() {
 }
 
 // scalar reads the text of an element up to its end tag and queues one value.
-func (p *streamParser) scalar(name []byte, selfClosing bool, target schema) error {
+func (p *XMLStreamingParser) scalar(name []byte, selfClosing bool, target schema) error {
 	if selfClosing {
 		p.value(p.r.typeOf(target), nil)
 		return nil
@@ -618,7 +618,7 @@ func (p *streamParser) scalar(name []byte, selfClosing bool, target schema) erro
 }
 
 // decode returns the text with entities replaced. Text without '&' is returned as it is, not copied.
-func (p *streamParser) decode(b []byte) []byte {
+func (p *XMLStreamingParser) decode(b []byte) []byte {
 	if bytes.IndexByte(b, '&') < 0 {
 		return b
 	}
@@ -700,7 +700,7 @@ func parseFloat(b []byte) (float64, bool) {
 }
 
 // value queues a value typed by the schema's type. Text that does not fit the type stays text, so the matcher refuses it.
-func (p *streamParser) value(typ string, text []byte) {
+func (p *XMLStreamingParser) value(typ string, text []byte) {
 	t := trimSpace(text)
 	switch typ {
 	case "integer":
