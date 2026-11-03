@@ -15,6 +15,7 @@ type Checker struct {
 	m    jsonschema.Matcher
 	root schema
 	defs map[string]any
+	sp   *streamParser
 }
 
 // Compile loads a JSON Schema. Local references must point at "#/definitions/...".
@@ -24,7 +25,7 @@ func Compile(schemaJSON []byte) (*Checker, error) {
 		return nil, err
 	}
 	root, defs := parseSchema(schemaJSON)
-	return &Checker{m: m, root: root, defs: defs}, nil
+	return &Checker{m: m, root: root, defs: defs, sp: newStreamParser(&resolver{defs}, root)}, nil
 }
 
 // CheckJSON reports whether the JSON body is valid. No reason is given: katydid answers only yes or no.
@@ -44,4 +45,16 @@ func (c *Checker) CheckXML(body []byte) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.m.MatchParser(newFixed(h))
+}
+
+// CheckXMLStream is CheckXML without any tree: the body is read piece by piece straight into the matcher.
+func (c *Checker) CheckXMLStream(body []byte) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sp.Init(body)
+	ok, err := c.m.MatchParser(c.sp)
+	if err != nil {
+		return false, err
+	}
+	return ok, nil
 }

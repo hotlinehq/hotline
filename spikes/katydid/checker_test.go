@@ -49,14 +49,51 @@ var _ = Describe("Checker", func() {
 		})
 	})
 
-	Describe("XML, same schema", func() {
+	for name, check := range map[string]func(*katydidcheck.Checker, []byte) (bool, error){
+		"tree reader":      (*katydidcheck.Checker).CheckXML,
+		"streaming reader": (*katydidcheck.Checker).CheckXMLStream,
+	} {
+		check := check
+		describeXML(name, func() *katydidcheck.Checker { return c }, check)
+	}
+
+	It("gives right answers when many goroutines share one checker", func() {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		wrong := 0
+		for range 8 {
+			wg.Go(func() {
+				for range 200 {
+					a, _ := c.CheckJSON([]byte(`{"KeyCount":1}`))
+					b, _ := c.CheckJSON([]byte(`{"KeyCount":"x"}`))
+					d, _ := c.CheckXML([]byte(`<R><KeyCount>1</KeyCount></R>`))
+					e, _ := c.CheckXML([]byte(`<R><KeyCount>x</KeyCount></R>`))
+					f, _ := c.CheckXMLStream([]byte(`<R><KeyCount>1</KeyCount></R>`))
+					g, _ := c.CheckXMLStream([]byte(`<R><KeyCount>x</KeyCount></R>`))
+					if !a || b || !d || e || !f || g {
+						mu.Lock()
+						wrong++
+						mu.Unlock()
+					}
+				}
+			})
+		}
+		wg.Wait()
+		Expect(wrong).To(BeZero())
+	})
+})
+
+func describeXML(name string, get func() *katydidcheck.Checker, check func(*katydidcheck.Checker, []byte) (bool, error)) {
+	Describe("XML, same schema, "+name, func() {
 		ok := func(x string) {
 			GinkgoHelper()
-			Expect(c.CheckXML([]byte(x))).To(BeTrue(), x)
+			got, err := check(get(), []byte(x))
+			Expect(err).NotTo(HaveOccurred(), x)
+			Expect(got).To(BeTrue(), x)
 		}
 		bad := func(x string) {
 			GinkgoHelper()
-			got, err := c.CheckXML([]byte(x))
+			got, err := check(get(), []byte(x))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).To(BeFalse(), x)
 		}
@@ -84,35 +121,12 @@ var _ = Describe("Checker", func() {
 			bad(`<R><Kind>z</Kind></R>`)
 		})
 		It("refuses a body that is not well-formed XML", func() {
-			_, err := c.CheckXML([]byte(`<R><Name>shop-x</Name>`))
+			_, err := check(get(), []byte(`<R><Name>shop-x</Name>`))
 			Expect(err).To(HaveOccurred())
 		})
 		It("refuses a DOCTYPE and never reads it", func() {
-			_, err := c.CheckXML([]byte(`<!DOCTYPE r [<!ENTITY a "b">]><R><Name>shop-x</Name></R>`))
+			_, err := check(get(), []byte(`<!DOCTYPE r [<!ENTITY a "b">]><R><Name>shop-x</Name></R>`))
 			Expect(err).To(HaveOccurred())
 		})
 	})
-
-	It("gives right answers when many goroutines share one checker", func() {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		wrong := 0
-		for range 8 {
-			wg.Go(func() {
-				for range 200 {
-					a, _ := c.CheckJSON([]byte(`{"KeyCount":1}`))
-					b, _ := c.CheckJSON([]byte(`{"KeyCount":"x"}`))
-					d, _ := c.CheckXML([]byte(`<R><KeyCount>1</KeyCount></R>`))
-					e, _ := c.CheckXML([]byte(`<R><KeyCount>x</KeyCount></R>`))
-					if !a || b || !d || e {
-						mu.Lock()
-						wrong++
-						mu.Unlock()
-					}
-				}
-			})
-		}
-		wg.Wait()
-		Expect(wrong).To(BeZero())
-	})
-})
+}

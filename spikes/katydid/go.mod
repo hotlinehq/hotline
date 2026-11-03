@@ -6,6 +6,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
 	go.katydid.org.za/parser-go v0.13.0
+	go.katydid.org.za/parser-go-json v0.9.0
 	go.katydid.org.za/validator-go-jsonschema v0.2.0
 )
 
@@ -17,7 +18,6 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/jtacoma/uritemplates v1.0.0 // indirect
-	go.katydid.org.za/parser-go-json v0.9.0 // indirect
 	go.katydid.org.za/validator-go v0.9.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.36.0 // indirect

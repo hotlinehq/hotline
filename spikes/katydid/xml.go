@@ -2,6 +2,7 @@ package katydidcheck
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 
@@ -30,9 +31,21 @@ func sub(s schema, k string) schema {
 	return schema(m)
 }
 
-func (r *resolver) prop(s schema, name string) schema {
-	p, _ := sub(s, "properties")[name].(map[string]any)
-	return r.deref(schema(p))
+func (r *resolver) prop(s schema, name []byte) schema {
+	s = r.deref(s)
+	if p, ok := sub(s, "properties")[string(name)].(map[string]any); ok {
+		return r.deref(schema(p))
+	}
+	for _, k := range []string{"allOf", "oneOf", "anyOf"} {
+		l, _ := s[k].([]any)
+		for _, m := range l {
+			mm, _ := m.(map[string]any)
+			if p := r.prop(schema(mm), name); p != nil {
+				return p
+			}
+		}
+	}
+	return nil
 }
 
 // toHedge turns an element into a hedge node tree shaped like what the JSON reader gives:
@@ -71,7 +84,7 @@ func (r *resolver) object(n *xnode, s schema) hedge.Hedge {
 			continue
 		}
 		done[c.name] = true
-		ps := r.prop(s, c.name)
+		ps := r.prop(s, []byte(c.name))
 		if ps["type"] == "array" {
 			items := r.deref(sub(ps, "items"))
 			var arr hedge.Hedge
@@ -127,3 +140,54 @@ func (f *fixed) Token() (parse.Kind, []byte, error) {
 }
 
 func newFixed(h hedge.Hedge) parse.Parser { return &fixed{Parser: hedge.NewParser(h)} }
+
+func float64bits(f float64) uint64 { return math.Float64bits(f) }
+
+// typeOf gives the schema's type name, or "" when it names none. A list of types gives its first non-null member.
+// Schema choices (allOf, oneOf, anyOf) are read through their first member that names a type.
+func (r *resolver) typeOf(s schema) string {
+	s = r.deref(s)
+	switch t := s["type"].(type) {
+	case string:
+		return t
+	case []any:
+		for _, x := range t {
+			if str, ok := x.(string); ok && str != "null" {
+				return str
+			}
+		}
+	}
+	if sub(s, "properties") != nil {
+		return "object"
+	}
+	if s["items"] != nil {
+		return "array"
+	}
+	for _, k := range []string{"allOf", "oneOf", "anyOf"} {
+		l, _ := s[k].([]any)
+		for _, m := range l {
+			mm, _ := m.(map[string]any)
+			if t := r.typeOf(schema(mm)); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+func (r *resolver) items(s schema) schema {
+	s = r.deref(s)
+	if m, ok := s["items"].(map[string]any); ok {
+		return schema(m)
+	}
+	for _, k := range []string{"allOf", "oneOf", "anyOf"} {
+		l, _ := s[k].([]any)
+		for _, m := range l {
+			mm, _ := m.(map[string]any)
+			if it := r.items(schema(mm)); it != nil {
+				return it
+			}
+		}
+	}
+	return nil
+}

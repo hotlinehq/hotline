@@ -70,3 +70,18 @@ func BenchmarkXML_Katydid(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkXML_KatydidStream(b *testing.B) {
+	body := xmlBody(450)
+	c, err := katydidcheck.Compile(schemaOf(b, "s3.schema.json"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	for b.Loop() {
+		if ok, err := c.CheckXMLStream(body); !ok {
+			b.Fatal("not valid", err)
+		}
+	}
+}
