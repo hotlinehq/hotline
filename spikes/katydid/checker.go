@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	kj "go.katydid.org.za/parser-go-json/json"
 	"go.katydid.org.za/validator-go-jsonschema/jsonschema"
 )
 
@@ -63,12 +64,19 @@ func (c *Checker) CheckXML(body []byte) (bool, error) {
 }
 
 // WhyJSON checks the JSON body like CheckJSON, but says where the first failure is.
-// It returns nil when the body is valid, a *ValidationError when it is not,
-// and any other error when the body could not be read.
+// It returns nil when the body is valid, a *Failure when it is not (errors.As also finds the
+// *ValidationError inside it), and any other error when the body could not be read.
 func (c *Checker) WhyJSON(body []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.why.CheckBytes(body)
+	err := c.why.CheckBytes(body)
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		return err
+	}
+	p := kj.NewJSONSchemaParser()
+	p.Init(body)
+	return (&resolver{c.defs}).explain(c.root, p, ve)
 }
 
 // WhyXML checks the XML body like CheckXML, but says where the first failure is.
@@ -77,16 +85,17 @@ func (c *Checker) WhyXML(body []byte) error {
 	defer c.mu.Unlock()
 	c.sp.Init(body)
 	err := c.why.CheckParser(c.sp)
-	if err != nil {
-		var ve *ValidationError
-		if !errors.As(err, &ve) {
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		if err != nil {
 			return err
 		}
-		// a body that is not well-formed XML counts as an error, even when it also fails the schema
-		if ferr := c.sp.finish(); ferr != nil {
-			return ferr
-		}
-		return err
+		return c.sp.finish()
 	}
-	return c.sp.finish()
+	// a body that is not well-formed XML counts as an error, even when it also fails the schema
+	if ferr := c.sp.finish(); ferr != nil {
+		return ferr
+	}
+	c.sp.Init(body)
+	return (&resolver{c.defs}).explain(c.root, c.sp, ve)
 }

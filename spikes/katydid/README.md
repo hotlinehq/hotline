@@ -3,6 +3,7 @@
 Throwaway spike: check JSON and XML bodies against one JSON Schema with katydid. Not wired into the proxy. Findings: the project file `katydid-sole-engine/findings.md`.
 
 - `checker.go`: `Compile`, `CheckJSON`, `CheckXML`. A loaded katydid matcher is not safe to share, so each check takes a lock.
+- `explain.go`: `WhyJSON` and `WhyXML` return a `*Failure` with place (`$.Contents[1].Size`), rule and expected, like the proxy reports today. Katydid gives only the path; the rule is rebuilt from the schema and the body, only for failing bodies. Tests compare it with santhosh. Not explained yet: allOf, oneOf, anyOf, not, format.
 - `schema.go`: reads the JSON Schema as plain maps: follows `$ref`, finds a property's schema, and gives its type.
 - `xml_streaming_parser.go`: the XML reader (`CheckXML`). Reads the bytes piece by piece straight into katydid's matcher, no tree, nothing copied from the body. Limits: repeated elements that are not side by side are an error; schema choices (`allOf`, `oneOf`, `anyOf`) are read through their first member that names a type or property.
 - Run tests: `GOWORK=off go test -race ./...`. Benchmarks: `GOWORK=off go test -run xxx -bench .`

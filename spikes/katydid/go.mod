@@ -18,6 +18,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/jtacoma/uritemplates v1.0.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.katydid.org.za/validator-go v0.9.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.36.0 // indirect
@@ -31,3 +32,5 @@ require (
 replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261103215037-9cb1cdf93339
 
 replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261103215042-177f3bc0d5e8
+
+replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102215937-5cc57679620b
