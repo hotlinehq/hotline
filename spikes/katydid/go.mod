@@ -27,3 +27,7 @@ require (
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 )
+
+replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261103215037-9cb1cdf93339
+
+replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261103215042-177f3bc0d5e8

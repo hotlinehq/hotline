@@ -1,3 +1,7 @@
+codeberg.org/petercipov/validator-go v0.9.1-0.20261103215037-9cb1cdf93339 h1:Caxg5ELwkkOIj+rdu7VAsEouC1u5xrLRql/C7sd5mCU=
+codeberg.org/petercipov/validator-go v0.9.1-0.20261103215037-9cb1cdf93339/go.mod h1:AjOF4ea/lfum7NBwZ6WH1XDZwHxcZQlf8qswYhuSzrY=
+codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261103215042-177f3bc0d5e8 h1:ljq77DXrnIwiII6D4YlVS0u9sQqrnPUYiOq3WR8IBQ4=
+codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261103215042-177f3bc0d5e8/go.mod h1:49eedS4pdyFT2BI/YzaCalrhxEIYTvYOAbR6ftJ7Zfc=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
@@ -58,10 +62,6 @@ go.katydid.org.za/parser-go-reflect v0.6.0 h1:/0lhni7XcE+cTjsHui1/5yqv8UHpmtNgC7
 go.katydid.org.za/parser-go-reflect v0.6.0/go.mod h1:OMf0g6yypjutNU3pmeiozN/YBQY8CMfXE/PyliQdWZ0=
 go.katydid.org.za/parser-go-xml v0.3.0 h1:PSB6cLf+tLvGitB/hvJNOR8YMjVqUUtXPFtMK1eDqfc=
 go.katydid.org.za/parser-go-xml v0.3.0/go.mod h1:uNwu/+WJEA+SN+OkQkCR+9VlXlvlbw7yZwOlQzLHBu8=
-go.katydid.org.za/validator-go v0.9.0 h1:/fp8zjF5h+ZJ0UDDjrtGAKQxYcOxd2VhLbV4QdV+NjM=
-go.katydid.org.za/validator-go v0.9.0/go.mod h1:AjOF4ea/lfum7NBwZ6WH1XDZwHxcZQlf8qswYhuSzrY=
-go.katydid.org.za/validator-go-jsonschema v0.2.0 h1:pFyhlH5SUjh94yfn3D6AyZRsLiVjlycyWOPtOANg6h8=
-go.katydid.org.za/validator-go-jsonschema v0.2.0/go.mod h1:49eedS4pdyFT2BI/YzaCalrhxEIYTvYOAbR6ftJ7Zfc=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 golang.org/x/mod v0.36.0 h1:JJjpVx6myfUsUdAzZuOSTTmRE0PfZeNWzzvKrP7amb4=
