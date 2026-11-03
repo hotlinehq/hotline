@@ -1,15 +1,11 @@
 package katydidcheck_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	katydidcheck "hotline-spike-katydid"
 	"os"
 	"strings"
 	"testing"
-
-	santhosh "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const dir = "testdata/"
@@ -43,34 +39,6 @@ func schemaOf(b testing.TB, f string) []byte {
 		b.Fatal(err)
 	}
 	return d
-}
-
-func santhoshCompile(b testing.TB, doc []byte) *santhosh.Schema {
-	c := santhosh.NewCompiler()
-	var d any
-	_ = json.Unmarshal(doc, &d)
-	_ = c.AddResource("s.json", d)
-	s, err := c.Compile("s.json")
-	if err != nil {
-		b.Fatal(err)
-	}
-	return s
-}
-
-func benchSanthosh(b *testing.B, sch, body []byte) {
-	s := santhoshCompile(b, sch)
-	b.ReportAllocs()
-	b.SetBytes(int64(len(body)))
-	for b.Loop() {
-		inst, _ := santhosh.UnmarshalJSON(bytes.NewReader(body))
-		if err := s.Validate(inst); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkJSON_Santhosh(b *testing.B) {
-	benchSanthosh(b, schemaOf(b, "ssm.schema.json"), jsonBody(400))
 }
 
 func BenchmarkJSON_Katydid(b *testing.B) {
