@@ -1,6 +1,7 @@
 package katydidcheck_test
 
 import (
+	"strings"
 	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,6 +15,7 @@ const listSchema = `{
   "properties": {
     "Name": {"type": "string", "pattern": "^shop-"},
     "KeyCount": {"type": "integer"},
+    "Ratio": {"type": "number"},
     "IsTruncated": {"type": "boolean"},
     "Kind": {"$ref": "#/definitions/Kind"},
     "Contents": {"type": "array", "items": {"$ref": "#/definitions/Object"}}
@@ -127,6 +129,81 @@ func describeXML(name string, get func() *katydidcheck.Checker, check func(*katy
 		It("refuses a DOCTYPE and never reads it", func() {
 			_, err := check(get(), []byte(`<!DOCTYPE r [<!ENTITY a "b">]><R><Name>shop-x</Name></R>`))
 			Expect(err).To(HaveOccurred())
+		})
+
+		Describe("odd but valid bodies", func() {
+			DescribeTable("are accepted",
+				func(x string) { ok(x) },
+				Entry("namespace prefixes on every element", `<s3:R xmlns:s3="http://x/"><s3:Name>shop-x</s3:Name><s3:Contents><s3:Key>a</s3:Key><s3:Size>1</s3:Size></s3:Contents></s3:R>`),
+				Entry("single-quoted attributes and a > inside one", `<R a='1' b="x>y" xsi:type="T" xmlns:xsi="http://x/"><Name>shop-x</Name></R>`),
+				Entry("indented with newlines and carriage returns", "<R>\r\n  <Name>shop-x</Name>\r\n  <Contents>\r\n    <Key>a</Key>\r\n    <Size>1</Size>\r\n  </Contents>\r\n</R>\r\n"),
+				Entry("spaces around the end tag name", `<R><Name>shop-x</Name ></R >`),
+				Entry("xml line, comments and processing lines around the root", `<?xml version="1.0" encoding="UTF-8"?><!-- a --><?pi x?><R><Name>shop-x</Name></R><!-- b --><?pi y?>`+"\n"),
+				Entry("comment inside text and between elements", `<R><Name>shop-<!-- x -->x</Name><!-- y --><KeyCount>1</KeyCount></R>`),
+				Entry("CDATA that holds markup and brackets", `<R><Name><![CDATA[shop-]]]]><![CDATA[>x]]></Name></R>`),
+				Entry("entities, numeric and hex", `<R><Name>shop-&#120;&#x78;&amp;&lt;&gt;&quot;&apos;</Name></R>`),
+				Entry("unicode text", `<R><Name>shop-é世界😀</Name></R>`),
+				Entry("negative and padded numbers", `<R><KeyCount> -5 </KeyCount><Contents><Key>a</Key><Size>+7</Size></Contents></R>`),
+				Entry("decimal numbers in several spellings", `<R><Ratio>1.5e3</Ratio><Contents><Key>a</Key><Size>1</Size></Contents></R><!-- .5 and -0 are numbers too -->`),
+				Entry("a number starting with a dot", `<R><Ratio>.5</Ratio></R>`),
+				Entry("minus zero", `<R><Ratio>-0</Ratio></R>`),
+				Entry("empty root", `<R></R>`),
+				Entry("self-closing root", `<R/>`),
+				Entry("an empty string where the schema says string", `<R><Contents><Key></Key><Size>1</Size></Contents></R>`),
+				Entry("names that differ only by case are other elements", `<R><name>whatever</name><NAME>1</NAME><Name>shop-x</Name></R>`),
+				Entry("text mixed in with child elements", `<R>hello<Name>shop-x</Name>tail</R>`),
+				Entry("elements the schema does not name, with children", `<R><Extra><Deep><Deeper>1</Deeper></Deep></Extra><Name>shop-x</Name></R>`),
+				Entry("an attribute and a child with the same name", `<R Name="shop-x"><KeyCount>1</KeyCount></R>`),
+				Entry("a very long text", `<R><Name>shop-`+strings.Repeat("x", 1<<20)+`</Name></R>`),
+				Entry("a list of 3000 items", `<R>`+strings.Repeat(`<Contents><Key>a</Key><Size>1</Size></Contents>`, 3000)+`</R>`),
+			)
+
+			DescribeTable("are refused as invalid, not as broken XML",
+				func(x string) { bad(x) },
+				Entry("a number too big for 64 bits", `<R><KeyCount>99999999999999999999</KeyCount></R>`),
+				Entry("an integer written as a decimal or in hex", `<R><KeyCount>1.5</KeyCount></R>`),
+				Entry("an integer written with an exponent", `<R><KeyCount>1e3</KeyCount></R>`),
+				Entry("hex digits", `<R><KeyCount>0x10</KeyCount></R>`),
+				Entry("NaN as a number", `<R><Ratio>NaN</Ratio></R>`),
+				Entry("Inf as a number", `<R><Ratio>Inf</Ratio></R>`),
+				Entry("a hex float as a number", `<R><Ratio>0x1p-2</Ratio></R>`),
+				Entry("a number with an underscore", `<R><Ratio>1_0</Ratio></R>`),
+				Entry("an empty integer", `<R><KeyCount></KeyCount></R>`),
+				Entry("true in capitals", `<R><IsTruncated>TRUE</IsTruncated></R>`),
+				Entry("true as 1", `<R><IsTruncated>1</IsTruncated></R>`),
+				Entry("an empty boolean", `<R><IsTruncated/></R>`),
+				Entry("a self-closing list item that lacks required fields", `<R><Contents/></R>`),
+				Entry("the second of two items lacking a field", `<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents/></R>`),
+				Entry("a wrong value hidden after many good items", `<R>`+strings.Repeat(`<Contents><Key>a</Key><Size>1</Size></Contents>`, 500)+`<Contents><Key>a</Key><Size>x</Size></Contents></R>`),
+				Entry("an enum value with different case", `<R><Kind>A</Kind></R>`),
+			)
+
+			DescribeTable("are refused as broken XML",
+				func(x string) {
+					_, err := check(get(), []byte(x))
+					Expect(err).To(HaveOccurred())
+				},
+				Entry("an empty body", ``),
+				Entry("only spaces", "  \n "),
+				Entry("only text", `hello`),
+				Entry("text before the root", `hello<R/>`),
+				Entry("a lone <", `<`),
+				Entry("two roots", `<R/><R/>`),
+				Entry("text after the root", `<R/>tail`),
+				Entry("an element after the root", `<R></R><X/>`),
+				Entry("a missing end tag", `<R><Name>a</Name>`),
+				Entry("a wrong end tag", `<R><Name>a</Nom></R>`),
+				Entry("a missing > on the end tag", `<R><Name>a</Name></R`),
+				Entry("an unclosed comment", `<R><!-- x</R>`),
+				Entry("an unclosed CDATA", `<R><Name><![CDATA[x</Name></R>`),
+				Entry("an unclosed start tag", `<R><Name`),
+				Entry("an attribute without a value", `<R a><Name>x</Name></R>`),
+				Entry("an attribute without quotes", `<R a=1><Name>x</Name></R>`),
+				Entry("an unclosed attribute value", `<R a="1><Name>x</Name></R>`),
+				Entry("a DOCTYPE with an entity", `<!DOCTYPE r [<!ENTITY a "b">]><R/>`),
+				Entry("a DOCTYPE with no inner part", `<!DOCTYPE R><R/>`),
+				Entry("a DOCTYPE inside the root", `<R><!DOCTYPE x></R>`),
+			)
 		})
 	})
 }

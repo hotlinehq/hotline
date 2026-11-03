@@ -56,5 +56,8 @@ func (c *Checker) CheckXMLStream(body []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if err := c.sp.finish(); err != nil {
+		return false, err
+	}
 	return ok, nil
 }

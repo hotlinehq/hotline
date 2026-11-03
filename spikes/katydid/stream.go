@@ -31,6 +31,7 @@ type streamParser struct {
 	head int
 	last parse.Hint
 	cur  event
+	err  error // first error met while skipping, which the matcher ignores
 
 	stack  []frame
 	closed [][]byte
@@ -76,7 +77,7 @@ func newStreamParser(r *resolver, root schema) *streamParser {
 // Init restarts the parser with a new body, reusing its buffers.
 func (p *streamParser) Init(body []byte) {
 	p.body, p.pos, p.state = body, 0, stStart
-	p.q, p.head, p.last = p.q[:0], 0, parse.UnknownHint
+	p.q, p.head, p.last, p.err = p.q[:0], 0, parse.UnknownHint, nil
 	p.stack, p.closed, p.attrs, p.scratch = p.stack[:0], p.closed[:0], p.attrs[:0], p.scratch[:0]
 }
 
@@ -110,6 +111,29 @@ func (p *streamParser) Token() (parse.Kind, []byte, error) {
 
 // Skip follows katydid's meaning: after enter or value it skips the rest of the container, after a field it skips the value.
 func (p *streamParser) Skip() error {
+	err := p.skip()
+	if err != nil && p.err == nil {
+		p.err = err
+	}
+	return err
+}
+
+// finish reads the rest of the body, so a body that is cut off or broken after the matcher
+// has made up its mind (it skips the rest) is still reported as broken.
+func (p *streamParser) finish() error {
+	if p.err != nil {
+		return p.err
+	}
+	for {
+		if _, err := p.Next(); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+}
+
+func (p *streamParser) skip() error {
 	switch p.last {
 	case parse.LeaveHint, parse.UnknownHint:
 		return nil
@@ -611,9 +635,16 @@ func parseInt(b []byte) (int64, bool) {
 	return v, err == nil
 }
 
+// parseFloat accepts plain decimal spellings only (digits, sign, dot, exponent), as JSON does:
+// not NaN, Inf, hex floats or underscores, which Go's own parser would take.
 func parseFloat(b []byte) (float64, bool) {
 	if len(b) == 0 {
 		return 0, false
+	}
+	for _, c := range b {
+		if (c < '0' || c > '9') && c != '+' && c != '-' && c != '.' && c != 'e' && c != 'E' {
+			return 0, false
+		}
 	}
 	v, err := strconv.ParseFloat(unsafe.String(&b[0], len(b)), 64)
 	return v, err == nil

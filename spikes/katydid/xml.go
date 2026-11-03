@@ -62,7 +62,7 @@ func (r *resolver) value(n *xnode, s schema) hedge.Hedge {
 			return hedge.Hedge{hedge.NewInt64Node(i)}
 		}
 	case "number":
-		if f, err := strconv.ParseFloat(strings.TrimSpace(n.text.String()), 64); err == nil {
+		if f, ok := parseFloat([]byte(strings.TrimSpace(n.text.String()))); ok {
 			return hedge.Hedge{hedge.NewFloat64Node(f)}
 		}
 	case "boolean":

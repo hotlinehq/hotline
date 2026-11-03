@@ -21,7 +21,7 @@ func readXML(data []byte) (*xnode, error) {
 	var stack []*xnode
 	var root *xnode
 	for {
-		t, err := d.RawToken()
+		t, err := d.Token()
 		if err == io.EOF {
 			break
 		}
@@ -53,6 +53,8 @@ func readXML(data []byte) (*xnode, error) {
 		case xml.CharData:
 			if len(stack) > 0 {
 				stack[len(stack)-1].text.Write(t)
+			} else if len(bytes.TrimSpace(t)) > 0 {
+				return nil, errors.New("text outside the root")
 			}
 		case xml.Directive:
 			return nil, errors.New("doctype refused")
