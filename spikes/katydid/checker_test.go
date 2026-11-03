@@ -41,6 +41,13 @@ func failsAt(err error, path string, value string) {
 	Expect(ve.Value).To(Equal(value))
 }
 
+// saysExactly checks the message the error gives: the place, the rule and what was expected.
+func saysExactly(err error, message string) {
+	GinkgoHelper()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(Equal(message))
+}
+
 var _ = Describe("Checker", func() {
 	var c *katydidcheck.Checker
 
@@ -56,10 +63,13 @@ var _ = Describe("Checker", func() {
 		})
 		It("refuses a missing required field", func() {
 			Expect(c.CheckJSON([]byte(`{"Contents":[{"Key":"a"}]}`))).To(BeFalse())
+			saysExactly(c.WhyJSON([]byte(`{"Contents":[{"Key":"a"}]}`)), "invalid at $.Contents[0].Size: required")
 		})
 		It("refuses a wrong pattern and a wrong enum", func() {
 			Expect(c.CheckJSON([]byte(`{"Name":"other"}`))).To(BeFalse())
 			Expect(c.CheckJSON([]byte(`{"Kind":"z"}`))).To(BeFalse())
+			saysExactly(c.WhyJSON([]byte(`{"Name":"other"}`)), "invalid at $.Name: pattern ^shop-")
+			saysExactly(c.WhyJSON([]byte(`{"Kind":"z"}`)), "invalid at $.Kind: enum a, b")
 		})
 	})
 
@@ -142,11 +152,13 @@ func describeXML(get func() *katydidcheck.Checker) {
 			Expect(err).NotTo(HaveOccurred(), x)
 			Expect(got).To(BeTrue(), x)
 		}
-		bad := func(x string) {
+		// bad checks that the body is refused as invalid, and that the message names the right place, rule and expected value.
+		bad := func(x string, message string) {
 			GinkgoHelper()
 			got, err := check(get(), []byte(x))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).To(BeFalse(), x)
+			saysExactly(get().WhyXML([]byte(x)), message)
 		}
 
 		It("accepts a valid body, ignoring the namespace word", func() {
@@ -163,13 +175,14 @@ func describeXML(get func() *katydidcheck.Checker) {
 			ok(`<R><Contents><Key>007</Key><Size>1</Size></Contents></R>`)
 		})
 		It("refuses a missing field inside the second list item", func() {
-			bad(`<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents><Key>b</Key></Contents></R>`)
+			bad(`<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents><Key>b</Key></Contents></R>`,
+				"invalid at $.Contents[1].Size: required")
 		})
 		It("refuses wrong types, patterns and enums", func() {
-			bad(`<R><KeyCount>abc</KeyCount></R>`)
-			bad(`<R><IsTruncated>maybe</IsTruncated></R>`)
-			bad(`<R><Name>other</Name></R>`)
-			bad(`<R><Kind>z</Kind></R>`)
+			bad(`<R><KeyCount>abc</KeyCount></R>`, "invalid at $.KeyCount: type integer")
+			bad(`<R><IsTruncated>maybe</IsTruncated></R>`, "invalid at $.IsTruncated: type boolean")
+			bad(`<R><Name>other</Name></R>`, "invalid at $.Name: pattern ^shop-")
+			bad(`<R><Kind>z</Kind></R>`, "invalid at $.Kind: enum a, b")
 		})
 		It("refuses a body that is not well-formed XML", func() {
 			_, err := check(get(), []byte(`<R><Name>shop-x</Name>`))
@@ -208,23 +221,23 @@ func describeXML(get func() *katydidcheck.Checker) {
 			)
 
 			DescribeTable("are refused as invalid, not as broken XML",
-				func(x string) { bad(x) },
-				Entry("a number too big for 64 bits", `<R><KeyCount>99999999999999999999</KeyCount></R>`),
-				Entry("an integer written as a decimal or in hex", `<R><KeyCount>1.5</KeyCount></R>`),
-				Entry("an integer written with an exponent", `<R><KeyCount>1e3</KeyCount></R>`),
-				Entry("hex digits", `<R><KeyCount>0x10</KeyCount></R>`),
-				Entry("NaN as a number", `<R><Ratio>NaN</Ratio></R>`),
-				Entry("Inf as a number", `<R><Ratio>Inf</Ratio></R>`),
-				Entry("a hex float as a number", `<R><Ratio>0x1p-2</Ratio></R>`),
-				Entry("a number with an underscore", `<R><Ratio>1_0</Ratio></R>`),
-				Entry("an empty integer", `<R><KeyCount></KeyCount></R>`),
-				Entry("true in capitals", `<R><IsTruncated>TRUE</IsTruncated></R>`),
-				Entry("true as 1", `<R><IsTruncated>1</IsTruncated></R>`),
-				Entry("an empty boolean", `<R><IsTruncated/></R>`),
-				Entry("a self-closing list item that lacks required fields", `<R><Contents/></R>`),
-				Entry("the second of two items lacking a field", `<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents/></R>`),
-				Entry("a wrong value hidden after many good items", `<R>`+strings.Repeat(`<Contents><Key>a</Key><Size>1</Size></Contents>`, 500)+`<Contents><Key>a</Key><Size>x</Size></Contents></R>`),
-				Entry("an enum value with different case", `<R><Kind>A</Kind></R>`),
+				func(x string, message string) { bad(x, message) },
+				Entry("a number too big for 64 bits", `<R><KeyCount>99999999999999999999</KeyCount></R>`, "invalid at $.KeyCount: type integer"),
+				Entry("an integer written as a decimal or in hex", `<R><KeyCount>1.5</KeyCount></R>`, "invalid at $.KeyCount: type integer"),
+				Entry("an integer written with an exponent", `<R><KeyCount>1e3</KeyCount></R>`, "invalid at $.KeyCount: type integer"),
+				Entry("hex digits", `<R><KeyCount>0x10</KeyCount></R>`, "invalid at $.KeyCount: type integer"),
+				Entry("NaN as a number", `<R><Ratio>NaN</Ratio></R>`, "invalid at $.Ratio: type number"),
+				Entry("Inf as a number", `<R><Ratio>Inf</Ratio></R>`, "invalid at $.Ratio: type number"),
+				Entry("a hex float as a number", `<R><Ratio>0x1p-2</Ratio></R>`, "invalid at $.Ratio: type number"),
+				Entry("a number with an underscore", `<R><Ratio>1_0</Ratio></R>`, "invalid at $.Ratio: type number"),
+				Entry("an empty integer", `<R><KeyCount></KeyCount></R>`, "invalid at $.KeyCount: type integer"),
+				Entry("true in capitals", `<R><IsTruncated>TRUE</IsTruncated></R>`, "invalid at $.IsTruncated: type boolean"),
+				Entry("true as 1", `<R><IsTruncated>1</IsTruncated></R>`, "invalid at $.IsTruncated: type boolean"),
+				Entry("an empty boolean", `<R><IsTruncated/></R>`, "invalid at $.IsTruncated: type boolean"),
+				Entry("a self-closing list item that lacks required fields", `<R><Contents/></R>`, "invalid at $.Contents[0].Key: required"),
+				Entry("the second of two items lacking a field", `<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents/></R>`, "invalid at $.Contents[1].Key: required"),
+				Entry("a wrong value hidden after many good items", `<R>`+strings.Repeat(`<Contents><Key>a</Key><Size>1</Size></Contents>`, 500)+`<Contents><Key>a</Key><Size>x</Size></Contents></R>`, "invalid at $.Contents[500].Size: type integer"),
+				Entry("an enum value with different case", `<R><Kind>A</Kind></R>`, "invalid at $.Kind: enum a, b"),
 			)
 
 			DescribeTable("are refused as broken XML",
