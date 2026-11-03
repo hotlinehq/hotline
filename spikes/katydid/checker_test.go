@@ -1,6 +1,8 @@
 package katydidcheck_test
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -29,6 +31,16 @@ const listSchema = `{
   }
 }`
 
+// failsAt checks that err says the body first failed at the given place, with the given value.
+// The path is the field names and list positions from the root, for example [Contents 1 Size].
+func failsAt(err error, path string, value string) {
+	GinkgoHelper()
+	var ve *katydidcheck.ValidationError
+	Expect(errors.As(err, &ve)).To(BeTrue(), "expected a ValidationError, got %v", err)
+	Expect(fmt.Sprint(ve.Path)).To(Equal(path))
+	Expect(ve.Value).To(Equal(value))
+}
+
 var _ = Describe("Checker", func() {
 	var c *katydidcheck.Checker
 
@@ -48,6 +60,50 @@ var _ = Describe("Checker", func() {
 		It("refuses a wrong pattern and a wrong enum", func() {
 			Expect(c.CheckJSON([]byte(`{"Name":"other"}`))).To(BeFalse())
 			Expect(c.CheckJSON([]byte(`{"Kind":"z"}`))).To(BeFalse())
+		})
+	})
+
+	Describe("JSON, where the first failure is", func() {
+		It("is nil for a valid body", func() {
+			Expect(c.WhyJSON([]byte(`{"Name":"shop-x","Contents":[{"Key":"a","Size":1}]}`))).To(Succeed())
+		})
+		It("names the item that lacks a required field", func() {
+			failsAt(c.WhyJSON([]byte(`{"Contents":[{"Key":"a","Size":1},{"Key":"b"}]}`)), "[Contents 1]", "")
+		})
+		It("names the field with a wrong pattern, enum or type", func() {
+			failsAt(c.WhyJSON([]byte(`{"Name":"other"}`)), "[Name]", "other")
+			failsAt(c.WhyJSON([]byte(`{"Kind":"z"}`)), "[Kind]", "z")
+			failsAt(c.WhyJSON([]byte(`{"Contents":[{"Key":"a","Size":"x"}]}`)), "[Contents 0 Size]", "x")
+		})
+		It("reports only the first failure", func() {
+			failsAt(c.WhyJSON([]byte(`{"Name":"other","Kind":"z"}`)), "[Name]", "other")
+		})
+		It("is a plain error for a body that is not JSON", func() {
+			err := c.WhyJSON([]byte(`{"Name":`))
+			Expect(err).To(HaveOccurred())
+			var ve *katydidcheck.ValidationError
+			Expect(errors.As(err, &ve)).To(BeFalse())
+		})
+	})
+
+	Describe("XML, where the first failure is", func() {
+		It("is nil for a valid body", func() {
+			Expect(c.WhyXML([]byte(`<R><Name>shop-x</Name><Contents><Key>a</Key><Size>1</Size></Contents></R>`))).To(Succeed())
+		})
+		It("names the second list item that lacks a field", func() {
+			failsAt(c.WhyXML([]byte(`<R><Contents><Key>a</Key><Size>1</Size></Contents><Contents><Key>b</Key></Contents></R>`)), "[Contents 1]", "")
+		})
+		It("names the field with a wrong type, pattern or enum", func() {
+			failsAt(c.WhyXML([]byte(`<R><KeyCount>abc</KeyCount></R>`)), "[KeyCount]", "abc")
+			failsAt(c.WhyXML([]byte(`<R><Name>other</Name></R>`)), "[Name]", "other")
+			failsAt(c.WhyXML([]byte(`<R><Kind>z</Kind></R>`)), "[Kind]", "z")
+			failsAt(c.WhyXML([]byte(`<R><Contents><Key>a</Key><Size>x</Size></Contents></R>`)), "[Contents 0 Size]", "x")
+		})
+		It("is a plain error for a body that is not well-formed XML", func() {
+			err := c.WhyXML([]byte(`<R><Name>shop-x</Name>`))
+			Expect(err).To(HaveOccurred())
+			var ve *katydidcheck.ValidationError
+			Expect(errors.As(err, &ve)).To(BeFalse())
 		})
 	})
 
