@@ -3,7 +3,7 @@ package katydidcheck
 import (
 	"bytes"
 	"errors"
-	"regexp"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -146,11 +146,102 @@ func checkComment(b []byte) error {
 	return nil
 }
 
-var declPattern = regexp.MustCompile(`^<\?xml[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*("1\.0"|'1\.0')` +
-	`([ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*("[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*'))?` +
-	`([ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*("yes"|"no"|'yes'|'no'))?[ \t\r\n]*$`)
+func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
 
-var encodingPattern = regexp.MustCompile(`encoding[ \t\r\n]*=[ \t\r\n]*["']([^"']+)["']`)
+// declParser reads the pieces of an xml declaration without allocating.
+type declParser struct {
+	b []byte
+	i int
+}
+
+func (d *declParser) spaces() int {
+	n := 0
+	for d.i < len(d.b) && isSpace(d.b[d.i]) {
+		d.i++
+		n++
+	}
+	return n
+}
+
+func (d *declParser) word(w string) bool {
+	if len(d.b)-d.i >= len(w) && string(d.b[d.i:d.i+len(w)]) == w {
+		d.i += len(w)
+		return true
+	}
+	return false
+}
+
+// pair reads: name = "value" (or single quotes), and returns the value.
+func (d *declParser) pair(name string) ([]byte, bool) {
+	if !d.word(name) {
+		return nil, false
+	}
+	d.spaces()
+	if !d.word("=") {
+		return nil, false
+	}
+	d.spaces()
+	if d.i >= len(d.b) || (d.b[d.i] != '"' && d.b[d.i] != '\'') {
+		return nil, false
+	}
+	q := d.b[d.i]
+	e := bytes.IndexByte(d.b[d.i+1:], q)
+	if e < 0 {
+		return nil, false
+	}
+	v := d.b[d.i+1 : d.i+1+e]
+	d.i += e + 2
+	return v, true
+}
+
+func validEncName(b []byte) bool {
+	if len(b) == 0 || !(b[0] >= 'A' && b[0] <= 'Z' || b[0] >= 'a' && b[0] <= 'z') {
+		return false
+	}
+	for _, c := range b[1:] {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseDecl checks: xml version="1.0" [encoding="..."] [standalone="yes|no"], and returns the encoding name if there is one.
+func parseDecl(inner []byte) (encoding []byte, ok bool) {
+	d := declParser{b: inner}
+	if !d.word("xml") || d.spaces() == 0 {
+		return nil, false
+	}
+	if v, ok := d.pair("version"); !ok || string(v) != "1.0" {
+		return nil, false
+	}
+	save := d.i
+	if d.spaces() > 0 {
+		if v, ok := d.pair("encoding"); ok {
+			if !validEncName(v) {
+				return nil, false
+			}
+			encoding = v
+			save = d.i
+		} else {
+			d.i = save
+		}
+	}
+	save = d.i
+	if d.spaces() > 0 {
+		if v, ok := d.pair("standalone"); ok {
+			if string(v) != "yes" && string(v) != "no" {
+				return nil, false
+			}
+			save = d.i
+		} else {
+			d.i = save
+		}
+	}
+	d.i = save
+	d.spaces()
+	return encoding, d.i == len(d.b)
+}
 
 // checkPI checks a processing instruction <?target data?>, given the bytes between <? and ?>.
 // atStart tells whether it is the first thing in the body, where the xml declaration is allowed.
@@ -166,19 +257,23 @@ func checkPI(inner []byte, atStart, bom bool) error {
 		return errPI
 	}
 	if bytes.EqualFold(name, []byte("xml")) {
-		if !atStart || !declPattern.MatchString("<?"+string(inner)) {
+		enc, ok := parseDecl(inner)
+		if !atStart || !ok {
 			return errDecl
 		}
-		// The body is read as UTF-8 (or its ASCII part), so a declaration of a 16 or 32 bit encoding cannot be true.
-		if m := encodingPattern.FindSubmatch(inner); m != nil {
-			e := bytes.ToLower(m[1])
-			if bom && !bytes.Equal(e, []byte("utf-8")) && !bytes.Equal(e, []byte("utf8")) {
+		if enc != nil {
+			// The body is read as UTF-8 (or its ASCII part), so a declaration of a 16 or 32 bit encoding cannot be true.
+			if bom && !strings.EqualFold(string(enc), "utf-8") && !strings.EqualFold(string(enc), "utf8") {
 				return errDecl // a UTF-8 byte-order mark and another encoding in the declaration contradict each other
 			}
-			if bytes.HasPrefix(e, []byte("utf-16")) || bytes.HasPrefix(e, []byte("utf-32")) || bytes.HasPrefix(e, []byte("ucs-")) {
+			if hasPrefixFold(enc, "utf-16") || hasPrefixFold(enc, "utf-32") || hasPrefixFold(enc, "ucs-") {
 				return errDecl
 			}
 		}
 	}
 	return nil
+}
+
+func hasPrefixFold(b []byte, p string) bool {
+	return len(b) >= len(p) && strings.EqualFold(string(b[:len(p)]), p)
 }
