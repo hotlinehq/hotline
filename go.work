@@ -7,5 +7,6 @@ use (
 	./src/hotline-proxy
 	./src/otel-hotline
 	./src/otelcol-dev
+	./spikes/katydid
 	./tools/aws-openapi
 )
