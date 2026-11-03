@@ -255,11 +255,12 @@ func (p *streamParser) skipComment() error {
 
 func (p *streamParser) skipPI() error {
 	start := p.pos + 2
-	atStart := p.pos == 0 || p.pos == 3 && bytes.HasPrefix(p.body, []byte("\xef\xbb\xbf"))
+	bom := bytes.HasPrefix(p.body, []byte("\xef\xbb\xbf"))
+	atStart := p.pos == 0 || p.pos == 3 && bom
 	if err := p.skipTo("?>"); err != nil {
 		return err
 	}
-	return checkPI(p.body[start:p.pos-2], atStart)
+	return checkPI(p.body[start:p.pos-2], atStart, bom && atStart)
 }
 
 func (p *streamParser) skipTo(end string) error {

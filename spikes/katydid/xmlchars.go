@@ -154,7 +154,7 @@ var encodingPattern = regexp.MustCompile(`encoding[ \t\r\n]*=[ \t\r\n]*["']([^"'
 
 // checkPI checks a processing instruction <?target data?>, given the bytes between <? and ?>.
 // atStart tells whether it is the first thing in the body, where the xml declaration is allowed.
-func checkPI(inner []byte, atStart bool) error {
+func checkPI(inner []byte, atStart, bom bool) error {
 	name := inner
 	for i, c := range inner {
 		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
@@ -172,6 +172,9 @@ func checkPI(inner []byte, atStart bool) error {
 		// The body is read as UTF-8 (or its ASCII part), so a declaration of a 16 or 32 bit encoding cannot be true.
 		if m := encodingPattern.FindSubmatch(inner); m != nil {
 			e := bytes.ToLower(m[1])
+			if bom && !bytes.Equal(e, []byte("utf-8")) && !bytes.Equal(e, []byte("utf8")) {
+				return errDecl // a UTF-8 byte-order mark and another encoding in the declaration contradict each other
+			}
 			if bytes.HasPrefix(e, []byte("utf-16")) || bytes.HasPrefix(e, []byte("utf-32")) || bytes.HasPrefix(e, []byte("ucs-")) {
 				return errDecl
 			}
