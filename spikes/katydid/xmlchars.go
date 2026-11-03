@@ -1,0 +1,181 @@
+package katydidcheck
+
+import (
+	"bytes"
+	"errors"
+	"regexp"
+	"unicode/utf8"
+)
+
+// Well-formedness rules for characters and names, from the XML 1.0 (fifth edition) rules.
+
+var (
+	errChar    = errors.New("xml: character not allowed in XML")
+	errName    = errors.New("xml: bad name")
+	errRef     = errors.New("xml: bad entity or character reference")
+	errComment = errors.New("xml: bad comment")
+	errPI      = errors.New("xml: bad processing instruction")
+	errDecl    = errors.New("xml: bad xml declaration")
+	errAttr    = errors.New("xml: bad attribute")
+	errCDEnd   = errors.New("xml: ]]> is not allowed in text")
+)
+
+func isNameStart(r rune) bool {
+	switch {
+	case r == ':' || r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'):
+		return true
+	case r >= 0xC0 && r <= 0xD6, r >= 0xD8 && r <= 0xF6, r >= 0xF8 && r <= 0x2FF, r >= 0x370 && r <= 0x37D,
+		r >= 0x37F && r <= 0x1FFF, r >= 0x200C && r <= 0x200D, r >= 0x2070 && r <= 0x218F,
+		r >= 0x2C00 && r <= 0x2FEF, r >= 0x3001 && r <= 0xD7FF, r >= 0xF900 && r <= 0xFDCF,
+		r >= 0xFDF0 && r <= 0xFFFD, r >= 0x10000 && r <= 0xEFFFF:
+		return true
+	}
+	return false
+}
+
+func isNameChar(r rune) bool {
+	return isNameStart(r) || r == '-' || r == '.' || (r >= '0' && r <= '9') || r == 0xB7 ||
+		(r >= 0x300 && r <= 0x36F) || (r >= 0x203F && r <= 0x2040)
+}
+
+func validName(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for i := 0; i < len(b); {
+		r, n := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && n <= 1 {
+			return false
+		}
+		if i == 0 && !isNameStart(r) || i > 0 && !isNameChar(r) {
+			return false
+		}
+		i += n
+	}
+	return true
+}
+
+func isXMLChar(r rune) bool {
+	return r == 0x9 || r == 0xA || r == 0xD || (r >= 0x20 && r <= 0xD7FF) || (r >= 0xE000 && r <= 0xFFFD) || (r >= 0x10000 && r <= 0x10FFFF)
+}
+
+// checkChars refuses bytes that are not valid UTF-8 or not allowed characters. ASCII text takes a fast path.
+func checkChars(b []byte) error {
+	for i := 0; i < len(b); {
+		c := b[i]
+		if c >= 0x20 && c < 0x80 || c == '\t' || c == '\n' || c == '\r' {
+			i++
+			continue
+		}
+		if c < 0x20 {
+			return errChar
+		}
+		r, n := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && n <= 1 || !isXMLChar(r) {
+			return errChar
+		}
+		i += n
+	}
+	return nil
+}
+
+// checkRefs refuses a bare & and any reference except the five predefined ones and valid numeric ones.
+func checkRefs(b []byte) error {
+	for i := 0; i < len(b); i++ {
+		if b[i] != '&' {
+			continue
+		}
+		e := bytes.IndexByte(b[i:], ';')
+		if e < 0 {
+			return errRef
+		}
+		ent := b[i+1 : i+e]
+		switch string(ent) {
+		case "lt", "gt", "amp", "quot", "apos":
+		default:
+			if len(ent) < 2 || ent[0] != '#' {
+				return errRef
+			}
+			var v rune
+			digits, base := ent[1:], rune(10)
+			if digits[0] == 'x' {
+				digits, base = digits[1:], 16
+			}
+			if len(digits) == 0 {
+				return errRef
+			}
+			for _, d := range digits {
+				var x rune
+				switch {
+				case d >= '0' && d <= '9':
+					x = rune(d - '0')
+				case base == 16 && d >= 'a' && d <= 'f':
+					x = rune(d-'a') + 10
+				case base == 16 && d >= 'A' && d <= 'F':
+					x = rune(d-'A') + 10
+				default:
+					return errRef
+				}
+				v = v*base + x
+				if v > 0x10FFFF {
+					return errRef
+				}
+			}
+			if !isXMLChar(v) {
+				return errRef
+			}
+		}
+		i += e
+	}
+	return nil
+}
+
+// checkText checks character data between tags: references and no ]]>.
+func checkText(b []byte) error {
+	if bytes.Contains(b, []byte("]]>")) {
+		return errCDEnd
+	}
+	return checkRefs(b)
+}
+
+// checkComment checks the inside of a comment: no -- and no - at the end.
+func checkComment(b []byte) error {
+	if bytes.Contains(b, []byte("--")) || len(b) > 0 && b[len(b)-1] == '-' {
+		return errComment
+	}
+	return nil
+}
+
+var declPattern = regexp.MustCompile(`^<\?xml[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*("1\.0"|'1\.0')` +
+	`([ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*("[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*'))?` +
+	`([ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*("yes"|"no"|'yes'|'no'))?[ \t\r\n]*$`)
+
+var encodingPattern = regexp.MustCompile(`encoding[ \t\r\n]*=[ \t\r\n]*["']([^"']+)["']`)
+
+// checkPI checks a processing instruction <?target data?>, given the bytes between <? and ?>.
+// atStart tells whether it is the first thing in the body, where the xml declaration is allowed.
+func checkPI(inner []byte, atStart bool) error {
+	name := inner
+	for i, c := range inner {
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+			name = inner[:i]
+			break
+		}
+	}
+	if !validName(name) {
+		return errPI
+	}
+	if bytes.EqualFold(name, []byte("xml")) {
+		if !atStart || !declPattern.MatchString("<?"+string(inner)) {
+			return errDecl
+		}
+		// The body is read as UTF-8 (or its ASCII part), so a declaration of a 16 or 32 bit encoding cannot be true.
+		if m := encodingPattern.FindSubmatch(inner); m != nil {
+			e := bytes.ToLower(m[1])
+			if bytes.HasPrefix(e, []byte("utf-16")) || bytes.HasPrefix(e, []byte("utf-32")) || bytes.HasPrefix(e, []byte("ucs-")) {
+				return errDecl
+			}
+		}
+	}
+	return nil
+}

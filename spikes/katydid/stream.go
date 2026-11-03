@@ -36,6 +36,7 @@ type streamParser struct {
 	stack  []frame
 	closed [][]byte
 	attrs  []attr
+	seen   [][]byte
 }
 
 const (
@@ -77,11 +78,18 @@ func newStreamParser(r *resolver, root schema) *streamParser {
 // Init restarts the parser with a new body, reusing its buffers.
 func (p *streamParser) Init(body []byte) {
 	p.body, p.pos, p.state = body, 0, stStart
+	if bytes.HasPrefix(body, []byte("\xef\xbb\xbf")) {
+		p.pos = 3
+	}
 	p.q, p.head, p.last, p.err = p.q[:0], 0, parse.UnknownHint, nil
 	p.stack, p.closed, p.attrs, p.scratch = p.stack[:0], p.closed[:0], p.attrs[:0], p.scratch[:0]
+	p.err = checkChars(body)
 }
 
 func (p *streamParser) Next() (parse.Hint, error) {
+	if p.err != nil {
+		return parse.UnknownHint, p.err
+	}
 	for p.head >= len(p.q) {
 		p.q, p.head, p.scratch = p.q[:0], 0, p.scratch[:0]
 		if p.state == stEOF {
@@ -221,11 +229,11 @@ func (p *streamParser) skipMisc() error {
 		case c == ' ' || c == '\n' || c == '\t' || c == '\r':
 			p.pos++
 		case bytes.HasPrefix(p.body[p.pos:], []byte("<?")):
-			if err := p.skipTo("?>"); err != nil {
+			if err := p.skipPI(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(p.body[p.pos:], []byte("<!--")):
-			if err := p.skipTo("-->"); err != nil {
+			if err := p.skipComment(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(p.body[p.pos:], []byte("<!")):
@@ -235,6 +243,23 @@ func (p *streamParser) skipMisc() error {
 		}
 	}
 	return nil
+}
+
+func (p *streamParser) skipComment() error {
+	start := p.pos + 4
+	if err := p.skipTo("-->"); err != nil {
+		return err
+	}
+	return checkComment(p.body[start : p.pos-3])
+}
+
+func (p *streamParser) skipPI() error {
+	start := p.pos + 2
+	atStart := p.pos == 0 || p.pos == 3 && bytes.HasPrefix(p.body, []byte("\xef\xbb\xbf"))
+	if err := p.skipTo("?>"); err != nil {
+		return err
+	}
+	return checkPI(p.body[start:p.pos-2], atStart)
 }
 
 func (p *streamParser) skipTo(end string) error {
@@ -252,6 +277,9 @@ func (p *streamParser) content() error {
 		i := bytes.IndexByte(p.body[p.pos:], '<')
 		if i < 0 {
 			return errSyntax
+		}
+		if err := checkText(p.body[p.pos : p.pos+i]); err != nil {
+			return err
 		}
 		p.pos += i
 		rest := p.body[p.pos:]
@@ -274,7 +302,7 @@ func (p *streamParser) content() error {
 			p.closeFrame()
 			return nil
 		case bytes.HasPrefix(rest, []byte("<!--")):
-			if err := p.skipTo("-->"); err != nil {
+			if err := p.skipComment(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(rest, []byte("<![CDATA[")):
@@ -282,7 +310,7 @@ func (p *streamParser) content() error {
 				return err
 			}
 		case bytes.HasPrefix(rest, []byte("<?")):
-			if err := p.skipTo("?>"); err != nil {
+			if err := p.skipPI(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(rest, []byte("<!")):
@@ -319,8 +347,8 @@ func readName(b []byte) (name []byte, n int, err error) {
 	for n < len(b) && !isNameEnd(b[n]) {
 		n++
 	}
-	if n == 0 {
-		return nil, 0, errSyntax
+	if !validName(b[:n]) {
+		return nil, 0, errName
 	}
 	return b[:n], n, nil
 }
@@ -340,9 +368,11 @@ func (p *streamParser) readStartTag() (name []byte, selfClosing bool, err error)
 	}
 	name = localName(name)
 	p.pos += 1 + n
-	p.attrs = p.attrs[:0]
+	p.attrs, p.seen = p.attrs[:0], p.seen[:0]
 	for {
+		before := p.pos
 		p.skipSpace()
+		spaced := p.pos > before
 		if p.pos >= len(p.body) {
 			return nil, false, errSyntax
 		}
@@ -357,10 +387,19 @@ func (p *streamParser) readStartTag() (name []byte, selfClosing bool, err error)
 			p.pos += 2
 			return name, true, nil
 		}
+		if !spaced {
+			return nil, false, errAttr
+		}
 		an, k, err := readName(p.body[p.pos:])
 		if err != nil {
 			return nil, false, err
 		}
+		for _, s := range p.seen {
+			if bytes.Equal(s, an) {
+				return nil, false, errAttr
+			}
+		}
+		p.seen = append(p.seen, an)
 		p.pos += k
 		p.skipSpace()
 		if p.pos >= len(p.body) || p.body[p.pos] != '=' {
@@ -377,6 +416,12 @@ func (p *streamParser) readStartTag() (name []byte, selfClosing bool, err error)
 			return nil, false, errSyntax
 		}
 		val := p.body[p.pos+1 : p.pos+1+e]
+		if bytes.IndexByte(val, '<') >= 0 {
+			return nil, false, errAttr
+		}
+		if err := checkRefs(val); err != nil {
+			return nil, false, err
+		}
 		p.pos += e + 2
 		if bytes.Equal(an, []byte("xmlns")) || bytes.HasPrefix(an, []byte("xmlns:")) {
 			continue
@@ -509,6 +554,9 @@ func (p *streamParser) scalar(name []byte, selfClosing bool, target schema) erro
 			return errSyntax
 		}
 		chunk := p.body[p.pos : p.pos+i]
+		if err := checkText(chunk); err != nil {
+			return err
+		}
 		p.pos += i
 		if len(chunk) > 0 {
 			if text == nil && !multi {
@@ -553,11 +601,11 @@ func (p *streamParser) scalar(name []byte, selfClosing bool, target schema) erro
 				text = []byte{}
 			}
 		case bytes.HasPrefix(rest, []byte("<!--")):
-			if err := p.skipTo("-->"); err != nil {
+			if err := p.skipComment(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(rest, []byte("<?")):
-			if err := p.skipTo("?>"); err != nil {
+			if err := p.skipPI(); err != nil {
 				return err
 			}
 		case bytes.HasPrefix(rest, []byte("<!")):
