@@ -154,7 +154,7 @@ func Parse(name string, data []byte) (*Spec, error) {
 			}
 			where := fmt.Sprintf("%s %s %s", name, method, template)
 			r.checks = b.checks(key, strings.ToLower(method), where)
-			r.checks.request = b.santhosh.request(s, r, where)
+			r.checks.request = b.schemas.request(s, r, where)
 			// The method's own entries come last, so they win.
 			for _, p := range append(append([]parameter{}, item.Parameters...), op.Parameters...) {
 				problems = r.addMark(problems, where, p.In, p.Name, p.Redact)

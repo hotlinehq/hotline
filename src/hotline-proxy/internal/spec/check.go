@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
-	"math/big"
 	"mime"
 	"net/http"
 	"net/url"
@@ -465,25 +464,4 @@ func lists(v any) any {
 		list[i] = m[strconv.Itoa(index)]
 	}
 	return list
-}
-
-func scalar(text string, want []string) any {
-	switch {
-	case slices.Contains(want, "integer") && isInteger(text),
-		slices.Contains(want, "number") && isNumber(text):
-		return jsonNumber(text)
-	case slices.Contains(want, "boolean") && (text == "true" || text == "false"):
-		return text == "true"
-	}
-	return text
-}
-
-func isInteger(text string) bool {
-	_, ok := new(big.Int).SetString(text, 10)
-	return ok
-}
-
-func isNumber(text string) bool {
-	_, err := strconv.ParseFloat(text, 64)
-	return err == nil
 }

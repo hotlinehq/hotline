@@ -1,14 +1,10 @@
-package spec
-
-// The checks made with the santhosh-tekuri JSON Schema library, compiled in
-// santhosh_compile.go.
+package santhosh
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
+	"math/big"
 	"slices"
 	"sort"
 	"strconv"
@@ -18,142 +14,68 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
-// santhoshRequest checks the request side of one route.
-type santhoshRequest struct {
-	spec   *Spec
-	route  route
-	params []santhoshParam
-	body   santhoshBody
+// Schema is one compiled schema of the spec. It is safe to use from many
+// goroutines at once. A nil Schema checks nothing.
+type Schema struct {
+	s *jsonschema.Schema
 }
 
-// santhoshResponse checks one reply the spec lists.
-type santhoshResponse struct {
-	headers []santhoshParam
-	body    santhoshBody
+// Failure is one thing a value breaks: the place in it, the rule it broke
+// and what the schema expects. It never holds the value itself.
+type Failure struct {
+	// Place starts with the base given to Validate: $.lines[1].sku in a
+	// body, tag[1] or filter.status in a parameter.
+	Place    string
+	Rule     string
+	Expected string
 }
 
-// santhoshParam is a parameter or reply header with its compiled schema,
-// nil when the spec gives none.
-type santhoshParam struct {
-	param
-	compiled *jsonschema.Schema
-}
-
-// santhoshBody holds the compiled schema of each content a body may have,
-// in the order of spec.content.
-type santhoshBody struct {
-	spec    *bodySpec
-	schemas []*jsonschema.Schema
-}
-
-func (q *santhoshRequest) Meta(escapedPath, rawQuery string, header http.Header) []Result {
-	query, _ := url.ParseQuery(rawQuery)
-	cookies := map[string]string{}
-	readCookies(header, cookies)
-	segments := q.route.split(strings.TrimSuffix(escapedPath, "/"))
-	var results []Result
-	for _, p := range q.params {
-		results = append(results, p.check(p.values(q.route, segments, query, header, cookies))...)
+// Coerce turns text from a query, header, cookie or form into the number
+// or true/false the schema wants, so the schema can check it. Lists and
+// objects are changed in place.
+func (s *Schema) Coerce(v any) any {
+	if s == nil {
+		return v
 	}
-	results = append(results, q.spec.unknownQuery(q.route, query)...)
-	return append(results, q.route.checks.loggedIn(header, query, cookies)...)
+	return coerce(v, s.s)
 }
 
-func (q *santhoshRequest) Body(mediaType string, body []byte) ([]Result, []Field) {
-	return q.body.check(mediaType, body)
-}
-
-func (r *santhoshResponse) Meta(header http.Header) []Result {
-	var results []Result
-	for _, h := range r.headers {
-		results = append(results, h.check(h.values(route{}, nil, nil, header, nil))...)
-	}
-	return results
-}
-
-func (r *santhoshResponse) Body(mediaType string, body []byte) ([]Result, []Field) {
-	return r.body.check(mediaType, body)
-}
-
-func (p santhoshParam) check(values any) []Result {
-	part := p.in
-	if values == nil {
-		if p.required {
-			return []Result{{Part: part, Place: p.name, Rule: "required"}}
-		}
+// Types are the types the schema allows, following $ref.
+func (s *Schema) Types() []string {
+	if s == nil {
 		return nil
 	}
-	if p.compiled == nil {
+	return types(s.s)
+}
+
+// Validate checks a value and says what is wrong with it, sorted by
+// place. base names the value: a parameter's name, or $ for a body.
+func (s *Schema) Validate(v any, base string) []Failure {
+	if s == nil {
 		return nil
 	}
-	instance := values
-	if list, ok := values.([]string); ok {
-		instance = p.shape(list)
-	}
-	instance = coerce(instance, p.compiled)
-	return validate(p.compiled, instance, part, p.name)
+	return validate(s.s, v, base)
 }
 
-// shape turns the strings of a parameter into the value its schema wants:
-// a list for an array, the first value otherwise.
-func (p santhoshParam) shape(list []string) any {
-	if !slices.Contains(types(p.compiled), "array") {
-		return list[0]
+func scalar(text string, want []string) any {
+	switch {
+	case slices.Contains(want, "integer") && isInteger(text),
+		slices.Contains(want, "number") && isNumber(text):
+		return json.Number(text)
+	case slices.Contains(want, "boolean") && (text == "true" || text == "false"):
+		return text == "true"
 	}
-	if !p.explode || p.in != "query" {
-		list = strings.Split(strings.Join(list, ","), ",")
-	}
-	items := make([]any, len(list))
-	for i, v := range list {
-		items[i] = v
-	}
-	return items
+	return text
 }
 
-// check reads a body of the given media type, copies its marked fields
-// and checks it against the schema of its content. The body is one the
-// spec lists a content for, and small enough to check.
-func (b santhoshBody) check(mediaType string, data []byte) ([]Result, []Field) {
-	if b.spec == nil {
-		return nil, nil
-	}
-	c, i := b.spec.find(mediaType)
-	if c == nil {
-		return nil, nil
-	}
-	schema := b.schemas[i]
-	var instance any
-	switch c.kind(mediaType) {
-	case xmlBodyKind:
-		var problem *Result
-		instance, problem = c.xml.read(data)
-		if problem != nil {
-			return []Result{*problem}, nil
-		}
-		if c.xml.shape == nil {
-			return nil, nil
-		}
-		instance = coerce(instance, schema)
-	case jsonBodyKind:
-		var err error
-		instance, err = jsonschema.UnmarshalJSON(bytes.NewReader(data))
-		if err != nil {
-			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
-		}
-	case formBodyKind:
-		values, err := url.ParseQuery(string(data))
-		if err != nil {
-			return []Result{{Part: partBody, Place: whole, Rule: "form"}}, nil
-		}
-		instance = coerce(nest(values), schema)
-	default:
-		return nil, nil
-	}
-	copied := c.copied(instance)
-	if schema == nil {
-		return nil, copied
-	}
-	return validate(schema, instance, partBody, whole), copied
+func isInteger(text string) bool {
+	_, ok := new(big.Int).SetString(text, 10)
+	return ok
+}
+
+func isNumber(text string) bool {
+	_, err := strconv.ParseFloat(text, 64)
+	return err == nil
 }
 
 // coerce turns text from a query, header, cookie or form into the number
@@ -199,38 +121,38 @@ func types(s *jsonschema.Schema) []string {
 }
 
 // validate checks a value against a schema and turns what is wrong into
-// results. base names the value: a parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, part, base string) []Result {
+// failures. base names the value: a parameter's name, or $ for a body.
+func validate(s *jsonschema.Schema, instance any, base string) []Failure {
 	var invalid *jsonschema.ValidationError
 	if !errors.As(s.Validate(instance), &invalid) {
 		return nil
 	}
 	var leaves []*jsonschema.ValidationError
 	collect(invalid, &leaves)
-	var results []Result
+	var results []Failure
 	for _, e := range leaves {
 		place := placeOf(base, instance, e.InstanceLocation)
 		switch k := e.ErrorKind.(type) {
 		case *kind.Required:
 			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "required"})
+				results = append(results, Failure{Place: place + "." + name, Rule: "required"})
 			}
 		case *kind.AdditionalProperties:
 			for _, name := range k.Properties {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
+				results = append(results, Failure{Place: place + "." + name, Rule: "additionalProperties"})
 			}
 		case *kind.DependentRequired:
 			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
+				results = append(results, Failure{Place: place + "." + name, Rule: "dependentRequired"})
 			}
 		case *kind.ContentMediaType:
 			// A string that should hold JSON doesn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "json"})
+			results = append(results, Failure{Place: place, Rule: "json"})
 		case *kind.ContentEncoding:
 			// A string that should be base64 text isn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "base64"})
+			results = append(results, Failure{Place: place, Rule: "base64"})
 		default:
-			results = append(results, Result{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
+			results = append(results, Failure{Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
 		}
 	}
 	sort.SliceStable(results, func(i, j int) bool { return results[i].Place < results[j].Place })

@@ -1,17 +1,14 @@
-package spec
-
-// This file and santhosh_check.go are the only places that know the
-// santhosh-tekuri JSON Schema library. Here its schemas are compiled; the
-// checks it makes are behind RequestCheck and ResponseCheck.
+// Package santhosh checks values against the JSON Schemas of a spec with
+// the santhosh-tekuri library. It is the only package that knows that
+// library: the spec package reaches it through Compiler and Schema.
+package santhosh
 
 import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"maps"
 	"math/big"
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -28,11 +25,9 @@ var errOutside = errors.New("outside the spec")
 // errBits marks a whole number too large for its format.
 var errBits = errors.New("does not fit")
 
-// santhosh compiles the schemas of one spec with the santhosh-tekuri
-// library, and builds the checks of each route from them. $ref is followed
-// only within the spec.
-type santhosh struct {
-	b        *builder
+// Compiler compiles the schemas of one spec. $ref is followed only within
+// the spec. It is used while a spec is loaded, by one goroutine.
+type Compiler struct {
 	compiler *jsonschema.Compiler
 	// inline compiles schemas that need nothing else from the spec, such
 	// as { type: string } on a header, apart from the spec, and inlined
@@ -41,9 +36,6 @@ type santhosh struct {
 	inlined map[string]*jsonschema.Schema
 	// inlineNext numbers the schemas given to inline.
 	inlineNext int
-	// broken is set when the spec could not be given to the compiler. Its
-	// problem is already reported, so no schema is compiled.
-	broken bool
 }
 
 // outside refuses every document but the spec itself, so a $ref to
@@ -54,14 +46,30 @@ func (outside) Load(address string) (any, error) {
 	return nil, fmt.Errorf("%w: %s", errOutside, address)
 }
 
-// newSanthosh gives the spec, read as plain data, to the compiler.
-func newSanthosh(b *builder) (*santhosh, error) {
-	s := &santhosh{b: b, compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
-	if err := s.compiler.AddResource(specURL, b.doc); err != nil {
-		s.broken = true
-		return s, err
+// NewCompiler takes the spec, read as plain JSON data with its numbers as
+// json.Number.
+func NewCompiler(doc any) (*Compiler, error) {
+	c := &Compiler{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
+	if err := c.compiler.AddResource(specURL, doc); err != nil {
+		return nil, err
 	}
-	return s, nil
+	return c, nil
+}
+
+// Compile compiles the schema v found in the spec at pointer.
+func (c *Compiler) Compile(v any, pointer string) (*Schema, error) {
+	s, err := c.compileSchema(v, pointer)
+	if err != nil {
+		return nil, err
+	}
+	return &Schema{s: s}, nil
+}
+
+// CompileAt compiles the schema at pointer, such as a shared one under
+// /components/schemas, so a broken one is found even when nothing uses it.
+func (c *Compiler) CompileAt(pointer string) error {
+	_, err := c.compile(pointer)
+	return err
 }
 
 // newCompiler makes a JSON Schema compiler set up the way the proxy
@@ -110,52 +118,6 @@ func bits(size uint) func(any) error {
 	}
 }
 
-// request builds the check of a route's request side.
-func (s *santhosh) request(spec *Spec, r route, where string) RequestCheck {
-	return &santhoshRequest{
-		spec:   spec,
-		route:  r,
-		params: s.params(r.checks.params, where),
-		body:   s.body(r.checks.body, where),
-	}
-}
-
-// response builds the check of one reply the spec lists.
-func (s *santhosh) response(rp *reply, where string) ResponseCheck {
-	return &santhoshResponse{headers: s.params(rp.headers, where), body: s.body(rp.body, where)}
-}
-
-func (s *santhosh) params(params []param, where string) []santhoshParam {
-	out := make([]santhoshParam, len(params))
-	for i, p := range params {
-		out[i] = santhoshParam{param: p, compiled: s.schema(p.schema, where)}
-	}
-	return out
-}
-
-func (s *santhosh) body(b *bodySpec, where string) santhoshBody {
-	if b == nil {
-		return santhoshBody{}
-	}
-	schemas := make([]*jsonschema.Schema, len(b.content))
-	for i, c := range b.content {
-		schemas[i] = s.schema(c.schema, where)
-	}
-	return santhoshBody{spec: b, schemas: schemas}
-}
-
-// schema compiles a schema of the spec, nil when there is none.
-func (s *santhosh) schema(at schemaAt, where string) *jsonschema.Schema {
-	if !at.found || s.broken {
-		return nil
-	}
-	compiled, err := s.compileSchema(at.value, at.pointer)
-	if err != nil {
-		s.b.problem("%s: the schema of %s cannot be used: %v", where, at.what, err)
-	}
-	return compiled
-}
-
 // compileSchema compiles the schema v found at pointer, the cheap way
 // when it can. The compiler copies all it has read each time it meets a
 // new place in the spec, so a check per call made loading grow with the
@@ -164,32 +126,32 @@ func (s *santhosh) schema(at schemaAt, where string) *jsonschema.Schema {
 // spec uses the check of the shape it names, built once, and a schema
 // that needs nothing else from the spec is compiled apart from it, once
 // for each text.
-func (s *santhosh) compileSchema(v any, pointer string) (*jsonschema.Schema, error) {
+func (c *Compiler) compileSchema(v any, pointer string) (*jsonschema.Schema, error) {
 	if target, ok := onlyRef(v); ok {
-		return s.compile(target)
+		return c.compile(target)
 	}
 	if !standsAlone(v) {
-		return s.compile(pointer)
+		return c.compile(pointer)
 	}
 	// Printed with Go's syntax, maps in key order, so the same schema
 	// always gives the same text.
 	text := fmt.Sprintf("%#v", v)
-	if compiled, ok := s.inlined[text]; ok {
+	if compiled, ok := c.inlined[text]; ok {
 		return compiled, nil
 	}
-	s.inlineNext++
-	address := fmt.Sprintf("%s/inline/%d.json", strings.TrimSuffix(specURL, "/openapi.json"), s.inlineNext)
+	c.inlineNext++
+	address := fmt.Sprintf("%s/inline/%d.json", strings.TrimSuffix(specURL, "/openapi.json"), c.inlineNext)
 	var compiled *jsonschema.Schema
-	err := s.inline.AddResource(address, v)
+	err := c.inline.AddResource(address, v)
 	if err == nil {
-		compiled, err = s.inline.Compile(address)
+		compiled, err = c.inline.Compile(address)
 	}
 	if err != nil {
 		// Built again in place, so the problem names where it is in the
 		// spec. Only a broken spec gets here.
-		return s.compile(pointer)
+		return c.compile(pointer)
 	}
-	s.inlined[text] = compiled
+	c.inlined[text] = compiled
 	return compiled, nil
 }
 
@@ -232,20 +194,8 @@ func standsAlone(v any) bool {
 	return true
 }
 
-func (s *santhosh) compile(pointer string) (*jsonschema.Schema, error) {
-	return s.compiler.Compile(specURL + "#" + (&url.URL{Fragment: pointer}).EscapedFragment())
-}
-
-// compileComponents compiles every shared schema, so a broken one is found
-// even when no route uses it.
-func (s *santhosh) compileComponents() {
-	schemas, _ := s.b.at("/components/schemas")
-	m, _ := schemas.(map[string]any)
-	for _, name := range slices.Sorted(maps.Keys(m)) {
-		if _, err := s.compile("/components/schemas" + token(name)); err != nil {
-			s.b.problem("%s: the schema %s cannot be used: %v", s.b.name, name, err)
-		}
-	}
+func (c *Compiler) compile(pointer string) (*jsonschema.Schema, error) {
+	return c.compiler.Compile(specURL + "#" + (&url.URL{Fragment: pointer}).EscapedFragment())
 }
 
 // insideJSON is the location token between a string that holds JSON and a

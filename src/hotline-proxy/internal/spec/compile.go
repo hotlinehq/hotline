@@ -22,8 +22,8 @@ import (
 type builder struct {
 	name string
 	doc  any
-	// santhosh builds the schema checks of each route.
-	santhosh *santhosh
+	// schemas builds the schema checks of each route.
+	schemas  *schemas
 	schemes  map[string]*credential
 	problems []error
 	// reported holds the x-hotline-record marks already found broken.
@@ -39,14 +39,14 @@ func newBuilder(name string, data []byte) *builder {
 		b.doc, err = decodeJSON(plain)
 	}
 	var started error
-	b.santhosh, started = newSanthosh(b)
+	b.schemas, started = newSchemas(b)
 	if err = cmp.Or(err, started); err != nil {
-		b.santhosh.broken = true
+		b.schemas.compiler = nil
 		b.problem("%s cannot be read as JSON Schema: %v", name, err)
 		return b
 	}
 	b.readSchemes()
-	b.santhosh.compileComponents()
+	b.schemas.components()
 	return b
 }
 
@@ -66,8 +66,6 @@ func decodeJSON(data []byte) (any, error) {
 
 // errTrailing marks JSON data with more after its value.
 var errTrailing = errors.New("more data after the JSON value")
-
-func jsonNumber(text string) any { return json.Number(text) }
 
 // normalize makes YAML data plain JSON data: every object key a string.
 func normalize(v any) any {
@@ -334,6 +332,6 @@ func (b *builder) reply(m map[string]any, pointer, where, code string) *reply {
 			schema: schemaOf(h, hp, "the "+code+" reply header "+name),
 		})
 	}
-	r.check = b.santhosh.response(r, where)
+	r.check = b.schemas.response(r, where)
 	return r
 }
