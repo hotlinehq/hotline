@@ -21,16 +21,18 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.katydid.org.za/validator-go v0.9.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 )
 
-replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261103215037-9cb1cdf93339
+replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105072711-edf755369f82
 
-replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261103215042-177f3bc0d5e8
+replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105082948-627bf0ea6902
 
 replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102215937-5cc57679620b
+
+replace go.katydid.org.za/parser-go-json => codeberg.org/petercipov/parser-go-json v0.9.1-0.20261105082103-5b23f69c4fba
