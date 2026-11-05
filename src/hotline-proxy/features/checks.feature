@@ -217,12 +217,12 @@ Feature: Checking calls against the vendor's spec
   Rule: At most 20 results each way
 
     Scenario: Many mistakes are capped, with the total
-      When the app sends POST /orders with "Idempotency-Key: k1" and an order with 25 lines without a sku
+      When the app sends GET /orders?u01=1&u02=1&u03=1&u04=1&u05=1&u06=1&u07=1&u08=1&u09=1&u10=1&u11=1&u12=1&u13=1&u14=1&u15=1&u16=1&u17=1&u18=1&u19=1&u20=1&u21=1&u22=1&u23=1&u24=1&u25=1
       Then the record has 20 request results
       And the record says hotline.schema.request.errors_total=25
 
     Scenario: The total is left out when nothing was cut
-      When the app sends POST /orders with "Idempotency-Key: k1" and an order with 3 lines without a sku
+      When the app sends GET /orders?u01=1&u02=1&u03=1
       Then the record has 3 request results
       And the record has no hotline.schema.request.errors_total
 

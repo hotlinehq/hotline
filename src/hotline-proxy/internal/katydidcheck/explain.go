@@ -119,6 +119,8 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 			// after the end of the object that holds the failure. So look inside for the first thing that breaks.
 			if place, rule, expected, found := r.search(s, node, f.Place); found {
 				f.Place, f.Rule, f.Expected = place, rule, expected
+			} else {
+				f.Rule, f.Expected = formatRule(r.deref(s), node)
 			}
 		}
 	}
@@ -305,16 +307,23 @@ func (r *resolver) judgeOwn(s schema, node any) (rule, expected, name string) {
 			return "multipleOf", w.RatString(), ""
 		}
 	}
-	// what is left of a string or a number that fails is its format: date-time, email, int32 and so on
-	if f, _ := s["format"].(string); f != "" {
-		if _, isText := node.(string); isText {
-			return "format", f, ""
-		}
-		if _, isNumber := node.(*big.Rat); isNumber && (f == "int32" || f == "int64") {
-			return "format", f, ""
-		}
-	}
 	return "", "", ""
+}
+
+// formatRule is the format a string or number fails, when nothing else is left to blame:
+// date-time, email, int32 and so on. It is only for a value that is known to fail.
+func formatRule(s schema, node any) (string, string) {
+	f, _ := s["format"].(string)
+	if f == "" {
+		return "", ""
+	}
+	if _, isText := node.(string); isText {
+		return "format", f
+	}
+	if _, isNumber := node.(*big.Rat); isNumber && (f == "int32" || f == "int64") {
+		return "format", f
+	}
+	return "", ""
 }
 
 func wantTypes(s schema) []string {

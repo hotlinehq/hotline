@@ -11,17 +11,36 @@ import (
 // Copies load in well under a millisecond, and a schema that loads once loads again.
 // Definitions are read from "$defs" or "definitions", and "$ref" must point at one of them.
 type Pool struct {
-	schema []byte
-	copies sync.Pool
+	schema     []byte
+	copies     sync.Pool
+	hasContent bool
+	inner      *inner
 }
 
 // NewPool loads the schema once, so a schema that cannot be used is found now, not by a check.
 func NewPool(schemaJSON []byte) (*Pool, error) {
+	return newPool(schemaJSON, nil)
+}
+
+// newPool makes a pool. The pools of the contentSchemas of a schema share the cache of the pool they belong to,
+// and do not load their own contentSchemas before a check needs them: they hold the same definitions, so that
+// would never end.
+func newPool(schemaJSON []byte, shared *inner) (*Pool, error) {
 	first, err := newCopy(schemaJSON)
 	if err != nil {
 		return nil, err
 	}
-	p := &Pool{schema: schemaJSON}
+	p := &Pool{schema: schemaJSON, inner: shared}
+	if shared == nil {
+		p.inner = &inner{pools: map[[32]byte]*Pool{}, failed: map[[32]byte]error{}}
+	}
+	p.hasContent = hasContent(map[string]any(first.root))
+	if p.hasContent && shared == nil {
+		// a contentSchema that cannot be used is found now, not by a check
+		if err := p.loadContent(first); err != nil {
+			return nil, err
+		}
+	}
 	p.copies.New = func() any {
 		c, err := newCopy(p.schema)
 		if err != nil {
@@ -53,7 +72,38 @@ func (p *Pool) give(c *Checker) { p.copies.Put(c) }
 func (p *Pool) WhyJSON(body []byte) error {
 	c := p.take()
 	defer p.give(c)
-	return c.WhyJSON(body)
+	err := c.WhyJSON(body)
+	if err == nil && p.hasContent {
+		// the JSON held by strings is checked after the rest of the body
+		return c.contentJSON(p, body)
+	}
+	return err
+}
+
+// loadContent makes the checker of every contentSchema of the schema, so a broken one is found when the pool is made.
+func (p *Pool) loadContent(c *Checker) error {
+	var failure error
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			if inner, ok := x["contentSchema"].(map[string]any); ok && failure == nil {
+				_, failure = p.innerPool(inner, c.defs)
+			}
+			for _, child := range x {
+				walk(child)
+			}
+		case []any:
+			for _, child := range x {
+				walk(child)
+			}
+		}
+	}
+	walk(map[string]any(c.root))
+	for _, def := range c.defs {
+		walk(def)
+	}
+	return failure
 }
 
 // WhyXML checks the XML body like WhyJSON, reading it by the schema.
