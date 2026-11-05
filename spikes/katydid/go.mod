@@ -29,9 +29,9 @@ require (
 	golang.org/x/tools v0.51.0 // indirect
 )
 
-replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105122746-cb5c9f388897
+replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105124255-d9ef63c8c223
 
-replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105123140-3f31725cf7dd
+replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105124309-d875487bb94d
 
 replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102215937-5cc57679620b
 
