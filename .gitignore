@@ -8,3 +8,6 @@ e2e-cover/
 e2e-cover.out
 load/out/
 load/results/
+# Go test binaries and profiles left by go test -c or -cpuprofile
+*.test
+*.prof
