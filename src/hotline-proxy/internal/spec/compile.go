@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go.katydid.org.za/validator-go-jsonschema/jsonschema/allowlist"
 	"maps"
 	"net/url"
 	"slices"
@@ -21,10 +22,13 @@ type builder struct {
 	doc  any
 	// checkers keeps each schema's check once, by the schema's text.
 	checkers map[[32]byte]*schemaCheck
-	// shapeNames are the names under $defs of the shapes a $ref points at, by pointer.
-	shapeNames map[string]string
-	schemes    map[string]*credential
-	problems   []error
+	// allowed tells which JSON Schema keywords the checker supports.
+	allowed *allowlist.Checker
+	// shapes are the parts of the spec that a $ref points at, by pointer, and byShape their checks.
+	shapes   map[string]*shape
+	byShape  map[string]shapeResult
+	schemes  map[string]*credential
+	problems []error
 	// reported holds the x-hotline-record marks already found broken.
 	reported map[string]bool
 }
@@ -32,8 +36,14 @@ type builder struct {
 func newBuilder(name string, data []byte) *builder {
 	b := &builder{
 		name: name, schemes: map[string]*credential{}, reported: map[string]bool{},
-		checkers: map[[32]byte]*schemaCheck{}, shapeNames: map[string]string{},
+		checkers: map[[32]byte]*schemaCheck{}, shapes: map[string]*shape{}, byShape: map[string]shapeResult{},
 	}
+	allowed, err := allowlist.New()
+	if err != nil {
+		b.problem("%s: the keyword check cannot be made: %v", name, err)
+		return b
+	}
+	b.allowed = allowed
 	var raw any
 	_ = yaml.Unmarshal(data, &raw)
 	plain, err := json.Marshal(normalize(raw))
@@ -151,8 +161,7 @@ func (b *builder) compileComponents() {
 	m, _ := schemas.(map[string]any)
 	for _, name := range slices.Sorted(maps.Keys(m)) {
 		pointer := "/components/schemas" + token(name)
-		v, _ := b.at(pointer)
-		if _, err := b.schemaOf(v, pointer); err != nil {
+		if _, err := b.shapeCheck(pointer); err != nil {
 			b.problem("%s: the schema %s cannot be used: %v", b.name, name, err)
 		}
 	}

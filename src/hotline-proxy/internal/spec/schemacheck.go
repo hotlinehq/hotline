@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"strings"
-
-	"go.katydid.org.za/validator-go-jsonschema/jsonschema/allowlist"
 
 	"hotline-proxy/internal/katydidcheck"
 )
@@ -29,21 +28,87 @@ type schemaCheck struct {
 	pool *katydidcheck.Pool
 }
 
+// shape is a part of the spec that a $ref points at, written as plain JSON
+// Schema with its own $ref rewritten to point under $defs. It is made once,
+// and shared by every check that reaches it.
+type shape struct {
+	name  string
+	value any
+	// reaches are the pointers of the shapes this one refers to.
+	reaches []string
+}
+
 // schemaOf makes the check of the schema v found at pointer. The check holds
-// the schema and only the shapes it reaches by $ref, as plain JSON Schema with
-// the shapes under $defs. Loading all of a big spec's shapes into each check
-// would cost far more than the check needs. The same schema is made once. A
-// keyword the checker does not support is an error, so a spec that uses one is
-// refused at load, never silently left unchecked.
+// the schema and only the shapes it reaches by $ref, as plain JSON Schema
+// with the shapes under $defs. Loading all of a big spec's shapes into each
+// check would cost far more than the check needs. The same schema is made
+// once. A keyword the checker does not support is an error, so a spec that
+// uses one is refused at load, never silently left unchecked.
 func (b *builder) schemaOf(v any, pointer string) (*schemaCheck, error) {
-	root, defs, err := b.closure(v, pointer)
+	if target, ok := onlyRef(v); ok {
+		return b.shapeCheck(target)
+	}
+	var reaches []string
+	root, err := b.rewrite(v, &reaches)
 	if err != nil {
 		return nil, err
 	}
-	if len(defs) > 0 {
-		root["$defs"] = defs
+	return b.checkOf(root, reaches)
+}
+
+// shapeCheck is the check of a shape a $ref points at.
+func (b *builder) shapeCheck(pointer string) (*schemaCheck, error) {
+	if c, ok := b.byShape[pointer]; ok {
+		return c.check, c.err
 	}
-	data, err := json.Marshal(root)
+	s, err := b.shape(pointer)
+	var c *schemaCheck
+	if err == nil {
+		c, err = b.checkOf(s.value, s.reaches)
+	}
+	b.byShape[pointer] = shapeResult{c, err}
+	return c, err
+}
+
+type shapeResult struct {
+	check *schemaCheck
+	err   error
+}
+
+// checkOf makes the check of a rewritten schema and the shapes it reaches.
+func (b *builder) checkOf(root any, reaches []string) (*schemaCheck, error) {
+	doc, ok := root.(map[string]any)
+	if !ok {
+		return nil, errNotObject
+	}
+	defs := map[string]any{}
+	seen := map[string]bool{}
+	var walk func(pointers []string) error
+	walk = func(pointers []string) error {
+		for _, p := range pointers {
+			if seen[p] {
+				continue
+			}
+			seen[p] = true
+			s, err := b.shape(p)
+			if err != nil {
+				return err
+			}
+			defs[s.name] = s.value
+			if err := walk(s.reaches); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(reaches); err != nil {
+		return nil, err
+	}
+	if len(defs) > 0 {
+		doc = maps.Clone(doc)
+		doc["$defs"] = defs
+	}
+	data, err := json.Marshal(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +116,7 @@ func (b *builder) schemaOf(v any, pointer string) (*schemaCheck, error) {
 	if c, ok := b.checkers[key]; ok {
 		return c, nil
 	}
-	if err := allowlist.Check(data); err != nil {
+	if err := b.allowed.Supported(data); err != nil {
 		return nil, err
 	}
 	pool, err := katydidcheck.NewPool(data)
@@ -63,79 +128,79 @@ func (b *builder) schemaOf(v any, pointer string) (*schemaCheck, error) {
 	return c, nil
 }
 
-// closure copies the schema v, with every $ref pointing at a shape under
-// $defs, and returns those shapes. A $ref to another file, or to nothing, is
-// an error.
-func (b *builder) closure(v any, pointer string) (map[string]any, map[string]any, error) {
-	defs := map[string]any{}
-	var failure error
-	var rewrite func(any) any
-	rewrite = func(x any) any {
-		switch x := x.(type) {
-		case map[string]any:
-			out := make(map[string]any, len(x))
-			for key, child := range x {
-				if text, isText := child.(string); isText {
-					switch key {
-					case "$ref":
-						out[key] = "#/$defs/" + b.shape(text, defs, rewrite, &failure)
-						continue
-					case "format":
-						if !checkedFormats[text] {
-							continue
-						}
-					}
-				}
-				out[key] = rewrite(child)
-			}
-			return out
-		case []any:
-			out := make([]any, len(x))
-			for i, child := range x {
-				out[i] = rewrite(child)
-			}
-			return out
-		}
-		return x
-	}
-	root, _ := rewrite(v).(map[string]any)
-	if root == nil {
-		if failure == nil {
-			failure = fmt.Errorf("the schema at %s is not an object", pointer)
-		}
-	}
-	return root, defs, failure
-}
+var errNotObject = errors.New("the schema is not an object")
 
-// shape finds the name under $defs of the shape a $ref points at, and adds the
-// shape to defs the first time it is met.
-func (b *builder) shape(ref string, defs map[string]any, rewrite func(any) any, failure *error) string {
-	if !strings.HasPrefix(ref, "#") {
-		if *failure == nil {
-			*failure = fmt.Errorf("the $ref %s points to another file: %w", ref, errOutside)
-		}
-		return "missing"
+// shape finds the shape at a pointer into the spec, made the first time it is
+// asked for. A $ref to another file, or to nothing, is an error.
+func (b *builder) shape(pointer string) (*shape, error) {
+	if s, ok := b.shapes[pointer]; ok {
+		return s, nil
 	}
-	pointer, err := url.PathUnescape(strings.TrimPrefix(ref, "#"))
-	if err != nil {
-		pointer = strings.TrimPrefix(ref, "#")
-	}
-	name, known := b.shapeNames[pointer]
-	if known {
-		return name
-	}
-	name = fmt.Sprintf("s%d", len(b.shapeNames)+1)
-	b.shapeNames[pointer] = name
 	target, found := b.at(pointer)
 	if !found {
-		if *failure == nil {
-			*failure = fmt.Errorf("the $ref %s points nowhere", ref)
-		}
-		return name
+		return nil, fmt.Errorf("the $ref #%s points nowhere", pointer)
 	}
-	defs[name] = nil // keeps a shape that refers to itself from being followed again
-	defs[name] = rewrite(target)
-	return name
+	s := &shape{name: fmt.Sprintf("s%d", len(b.shapes)+1)}
+	b.shapes[pointer] = s // so a shape that refers to itself is not made again
+	value, err := b.rewrite(target, &s.reaches)
+	if err != nil {
+		delete(b.shapes, pointer)
+		return nil, err
+	}
+	s.value = value
+	return s, nil
+}
+
+// rewrite copies the schema x, with every $ref pointing under $defs, and
+// adds the pointers it reaches to reaches. Formats the proxy does not check
+// are left out.
+func (b *builder) rewrite(x any, reaches *[]string) (any, error) {
+	switch x := x.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for key, child := range x {
+			if text, isText := child.(string); isText {
+				switch key {
+				case "$ref":
+					if !strings.HasPrefix(text, "#") {
+						return nil, fmt.Errorf("the $ref %s points to another file: %w", text, errOutside)
+					}
+					pointer, err := url.PathUnescape(strings.TrimPrefix(text, "#"))
+					if err != nil {
+						pointer = strings.TrimPrefix(text, "#")
+					}
+					s, err := b.shape(pointer)
+					if err != nil {
+						return nil, err
+					}
+					*reaches = append(*reaches, pointer)
+					out[key] = "#/$defs/" + s.name
+					continue
+				case "format":
+					if !checkedFormats[text] {
+						continue
+					}
+				}
+			}
+			value, err := b.rewrite(child, reaches)
+			if err != nil {
+				return nil, err
+			}
+			out[key] = value
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(x))
+		for i, child := range x {
+			value, err := b.rewrite(child, reaches)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = value
+		}
+		return out, nil
+	}
+	return x, nil
 }
 
 // coerce turns text from a query, header, cookie or form into the number or
@@ -176,4 +241,19 @@ func (s *schemaCheck) validateJSON(data []byte, part, base string) []Result {
 		return []Result{{Part: part, Place: base, Rule: "json"}}
 	}
 	return []Result{{Part: part, Place: base + strings.TrimPrefix(failure.Place, "$"), Rule: failure.Rule, Expected: failure.Expected}}
+}
+
+// onlyRef is the pointer of the shape v names, when v holds nothing but a
+// $ref within the spec.
+func onlyRef(v any) (string, bool) {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 1 {
+		return "", false
+	}
+	ref, ok := m["$ref"].(string)
+	if !ok || !strings.HasPrefix(ref, "#") {
+		return "", false
+	}
+	target, err := url.PathUnescape(strings.TrimPrefix(ref, "#"))
+	return target, err == nil
 }
