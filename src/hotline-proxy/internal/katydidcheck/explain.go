@@ -3,6 +3,7 @@ package katydidcheck
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"regexp"
@@ -61,6 +62,10 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 			m, _ := node.(map[string]any)
 			node = m[st]
 			if s != nil {
+				if forbidden(r.deref(s), st) {
+					f.Rule = "false"
+					return f
+				}
 				s = r.prop(s, []byte(st))
 			}
 		case int:
@@ -71,7 +76,7 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 				node = nil
 			}
 			if s != nil {
-				s = r.items(s)
+				s = r.itemAt(s, st)
 			}
 		}
 	}
@@ -88,6 +93,13 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 				}
 			}
 		case string:
+			if m, ok := parentNode.(map[string]any); ok {
+				if n, ok := limit(parent, "maxProperties"); ok && len(m) > n {
+					f.Place = placeOf(where.Path[:len(where.Path)-1])
+					f.Rule, f.Expected = "maxProperties", strconv.Itoa(n)
+					return f
+				}
+			}
 			if _, ok := sub(parent, "properties")[last]; !ok {
 				if ap, ok := parent["additionalProperties"].(bool); ok && !ap {
 					f.Rule = "additionalProperties"
@@ -124,10 +136,59 @@ func placeOf(path []any) string {
 // For required and additionalProperties it also gives the name of the field.
 func (r *resolver) judge(s schema, node any) (rule, expected, name string) {
 	s = r.deref(s)
+	if rule, expected, name = r.judgeOwn(s, node); rule != "" {
+		return rule, expected, name
+	}
+	// the members of allOf all apply, so the first one the node breaks is the answer
+	members, _ := s["allOf"].([]any)
+	for _, m := range members {
+		mm, _ := m.(map[string]any)
+		if rule, expected, name = r.judge(schema(mm), node); rule != "" {
+			return rule, expected, name
+		}
+	}
+	// the choices are one result, not one per choice
+	for _, k := range []string{"oneOf", "anyOf"} {
+		if s[k] != nil {
+			return k, "", ""
+		}
+	}
+	if s["not"] != nil {
+		return "not", "", ""
+	}
+	return "", "", ""
+}
+
+// forbidden tells whether the schema writes false for the property: nothing is allowed there.
+func forbidden(s schema, name string) bool {
+	allowed, ok := sub(s, "properties")[name].(bool)
+	return ok && !allowed
+}
+
+// judgeOwn finds the first keyword written in the schema itself that the node breaks.
+func (r *resolver) judgeOwn(s schema, node any) (rule, expected, name string) {
 	if want := wantTypes(s); len(want) > 0 && !slices.ContainsFunc(want, func(t string) bool { return isType(node, t) }) {
 		return "type", strings.Join(want, " or "), ""
 	}
+	if c, ok := s["const"]; ok && !same(node, c) {
+		return "const", fmt.Sprint(c), ""
+	}
 	if m, ok := node.(map[string]any); ok {
+		if deps, _ := s["dependentRequired"].(map[string]any); deps != nil {
+			for _, prop := range slices.Sorted(maps.Keys(deps)) {
+				if _, present := m[prop]; !present {
+					continue
+				}
+				needed, _ := deps[prop].([]any)
+				for _, n := range needed {
+					if n, _ := n.(string); n != "" {
+						if _, there := m[n]; !there {
+							return "dependentRequired", "", n
+						}
+					}
+				}
+			}
+		}
 		if req, _ := s["required"].([]any); req != nil {
 			for _, n := range req {
 				if n, _ := n.(string); n != "" {
