@@ -50,7 +50,7 @@ Feature: Checking XML bodies
         | <Delete><Quiet>yes</Quiet><Object><Key>a</Key></Object></Delete>                                               | body $.Quiet type boolean         |
         | <Delete><Object><Key>a</Key></Object><Object><Key>b</Key></Object><Object><Key>c</Key></Object><Object><Key>d</Key></Object></Delete> | body $.Object maxItems 3 |
         | <Delete><Object/></Delete>                                                                                      | body $.Object[0].Key required     |
-        | <Delete><Object><Key>a</Key></Object><Extra>x</Extra></Delete>                                                 | body $.Extra additionalProperties |
+        | <Delete><Object><Key>a</Key></Object><Extra>x</Extra></Delete>                                                 | body $.Extra notAllowed |
 
     Scenario: A valid XML call has no results
       Given the files vendor answers 200 with the application/xml body <DeleteResult><Deleted><Key>a</Key></Deleted></DeleteResult>

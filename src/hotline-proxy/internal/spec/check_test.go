@@ -74,10 +74,10 @@ var _ = Describe("Checking a body against a schema", func() {
 		Entry("maxItems", `{ maxItems: 1 }`, `[1,2]`, "body $ maxItems 1"),
 		Entry("minProperties", `{ minProperties: 1 }`, `{}`, "body $ minProperties 1"),
 		Entry("maxProperties", `{ maxProperties: 0 }`, `{"a":1}`, "body $ maxProperties 0"),
-		Entry("dependentRequired", `{ dependentRequired: { a: [b] } }`, `{"a":1}`, "body $.b dependentRequired"),
+		Entry("dependentRequired", `{ dependentRequired: { a: [b] } }`, `{"a":1}`, "body $ notAllowed"),
 		Entry("oneOf is one result, not one per choice", `{ oneOf: [{ type: string }, { type: integer }] }`, `true`, "body $ oneOf"),
-		Entry("not", `{ not: { type: string } }`, `"a"`, "body $ not"),
-		Entry("a schema that allows nothing", `{ properties: { a: false } }`, `{"a":1}`, "body $.a false"),
+		Entry("not", `{ not: { type: string } }`, `"a"`, "body $ notAllowed"),
+		Entry("a schema that allows nothing", `{ properties: { a: false } }`, `{"a":1}`, "body $.a notAllowed"),
 		Entry("a list item", `{ type: array, prefixItems: [{ type: string }] }`, `[1]`, "body $[0] type string"),
 	)
 

@@ -94,3 +94,19 @@ func isNumber(text string) bool {
 	_, err := strconv.ParseFloat(text, 64)
 	return err == nil
 }
+
+func wantTypes(s schema) []string {
+	switch t := s["type"].(type) {
+	case string:
+		return []string{t}
+	case []any:
+		var out []string
+		for _, x := range t {
+			if x, ok := x.(string); ok {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	return nil
+}

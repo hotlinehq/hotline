@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 
-	kj "go.katydid.org.za/parser-go-json/json"
 	"go.katydid.org.za/validator-go-jsonschema/jsonschema"
 )
 
@@ -74,9 +73,7 @@ func (c *Checker) WhyJSON(body []byte) error {
 	if !errors.As(err, &ve) {
 		return err
 	}
-	p := kj.NewJSONSchemaParser()
-	p.Init(body)
-	return (&resolver{c.defs}).explain(c.root, p, ve)
+	return describe(ve)
 }
 
 // WhyXML checks the XML body like CheckXML, but says where the first failure is.
@@ -96,6 +93,5 @@ func (c *Checker) WhyXML(body []byte) error {
 	if ferr := c.sp.finish(); ferr != nil {
 		return ferr
 	}
-	c.sp.Init(body)
-	return (&resolver{c.defs}).explain(c.root, c.sp, ve)
+	return describe(ve)
 }

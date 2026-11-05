@@ -86,7 +86,7 @@ Feature: Checking calls against the vendor's spec
         | POST /orders and the json body {"item":"A1","quantity":2}               | header Idempotency-Key required      |
         | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} | body $.quantity required             |
         | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":0} | body $.quantity minimum 1 |
-        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"note":"x"} | body $.note additionalProperties |
+        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"note":"x"} | body $.note notAllowed |
         | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"lines":[{"sku":"a"},{}]} | body $.lines[1].sku required |
 
     Scenario: Results never hold values from the call

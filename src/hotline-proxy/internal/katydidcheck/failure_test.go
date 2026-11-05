@@ -67,7 +67,7 @@ var _ = Describe("Failure explained with the place, the rule and what was expect
 		Entry("minItems", `{"Id":"x","Items":[]}`, "$.Items", "minItems", "1"),
 		Entry("maxItems", `{"Id":"x","Items":["a","b","c"]}`, "$.Items", "maxItems", "2"),
 		Entry("wrong type inside a list", `{"Id":"x","Items":["a",5]}`, "$.Items[1]", "type", "string"),
-		Entry("additional property", `{"Id":"x","Inner":{"Extra":1}}`, "$.Inner.Extra", "additionalProperties", ""),
+		Entry("additional property", `{"Id":"x","Inner":{"Extra":1}}`, "$.Inner.Extra", "notAllowed", ""),
 		Entry("missing field in the second line", `{"Id":"x","Lines":[{"Sku":"a","Qty":1},{"Sku":"b"}]}`, "$.Lines[1].Qty", "required", ""),
 		Entry("minimum inside a line", `{"Id":"x","Lines":[{"Sku":"a","Qty":0}]}`, "$.Lines[0].Qty", "minimum", "1"),
 	)

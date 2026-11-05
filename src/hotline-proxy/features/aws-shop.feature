@@ -29,10 +29,10 @@ Feature: The shop's AWS apis through the proxy
       Examples:
         | item | results |
         | {"orderId":{"S":"A-1001"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total required |
-        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N required |
+        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.S notAllowed |
         | {"orderId":{"S":"A-1001"},"total":{"N":"12.5"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N pattern ^[0-9]+\.[0-9]{2}$ |
         | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"GBP"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.currency.S enum EUR, CZK, USD |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note additionalProperties |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note notAllowed |
 
     Scenario: A row for another table is reported
       Given AWS answers 200 with the json body {}
@@ -141,7 +141,7 @@ Feature: The shop's AWS apis through the proxy
 
     Scenario: A mistake in the job is reported at its place
       When the app publishes {"orderId":"A-1001"} to the topic arn:aws:sns:eu-west-1:192325781350:order-paid
-      Then the request results are body $.Message.schemaVersion required
+      Then the request results are body $.Message.eventId required
 
     Scenario: A job for another topic is reported
       When the app publishes {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-11-01T10:00:00Z"} to the topic arn:aws:sns:eu-west-1:192325781350:other
@@ -251,6 +251,6 @@ Feature: The shop's AWS apis through the proxy
     Scenario: A broken job is reported by both checkout and the invoices worker
       When checkout publishes the text {"orderId":"A-1001"} to the order-paid topic
       And the invoices app tries its queue once
-      Then the checkout record for /#Action=Publish has the request results body $.Message.schemaVersion required
-      And the invoices record for /#X-Amz-Target=AmazonSQS.ReceiveMessage has the reply results body $.Messages[0].Body.schemaVersion required
+      Then the checkout record for /#Action=Publish has the request results body $.Message.eventId required
+      And the invoices record for /#X-Amz-Target=AmazonSQS.ReceiveMessage has the reply results body $.Messages[0].Body.eventId required
       And the invoices queue still holds the job
