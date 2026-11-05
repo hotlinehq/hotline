@@ -48,6 +48,9 @@ func parseSchema(b []byte) (schema, map[string]any) {
 	var s schema
 	_ = json.Unmarshal(b, &s)
 	d, _ := s["definitions"].(map[string]any)
+	if d == nil {
+		d, _ = s["$defs"].(map[string]any)
+	}
 	return s, d
 }
 
