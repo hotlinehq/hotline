@@ -114,8 +114,48 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 		if missing != "" {
 			f.Place += "." + missing
 		}
+		if f.Rule == "" {
+			// Katydid can only tell that a body fails once it knows no more could save it, which can be
+			// after the end of the object that holds the failure. So look inside for the first thing that breaks.
+			if place, rule, expected, found := r.search(s, node, f.Place); found {
+				f.Place, f.Rule, f.Expected = place, rule, expected
+			}
+		}
 	}
 	return f
+}
+
+// search looks through the node and what is inside it for the first thing the schema says is wrong, fields in
+// name order and list items in order. It reports the place, the rule and what was expected.
+func (r *resolver) search(s schema, node any, place string) (string, string, string, bool) {
+	if rule, expected, name := r.judge(s, node); rule != "" {
+		if name != "" {
+			place += "." + name
+		}
+		return place, rule, expected, true
+	}
+	switch n := node.(type) {
+	case map[string]any:
+		for _, key := range slices.Sorted(maps.Keys(n)) {
+			if forbidden(r.deref(s), key) {
+				return place + "." + key, "false", "", true
+			}
+			if child := r.prop(s, []byte(key)); child != nil {
+				if p, rule, expected, ok := r.search(child, n[key], place+"."+key); ok {
+					return p, rule, expected, true
+				}
+			}
+		}
+	case []any:
+		for i, item := range n {
+			if child := r.itemAt(s, i); child != nil {
+				if p, rule, expected, ok := r.search(child, item, place+"["+strconv.Itoa(i)+"]"); ok {
+					return p, rule, expected, true
+				}
+			}
+		}
+	}
+	return "", "", "", false
 }
 
 func placeOf(path []any) string {
