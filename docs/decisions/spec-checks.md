@@ -14,3 +14,4 @@ Full wording in [docs/proxy-spec-checks.md](../proxy-spec-checks.md).
 10. A broken spec is a config problem: refused at start, by `validate` and on reload.
 11. One spec is read once and shared by every integration that uses it.
 12. The config names each vendor api once in a top-level `apis` section; integrations name the apis they use, and may change only `vendorTimeout`. `not-passed` keeps its settings on itself.
+13. The JSON Schema library sits behind `RequestCheck` and `ResponseCheck` in `internal/spec/schemacheck.go` (Peter, 2026-11-05). They take the request and reply as Go's http server gives them, unparsed: escaped path, raw query, `http.Header`, and the body's bytes. The checks that need no schema (route, body listed or required, content type, too large) are made before them. Only the `santhosh_*.go` files know santhosh, so another engine such as katydid can take its place. Whether `Body` keeps returning the marked fields is decided with the katydid work.
