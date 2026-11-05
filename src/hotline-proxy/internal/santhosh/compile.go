@@ -50,12 +50,12 @@ func (outside) Load(address string) (any, error) {
 }
 
 // NewCompiler takes the spec, read as plain JSON data with its numbers as
-// json.Number.
+// json.Number. It is a spec.NewSchemaCompiler, and never fails.
 func NewCompiler(doc any) (spec.SchemaCompiler, error) {
 	c := &Compiler{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
-	if err := c.compiler.AddResource(specURL, doc); err != nil {
-		return nil, err
-	}
+	// AddResource fails only for an address that is not absolute or was
+	// added before. A new compiler and the fixed specURL meet neither.
+	_ = c.compiler.AddResource(specURL, doc)
 	return c, nil
 }
 

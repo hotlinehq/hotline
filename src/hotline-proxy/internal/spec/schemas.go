@@ -181,16 +181,11 @@ func (p schemaParam) shape(list []string) any {
 }
 
 // check reads a body of the given media type, copies its marked fields
-// and checks it against the schema of its content. The body is one the
-// spec lists a content for, and small enough to check.
+// and checks it against the schema of its content. gate has made sure the
+// spec lists a content for it, that it can be read, and that it is small
+// enough to check.
 func (b schemaBody) check(mediaType string, data []byte) ([]Result, []Field) {
-	if b.spec == nil {
-		return nil, nil
-	}
 	c, i := b.spec.find(mediaType)
-	if c == nil {
-		return nil, nil
-	}
 	schema := b.schemas[i]
 	var instance any
 	switch c.kind(mediaType) {
@@ -210,14 +205,12 @@ func (b schemaBody) check(mediaType string, data []byte) ([]Result, []Field) {
 		if err != nil {
 			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
 		}
-	case formBodyKind:
+	default: // formBodyKind, as gate let through only bodies it can read
 		values, err := url.ParseQuery(string(data))
 		if err != nil {
 			return []Result{{Part: partBody, Place: whole, Rule: "form"}}, nil
 		}
 		instance = schema.Coerce(nest(values))
-	default:
-		return nil, nil
 	}
 	copied := c.copied(instance)
 	if schema == nil {
