@@ -8,6 +8,9 @@ require (
 	github.com/onsi/gomega v1.43.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/speakeasy-api/openapi v1.26.2
+	go.katydid.org.za/parser-go v0.13.0
+	go.katydid.org.za/parser-go-json v0.9.0
+	go.katydid.org.za/validator-go-jsonschema v0.2.0
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.72.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.23.0
@@ -36,6 +39,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cucumber/gherkin/go/v42 v42.0.0 // indirect
 	github.com/cucumber/messages/go/v34 v34.2.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.0.1 // indirect
 	github.com/dprotaso/go-yit v0.0.0-20250804204205-7afe4252a1dd // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -47,9 +51,11 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-memdb v1.3.5 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/jtacoma/uritemplates v1.0.0 // indirect
 	github.com/speakeasy-api/jsonpath v0.7.0 // indirect
 	github.com/speakeasy-api/yaml-jsonpath v0.0.0-20261016002013-07e5f48e6d17 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	go.katydid.org.za/validator-go v0.9.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
@@ -62,3 +68,9 @@ require (
 )
 
 replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102215937-5cc57679620b
+
+replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105130841-0bc6b0380f04
+
+replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105130910-3f1c0cc8a511
+
+replace go.katydid.org.za/parser-go-json => codeberg.org/petercipov/parser-go-json v0.9.1-0.20261105082103-5b23f69c4fba
