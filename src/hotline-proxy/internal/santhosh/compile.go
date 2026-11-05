@@ -1,6 +1,7 @@
 // Package santhosh checks values against the JSON Schemas of a spec with
-// the santhosh-tekuri library. It is the only package that knows that
-// library: the spec package reaches it through Compiler and Schema.
+// the santhosh-tekuri library, as spec.SchemaCompiler and spec.Schema. It
+// is the only package that knows that library; config hands NewCompiler
+// to spec.Parse.
 package santhosh
 
 import (
@@ -13,6 +14,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
+
+	"hotline-proxy/internal/spec"
 )
 
 // specURL is the address the spec is known by inside the JSON Schema
@@ -48,7 +51,7 @@ func (outside) Load(address string) (any, error) {
 
 // NewCompiler takes the spec, read as plain JSON data with its numbers as
 // json.Number.
-func NewCompiler(doc any) (*Compiler, error) {
+func NewCompiler(doc any) (spec.SchemaCompiler, error) {
 	c := &Compiler{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
 	if err := c.compiler.AddResource(specURL, doc); err != nil {
 		return nil, err
@@ -57,7 +60,7 @@ func NewCompiler(doc any) (*Compiler, error) {
 }
 
 // Compile compiles the schema v found in the spec at pointer.
-func (c *Compiler) Compile(v any, pointer string) (*Schema, error) {
+func (c *Compiler) Compile(v any, pointer string) (spec.Schema, error) {
 	s, err := c.compileSchema(v, pointer)
 	if err != nil {
 		return nil, err

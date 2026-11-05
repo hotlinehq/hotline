@@ -1,7 +1,7 @@
 package spec
 
-// The RequestCheck and ResponseCheck made with the santhosh package, which
-// alone knows the santhosh-tekuri JSON Schema library.
+// The RequestCheck and ResponseCheck of each route, built from the Schema
+// values a SchemaCompiler makes.
 
 import (
 	"maps"
@@ -9,28 +9,29 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-
-	"hotline-proxy/internal/santhosh"
 )
 
 // schemas compiles the schemas of one spec, and builds the checks of each
 // route from them.
 type schemas struct {
 	b        *builder
-	compiler *santhosh.Compiler
+	compiler SchemaCompiler
 }
 
 // newSchemas gives the spec, read as plain data, to the compiler. The
 // schemas built when that fails are nil, and check nothing; the problem is
 // reported by the caller.
-func newSchemas(b *builder) (*schemas, error) {
-	compiler, err := santhosh.NewCompiler(b.doc)
-	return &schemas{b: b, compiler: compiler}, err
+func newSchemas(b *builder, compiler NewSchemaCompiler) (*schemas, error) {
+	c, err := compiler(b.doc)
+	if err != nil {
+		return &schemas{b: b}, err
+	}
+	return &schemas{b: b, compiler: c}, nil
 }
 
 // request builds the check of a route's request side.
 func (s *schemas) request(spec *Spec, r route, where string) RequestCheck {
-	return &santhoshRequest{
+	return &schemaRequest{
 		spec:   spec,
 		route:  r,
 		params: s.params(r.checks.params, where),
@@ -40,36 +41,37 @@ func (s *schemas) request(spec *Spec, r route, where string) RequestCheck {
 
 // response builds the check of one reply the spec lists.
 func (s *schemas) response(rp *reply, where string) ResponseCheck {
-	return &santhoshResponse{headers: s.params(rp.headers, where), body: s.body(rp.body, where)}
+	return &schemaResponse{headers: s.params(rp.headers, where), body: s.body(rp.body, where)}
 }
 
-func (s *schemas) params(params []param, where string) []santhoshParam {
-	out := make([]santhoshParam, len(params))
+func (s *schemas) params(params []param, where string) []schemaParam {
+	out := make([]schemaParam, len(params))
 	for i, p := range params {
-		out[i] = santhoshParam{param: p, compiled: s.schema(p.schema, where)}
+		out[i] = schemaParam{param: p, compiled: s.schema(p.schema, where)}
 	}
 	return out
 }
 
-func (s *schemas) body(b *bodySpec, where string) santhoshBody {
+func (s *schemas) body(b *bodySpec, where string) schemaBody {
 	if b == nil {
-		return santhoshBody{}
+		return schemaBody{}
 	}
-	compiled := make([]*santhosh.Schema, len(b.content))
+	compiled := make([]Schema, len(b.content))
 	for i, c := range b.content {
 		compiled[i] = s.schema(c.schema, where)
 	}
-	return santhoshBody{spec: b, schemas: compiled}
+	return schemaBody{spec: b, schemas: compiled}
 }
 
 // schema compiles a schema of the spec, nil when there is none.
-func (s *schemas) schema(at schemaAt, where string) *santhosh.Schema {
+func (s *schemas) schema(at schemaAt, where string) Schema {
 	if !at.found || s.compiler == nil {
 		return nil
 	}
 	compiled, err := s.compiler.Compile(at.value, at.pointer)
 	if err != nil {
 		s.b.problem("%s: the schema of %s cannot be used: %v", where, at.what, err)
+		return nil
 	}
 	return compiled
 }
@@ -86,35 +88,35 @@ func (s *schemas) components() {
 	}
 }
 
-// santhoshRequest checks the request side of one route.
-type santhoshRequest struct {
+// schemaRequest checks the request side of one route.
+type schemaRequest struct {
 	spec   *Spec
 	route  route
-	params []santhoshParam
-	body   santhoshBody
+	params []schemaParam
+	body   schemaBody
 }
 
-// santhoshResponse checks one reply the spec lists.
-type santhoshResponse struct {
-	headers []santhoshParam
-	body    santhoshBody
+// schemaResponse checks one reply the spec lists.
+type schemaResponse struct {
+	headers []schemaParam
+	body    schemaBody
 }
 
-// santhoshParam is a parameter or reply header with its compiled schema,
+// schemaParam is a parameter or reply header with its compiled schema,
 // nil when the spec gives none.
-type santhoshParam struct {
+type schemaParam struct {
 	param
-	compiled *santhosh.Schema
+	compiled Schema
 }
 
-// santhoshBody holds the compiled schema of each content a body may have,
+// schemaBody holds the compiled schema of each content a body may have,
 // in the order of spec.content.
-type santhoshBody struct {
+type schemaBody struct {
 	spec    *bodySpec
-	schemas []*santhosh.Schema
+	schemas []Schema
 }
 
-func (q *santhoshRequest) Meta(escapedPath, rawQuery string, header http.Header) []Result {
+func (q *schemaRequest) Meta(escapedPath, rawQuery string, header http.Header) []Result {
 	query, _ := url.ParseQuery(rawQuery)
 	cookies := map[string]string{}
 	readCookies(header, cookies)
@@ -127,11 +129,11 @@ func (q *santhoshRequest) Meta(escapedPath, rawQuery string, header http.Header)
 	return append(results, q.route.checks.loggedIn(header, query, cookies)...)
 }
 
-func (q *santhoshRequest) Body(mediaType string, body []byte) ([]Result, []Field) {
+func (q *schemaRequest) Body(mediaType string, body []byte) ([]Result, []Field) {
 	return q.body.check(mediaType, body)
 }
 
-func (r *santhoshResponse) Meta(header http.Header) []Result {
+func (r *schemaResponse) Meta(header http.Header) []Result {
 	var results []Result
 	for _, h := range r.headers {
 		results = append(results, h.check(h.values(route{}, nil, nil, header, nil))...)
@@ -139,11 +141,11 @@ func (r *santhoshResponse) Meta(header http.Header) []Result {
 	return results
 }
 
-func (r *santhoshResponse) Body(mediaType string, body []byte) ([]Result, []Field) {
+func (r *schemaResponse) Body(mediaType string, body []byte) ([]Result, []Field) {
 	return r.body.check(mediaType, body)
 }
 
-func (p santhoshParam) check(values any) []Result {
+func (p schemaParam) check(values any) []Result {
 	part := p.in
 	if values == nil {
 		if p.required {
@@ -164,7 +166,7 @@ func (p santhoshParam) check(values any) []Result {
 
 // shape turns the strings of a parameter into the value its schema wants:
 // a list for an array, the first value otherwise.
-func (p santhoshParam) shape(list []string) any {
+func (p schemaParam) shape(list []string) any {
 	if !slices.Contains(p.compiled.Types(), "array") {
 		return list[0]
 	}
@@ -181,7 +183,7 @@ func (p santhoshParam) shape(list []string) any {
 // check reads a body of the given media type, copies its marked fields
 // and checks it against the schema of its content. The body is one the
 // spec lists a content for, and small enough to check.
-func (b santhoshBody) check(mediaType string, data []byte) ([]Result, []Field) {
+func (b schemaBody) check(mediaType string, data []byte) ([]Result, []Field) {
 	if b.spec == nil {
 		return nil, nil
 	}
@@ -225,7 +227,7 @@ func (b santhoshBody) check(mediaType string, data []byte) ([]Result, []Field) {
 }
 
 // resultsOf turns the failures of one part of a call into results.
-func resultsOf(part string, failures []santhosh.Failure) []Result {
+func resultsOf(part string, failures []Failure) []Result {
 	if len(failures) == 0 {
 		return nil
 	}

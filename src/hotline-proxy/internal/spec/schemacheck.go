@@ -28,6 +28,45 @@ type ResponseCheck interface {
 	Body(mediaType string, body []byte) ([]Result, []Field)
 }
 
+// SchemaCompiler compiles the JSON Schemas of one spec. It is made by a
+// NewSchemaCompiler and used while the spec is loaded, by one goroutine.
+type SchemaCompiler interface {
+	// Compile compiles the schema v, found in the spec at pointer.
+	Compile(v any, pointer string) (Schema, error)
+	// CompileAt compiles the schema at pointer, such as a shared one under
+	// /components/schemas, so a broken one is found even when nothing
+	// uses it.
+	CompileAt(pointer string) error
+}
+
+// NewSchemaCompiler makes the compiler of one spec, given the spec as
+// plain JSON data with its numbers as json.Number.
+type NewSchemaCompiler func(doc any) (SchemaCompiler, error)
+
+// Schema is one compiled schema. It is safe to use from many goroutines at
+// once.
+type Schema interface {
+	// Coerce turns text from a query, header, cookie, form or XML body
+	// into the number or true/false the schema wants at each place, so the
+	// schema can check it. Lists and objects are changed in place.
+	Coerce(v any) any
+	// Types are the types the schema allows, following $ref.
+	Types() []string
+	// Validate checks a value and says what is wrong with it, sorted by
+	// place. base names the value: a parameter's name, or $ for a body.
+	Validate(v any, base string) []Failure
+}
+
+// Failure is one thing a value breaks: the place in it, the rule it broke
+// and what the schema expects. It never holds the value itself.
+type Failure struct {
+	// Place starts with the base given to Validate: $.lines[1].sku in a
+	// body, tag[1] or filter.status in a parameter.
+	Place    string
+	Rule     string
+	Expected string
+}
+
 // schemaAt is a schema of the spec as it is written, and where it is, for
 // a RequestCheck or ResponseCheck to build its check from.
 type schemaAt struct {

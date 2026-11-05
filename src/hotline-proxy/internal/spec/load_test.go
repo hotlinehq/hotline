@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"hotline-proxy/internal/santhosh"
 	"hotline-proxy/internal/spec"
 )
 
@@ -35,7 +36,7 @@ var _ = Describe("Loading a spec", func() {
 	})
 
 	It("reports each broken schema, also when the same one is written twice", func() {
-		_, err := spec.Parse("test.yaml", []byte(route("parameters:\n  - { name: q, in: query, schema: { type: integr } }\n  - { name: r, in: query, schema: { type: integr } }\nresponses: {}\n")))
+		_, err := spec.Parse("test.yaml", []byte(route("parameters:\n  - { name: q, in: query, schema: { type: integr } }\n  - { name: r, in: query, schema: { type: integr } }\nresponses: {}\n")), santhosh.NewCompiler)
 		Expect(err).To(MatchError(ContainSubstring("the schema of query q cannot be used")))
 		Expect(err).To(MatchError(ContainSubstring("the schema of query r cannot be used")))
 		Expect(err).NotTo(MatchError(ContainSubstring("exists")))
@@ -50,7 +51,7 @@ var _ = Describe("Loading a spec", func() {
 		Expect(err).NotTo(HaveOccurred())
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		_, err = spec.Parse("ssm.yaml", data)
+		_, err = spec.Parse("ssm.yaml", data, santhosh.NewCompiler)
 		runtime.ReadMemStats(&after)
 		Expect(err).NotTo(HaveOccurred())
 		const mb = 1 << 20

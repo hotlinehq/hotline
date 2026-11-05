@@ -24,6 +24,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"hotline-proxy/internal/overlay"
+	"hotline-proxy/internal/santhosh"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
 )
@@ -752,7 +753,7 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 		}
 		data = merged
 	}
-	s, err := spec.Parse(name, data)
+	s, err := spec.Parse(name, data, santhosh.NewCompiler)
 	if err != nil {
 		l.problems = append(l.problems, fmt.Errorf("%s: %w", label, err))
 	}

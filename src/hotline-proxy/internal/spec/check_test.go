@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"hotline-proxy/internal/santhosh"
 	"hotline-proxy/internal/spec"
 )
 
@@ -36,7 +37,7 @@ func indent(text, by string) string {
 }
 
 func parsed(doc string) *spec.Spec {
-	s, err := spec.Parse("test.yaml", []byte(doc))
+	s, err := spec.Parse("test.yaml", []byte(doc), santhosh.NewCompiler)
 	Expect(err).NotTo(HaveOccurred())
 	return s
 }
@@ -286,7 +287,7 @@ var _ = Describe("Formats", func() {
 var _ = Describe("Specs the proxy cannot use", func() {
 	DescribeTable("are refused with the problem named",
 		func(doc, problem string) {
-			_, err := spec.Parse("test.yaml", []byte(doc))
+			_, err := spec.Parse("test.yaml", []byte(doc), santhosh.NewCompiler)
 			Expect(err).To(MatchError(ContainSubstring(problem)))
 		},
 		Entry("a $ref to a parameter in another file",

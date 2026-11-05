@@ -30,7 +30,7 @@ type builder struct {
 	reported map[string]bool
 }
 
-func newBuilder(name string, data []byte) *builder {
+func newBuilder(name string, data []byte, compiler NewSchemaCompiler) *builder {
 	b := &builder{name: name, schemes: map[string]*credential{}, reported: map[string]bool{}}
 	var raw any
 	_ = yaml.Unmarshal(data, &raw)
@@ -39,7 +39,7 @@ func newBuilder(name string, data []byte) *builder {
 		b.doc, err = decodeJSON(plain)
 	}
 	var started error
-	b.schemas, started = newSchemas(b)
+	b.schemas, started = newSchemas(b, compiler)
 	if err = cmp.Or(err, started); err != nil {
 		b.schemas.compiler = nil
 		b.problem("%s cannot be read as JSON Schema: %v", name, err)

@@ -111,14 +111,15 @@ type securityScheme struct {
 }
 
 // Parse reads and checks a spec. name only labels the problems it reports.
-// Every problem is listed, not only the first one.
-func Parse(name string, data []byte) (*Spec, error) {
+// compiler makes the JSON Schema checks. Every problem is listed, not only
+// the first one.
+func Parse(name string, data []byte, compiler NewSchemaCompiler) (*Spec, error) {
 	var doc document
 	err := yaml.Unmarshal(data, &doc)
 	if err != nil || !strings.HasPrefix(doc.OpenAPI, "3.1.") {
 		return nil, fmt.Errorf("%w: %s is not an OpenAPI 3.1 document", ErrInvalid, name)
 	}
-	b := newBuilder(name, data)
+	b := newBuilder(name, data, compiler)
 	s := &Spec{actionHeader: doc.ActionHeader, actionField: doc.ActionField, secretHeaders: map[string]bool{}, secretQuery: map[string]bool{}}
 	var problems []error
 	// A base path in the first servers address, such as /v1 in
