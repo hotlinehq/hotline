@@ -3,10 +3,11 @@ package spec
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
-	"math/big"
 	"mime"
 	"net/http"
 	"net/url"
@@ -14,9 +15,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
 // Result is one thing a check found: the part of the call, the place in it,
@@ -82,7 +80,7 @@ type param struct {
 	// deepObject reads an object from name[key]=value query pairs.
 	deepObject bool
 	explode    bool
-	schema     *jsonschema.Schema
+	schema     *schemaCheck
 	// record names the record attribute a header is copied to, when the
 	// spec marks it x-hotline-record.
 	record string
@@ -108,7 +106,7 @@ type content struct {
 	// xml is how the body is read as XML; nil when it can't be XML.
 	xml *xmlBody
 	// schema is nil when the spec gives the type but no schema.
-	schema *jsonschema.Schema
+	schema *schemaCheck
 	// fields are the body fields marked x-hotline-record.
 	fields []field
 }
@@ -267,14 +265,14 @@ func (p param) check(values any) []Result {
 	if list, ok := values.([]string); ok {
 		instance = p.shape(list)
 	}
-	instance = coerce(instance, p.schema)
-	return validate(p.schema, instance, part, p.name)
+	instance = p.schema.coerce(instance)
+	return p.schema.validate(instance, part, p.name)
 }
 
 // shape turns the strings of a parameter into the value its schema wants:
 // a list for an array, the first value otherwise.
 func (p param) shape(list []string) any {
-	if !slices.Contains(types(p.schema), "array") {
+	if !slices.Contains(p.schema.types(), "array") {
 		return list[0]
 	}
 	if !p.explode || p.in != "query" {
@@ -386,12 +384,12 @@ func (b *bodySpec) check(contentType string, body Body) ([]Result, string, []Fie
 		if c.xml.shape == nil {
 			return nil, "", nil
 		}
-		instance = coerce(instance, c.schema)
+		instance = c.schema.coerce(instance)
 	case c.json || isJSON(mediaType):
 		if body.TooLarge {
 			return nil, "body_too_large", nil
 		}
-		instance, err = jsonschema.UnmarshalJSON(bytes.NewReader(body.Data))
+		instance, err = decodeJSON(body.Data)
 		if err != nil {
 			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, "", nil
 		}
@@ -403,7 +401,7 @@ func (b *bodySpec) check(contentType string, body Body) ([]Result, string, []Fie
 		if err != nil {
 			return []Result{{Part: partBody, Place: whole, Rule: "form"}}, "", nil
 		}
-		instance = coerce(nest(values), c.schema)
+		instance = c.schema.coerce(nest(values))
 	default:
 		return nil, "unsupported_content_type", nil
 	}
@@ -411,7 +409,7 @@ func (b *bodySpec) check(contentType string, body Body) ([]Result, string, []Fie
 	if c.schema == nil {
 		return nil, "", copied
 	}
-	return validate(c.schema, instance, partBody, whole), "", copied
+	return c.schema.validate(instance, partBody, whole), "", copied
 }
 
 // find picks the content for a media type: the exact type first, then
@@ -506,205 +504,18 @@ func lists(v any) any {
 	return list
 }
 
-// coerce turns text from a query, header, cookie or form into the number
-// or true/false the schema wants, so the schema can check it.
-func coerce(v any, s *jsonschema.Schema) any {
-	if s == nil {
-		return v
+// decodeJSON reads JSON text into plain data, with numbers kept as text so none loses digits.
+func decodeJSON(data []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var v any
+	if err := decoder.Decode(&v); err != nil {
+		return nil, err
 	}
-	for s.Ref != nil && s.Types == nil && s.Properties == nil && s.Items2020 == nil {
-		s = s.Ref
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, errTrailing
 	}
-	switch x := v.(type) {
-	case string:
-		return scalar(x, types(s))
-	case []any:
-		for i := range x {
-			item := s.Items2020
-			if i < len(s.PrefixItems) {
-				item = s.PrefixItems[i]
-			}
-			x[i] = coerce(x[i], item)
-		}
-	case map[string]any:
-		for key := range x {
-			prop := s.Properties[key]
-			if extra, ok := s.AdditionalProperties.(*jsonschema.Schema); ok && prop == nil {
-				prop = extra
-			}
-			x[key] = coerce(x[key], prop)
-		}
-	}
-	return v
+	return v, nil
 }
 
-func scalar(text string, want []string) any {
-	switch {
-	case slices.Contains(want, "integer") && isInteger(text),
-		slices.Contains(want, "number") && isNumber(text):
-		return jsonNumber(text)
-	case slices.Contains(want, "boolean") && (text == "true" || text == "false"):
-		return text == "true"
-	}
-	return text
-}
-
-func isInteger(text string) bool {
-	_, ok := new(big.Int).SetString(text, 10)
-	return ok
-}
-
-func isNumber(text string) bool {
-	_, err := strconv.ParseFloat(text, 64)
-	return err == nil
-}
-
-// types are the types a schema allows, following $ref.
-func types(s *jsonschema.Schema) []string {
-	for ; s != nil; s = s.Ref {
-		if s.Types != nil {
-			return s.Types.ToStrings()
-		}
-	}
-	return nil
-}
-
-// validate checks a value against a schema and turns what is wrong into
-// results. base names the value: a parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, part, base string) []Result {
-	var invalid *jsonschema.ValidationError
-	if !errors.As(s.Validate(instance), &invalid) {
-		return nil
-	}
-	var leaves []*jsonschema.ValidationError
-	collect(invalid, &leaves)
-	var results []Result
-	for _, e := range leaves {
-		place := placeOf(base, instance, e.InstanceLocation)
-		switch k := e.ErrorKind.(type) {
-		case *kind.Required:
-			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "required"})
-			}
-		case *kind.AdditionalProperties:
-			for _, name := range k.Properties {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
-			}
-		case *kind.DependentRequired:
-			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
-			}
-		case *kind.ContentMediaType:
-			// A string that should hold JSON doesn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "json"})
-		case *kind.ContentEncoding:
-			// A string that should be base64 text isn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "base64"})
-		default:
-			results = append(results, Result{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
-		}
-	}
-	sort.SliceStable(results, func(i, j int) bool { return results[i].Place < results[j].Place })
-	return results
-}
-
-// rule names the broken rule by its JSON Schema keyword.
-func rule(k jsonschema.ErrorKind) string {
-	switch k.(type) {
-	case *kind.Not:
-		return "not"
-	case *kind.FalseSchema:
-		return "false"
-	}
-	path := append([]string{"schema"}, k.KeywordPath()...)
-	return path[len(path)-1]
-}
-
-// collect finds the errors that say what is wrong, leaving out those that
-// only group others. For anyOf, oneOf and not the error itself is kept:
-// the errors of each choice would only confuse.
-func collect(e *jsonschema.ValidationError, leaves *[]*jsonschema.ValidationError) {
-	switch e.ErrorKind.(type) {
-	case *kind.AnyOf, *kind.OneOf, *kind.Not:
-		*leaves = append(*leaves, e)
-		return
-	}
-	if len(e.Causes) == 0 {
-		*leaves = append(*leaves, e)
-		return
-	}
-	for _, cause := range e.Causes {
-		collect(cause, leaves)
-	}
-}
-
-// placeOf writes where a value sits: $.lines[1].sku in a body, tag[1] or
-// filter.status in a parameter.
-func placeOf(base string, instance any, location []string) string {
-	var b strings.Builder
-	b.WriteString(base)
-	for _, token := range location {
-		if token == insideJSON {
-			// The value is JSON text; the place carries on inside it.
-			if text, ok := instance.(string); ok {
-				instance, _ = jsonschema.UnmarshalJSON(strings.NewReader(text))
-			}
-			continue
-		}
-		if list, ok := instance.([]any); ok {
-			i, _ := strconv.Atoi(token)
-			b.WriteString("[" + token + "]")
-			instance = list[i]
-			continue
-		}
-		b.WriteString("." + token)
-		if m, ok := instance.(map[string]any); ok {
-			instance = m[token]
-		}
-	}
-	return b.String()
-}
-
-// expected is what the spec asks for, taken from the schema, never from
-// the value.
-func expected(k jsonschema.ErrorKind) string {
-	switch k := k.(type) {
-	case *kind.Type:
-		return strings.Join(k.Want, " or ")
-	case *kind.Format:
-		return k.Want
-	case *kind.Enum:
-		want := make([]string, len(k.Want))
-		for i, w := range k.Want {
-			want[i] = fmt.Sprint(w)
-		}
-		return strings.Join(want, ", ")
-	case *kind.Const:
-		return fmt.Sprint(k.Want)
-	case *kind.Pattern:
-		return k.Want
-	case *kind.Minimum:
-		return k.Want.RatString()
-	case *kind.Maximum:
-		return k.Want.RatString()
-	case *kind.ExclusiveMinimum:
-		return k.Want.RatString()
-	case *kind.ExclusiveMaximum:
-		return k.Want.RatString()
-	case *kind.MultipleOf:
-		return k.Want.RatString()
-	case *kind.MinLength:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxLength:
-		return strconv.Itoa(k.Want)
-	case *kind.MinItems:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxItems:
-		return strconv.Itoa(k.Want)
-	case *kind.MinProperties:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxProperties:
-		return strconv.Itoa(k.Want)
-	}
-	return ""
-}
+var errTrailing = errors.New("text after the JSON value")
