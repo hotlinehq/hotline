@@ -1,12 +1,9 @@
 package spec
 
 import (
-	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"maps"
-	"math/big"
 	"mime"
 	"net/http"
 	"net/url"
@@ -14,9 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 )
 
 // Result is one thing a check found: the part of the call, the place in it,
@@ -73,6 +67,8 @@ type checks struct {
 	// replies are by status: "200", "2XX" or "default". Nil when the spec
 	// lists none, so replies are not checked.
 	replies map[string]*reply
+	// request checks the parameters, login and body against the schemas.
+	request RequestCheck
 }
 
 type param struct {
@@ -82,7 +78,7 @@ type param struct {
 	// deepObject reads an object from name[key]=value query pairs.
 	deepObject bool
 	explode    bool
-	schema     *jsonschema.Schema
+	schema     schemaAt
 	// record names the record attribute a header is copied to, when the
 	// spec marks it x-hotline-record.
 	record string
@@ -107,8 +103,8 @@ type content struct {
 	xmlMark bool
 	// xml is how the body is read as XML; nil when it can't be XML.
 	xml *xmlBody
-	// schema is nil when the spec gives the type but no schema.
-	schema *jsonschema.Schema
+	// schema is not found when the spec gives the type but no schema.
+	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
 }
@@ -116,6 +112,8 @@ type content struct {
 type reply struct {
 	headers []param
 	body    *bodySpec
+	// check checks the headers and body against the schemas.
+	check ResponseCheck
 }
 
 const (
@@ -148,24 +146,18 @@ func (s *Spec) CheckRequest(e Exchange) Checked {
 	if r.segments == nil {
 		return Checked{Skipped: "no_spec_route"}
 	}
-	var c Checked
-	query, _ := url.ParseQuery(e.RawQuery)
-	cookies := map[string]string{}
-	for _, cookie := range (&http.Request{Header: e.Header}).Cookies() {
-		cookies[cookie.Name] = cookie.Value
+	c := Checked{
+		Request: r.checks.request.Meta(e.EscapedPath, e.RawQuery, e.Header),
+		Copied:  r.checks.copiedHeaders(e.Header),
 	}
-	segments := r.split(strings.TrimSuffix(e.EscapedPath, "/"))
-	for _, p := range r.checks.params {
-		values := p.values(r, segments, query, e.Header, cookies)
-		c.Request = append(c.Request, p.check(values)...)
-	}
-	c.Request = append(c.Request, s.unknownQuery(r, query)...)
-	c.Copied = r.checks.copiedHeaders(e.Header)
-	c.Request = append(c.Request, r.checks.loggedIn(e.Header, query, cookies)...)
-	results, skipped, copied := r.checks.body.check(e.Header.Get("Content-Type"), e.Body)
+	results, skipped, mediaType, check := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
 	c.Request = append(c.Request, results...)
 	c.Skipped = skipped
-	c.Copied = append(c.Copied, copied...)
+	if check {
+		results, copied := r.checks.request.Body(mediaType, e.Body.Data)
+		c.Request = append(c.Request, results...)
+		c.Copied = append(c.Copied, copied...)
+	}
 	return c
 }
 
@@ -185,16 +177,19 @@ func (s *Spec) CheckReply(e Exchange) Checked {
 		c.Reply = []Result{{Part: partStatus, Place: strconv.Itoa(e.Status), Rule: "not_in_spec"}}
 		return c
 	}
-	for _, h := range rp.headers {
-		c.Reply = append(c.Reply, h.check(h.values(r, nil, nil, e.ReplyHeader, nil))...)
-	}
+	c.Reply = rp.check.Meta(e.ReplyHeader)
 	if mt, _, _ := mime.ParseMediaType(e.ReplyHeader.Get("Content-Type")); mt == "text/event-stream" {
 		c.Skipped = "streaming"
 		return c
 	}
-	results, skipped, copied := rp.body.check(e.ReplyHeader.Get("Content-Type"), e.ReplyBody)
+	results, skipped, mediaType, check := rp.body.gate(e.ReplyHeader.Get("Content-Type"), e.ReplyBody)
 	c.Reply = append(c.Reply, results...)
-	c.Skipped, c.Copied = skipped, copied
+	c.Skipped = skipped
+	if check {
+		results, copied := rp.check.Body(mediaType, e.ReplyBody.Data)
+		c.Reply = append(c.Reply, results...)
+		c.Copied = copied
+	}
 	return c
 }
 
@@ -250,41 +245,6 @@ func deepObject(name string, query url.Values) any {
 		return nil
 	}
 	return nest(found)["v"]
-}
-
-func (p param) check(values any) []Result {
-	part := p.in
-	if values == nil {
-		if p.required {
-			return []Result{{Part: part, Place: p.name, Rule: "required"}}
-		}
-		return nil
-	}
-	if p.schema == nil {
-		return nil
-	}
-	instance := values
-	if list, ok := values.([]string); ok {
-		instance = p.shape(list)
-	}
-	instance = coerce(instance, p.schema)
-	return validate(p.schema, instance, part, p.name)
-}
-
-// shape turns the strings of a parameter into the value its schema wants:
-// a list for an array, the first value otherwise.
-func (p param) shape(list []string) any {
-	if !slices.Contains(types(p.schema), "array") {
-		return list[0]
-	}
-	if !p.explode || p.in != "query" {
-		list = strings.Split(strings.Join(list, ","), ",")
-	}
-	items := make([]any, len(list))
-	for i, v := range list {
-		items[i] = v
-	}
-	return items
 }
 
 // unknownQuery reports query names the spec does not know. A login key
@@ -345,87 +305,87 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 	return header.Get(cred.name) != ""
 }
 
-// check checks a body against what the spec lists, and copies its marked
-// fields. A body that cannot be read, or is too large to check, is skipped,
-// and the reason returned.
-func (b *bodySpec) check(contentType string, body Body) ([]Result, string, []Field) {
+// gate makes the checks of a body that need no schema: whether the spec
+// lists a body here, whether one is required, and whether its content type
+// is one the spec lists. It returns the media type to check the body as,
+// and whether to check it. A body that cannot be read,
+// or is too large to check, is skipped, and the reason returned.
+func (b *bodySpec) gate(contentType string, body Body) (results []Result, skipped, mediaType string, check bool) {
 	empty := len(body.Data) == 0 && !body.TooLarge
 	switch {
 	case b == nil && empty:
-		return nil, "", nil
+		return nil, "", "", false
 	case b == nil:
-		return []Result{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", nil
+		return []Result{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", "", false
 	case empty && b.required:
-		return []Result{{Part: partBody, Place: whole, Rule: "required"}}, "", nil
+		return []Result{{Part: partBody, Place: whole, Rule: "required"}}, "", "", false
 	case empty:
-		return nil, "", nil
+		return nil, "", "", false
 	}
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		mediaType = ""
 	}
-	c := b.find(mediaType)
+	c, _ := b.find(mediaType)
 	if c == nil {
 		listed := make([]string, len(b.content))
 		for i, c := range b.content {
 			listed[i] = c.mediaType
 		}
-		return []Result{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", nil
+		return []Result{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", "", false
 	}
-	var instance any
 	switch {
-	case c.xmlMark || !c.json && isXML(mediaType) && c.xml != nil:
-		if body.TooLarge {
-			return nil, "body_too_large", nil
-		}
-		var problem *Result
-		instance, problem = c.xml.read(body.Data)
-		if problem != nil {
-			return []Result{*problem}, "", nil
-		}
-		if c.xml.shape == nil {
-			return nil, "", nil
-		}
-		instance = coerce(instance, c.schema)
-	case c.json || isJSON(mediaType):
-		if body.TooLarge {
-			return nil, "body_too_large", nil
-		}
-		instance, err = jsonschema.UnmarshalJSON(bytes.NewReader(body.Data))
-		if err != nil {
-			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, "", nil
-		}
-	case mediaType == "application/x-www-form-urlencoded":
-		if body.TooLarge {
-			return nil, "body_too_large", nil
-		}
-		values, err := url.ParseQuery(string(body.Data))
-		if err != nil {
-			return []Result{{Part: partBody, Place: whole, Rule: "form"}}, "", nil
-		}
-		instance = coerce(nest(values), c.schema)
-	default:
-		return nil, "unsupported_content_type", nil
+	case c.kind(mediaType) == unreadableBodyKind:
+		return nil, "unsupported_content_type", "", false
+	case body.TooLarge:
+		return nil, "body_too_large", "", false
 	}
-	copied := c.copied(instance)
-	if c.schema == nil {
-		return nil, "", copied
-	}
-	return validate(c.schema, instance, partBody, whole), "", copied
+	return nil, "", mediaType, true
 }
 
 // find picks the content for a media type: the exact type first, then
-// type/* and */*.
-func (b *bodySpec) find(mediaType string) *content {
+// type/* and */*. It returns the content and its place in the list.
+func (b *bodySpec) find(mediaType string) (*content, int) {
 	major, _, _ := strings.Cut(mediaType, "/")
 	for _, want := range []string{mediaType, major + "/*", "*/*"} {
 		for i, c := range b.content {
 			if strings.EqualFold(c.mediaType, want) {
-				return &b.content[i]
+				return &b.content[i], i
 			}
 		}
 	}
-	return nil
+	return nil, -1
+}
+
+// bodyKind is how a body is read before it is checked.
+type bodyKind int
+
+const (
+	unreadableBodyKind bodyKind = iota
+	xmlBodyKind
+	jsonBodyKind
+	formBodyKind
+)
+
+// kind is how a body of this content, sent as mediaType, is read.
+func (c *content) kind(mediaType string) bodyKind {
+	switch {
+	case c.xmlMark || !c.json && isXML(mediaType) && c.xml != nil:
+		return xmlBodyKind
+	case c.json || isJSON(mediaType):
+		return jsonBodyKind
+	case mediaType == "application/x-www-form-urlencoded":
+		return formBodyKind
+	}
+	return unreadableBodyKind
+}
+
+// readCookies puts the cookies a request sends into cookies, by name. The
+// map is the caller's, so it can stay off the heap.
+func readCookies(header http.Header, cookies map[string]string) {
+	for _, cookie := range (&http.Request{Header: header}).Cookies() {
+		cookies[cookie.Name] = cookie.Value
+	}
 }
 
 func isJSON(mediaType string) bool {
@@ -504,207 +464,4 @@ func lists(v any) any {
 		list[i] = m[strconv.Itoa(index)]
 	}
 	return list
-}
-
-// coerce turns text from a query, header, cookie or form into the number
-// or true/false the schema wants, so the schema can check it.
-func coerce(v any, s *jsonschema.Schema) any {
-	if s == nil {
-		return v
-	}
-	for s.Ref != nil && s.Types == nil && s.Properties == nil && s.Items2020 == nil {
-		s = s.Ref
-	}
-	switch x := v.(type) {
-	case string:
-		return scalar(x, types(s))
-	case []any:
-		for i := range x {
-			item := s.Items2020
-			if i < len(s.PrefixItems) {
-				item = s.PrefixItems[i]
-			}
-			x[i] = coerce(x[i], item)
-		}
-	case map[string]any:
-		for key := range x {
-			prop := s.Properties[key]
-			if extra, ok := s.AdditionalProperties.(*jsonschema.Schema); ok && prop == nil {
-				prop = extra
-			}
-			x[key] = coerce(x[key], prop)
-		}
-	}
-	return v
-}
-
-func scalar(text string, want []string) any {
-	switch {
-	case slices.Contains(want, "integer") && isInteger(text),
-		slices.Contains(want, "number") && isNumber(text):
-		return jsonNumber(text)
-	case slices.Contains(want, "boolean") && (text == "true" || text == "false"):
-		return text == "true"
-	}
-	return text
-}
-
-func isInteger(text string) bool {
-	_, ok := new(big.Int).SetString(text, 10)
-	return ok
-}
-
-func isNumber(text string) bool {
-	_, err := strconv.ParseFloat(text, 64)
-	return err == nil
-}
-
-// types are the types a schema allows, following $ref.
-func types(s *jsonschema.Schema) []string {
-	for ; s != nil; s = s.Ref {
-		if s.Types != nil {
-			return s.Types.ToStrings()
-		}
-	}
-	return nil
-}
-
-// validate checks a value against a schema and turns what is wrong into
-// results. base names the value: a parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, part, base string) []Result {
-	var invalid *jsonschema.ValidationError
-	if !errors.As(s.Validate(instance), &invalid) {
-		return nil
-	}
-	var leaves []*jsonschema.ValidationError
-	collect(invalid, &leaves)
-	var results []Result
-	for _, e := range leaves {
-		place := placeOf(base, instance, e.InstanceLocation)
-		switch k := e.ErrorKind.(type) {
-		case *kind.Required:
-			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "required"})
-			}
-		case *kind.AdditionalProperties:
-			for _, name := range k.Properties {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
-			}
-		case *kind.DependentRequired:
-			for _, name := range k.Missing {
-				results = append(results, Result{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
-			}
-		case *kind.ContentMediaType:
-			// A string that should hold JSON doesn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "json"})
-		case *kind.ContentEncoding:
-			// A string that should be base64 text isn't.
-			results = append(results, Result{Part: part, Place: place, Rule: "base64"})
-		default:
-			results = append(results, Result{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
-		}
-	}
-	sort.SliceStable(results, func(i, j int) bool { return results[i].Place < results[j].Place })
-	return results
-}
-
-// rule names the broken rule by its JSON Schema keyword.
-func rule(k jsonschema.ErrorKind) string {
-	switch k.(type) {
-	case *kind.Not:
-		return "not"
-	case *kind.FalseSchema:
-		return "false"
-	}
-	path := append([]string{"schema"}, k.KeywordPath()...)
-	return path[len(path)-1]
-}
-
-// collect finds the errors that say what is wrong, leaving out those that
-// only group others. For anyOf, oneOf and not the error itself is kept:
-// the errors of each choice would only confuse.
-func collect(e *jsonschema.ValidationError, leaves *[]*jsonschema.ValidationError) {
-	switch e.ErrorKind.(type) {
-	case *kind.AnyOf, *kind.OneOf, *kind.Not:
-		*leaves = append(*leaves, e)
-		return
-	}
-	if len(e.Causes) == 0 {
-		*leaves = append(*leaves, e)
-		return
-	}
-	for _, cause := range e.Causes {
-		collect(cause, leaves)
-	}
-}
-
-// placeOf writes where a value sits: $.lines[1].sku in a body, tag[1] or
-// filter.status in a parameter.
-func placeOf(base string, instance any, location []string) string {
-	var b strings.Builder
-	b.WriteString(base)
-	for _, token := range location {
-		if token == insideJSON {
-			// The value is JSON text; the place carries on inside it.
-			if text, ok := instance.(string); ok {
-				instance, _ = jsonschema.UnmarshalJSON(strings.NewReader(text))
-			}
-			continue
-		}
-		if list, ok := instance.([]any); ok {
-			i, _ := strconv.Atoi(token)
-			b.WriteString("[" + token + "]")
-			instance = list[i]
-			continue
-		}
-		b.WriteString("." + token)
-		if m, ok := instance.(map[string]any); ok {
-			instance = m[token]
-		}
-	}
-	return b.String()
-}
-
-// expected is what the spec asks for, taken from the schema, never from
-// the value.
-func expected(k jsonschema.ErrorKind) string {
-	switch k := k.(type) {
-	case *kind.Type:
-		return strings.Join(k.Want, " or ")
-	case *kind.Format:
-		return k.Want
-	case *kind.Enum:
-		want := make([]string, len(k.Want))
-		for i, w := range k.Want {
-			want[i] = fmt.Sprint(w)
-		}
-		return strings.Join(want, ", ")
-	case *kind.Const:
-		return fmt.Sprint(k.Want)
-	case *kind.Pattern:
-		return k.Want
-	case *kind.Minimum:
-		return k.Want.RatString()
-	case *kind.Maximum:
-		return k.Want.RatString()
-	case *kind.ExclusiveMinimum:
-		return k.Want.RatString()
-	case *kind.ExclusiveMaximum:
-		return k.Want.RatString()
-	case *kind.MultipleOf:
-		return k.Want.RatString()
-	case *kind.MinLength:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxLength:
-		return strconv.Itoa(k.Want)
-	case *kind.MinItems:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxItems:
-		return strconv.Itoa(k.Want)
-	case *kind.MinProperties:
-		return strconv.Itoa(k.Want)
-	case *kind.MaxProperties:
-		return strconv.Itoa(k.Want)
-	}
-	return ""
 }

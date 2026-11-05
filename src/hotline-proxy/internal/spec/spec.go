@@ -111,14 +111,15 @@ type securityScheme struct {
 }
 
 // Parse reads and checks a spec. name only labels the problems it reports.
-// Every problem is listed, not only the first one.
-func Parse(name string, data []byte) (*Spec, error) {
+// compiler makes the JSON Schema checks. Every problem is listed, not only
+// the first one.
+func Parse(name string, data []byte, compiler NewSchemaCompiler) (*Spec, error) {
 	var doc document
 	err := yaml.Unmarshal(data, &doc)
 	if err != nil || !strings.HasPrefix(doc.OpenAPI, "3.1.") {
 		return nil, fmt.Errorf("%w: %s is not an OpenAPI 3.1 document", ErrInvalid, name)
 	}
-	b := newBuilder(name, data)
+	b := newBuilder(name, data, compiler)
 	s := &Spec{actionHeader: doc.ActionHeader, actionField: doc.ActionField, secretHeaders: map[string]bool{}, secretQuery: map[string]bool{}}
 	var problems []error
 	// A base path in the first servers address, such as /v1 in
@@ -154,6 +155,7 @@ func Parse(name string, data []byte) (*Spec, error) {
 			}
 			where := fmt.Sprintf("%s %s %s", name, method, template)
 			r.checks = b.checks(key, strings.ToLower(method), where)
+			r.checks.request = b.schemas.request(s, r, where)
 			// The method's own entries come last, so they win.
 			for _, p := range append(append([]parameter{}, item.Parameters...), op.Parameters...) {
 				problems = r.addMark(problems, where, p.In, p.Name, p.Redact)
