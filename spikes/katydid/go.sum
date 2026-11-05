@@ -1,9 +1,9 @@
 codeberg.org/petercipov/parser-go-json v0.9.1-0.20261105082103-5b23f69c4fba h1:DtJRhbf9DFPKyOF0VbbNbfUjpwvUPRu4o8rBiG8q/fc=
 codeberg.org/petercipov/parser-go-json v0.9.1-0.20261105082103-5b23f69c4fba/go.mod h1:sRgFWtPlG/XtVr9+ztoZnNQSAdfgVpePcz2TAzrnaDc=
-codeberg.org/petercipov/validator-go v0.9.1-0.20261105072711-edf755369f82 h1:AWUAtOKdtxrYdcexJD1ULINcmYJKii4wTK5MgGL000c=
-codeberg.org/petercipov/validator-go v0.9.1-0.20261105072711-edf755369f82/go.mod h1:AjOF4ea/lfum7NBwZ6WH1XDZwHxcZQlf8qswYhuSzrY=
-codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105082948-627bf0ea6902 h1:JZ/es0HcveqSbCubczb9qjLrDHqiY+aLeD5FeXEOTTI=
-codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105082948-627bf0ea6902/go.mod h1:lG6S+ezhX5SG+gqsnQFELVdiau7mQeqCuIMRM4gl91M=
+codeberg.org/petercipov/validator-go v0.9.1-0.20261105122746-cb5c9f388897 h1:6TnCPzzKjYQlcAfLCbQbsMHg6YzXRoajDbp6JHNU2SM=
+codeberg.org/petercipov/validator-go v0.9.1-0.20261105122746-cb5c9f388897/go.mod h1:AjOF4ea/lfum7NBwZ6WH1XDZwHxcZQlf8qswYhuSzrY=
+codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105123140-3f31725cf7dd h1:bdUflsMpjxE3h2HJv83gJ7dmg6TxXVN86ibmXTx+zlw=
+codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105123140-3f31725cf7dd/go.mod h1:eiLfbBgOKOiE3OQPN7Es8SZUgRLR/UKOF9AJP1CMTl4=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
