@@ -110,7 +110,7 @@ func (p *XMLStreamingParser) Token() (parse.Kind, []byte, error) {
 	switch e.kind {
 	case parse.Int64Kind, parse.Float64Kind:
 		for i := range 8 {
-			p.numbuf[i] = byte(e.n >> (8 * i))
+			p.numbuf[i] = byte(e.n >> (8 * i)) //nolint:gosec // the low byte is wanted
 		}
 		return e.kind, p.numbuf[:], nil
 	}
@@ -133,7 +133,7 @@ func (p *XMLStreamingParser) finish() error {
 		return p.err
 	}
 	for {
-		if _, err := p.Next(); err == io.EOF {
+		if _, err := p.Next(); errors.Is(err, io.EOF) {
 			return nil
 		} else if err != nil {
 			return err
@@ -177,12 +177,12 @@ func (p *XMLStreamingParser) fieldName(name []byte) {
 	p.push(parse.FieldHint, parse.StringKind, name, 0)
 }
 func (p *XMLStreamingParser) fieldIndex(i int64) {
-	p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i))
+	p.push(parse.FieldHint, parse.Int64Kind, nil, uint64(i)) //nolint:gosec // the bits are kept as they are
 }
 func (p *XMLStreamingParser) enter() { p.push(parse.EnterHint, parse.UnknownKind, nil, 0) }
 func (p *XMLStreamingParser) leave() { p.push(parse.LeaveHint, parse.UnknownKind, nil, 0) }
 func (p *XMLStreamingParser) tag(t string) {
-	p.push(parse.FieldHint, parse.TagKind, unsafe.Slice(unsafe.StringData(t), len(t)), 0)
+	p.push(parse.FieldHint, parse.TagKind, unsafe.Slice(unsafe.StringData(t), len(t)), 0) //nolint:gosec // the text is only read, not changed
 }
 
 // fill scans the body until at least one event is queued.
@@ -659,7 +659,7 @@ func (p *XMLStreamingParser) decode(b []byte) []byte {
 					v, err = strconv.ParseUint(string(ent[1:]), 10, 32)
 				}
 				if err == nil {
-					p.scratch = append(p.scratch, string(rune(v))...)
+					p.scratch = append(p.scratch, string(rune(v))...) //nolint:gosec // the value is a checked character code
 					break
 				}
 			}
@@ -684,7 +684,7 @@ func parseInt(b []byte) (int64, bool) {
 	if len(b) == 0 {
 		return 0, false
 	}
-	v, err := strconv.ParseInt(unsafe.String(&b[0], len(b)), 10, 64)
+	v, err := strconv.ParseInt(unsafe.String(&b[0], len(b)), 10, 64) //nolint:gosec // the bytes are only read, not changed
 	return v, err == nil
 }
 
@@ -699,7 +699,7 @@ func parseFloat(b []byte) (float64, bool) {
 			return 0, false
 		}
 	}
-	v, err := strconv.ParseFloat(unsafe.String(&b[0], len(b)), 64)
+	v, err := strconv.ParseFloat(unsafe.String(&b[0], len(b)), 64) //nolint:gosec // the bytes are only read, not changed
 	return v, err == nil
 }
 
@@ -709,7 +709,7 @@ func (p *XMLStreamingParser) value(typ string, text []byte) {
 	switch typ {
 	case "integer":
 		if v, ok := parseInt(t); ok {
-			p.push(parse.ValueHint, parse.Int64Kind, nil, uint64(v))
+			p.push(parse.ValueHint, parse.Int64Kind, nil, uint64(v)) //nolint:gosec // the bits are kept as they are
 			return
 		}
 	case "number":

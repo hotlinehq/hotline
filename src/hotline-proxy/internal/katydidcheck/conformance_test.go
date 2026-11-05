@@ -3,6 +3,7 @@ package katydidcheck_test
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,23 +40,23 @@ var (
 
 // loadCases reads the suite's index files and returns the cases we can use, and how many were left out for each reason.
 func loadCases(dir string) ([]confCase, map[string]int) {
-	index, err := os.ReadFile(filepath.Join(dir, "xmlconf.xml"))
+	index, err := os.ReadFile(filepath.Join(dir, "xmlconf.xml")) //nolint:gosec // a test file
 	Expect(err).NotTo(HaveOccurred())
 	left := map[string]int{}
 	var cases []confCase
 	for _, m := range systemEntity.FindAllSubmatch(index, -1) {
 		coll := string(m[1])
-		raw, err := os.ReadFile(filepath.Join(dir, coll))
+		raw, err := os.ReadFile(filepath.Join(dir, coll)) //nolint:gosec // a test file
 		if err != nil {
 			continue
 		}
 		raw = doctypeRe.ReplaceAll(raw, nil)
 		raw = append(append([]byte("<R>"), xmlDeclRe.ReplaceAll(raw, nil)...), "</R>"...)
-		dec := xml.NewDecoder(bytes.NewReader(raw))
+		dec := xml.NewDecoder(bytes.NewReader(raw)) //nolint:gosec // a test file
 		var bases []string
 		for {
 			tok, err := dec.Token()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			Expect(err).NotTo(HaveOccurred(), coll)
@@ -72,7 +73,7 @@ func loadCases(dir string) ([]confCase, map[string]int) {
 				bases = append(bases, "")
 				file := filepath.Join(dir, filepath.Dir(coll), filepath.Join(bases...), attr["URI"])
 				ents, version, edition := attr["ENTITIES"], attr["VERSION"], attr["EDITION"]
-				body, err := os.ReadFile(file)
+				body, err := os.ReadFile(file) //nolint:gosec // a test file
 				switch {
 				case version != "" && version != "1.0":
 					left["xml 1.1"]++

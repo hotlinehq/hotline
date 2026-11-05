@@ -34,7 +34,7 @@ func xmlBody(n int) []byte {
 }
 
 func schemaOf(b testing.TB, f string) []byte {
-	d, err := os.ReadFile(dir + f)
+	d, err := os.ReadFile(dir + f) //nolint:gosec // a test file
 	if err != nil {
 		b.Fatal(err)
 	}

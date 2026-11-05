@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"go.katydid.org.za/validator-go-jsonschema/jsonschema/allowlist"
 	"maps"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 
+	"go.katydid.org.za/validator-go-jsonschema/jsonschema/allowlist"
 	"go.yaml.in/yaml/v3"
 )
 

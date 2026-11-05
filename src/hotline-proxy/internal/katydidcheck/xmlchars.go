@@ -195,11 +195,11 @@ func (d *declParser) pair(name string) ([]byte, bool) {
 }
 
 func validEncName(b []byte) bool {
-	if len(b) == 0 || !(b[0] >= 'A' && b[0] <= 'Z' || b[0] >= 'a' && b[0] <= 'z') {
+	if len(b) == 0 || (b[0] < 'A' || b[0] > 'Z' && b[0] < 'a' || b[0] > 'z') {
 		return false
 	}
 	for _, c := range b[1:] {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+		if c < '-' || c > '9' && c < 'A' || c > 'Z' && c < '_' || c == '/' || c > '_' && c < 'a' || c > 'z' {
 			return false
 		}
 	}
@@ -222,7 +222,6 @@ func parseDecl(inner []byte) (encoding []byte, ok bool) {
 				return nil, false
 			}
 			encoding = v
-			save = d.i
 		} else {
 			d.i = save
 		}

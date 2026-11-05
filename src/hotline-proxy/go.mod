@@ -6,7 +6,6 @@ require (
 	github.com/cucumber/godog v0.16.0
 	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/speakeasy-api/openapi v1.26.2
 	go.katydid.org.za/parser-go v0.13.0
 	go.katydid.org.za/parser-go-json v0.9.0
@@ -66,8 +65,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 )
-
-replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonschema/v6 v6.0.0-20261102215937-5cc57679620b
 
 replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105130841-0bc6b0380f04
 

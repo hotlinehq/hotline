@@ -47,12 +47,12 @@ var _ = Describe("Pool", func() {
 		p, err := katydidcheck.NewPool([]byte(defsSchema))
 		Expect(err).NotTo(HaveOccurred())
 		var wg sync.WaitGroup
-		for g := 0; g < 16; g++ {
+		for range 16 {
 			wg.Add(1)
 			go func() {
 				defer GinkgoRecover()
 				defer wg.Done()
-				for i := 0; i < 200; i++ {
+				for range 200 {
 					Expect(p.WhyJSON([]byte(`{"Contents":[{"Key":"a","Size":1}]}`))).To(Succeed())
 					saysExactly(p.WhyJSON([]byte(`{"Contents":[{"Key":"a"}]}`)), "invalid at $.Contents[0].Size: required")
 				}

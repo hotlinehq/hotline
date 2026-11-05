@@ -21,7 +21,7 @@ import (
 // the place like $.Contents[1].Size, the broken rule by its JSON Schema keyword, and what the schema expects.
 // For a missing field the place ends with the name of the missing field.
 // Rule and Expected are empty when the failure is of a kind that is not explained yet (allOf, oneOf, anyOf, not, format).
-type Failure struct {
+type Failure struct { //nolint:errname // a finding about a body, not an error value
 	Place    string
 	Rule     string
 	Expected string
@@ -80,7 +80,7 @@ func (r *resolver) explain(root schema, p parse.Parser, where *ValidationError) 
 			}
 		}
 	}
-	// Katydid points at the extra item or the extra field, santhosh at the list or at the object that holds it.
+	// Katydid points at the extra item or the extra field, the earlier engine at the list or at the object that holds it.
 	if parent != nil && len(where.Path) > 0 {
 		parent = r.deref(parent)
 		switch last := where.Path[len(where.Path)-1].(type) {
@@ -420,7 +420,7 @@ func buildFrom(p parse.Parser, h parse.Hint) (any, error) {
 	case parse.EnterHint:
 		return buildContainer(p)
 	}
-	return nil, errors.New("unexpected token while reading the body")
+	return nil, errUnexpectedToken
 }
 
 func buildContainer(p parse.Parser) (any, error) {
@@ -485,7 +485,7 @@ func buildContainer(p parse.Parser) (any, error) {
 				obj[name] = child
 			}
 		default:
-			return nil, errors.New("unexpected token while reading the body")
+			return nil, errUnexpectedToken
 		}
 	}
 }
@@ -513,3 +513,5 @@ func scalarOf(kind parse.Kind, bs []byte) any {
 	}
 	return string(bs)
 }
+
+var errUnexpectedToken = errors.New("unexpected token while reading the body") //nolint:gochecknoglobals // one fixed message

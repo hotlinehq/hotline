@@ -18,7 +18,8 @@ var errOutside = errors.New("outside the spec")
 // checkedFormats are the formats the proxy checks as rules: date-time, date,
 // email, uuid, uri, ipv4, ipv6, int32 and int64. Any other format is left out of the
 // schema, since katydid would check it too (Peter, 2026-10-29).
-var checkedFormats = map[string]bool{
+var checkedFormats = //nolint:gochecknoglobals // a fixed list
+map[string]bool{
 	"date-time": true, "date": true, "email": true, "uuid": true, "uri": true, "ipv4": true, "ipv6": true,
 	"int32": true, "int64": true,
 }
@@ -139,7 +140,7 @@ func (b *builder) shape(pointer string) (*shape, error) {
 	}
 	target, found := b.at(pointer)
 	if !found {
-		return nil, fmt.Errorf("the $ref #%s points nowhere", pointer)
+		return nil, fmt.Errorf("%w: the $ref #%s points nowhere", ErrInvalid, pointer)
 	}
 	s := &shape{name: fmt.Sprintf("s%d", len(b.shapes)+1)}
 	b.shapes[pointer] = s // so a shape that refers to itself is not made again

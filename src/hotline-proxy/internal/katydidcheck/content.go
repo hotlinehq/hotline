@@ -85,14 +85,14 @@ func (r *resolver) contentWalk(owner *Pool, s schema, node any, place string) (*
 			}
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // nothing found and nothing failed
 }
 
 func (r *resolver) contentOf(owner *Pool, s schema, text, place string) (*Failure, error) {
 	contentSchema, ok := s["contentSchema"].(map[string]any)
 	mediaType, _ := s["contentMediaType"].(string)
 	if !ok || !strings.EqualFold(mediaType, "application/json") {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nothing found and nothing failed
 	}
 	fail := func(rule string) *Failure {
 		return &Failure{Place: place, Rule: rule, Where: &ValidationError{Path: []any{}}}
@@ -113,7 +113,7 @@ func (r *resolver) contentOf(owner *Pool, s schema, text, place string) (*Failur
 	}
 	err = pool.WhyJSON([]byte(text))
 	if err == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nothing found and nothing failed
 	}
 	var inside *Failure
 	if !errors.As(err, &inside) {

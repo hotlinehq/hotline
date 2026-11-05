@@ -1,6 +1,7 @@
 package katydidcheck
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -15,7 +16,7 @@ func dump(p parse.Parser) []string {
 	var out []string
 	for {
 		h, err := p.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return out
 		}
 		if err != nil {
