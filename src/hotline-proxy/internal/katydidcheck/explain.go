@@ -265,6 +265,15 @@ func (r *resolver) judgeOwn(s schema, node any) (rule, expected, name string) {
 			return "multipleOf", w.RatString(), ""
 		}
 	}
+	// what is left of a string or a number that fails is its format: date-time, email, int32 and so on
+	if f, _ := s["format"].(string); f != "" {
+		if _, isText := node.(string); isText {
+			return "format", f, ""
+		}
+		if _, isNumber := node.(*big.Rat); isNumber && (f == "int32" || f == "int64") {
+			return "format", f, ""
+		}
+	}
 	return "", "", ""
 }
 

@@ -16,10 +16,11 @@ import (
 var errOutside = errors.New("outside the spec")
 
 // checkedFormats are the formats the proxy checks as rules: date-time, date,
-// email, uuid, uri, ipv4 and ipv6. Any other format is left out of the
+// email, uuid, uri, ipv4, ipv6, int32 and int64. Any other format is left out of the
 // schema, since katydid would check it too (Peter, 2026-10-29).
 var checkedFormats = map[string]bool{
 	"date-time": true, "date": true, "email": true, "uuid": true, "uri": true, "ipv4": true, "ipv6": true,
+	"int32": true, "int64": true,
 }
 
 // schemaCheck checks values against one schema of the spec. It is safe to use

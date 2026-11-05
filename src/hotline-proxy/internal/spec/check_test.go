@@ -74,7 +74,6 @@ var _ = Describe("Checking a body against a schema", func() {
 		Entry("maxItems", `{ maxItems: 1 }`, `[1,2]`, "body $ maxItems 1"),
 		Entry("minProperties", `{ minProperties: 1 }`, `{}`, "body $ minProperties 1"),
 		Entry("maxProperties", `{ maxProperties: 0 }`, `{"a":1}`, "body $ maxProperties 0"),
-		Entry("uniqueItems, with nothing to expect", `{ uniqueItems: true }`, `[1,1]`, "body $ uniqueItems"),
 		Entry("dependentRequired", `{ dependentRequired: { a: [b] } }`, `{"a":1}`, "body $.b dependentRequired"),
 		Entry("oneOf is one result, not one per choice", `{ oneOf: [{ type: string }, { type: integer }] }`, `true`, "body $ oneOf"),
 		Entry("not", `{ not: { type: string } }`, `"a"`, "body $ not"),
@@ -297,6 +296,10 @@ var _ = Describe("Specs the proxy cannot use", func() {
 			"a $ref goes round in a circle"),
 		Entry("a broken shared schema no route uses",
 			route("responses: {}\n")+"components:\n  schemas:\n    Bad: { type: integr }\n", "the schema Bad cannot be used"),
+		// Katydid cannot compare the items of a list with each other, so a schema with uniqueItems
+		// is refused when the spec loads and is never left half checked.
+		Entry("a schema with uniqueItems",
+			route("requestBody:\n  content:\n    application/json:\n      schema: { uniqueItems: true }\nresponses: {}\n"), "uniqueItems"),
 		Entry("a value JSON cannot hold",
 			route("responses: {}\n")+"x-limit: .nan\n", "cannot be read as JSON Schema"),
 	)

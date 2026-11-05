@@ -71,6 +71,6 @@ replace github.com/santhosh-tekuri/jsonschema/v6 => github.com/petercipov/jsonsc
 
 replace go.katydid.org.za/validator-go => codeberg.org/petercipov/validator-go v0.9.1-0.20261105130841-0bc6b0380f04
 
-replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105130910-3f1c0cc8a511
+replace go.katydid.org.za/validator-go-jsonschema => codeberg.org/petercipov/validator-go-jsonschema v0.2.1-0.20261105134111-98b0d70dcefe
 
 replace go.katydid.org.za/parser-go-json => codeberg.org/petercipov/parser-go-json v0.9.1-0.20261105082103-5b23f69c4fba
