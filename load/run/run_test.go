@@ -240,4 +240,10 @@ var _ = Describe("Sending k6's own numbers to Grafana", func() {
 			"--tag", "repeat=2", "--tag", "phase=measured",
 		}))
 	})
+
+	It("leaves the label tag out when there is no label, as k6 refuses an empty tag value", func() {
+		got := run.PushOptions("https://prom.example/api/prom/push", run.PushTags{RunID: "123", Shape: "xml", Rate: 500}, "direct", "warmup", 0)
+		Expect(strings.Join(got, " ")).NotTo(ContainSubstring("label="))
+		Expect(got).To(ContainElement("target=direct"))
+	})
 })
