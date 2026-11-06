@@ -222,3 +222,22 @@ var _ = Describe("Reading memory handed out from the proxy's own page", func() {
 		Expect(err).To(HaveOccurred())
 	})
 })
+
+var _ = Describe("Sending k6's own numbers to Grafana", func() {
+	run1 := run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"}
+
+	It("adds nothing when no push address is set", func() {
+		Expect(run.PushOptions("", run1, "proxy", "measured", 2)).To(BeEmpty())
+	})
+
+	It("pushes with Prometheus remote write, without the url tag, and tags the run", func() {
+		got := run.PushOptions("https://prom.example/api/prom/push", run1, "proxy", "measured", 2)
+		Expect(got).To(Equal([]string{
+			"-o", "experimental-prometheus-rw",
+			"--system-tags=method,status,name,scenario,expected_response",
+			"--tag", "testid=123", "--tag", "shape=xml", "--tag", "rate=500",
+			"--tag", "target=proxy", "--tag", "label=main",
+			"--tag", "repeat=2", "--tag", "phase=measured",
+		}))
+	})
+})
