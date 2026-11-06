@@ -1,8 +1,12 @@
 package spec_test
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"runtime"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -35,6 +39,41 @@ func (accepting) Validate(any, string) []spec.Failure      { return nil }
 var errNoStart = errors.New("the engine cannot start")
 
 func failToStart(any) (spec.SchemaCompiler, error) { return nil, errNoStart }
+
+// seeing is a schema engine that lets every value through and keeps the
+// last value it was given to check.
+type seeing struct{ seen *any }
+
+func (e seeing) Compile(any, string) (spec.Schema, error) { return e, nil }
+func (seeing) CompileAt(string) error                     { return nil }
+func (seeing) Coerce(v any) any                           { return v }
+func (seeing) Types() []string                            { return nil }
+func (e seeing) Validate(v any, _ string) []spec.Failure {
+	*e.seen = v
+	return nil
+}
+
+// seeingSpec is a spec whose one route takes a JSON body, checked by a
+// seeing engine that keeps the value it was given in seen.
+func seeingSpec(seen *any) *spec.Spec {
+	doc := spectest.Route("requestBody:\n  content:\n    application/json:\n      schema: { type: object }\nresponses: {}\n")
+	s, err := spec.Parse("test.yaml", []byte(doc), func(any) (spec.SchemaCompiler, error) { return seeing{seen}, nil })
+	Expect(err).NotTo(HaveOccurred())
+	return s
+}
+
+// sendJSON checks a JSON request body on the route of seeingSpec.
+func sendJSON(s *spec.Spec, body string) []spec.Result {
+	header, b := spectest.JSONBody(body)
+	return s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: header, Body: b}).Request
+}
+
+// decoded is the value a JSON request body reaches the schema as.
+func decoded(body string) (any, []spec.Result) {
+	var seen any
+	results := sendJSON(seeingSpec(&seen), body)
+	return seen, results
+}
 
 func parsed(doc string) *spec.Spec {
 	s, err := spec.Parse("test.yaml", []byte(doc), acceptAll)
@@ -87,6 +126,65 @@ var _ = Describe("Checking a body", func() {
 		})
 		Expect(spectest.Written(got.Request)).To(Equal("body $ content_type application/json"))
 	})
+})
+
+var _ = Describe("Reading a JSON body", func() {
+	It("gives the schema every kind of JSON value", func() {
+		seen, results := decoded(`{"s":"a\u00e9\n","t":true,"f":false,"z":null,"l":[1,{"in":[]}],"o":{}}`)
+		Expect(results).To(BeEmpty())
+		Expect(seen).To(Equal(map[string]any{
+			"s": "a\u00e9\n", "t": true, "f": false, "z": nil,
+			"l": []any{json.Number("1"), map[string]any{"in": []any{}}},
+			"o": map[string]any{},
+		}))
+	})
+
+	It("keeps numbers as written", func() {
+		seen, _ := decoded(`[12345678901234567890, 1.50, -0, 2e3]`)
+		Expect(seen).To(Equal([]any{json.Number("12345678901234567890"), json.Number("1.50"), json.Number("-0"), json.Number("2e3")}))
+	})
+
+	It("keeps the last of a name given twice", func() {
+		seen, results := decoded(`{"a":1,"a":2}`)
+		Expect(results).To(BeEmpty())
+		Expect(seen).To(Equal(map[string]any{"a": json.Number("2")}))
+	})
+
+	// The body was once copied whole into a reader's buffer before it was
+	// read, which took more memory than the decoded value itself.
+	It("reads the body without copying it first", func() {
+		var b strings.Builder
+		b.WriteString(`{"Parameters":[`)
+		for i := range 2000 {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"Name":"/app/settings/param-%05d","Type":"String","Value":"a value of some length, %d","Version":%d}`, i, i, i)
+		}
+		b.WriteString(`]}`)
+		body := b.String()
+		var seen any
+		s := seeingSpec(&seen)
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		results := sendJSON(s, body)
+		runtime.ReadMemStats(&after)
+		Expect(results).To(BeEmpty())
+		used := float64(after.TotalAlloc-before.TotalAlloc) / float64(len(body))
+		// About 6 with the body read where it is, over 9 with it copied.
+		Expect(used).To(BeNumerically("<", 7.5), "memory used, as times the body's size")
+	})
+
+	DescribeTable("reports a body that is not JSON",
+		func(body string) {
+			_, results := decoded(body)
+			Expect(spectest.Written(results)).To(Equal("body $ json"))
+		},
+		Entry("cut short", `{"a":[1,`),
+		Entry("a wrong word", `{"a":nul}`),
+		Entry("a name that is not text", `{1:2}`),
+		Entry("more after the value", `{} {}`),
+	)
 })
 
 var _ = Describe("Reading parameters", func() {
