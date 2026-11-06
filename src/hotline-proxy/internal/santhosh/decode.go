@@ -6,38 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"io"
-
-	"hotline-proxy/internal/spec"
 )
-
-// CheckJSON reads a JSON body and checks it against the schema, picking
-// out the value at each of places as it goes: see spec.Schema.
-func (s *Schema) CheckJSON(data []byte, places [][]string) ([]spec.Failure, []any, bool) {
-	instance, err := decodeJSON(data)
-	if err != nil {
-		return nil, nil, false
-	}
-	values := make([]any, len(places))
-	for i, path := range places {
-		values[i] = at(instance, path)
-	}
-	return validate(s.s, instance, "$"), values, true
-}
-
-// at is the value at a path of property names, if it is a string, bool or
-// number: santhosh needs the whole value as Go data to check it, so the
-// marked fields are picked from that, with no second reading of the body.
-func at(v any, path []string) any {
-	for _, step := range path {
-		m, _ := v.(map[string]any)
-		v = m[step]
-	}
-	switch v.(type) {
-	case string, bool, json.Number:
-		return v
-	}
-	return nil
-}
 
 // decodeJSON reads JSON data into the Go data santhosh checks, with its
 // numbers kept as json.Number, as written. It reads the data where it is:

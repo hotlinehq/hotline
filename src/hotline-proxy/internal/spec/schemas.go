@@ -1,240 +1,173 @@
 package spec
 
-// The RequestCheck and ResponseCheck of each route, built from the Schema
-// values a SchemaCompiler makes.
+// What spec hands a schema engine: the shared schemas, and the plain
+// description of each route and reply, with every OpenAPI $ref already
+// turned into a JSON Schema one.
 
 import (
-	"encoding/json"
 	"maps"
-	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 )
 
-// schemas compiles the schemas of one spec, and builds the checks of each
-// route from them.
-type schemas struct {
-	b        *builder
-	compiler SchemaCompiler
+// sharedPrefix starts a $ref to a shared schema of the spec, and defsPrefix
+// the same $ref as the engine sees it.
+const (
+	sharedPrefix = "#/components/schemas/"
+	defsPrefix   = "#/$defs/"
+)
+
+// schemaAt is a schema of the spec as it is written, and where it is.
+type schemaAt struct {
+	value any
+	// found is false when the spec gives no schema.
+	found   bool
+	pointer string
+	// what names it in a problem, such as "query limit".
+	what string
 }
 
-// newSchemas gives the spec, read as plain data, to the compiler. The
-// schemas built when that fails are nil, and check nothing; the problem is
-// reported by the caller.
-func newSchemas(b *builder, compiler NewSchemaCompiler) (*schemas, error) {
-	c, err := compiler(b.doc)
+// schemaOf is the schema an owner, such as a parameter, holds.
+func schemaOf(owner map[string]any, pointer, what string) schemaAt {
+	v, found := owner["schema"]
+	return schemaAt{value: v, found: found, pointer: pointer + "/schema", what: what}
+}
+
+// startEngine hands the shared schemas to the engine. On a problem, the
+// builder's engine is nil, and no route is checked; the spec is refused.
+func (b *builder) startEngine(newEngine NewEngine) {
+	all, _ := b.at("/components/schemas")
+	m, _ := all.(map[string]any)
+	defs := make(map[string]Schema, len(m))
+	for _, name := range slices.Sorted(maps.Keys(m)) {
+		s, ok := asSchema(m[name])
+		if !ok {
+			b.problem("%s: the schema %s cannot be used: a schema must be an object, or true or false", b.name, name)
+			continue
+		}
+		defs[name] = s
+	}
+	engine, err := newEngine(defs)
 	if err != nil {
-		return &schemas{b: b}, err
+		b.problem("%s cannot be read as JSON Schema: %v", b.name, err)
+		return
 	}
-	return &schemas{b: b, compiler: c}, nil
+	b.engine = engine
 }
 
-// request builds the check of a route's request side.
-func (s *schemas) request(spec *Spec, r route, where string) RequestCheck {
-	return &schemaRequest{
-		spec:   spec,
-		route:  r,
-		params: s.params(r.checks.params, where),
-		body:   s.body(r.checks.body, where),
+// requestCheck builds the check of a route's request side.
+func (b *builder) requestCheck(c *checks, segments []string, where string) RequestCheck {
+	if b.engine == nil {
+		return nil
 	}
+	r := RequestSpec{Params: b.paramSpecs(c.params, segments, where), Body: b.contents(c.body, where)}
+	check, err := b.engine.Request(r)
+	if err != nil {
+		b.problem("%s: %v", where, err)
+	}
+	return check
 }
 
-// response builds the check of one reply the spec lists.
-func (s *schemas) response(rp *reply, where string) ResponseCheck {
-	return &schemaResponse{headers: s.params(rp.headers, where), body: s.body(rp.body, where)}
+// responseCheck builds the check of one reply.
+func (b *builder) responseCheck(rp *reply, where string) ResponseCheck {
+	if b.engine == nil {
+		return nil
+	}
+	r := ResponseSpec{Headers: b.paramSpecs(rp.headers, nil, where), Body: b.contents(rp.body, where)}
+	check, err := b.engine.Response(r)
+	if err != nil {
+		b.problem("%s: %v", where, err)
+	}
+	return check
 }
 
-func (s *schemas) params(params []param, where string) []schemaParam {
-	out := make([]schemaParam, len(params))
+func (b *builder) paramSpecs(params []param, segments []string, where string) []Param {
+	out := make([]Param, len(params))
 	for i, p := range params {
-		out[i] = schemaParam{param: p, compiled: s.schema(p.schema, where)}
+		out[i] = Param{
+			Name: p.name, In: p.in, Required: p.required, Segment: -1,
+			Explode: p.explode, DeepObject: p.deepObject,
+			Schema: b.schema(p.schema, where),
+			What:   p.schema.what,
+		}
+		if p.in == "path" {
+			for at, segment := range segments {
+				if isValue(segment) && valueName(segment) == p.name {
+					out[i].Segment = at
+					out[i].Rest = strings.HasSuffix(segment, "+}")
+				}
+			}
+		}
 	}
 	return out
 }
 
-func (s *schemas) body(b *bodySpec, where string) schemaBody {
-	if b == nil {
-		return schemaBody{}
-	}
-	compiled := make([]Schema, len(b.content))
-	for i, c := range b.content {
-		compiled[i] = s.schema(c.schema, where)
-	}
-	return schemaBody{spec: b, schemas: compiled}
-}
-
-// schema compiles a schema of the spec, nil when there is none.
-func (s *schemas) schema(at schemaAt, where string) Schema {
-	if !at.found || s.compiler == nil {
+func (b *builder) contents(body *bodySpec, where string) []Content {
+	if body == nil {
 		return nil
 	}
-	compiled, err := s.compiler.Compile(at.value, at.pointer)
-	if err != nil {
-		s.b.problem("%s: the schema of %s cannot be used: %v", where, at.what, err)
+	out := make([]Content, len(body.content))
+	for i, c := range body.content {
+		out[i] = Content{Schema: b.schema(c.schema, where), XML: c.xml, What: c.schema.what}
+		for _, f := range c.fields {
+			out[i].Marked = append(out[i].Marked, Marked{Path: f.path, Name: f.name, Types: f.types})
+		}
+	}
+	return out
+}
+
+// schema is a schema of the spec as the engine takes it, nil when the
+// spec gives none.
+func (b *builder) schema(at schemaAt, where string) Schema {
+	if !at.found {
 		return nil
 	}
-	return compiled
-}
-
-// components compiles every shared schema, so a broken one is found even
-// when no route uses it.
-func (s *schemas) components() {
-	all, _ := s.b.at("/components/schemas")
-	m, _ := all.(map[string]any)
-	for _, name := range slices.Sorted(maps.Keys(m)) {
-		if err := s.compiler.CompileAt("/components/schemas" + token(name)); err != nil {
-			s.b.problem("%s: the schema %s cannot be used: %v", s.b.name, name, err)
-		}
-	}
-}
-
-// schemaRequest checks the request side of one route.
-type schemaRequest struct {
-	spec   *Spec
-	route  route
-	params []schemaParam
-	body   schemaBody
-}
-
-// schemaResponse checks one reply the spec lists.
-type schemaResponse struct {
-	headers []schemaParam
-	body    schemaBody
-}
-
-// schemaParam is a parameter or reply header with its compiled schema,
-// nil when the spec gives none.
-type schemaParam struct {
-	param
-	compiled Schema
-}
-
-// schemaBody holds the compiled schema of each content a body may have,
-// in the order of spec.content.
-type schemaBody struct {
-	spec    *bodySpec
-	schemas []Schema
-}
-
-func (q *schemaRequest) Meta(escapedPath, rawQuery string, header http.Header) []Result {
-	query, _ := url.ParseQuery(rawQuery)
-	cookies := map[string]string{}
-	readCookies(header, cookies)
-	segments := q.route.split(strings.TrimSuffix(escapedPath, "/"))
-	var results []Result
-	for _, p := range q.params {
-		results = append(results, p.check(p.values(q.route, segments, query, header, cookies))...)
-	}
-	results = append(results, q.spec.unknownQuery(q.route, query)...)
-	return append(results, q.route.checks.loggedIn(header, query, cookies)...)
-}
-
-func (q *schemaRequest) Body(mediaType string, body []byte) ([]Result, []Field) {
-	return q.body.check(mediaType, body)
-}
-
-func (r *schemaResponse) Meta(header http.Header) []Result {
-	var results []Result
-	for _, h := range r.headers {
-		results = append(results, h.check(h.values(route{}, nil, nil, header, nil))...)
-	}
-	return results
-}
-
-func (r *schemaResponse) Body(mediaType string, body []byte) ([]Result, []Field) {
-	return r.body.check(mediaType, body)
-}
-
-func (p schemaParam) check(values any) []Result {
-	part := p.in
-	if values == nil {
-		if p.required {
-			return []Result{{Part: part, Place: p.name, Rule: "required"}}
-		}
+	s, ok := asSchema(at.value)
+	if !ok {
+		b.problem("%s: the schema of %s cannot be used: a schema must be an object, or true or false", where, at.what)
 		return nil
 	}
-	if p.compiled == nil {
-		return nil
-	}
-	instance := values
-	if list, ok := values.([]string); ok {
-		instance = p.shape(list)
-	}
-	instance = p.compiled.Coerce(instance)
-	return resultsOf(part, p.compiled.Validate(instance, p.name))
+	return s
 }
 
-// shape turns the strings of a parameter into the value its schema wants:
-// a list for an array, the first value otherwise.
-func (p schemaParam) shape(list []string) any {
-	if !slices.Contains(p.compiled.Types(), "array") {
-		return list[0]
+// asSchema copies a schema of the spec for the engine: true becomes {},
+// false {"not": {}}, and each $ref to a shared schema names it under
+// $defs. ok is false for a value that is no schema at all.
+func asSchema(v any) (Schema, bool) {
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return Schema{}, true
+		}
+		return Schema{"not": map[string]any{}}, true
+	case map[string]any:
+		return copyRefs(x).(map[string]any), true
 	}
-	if !p.explode || p.in != "query" {
-		list = strings.Split(strings.Join(list, ","), ",")
-	}
-	items := make([]any, len(list))
-	for i, v := range list {
-		items[i] = v
-	}
-	return items
+	return nil, false
 }
 
-// check reads a body of the given media type, copies its marked fields
-// and checks it against the schema of its content. gate has made sure the
-// spec lists a content for it, that it can be read, and that it is small
-// enough to check.
-func (b schemaBody) check(mediaType string, data []byte) ([]Result, []Field) {
-	c, i := b.spec.find(mediaType)
-	schema := b.schemas[i]
-	var instance any
-	switch c.kind(mediaType) {
-	case xmlBodyKind:
-		var problem *Result
-		instance, problem = c.xml.read(data)
-		if problem != nil {
-			return []Result{*problem}, nil
-		}
-		if c.xml.shape == nil {
-			return nil, nil
-		}
-		instance = schema.Coerce(instance)
-	case jsonBodyKind:
-		if schema == nil {
-			// No schema, so no marked fields: the body need only be JSON.
-			if !json.Valid(data) {
-				return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
+// copyRefs copies JSON data, turning each $ref to a shared schema of the
+// spec into one under $defs. Other $refs are kept as written, and the
+// engine finds them broken.
+func copyRefs(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for key, child := range x {
+			if ref, isText := child.(string); key == "$ref" && isText {
+				if name, shared := strings.CutPrefix(ref, sharedPrefix); shared {
+					child = defsPrefix + name
+				}
 			}
-			return nil, nil
+			out[key] = copyRefs(child)
 		}
-		failures, values, ok := schema.CheckJSON(data, c.places)
-		if !ok {
-			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, child := range x {
+			out[i] = copyRefs(child)
 		}
-		return resultsOf(partBody, failures), c.fieldsOf(values)
-	default: // formBodyKind, as gate let through only bodies it can read
-		values, err := url.ParseQuery(string(data))
-		if err != nil {
-			return []Result{{Part: partBody, Place: whole, Rule: "form"}}, nil
-		}
-		instance = schema.Coerce(nest(values))
+		return out
 	}
-	copied := c.copied(instance)
-	if schema == nil {
-		return nil, copied
-	}
-	return resultsOf(partBody, schema.Validate(instance, whole)), copied
-}
-
-// resultsOf turns the failures of one part of a call into results.
-func resultsOf(part string, failures []Failure) []Result {
-	if len(failures) == 0 {
-		return nil
-	}
-	results := make([]Result, len(failures))
-	for i, f := range failures {
-		results[i] = Result{Part: part, Place: f.Place, Rule: f.Rule, Expected: f.Expected}
-	}
-	return results
+	return v
 }

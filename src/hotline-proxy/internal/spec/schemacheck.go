@@ -1,94 +1,137 @@
 package spec
 
-import "net/http"
+import (
+	"net/http"
 
-// RequestCheck checks the request side of one route against the schemas of
-// the spec. It gets the request as Go's http server gives it, unparsed, so
-// each way of checking reads it as it likes. The checks that need no
-// schema, such as finding the route and whether the spec lists a body, are
-// made before it is called.
-type RequestCheck interface {
-	// Meta checks the path, query and headers: each parameter, the query
-	// names the spec does not know, and the credentials of a way to log
-	// in. Cookies are read from the Cookie header.
-	Meta(escapedPath, rawQuery string, header http.Header) []Result
-	// Body checks a body against the schema of its content, and copies
-	// the fields the spec marks x-hotline-record. mediaType is the body's
-	// type as Content-Type names it, without parameters. It is called
-	// only for a body the spec lists a content for, small enough to check.
-	Body(mediaType string, body []byte) ([]Result, []Field)
+	"hotline-proxy/internal/spec/read"
+)
+
+// The contract between spec and a JSON Schema engine (Peter, 2026-11-06).
+// spec reads and reasons about OpenAPI: routes, parameters, content types,
+// $ref, x-hotline marks. An engine sees only JSON Schema, and builds the
+// checks of each route from a plain description of it. spec keeps those
+// checks in its route table and picks one for each call.
+
+// Schema is one JSON Schema 2020-12, as Go's json package decodes an
+// object, with numbers as json.Number. Its $ref only ever names a shared
+// schema, as "#/$defs/<name>", or a place inside one. spec writes the
+// schema true as {} and false as {"not": {}}.
+type Schema = map[string]any
+
+// NewEngine makes the engine of one spec's schemas. defs are the shared
+// schemas by name, which the schemas given later name in $ref. It compiles
+// them all, so a broken one is found even when no route uses it. It is
+// called once, when the spec is loaded.
+type NewEngine func(defs map[string]Schema) (Engine, error)
+
+// Engine builds the checks of each route. It is used while the spec is
+// loaded, by one goroutine. An error is a problem with a schema, and the
+// spec is refused.
+type Engine interface {
+	// Request builds the check of one route's request side.
+	Request(r RequestSpec) (RequestCheck, error)
+	// Response builds the check of one reply the spec lists.
+	Response(r ResponseSpec) (ResponseCheck, error)
 }
 
-// ResponseCheck checks one reply the spec lists against its schemas, the
-// way RequestCheck checks a request.
+// RequestCheck checks the request side of one route. It is safe to use
+// from many goroutines at once.
+type RequestCheck interface {
+	// Meta checks the parameters: each one there when required, and its
+	// value against its schema. It gets the request as Go's http server
+	// gives it, unparsed.
+	Meta(escapedPath, rawQuery string, header http.Header) []Result
+	// Body checks a body and copies its marked fields. content is the
+	// place in the route's Body list of the content it was sent as, and
+	// reads how to read it; spec has found both, and the body is not empty
+	// and small enough to check.
+	Body(content int, reads Reads, body []byte) ([]Result, []Field)
+}
+
+// ResponseCheck checks one reply the spec lists, the way RequestCheck
+// checks a request.
 type ResponseCheck interface {
 	// Meta checks the reply's headers.
 	Meta(header http.Header) []Result
 	// Body checks a reply body, as RequestCheck.Body does.
-	Body(mediaType string, body []byte) ([]Result, []Field)
+	Body(content int, reads Reads, body []byte) ([]Result, []Field)
 }
 
-// SchemaCompiler compiles the JSON Schemas of one spec. It is made by a
-// NewSchemaCompiler and used while the spec is loaded, by one goroutine.
-type SchemaCompiler interface {
-	// Compile compiles the schema v, found in the spec at pointer.
-	Compile(v any, pointer string) (Schema, error)
-	// CompileAt compiles the schema at pointer, such as a shared one under
-	// /components/schemas, so a broken one is found even when nothing
-	// uses it.
-	CompileAt(pointer string) error
+// Reads is how a body is read before it is checked.
+type Reads int
+
+const (
+	// ReadsJSON reads a JSON body.
+	ReadsJSON Reads = iota + 1
+	// ReadsXML reads an XML body by the content's XML shape.
+	ReadsXML
+	// ReadsForm reads a form, with Stripe's brackets nested.
+	ReadsForm
+)
+
+// RequestSpec is what the spec says about one route's request.
+type RequestSpec struct {
+	Params []Param
+	// Body holds each content the request body may be sent as, in the
+	// order RequestCheck.Body numbers them. Empty when the spec lists no
+	// body.
+	Body []Content
 }
 
-// NewSchemaCompiler makes the compiler of one spec, given the spec as
-// plain JSON data with its numbers as json.Number.
-type NewSchemaCompiler func(doc any) (SchemaCompiler, error)
-
-// Schema is one compiled schema. It is safe to use from many goroutines at
-// once.
-type Schema interface {
-	// Coerce turns text from a query, header, cookie, form or XML body
-	// into the number or true/false the schema wants at each place, so the
-	// schema can check it. Lists and objects are changed in place.
-	Coerce(v any) any
-	// Types are the types the schema allows, following $ref.
-	Types() []string
-	// Validate checks a value and says what is wrong with it, sorted by
-	// place. base names the value: a parameter's name, or $ for a body.
-	Validate(v any, base string) []Failure
-	// CheckJSON reads a JSON body and checks it, as Validate does with base
-	// $, in one pass. As it reads, it picks out the value at each of the
-	// places, a path of property names, so the fields the spec marks
-	// x-hotline-record can be copied without reading the body again. Each
-	// value is a string, a bool, a json.Number as written, or nil when
-	// there is none or it is something else. ok is false when the body is
-	// not JSON. Like Go's json package, it lets a name come twice, the last
-	// one winning.
-	CheckJSON(data []byte, places [][]string) (failures []Failure, values []any, ok bool)
+// ResponseSpec is what the spec says about one reply.
+type ResponseSpec struct {
+	// Headers are the reply's headers, each with In "header".
+	Headers []Param
+	Body    []Content
 }
 
-// Failure is one thing a value breaks: the place in it, the rule it broke
-// and what the schema expects. It never holds the value itself.
-type Failure struct {
-	// Place starts with the base given to Validate: $.lines[1].sku in a
-	// body, tag[1] or filter.status in a parameter.
-	Place    string
-	Rule     string
-	Expected string
+// Param is one parameter of a route, or a header of a reply.
+type Param struct {
+	Name string
+	// In is path, query, header or cookie. It is also the Part of the
+	// results about it.
+	In       string
+	Required bool
+	// Segment is, for a path value, which piece of the path split at "/"
+	// holds it, -1 when the path has none. Rest says the value takes the
+	// rest of the path from there.
+	Segment int
+	Rest    bool
+	// Explode says a query list is written tag=a&tag=b; without it,
+	// tag=a,b. A header list is always written with commas.
+	Explode bool
+	// DeepObject says a query object is written filter[status]=x.
+	DeepObject bool
+	// Schema is nil when the spec gives none: the parameter is then only
+	// checked for being there.
+	Schema Schema
+	// What names the parameter in a problem, such as "query limit".
+	What string
 }
 
-// schemaAt is a schema of the spec as it is written, and where it is, for
-// a RequestCheck or ResponseCheck to build its check from.
-type schemaAt struct {
-	value any
-	// found is false when the spec gives no schema.
-	found   bool
-	pointer string
-	// what names it in a problem, such as "query limit".
-	what string
+// Content is one type a body may be sent as.
+type Content struct {
+	// Schema is nil when the spec gives none: the body is then only
+	// checked to be readable.
+	Schema Schema
+	// XML is how the body is read as XML, nil when it can't be XML.
+	XML *read.XMLBody
+	// Marked are the fields the spec marks x-hotline-record.
+	Marked []Marked
+	// What names the content in a problem, such as "the request body
+	// application/json".
+	What string
 }
 
-// schemaOf is the schema an owner, such as a parameter, holds.
-func schemaOf(owner map[string]any, pointer, what string) schemaAt {
-	v, found := owner["schema"]
-	return schemaAt{value: v, found: found, pointer: pointer + "/schema", what: what}
+// Marked is one body field the spec marks x-hotline-record. Its value is
+// copied when it is of one of the types; read.Plain turns it into the
+// Field's value.
+type Marked struct {
+	// Path is the property names from the top: ["box", "weight"]. A
+	// field inside a list is never marked.
+	Path []string
+	// Name is the record attribute it is copied to: shop.weight.
+	Name string
+	// Types are string, number, integer or boolean; null is left out.
+	Types []string
 }

@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
+
+	"hotline-proxy/internal/spec/read"
 )
 
 // Result is one thing a check found: the part of the call, the place in it,
@@ -102,14 +103,11 @@ type content struct {
 	// xmlMark is set when the spec marks the type x-hotline-body: xml.
 	xmlMark bool
 	// xml is how the body is read as XML; nil when it can't be XML.
-	xml *xmlBody
+	xml *read.XMLBody
 	// schema is not found when the spec gives the type but no schema.
 	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
-	// places are the paths of fields, in order, for a schema engine to
-	// pick their values from a JSON body as it reads it.
-	places [][]string
 }
 
 type reply struct {
@@ -153,11 +151,16 @@ func (s *Spec) CheckRequest(e Exchange) Checked {
 		Request: r.checks.request.Meta(e.EscapedPath, e.RawQuery, e.Header),
 		Copied:  r.checks.copiedHeaders(e.Header),
 	}
-	results, skipped, mediaType, check := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
+	query, _ := url.ParseQuery(e.RawQuery)
+	c.Request = append(c.Request, s.unknownQuery(r, query)...)
+	cookies := map[string]string{}
+	read.Cookies(e.Header, cookies)
+	c.Request = append(c.Request, r.checks.loggedIn(e.Header, query, cookies)...)
+	results, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
 	c.Request = append(c.Request, results...)
 	c.Skipped = skipped
-	if check {
-		results, copied := r.checks.request.Body(mediaType, e.Body.Data)
+	if reads != 0 {
+		results, copied := r.checks.request.Body(content, reads, e.Body.Data)
 		c.Request = append(c.Request, results...)
 		c.Copied = append(c.Copied, copied...)
 	}
@@ -185,11 +188,11 @@ func (s *Spec) CheckReply(e Exchange) Checked {
 		c.Skipped = "streaming"
 		return c
 	}
-	results, skipped, mediaType, check := rp.body.gate(e.ReplyHeader.Get("Content-Type"), e.ReplyBody)
+	results, skipped, content, reads := rp.body.gate(e.ReplyHeader.Get("Content-Type"), e.ReplyBody)
 	c.Reply = append(c.Reply, results...)
 	c.Skipped = skipped
-	if check {
-		results, copied := rp.check.Body(mediaType, e.ReplyBody.Data)
+	if reads != 0 {
+		results, copied := rp.check.Body(content, reads, e.ReplyBody.Data)
 		c.Reply = append(c.Reply, results...)
 		c.Copied = copied
 	}
@@ -203,51 +206,6 @@ func (c *checks) reply(status int) *reply {
 		}
 	}
 	return nil
-}
-
-// values are the parameter's values in the call, nil when it is missing.
-func (p param) values(r route, segments []string, query url.Values, header http.Header, cookies map[string]string) any {
-	switch p.in {
-	case "path":
-		for i, segment := range r.segments {
-			if isValue(segment) && valueName(segment) == p.name {
-				// The proxy only forwards paths that unescape.
-				value, _ := url.PathUnescape(segments[i])
-				return []string{value}
-			}
-		}
-	case "query":
-		if p.deepObject {
-			return deepObject(p.name, query)
-		}
-		if values, ok := query[p.name]; ok {
-			return values
-		}
-	case "header":
-		if values := header.Values(p.name); len(values) > 0 {
-			return []string{strings.Join(values, ", ")}
-		}
-	case "cookie":
-		if value, ok := cookies[p.name]; ok {
-			return []string{value}
-		}
-	}
-	return nil
-}
-
-// deepObject reads name[key]=value pairs into an object, nil when there
-// are none.
-func deepObject(name string, query url.Values) any {
-	found := url.Values{}
-	for key, values := range query {
-		if rest, ok := strings.CutPrefix(key, name+"["); ok {
-			found["v["+rest] = values
-		}
-	}
-	if len(found) == 0 {
-		return nil
-	}
-	return nest(found)["v"]
 }
 
 // unknownQuery reports query names the spec does not know. A login key
@@ -310,40 +268,42 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 
 // gate makes the checks of a body that need no schema: whether the spec
 // lists a body here, whether one is required, and whether its content type
-// is one the spec lists. It returns the media type to check the body as,
-// and whether to check it. A body that cannot be read,
-// or is too large to check, is skipped, and the reason returned.
-func (b *bodySpec) gate(contentType string, body Body) (results []Result, skipped, mediaType string, check bool) {
+// is one the spec lists. It returns the place of the content to check the
+// body as and how to read it, 0 when the body is not checked. A body that
+// cannot be read, or is too large to check, is skipped, and the reason
+// returned.
+func (b *bodySpec) gate(contentType string, body Body) (results []Result, skipped string, content int, reads Reads) {
 	empty := len(body.Data) == 0 && !body.TooLarge
 	switch {
 	case b == nil && empty:
-		return nil, "", "", false
+		return nil, "", 0, 0
 	case b == nil:
-		return []Result{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", "", false
+		return []Result{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", 0, 0
 	case empty && b.required:
-		return []Result{{Part: partBody, Place: whole, Rule: "required"}}, "", "", false
+		return []Result{{Part: partBody, Place: whole, Rule: "required"}}, "", 0, 0
 	case empty:
-		return nil, "", "", false
+		return nil, "", 0, 0
 	}
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		mediaType = ""
 	}
-	c, _ := b.find(mediaType)
+	c, i := b.find(mediaType)
 	if c == nil {
 		listed := make([]string, len(b.content))
 		for i, c := range b.content {
 			listed[i] = c.mediaType
 		}
-		return []Result{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", "", false
+		return []Result{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", 0, 0
 	}
+	reads = c.reads(mediaType)
 	switch {
-	case c.kind(mediaType) == unreadableBodyKind:
-		return nil, "unsupported_content_type", "", false
+	case reads == 0:
+		return nil, "unsupported_content_type", 0, 0
 	case body.TooLarge:
-		return nil, "body_too_large", "", false
+		return nil, "body_too_large", 0, 0
 	}
-	return nil, "", mediaType, true
+	return nil, "", i, reads
 }
 
 // find picks the content for a media type: the exact type first, then
@@ -360,111 +320,20 @@ func (b *bodySpec) find(mediaType string) (*content, int) {
 	return nil, -1
 }
 
-// bodyKind is how a body is read before it is checked.
-type bodyKind int
-
-const (
-	unreadableBodyKind bodyKind = iota
-	xmlBodyKind
-	jsonBodyKind
-	formBodyKind
-)
-
-// kind is how a body of this content, sent as mediaType, is read.
-func (c *content) kind(mediaType string) bodyKind {
+// reads is how a body of this content, sent as mediaType, is read; 0
+// when it can't be.
+func (c *content) reads(mediaType string) Reads {
 	switch {
-	case c.xmlMark || !c.json && isXML(mediaType) && c.xml != nil:
-		return xmlBodyKind
+	case c.xmlMark || !c.json && read.IsXML(mediaType) && c.xml != nil:
+		return ReadsXML
 	case c.json || isJSON(mediaType):
-		return jsonBodyKind
+		return ReadsJSON
 	case mediaType == "application/x-www-form-urlencoded":
-		return formBodyKind
+		return ReadsForm
 	}
-	return unreadableBodyKind
-}
-
-// readCookies puts the cookies a request sends into cookies, by name. The
-// map is the caller's, so it can stay off the heap.
-func readCookies(header http.Header, cookies map[string]string) {
-	for _, cookie := range (&http.Request{Header: header}).Cookies() {
-		cookies[cookie.Name] = cookie.Value
-	}
+	return 0
 }
 
 func isJSON(mediaType string) bool {
 	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
-}
-
-// nest reads bracketed names, as Stripe writes them, into objects and
-// lists: items[0][price]=p1 is {"items": [{"price": "p1"}]}. A name with no
-// brackets keeps its first value.
-func nest(values url.Values) map[string]any {
-	root := map[string]any{}
-	for _, key := range slices.Sorted(maps.Keys(values)) {
-		path := splitBrackets(key)
-		for _, value := range values[key] {
-			put(root, path, value)
-		}
-	}
-	return lists(root).(map[string]any)
-}
-
-func splitBrackets(key string) []string {
-	name, rest, found := strings.Cut(key, "[")
-	path := []string{name}
-	for found {
-		var part string
-		part, rest, _ = strings.Cut(rest, "]")
-		path = append(path, part)
-		_, rest, found = strings.Cut(rest, "[")
-	}
-	return path
-}
-
-func put(m map[string]any, path []string, value string) {
-	key := path[0]
-	if key == "" {
-		key = strconv.Itoa(len(m))
-	}
-	if len(path) == 1 {
-		if _, set := m[key]; !set {
-			m[key] = value
-		}
-		return
-	}
-	child, ok := m[key].(map[string]any)
-	if !ok {
-		child = map[string]any{}
-		m[key] = child
-	}
-	put(child, path[1:], value)
-}
-
-// lists turns objects whose names are all numbers into lists, in the
-// order of the numbers.
-func lists(v any) any {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return v
-	}
-	for key, child := range m {
-		m[key] = lists(child)
-	}
-	indexes := make([]int, 0, len(m))
-	for key := range m {
-		i, err := strconv.Atoi(key)
-		if err != nil || i < 0 || strconv.Itoa(i) != key {
-			return m
-		}
-		indexes = append(indexes, i)
-	}
-	if len(indexes) == 0 {
-		return m
-	}
-	sort.Ints(indexes)
-	list := make([]any, len(indexes))
-	for i, index := range indexes {
-		list[i] = m[strconv.Itoa(index)]
-	}
-	return list
 }

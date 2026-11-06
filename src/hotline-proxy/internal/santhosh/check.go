@@ -16,29 +16,6 @@ import (
 	"hotline-proxy/internal/spec"
 )
 
-// Schema is one compiled schema of the spec, a spec.Schema.
-type Schema struct {
-	s *jsonschema.Schema
-}
-
-// Coerce turns text from a query, header, cookie or form into the number
-// or true/false the schema wants, so the schema can check it. Lists and
-// objects are changed in place.
-func (s *Schema) Coerce(v any) any {
-	return coerce(v, s.s)
-}
-
-// Types are the types the schema allows, following $ref.
-func (s *Schema) Types() []string {
-	return types(s.s)
-}
-
-// Validate checks a value and says what is wrong with it, sorted by
-// place. base names the value: a parameter's name, or $ for a body.
-func (s *Schema) Validate(v any, base string) []spec.Failure {
-	return validate(s.s, v, base)
-}
-
 func scalar(text string, want []string) any {
 	switch {
 	case slices.Contains(want, "integer") && isInteger(text),
@@ -103,38 +80,39 @@ func types(s *jsonschema.Schema) []string {
 }
 
 // validate checks a value against a schema and turns what is wrong into
-// failures. base names the value: a parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, base string) []spec.Failure {
+// results about part, sorted by place. base names the value: a
+// parameter's name, or $ for a body.
+func validate(s *jsonschema.Schema, instance any, part, base string) []spec.Result {
 	var invalid *jsonschema.ValidationError
 	if !errors.As(s.Validate(instance), &invalid) {
 		return nil
 	}
 	var leaves []*jsonschema.ValidationError
 	collect(invalid, &leaves)
-	var results []spec.Failure
+	var results []spec.Result
 	for _, e := range leaves {
 		place := placeOf(base, instance, e.InstanceLocation)
 		switch k := e.ErrorKind.(type) {
 		case *kind.Required:
 			for _, name := range k.Missing {
-				results = append(results, spec.Failure{Place: place + "." + name, Rule: "required"})
+				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "required"})
 			}
 		case *kind.AdditionalProperties:
 			for _, name := range k.Properties {
-				results = append(results, spec.Failure{Place: place + "." + name, Rule: "additionalProperties"})
+				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
 			}
 		case *kind.DependentRequired:
 			for _, name := range k.Missing {
-				results = append(results, spec.Failure{Place: place + "." + name, Rule: "dependentRequired"})
+				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
 			}
 		case *kind.ContentMediaType:
 			// A string that should hold JSON doesn't.
-			results = append(results, spec.Failure{Place: place, Rule: "json"})
+			results = append(results, spec.Result{Part: part, Place: place, Rule: "json"})
 		case *kind.ContentEncoding:
 			// A string that should be base64 text isn't.
-			results = append(results, spec.Failure{Place: place, Rule: "base64"})
+			results = append(results, spec.Result{Part: part, Place: place, Rule: "base64"})
 		default:
-			results = append(results, spec.Failure{Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
+			results = append(results, spec.Result{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
 		}
 	}
 	sort.SliceStable(results, func(i, j int) bool { return results[i].Place < results[j].Place })

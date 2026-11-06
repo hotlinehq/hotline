@@ -753,7 +753,7 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 		}
 		data = merged
 	}
-	s, err := spec.Parse(name, data, santhosh.NewCompiler)
+	s, err := spec.Parse(name, data, santhosh.NewEngine)
 	if err != nil {
 		l.problems = append(l.problems, fmt.Errorf("%s: %w", label, err))
 	}

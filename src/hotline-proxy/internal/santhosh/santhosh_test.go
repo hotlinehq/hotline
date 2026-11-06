@@ -20,7 +20,7 @@ func TestSanthosh(t *testing.T) {
 	RunSpecs(t, "Santhosh Suite")
 }
 
-var _ = spectest.Checks("santhosh", santhosh.NewCompiler)
+var _ = spectest.Checks("santhosh", santhosh.NewEngine)
 
 var _ = Describe("Loading a spec with santhosh", func() {
 	// The SSM spec is the largest vendor spec, with 152 calls and 1,189
@@ -32,7 +32,7 @@ var _ = Describe("Loading a spec with santhosh", func() {
 		Expect(err).NotTo(HaveOccurred())
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		_, err = spec.Parse("ssm.yaml", data, santhosh.NewCompiler)
+		_, err = spec.Parse("ssm.yaml", data, santhosh.NewEngine)
 		runtime.ReadMemStats(&after)
 		Expect(err).NotTo(HaveOccurred())
 		const mb = 1 << 20
@@ -55,7 +55,7 @@ var _ = Describe("Checking a JSON body with santhosh", func() {
 		}
 		b.WriteString(`]}`)
 		body := b.String()
-		s, err := spec.Parse("test.yaml", []byte(spectest.Route("requestBody:\n  content:\n    application/json:\n      schema: { type: object }\nresponses: {}\n")), santhosh.NewCompiler)
+		s, err := spec.Parse("test.yaml", []byte(spectest.Route("requestBody:\n  content:\n    application/json:\n      schema: { type: object }\nresponses: {}\n")), santhosh.NewEngine)
 		Expect(err).NotTo(HaveOccurred())
 		header, data := spectest.JSONBody(body)
 		var before, after runtime.MemStats

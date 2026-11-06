@@ -1,15 +1,17 @@
-// Package santhosh checks values against the JSON Schemas of a spec with
-// the santhosh-tekuri library, as spec.SchemaCompiler and spec.Schema. It
-// is the only package that knows that library; config hands NewCompiler
-// to spec.Parse.
+// Package santhosh checks calls against JSON Schemas with the
+// santhosh-tekuri library, as a spec.Engine. It is the only package that
+// knows that library; config hands NewEngine to spec.Parse. It knows
+// nothing of OpenAPI: spec hands it plain JSON Schemas.
 package santhosh
 
 import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -18,30 +20,35 @@ import (
 	"hotline-proxy/internal/spec"
 )
 
-// specURL is the address the spec is known by inside the JSON Schema
-// compiler. Nothing is ever fetched from it.
-const specURL = "https://spec.hotline.invalid/openapi.json"
+// base is where the schemas live inside the JSON Schema compiler. Nothing
+// is ever fetched from it.
+const base = "https://schemas.hotline.invalid"
 
-// errOutside marks a $ref to a document other than the spec.
+// defsURL is the address of the document holding the shared schemas,
+// under $defs.
+const defsURL = base + "/defs.json"
+
+// errOutside marks a $ref to a document other than the shared schemas.
 var errOutside = errors.New("outside the spec")
 
 // errBits marks a whole number too large for its format.
 var errBits = errors.New("does not fit")
 
-// Compiler compiles the schemas of one spec. $ref is followed only within
-// the spec. It is used while a spec is loaded, by one goroutine.
-type Compiler struct {
+// Engine compiles the schemas of one spec and builds the checks of its
+// routes. It is used while a spec is loaded, by one goroutine.
+type Engine struct {
 	compiler *jsonschema.Compiler
-	// inline compiles schemas that need nothing else from the spec, such
-	// as { type: string } on a header, apart from the spec, and inlined
-	// keeps each one by its text, so the same schema is compiled once.
+	// inline compiles schemas that need nothing else, such as
+	// { type: string } on a header, apart from the shared ones, and
+	// inlined keeps each one by its text, so the same schema is compiled
+	// once.
 	inline  *jsonschema.Compiler
 	inlined map[string]*jsonschema.Schema
-	// inlineNext numbers the schemas given to inline.
-	inlineNext int
+	// next numbers the schemas given an address of their own.
+	next int
 }
 
-// outside refuses every document but the spec itself, so a $ref to
+// outside refuses every document but the shared schemas, so a $ref to
 // another file or address is a problem.
 type outside struct{}
 
@@ -49,30 +56,30 @@ func (outside) Load(address string) (any, error) {
 	return nil, fmt.Errorf("%w: %s", errOutside, address)
 }
 
-// NewCompiler takes the spec, read as plain JSON data with its numbers as
-// json.Number. It is a spec.NewSchemaCompiler, and never fails.
-func NewCompiler(doc any) (spec.SchemaCompiler, error) {
-	c := &Compiler{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
-	// AddResource fails only for an address that is not absolute or was
-	// added before. A new compiler and the fixed specURL meet neither.
-	_ = c.compiler.AddResource(specURL, doc)
-	return c, nil
-}
-
-// Compile compiles the schema v found in the spec at pointer.
-func (c *Compiler) Compile(v any, pointer string) (spec.Schema, error) {
-	s, err := c.compileSchema(v, pointer)
-	if err != nil {
-		return nil, err
+// NewEngine compiles the shared schemas of one spec, which other schemas
+// name as "#/$defs/<name>". It is a spec.NewEngine. A broken shared
+// schema is a problem, even when no route uses it.
+func NewEngine(defs map[string]spec.Schema) (spec.Engine, error) {
+	e := &Engine{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
+	doc := make(map[string]any, len(defs))
+	for name, s := range defs {
+		doc[name] = s
 	}
-	return &Schema{s: s}, nil
+	// AddResource fails only for an address that is not absolute or was
+	// added before. A new compiler and the fixed defsURL meet neither.
+	_ = e.compiler.AddResource(defsURL, map[string]any{"$defs": doc})
+	var problems []error
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		if _, err := e.compile(defsURL + "#" + (&url.URL{Fragment: "/$defs/" + escapeToken(name)}).EscapedFragment()); err != nil {
+			problems = append(problems, fmt.Errorf("the schema %s cannot be used: %w", name, err))
+		}
+	}
+	return e, errors.Join(problems...)
 }
 
-// CompileAt compiles the schema at pointer, such as a shared one under
-// /components/schemas, so a broken one is found even when nothing uses it.
-func (c *Compiler) CompileAt(pointer string) error {
-	_, err := c.compile(pointer)
-	return err
+// escapeToken writes a name as one step of a JSON pointer.
+func escapeToken(name string) string {
+	return strings.NewReplacer("~", "~0", "/", "~1").Replace(name)
 }
 
 // newCompiler makes a JSON Schema compiler set up the way the proxy
@@ -121,60 +128,93 @@ func bits(size uint) func(any) error {
 	}
 }
 
-// compileSchema compiles the schema v found at pointer, the cheap way
-// when it can. The compiler copies all it has read each time it meets a
-// new place in the spec, so a check per call made loading grow with the
-// calls times the shapes; the SSM spec took about 950 MB of short-lived
-// memory (Peter, 2026-11-01). So a schema that is only a $ref within the
-// spec uses the check of the shape it names, built once, and a schema
-// that needs nothing else from the spec is compiled apart from it, once
-// for each text.
-func (c *Compiler) compileSchema(v any, pointer string) (*jsonschema.Schema, error) {
-	if target, ok := onlyRef(v); ok {
-		return c.compile(target)
+// schema compiles one schema of a route, the cheap way when it can, and
+// names it as what in a problem. The compiler copies all it has read each
+// time it meets a new place, so a check per call made loading grow with
+// the calls times the shapes; the SSM spec took about 950 MB of
+// short-lived memory (Peter, 2026-11-01). So a schema that is only a $ref
+// uses the check of the shared schema it names, built once, and a schema
+// that needs nothing else is compiled apart from the shared ones, once for
+// each text.
+func (e *Engine) schema(s spec.Schema, what string) (*jsonschema.Schema, error) {
+	if s == nil {
+		return nil, nil //nolint:nilnil // no schema, so nothing to check
 	}
-	if !standsAlone(v) {
-		return c.compile(pointer)
-	}
-	// Printed with Go's syntax, maps in key order, so the same schema
-	// always gives the same text.
-	text := fmt.Sprintf("%#v", v)
-	if compiled, ok := c.inlined[text]; ok {
-		return compiled, nil
-	}
-	c.inlineNext++
-	address := fmt.Sprintf("%s/inline/%d.json", strings.TrimSuffix(specURL, "/openapi.json"), c.inlineNext)
-	var compiled *jsonschema.Schema
-	err := c.inline.AddResource(address, v)
-	if err == nil {
-		compiled, err = c.inline.Compile(address)
-	}
+	compiled, err := e.compileSchema(s)
 	if err != nil {
-		// Built again in place, so the problem names where it is in the
-		// spec. Only a broken spec gets here.
-		return c.compile(pointer)
+		return nil, fmt.Errorf("the schema of %s cannot be used: %w", what, err)
 	}
-	c.inlined[text] = compiled
 	return compiled, nil
 }
 
-// onlyRef is the pointer of the shape v names, when v holds nothing but a
-// $ref within the spec.
-func onlyRef(v any) (string, bool) {
-	m, ok := v.(map[string]any)
-	if !ok || len(m) != 1 {
-		return "", false
+func (e *Engine) compileSchema(s spec.Schema) (*jsonschema.Schema, error) {
+	if target, ok := onlyRef(s); ok {
+		return e.compile(defsURL + target)
 	}
-	ref, ok := m["$ref"].(string)
-	if !ok || !strings.HasPrefix(ref, "#") {
-		return "", false
+	if !standsAlone(s) {
+		// It names shared schemas: given an address of its own, with
+		// each $ref pointing into the shared ones.
+		e.next++
+		address := fmt.Sprintf("%s/route/%d.json", base, e.next)
+		if err := e.compiler.AddResource(address, toShared(s)); err != nil {
+			return nil, err
+		}
+		return e.compile(address)
 	}
-	target, err := url.PathUnescape(strings.TrimPrefix(ref, "#"))
-	return target, err == nil
+	// Printed with Go's syntax, maps in key order, so the same schema
+	// always gives the same text.
+	text := fmt.Sprintf("%#v", s)
+	if compiled, ok := e.inlined[text]; ok {
+		return compiled, nil
+	}
+	e.next++
+	address := fmt.Sprintf("%s/inline/%d.json", base, e.next)
+	if err := e.inline.AddResource(address, s); err != nil {
+		return nil, err
+	}
+	compiled, err := e.inline.Compile(address)
+	if err != nil {
+		return nil, err
+	}
+	e.inlined[text] = compiled
+	return compiled, nil
 }
 
-// standsAlone tells whether a schema needs nothing else from the spec: it
-// has no reference to elsewhere and names no place others could point to.
+// onlyRef is the $ref of v, when v holds nothing but a $ref within the
+// shared schemas.
+func onlyRef(v map[string]any) (string, bool) {
+	if len(v) != 1 {
+		return "", false
+	}
+	ref, ok := v["$ref"].(string)
+	return ref, ok && strings.HasPrefix(ref, "#")
+}
+
+// toShared copies JSON data, pointing each $ref within the document into
+// the shared schemas' document.
+func toShared(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for key, child := range x {
+			if ref, isText := child.(string); key == "$ref" && isText && strings.HasPrefix(ref, "#") {
+				child = defsURL + ref
+			}
+			out[key] = toShared(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, child := range x {
+			out[i] = toShared(child)
+		}
+		return out
+	}
+	return v
+}
+
+// standsAlone tells whether a schema needs nothing else: it has no
+// reference to elsewhere and names no place others could point to.
 func standsAlone(v any) bool {
 	switch x := v.(type) {
 	case map[string]any:
@@ -197,8 +237,8 @@ func standsAlone(v any) bool {
 	return true
 }
 
-func (c *Compiler) compile(pointer string) (*jsonschema.Schema, error) {
-	return c.compiler.Compile(specURL + "#" + (&url.URL{Fragment: pointer}).EscapedFragment())
+func (e *Engine) compile(address string) (*jsonschema.Schema, error) {
+	return e.compiler.Compile(address)
 }
 
 // insideJSON is the location token between a string that holds JSON and a
