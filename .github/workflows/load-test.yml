@@ -48,6 +48,11 @@ jobs:
 
       - name: run the load test
         if: ${{ inputs.compare_with == '' }}
+        env:
+          K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
+          K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
+          K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+          K6_PROMETHEUS_RW_TREND_STATS: "p(50),p(95),p(99),max"
         run: make load
 
       # The other build is checked out next to this one and built from its
@@ -63,6 +68,10 @@ jobs:
         if: ${{ inputs.compare_with != '' }}
         env:
           BASE_LABEL: ${{ inputs.compare_with }}
+          K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
+          K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
+          K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+          K6_PROMETHEUS_RW_TREND_STATS: "p(50),p(95),p(99),max"
         run: |
           (cd base/src/hotline-proxy && go build -o "$GITHUB_WORKSPACE/load/out-base-proxy" ./cmd)
           make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"

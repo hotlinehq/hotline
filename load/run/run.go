@@ -244,7 +244,12 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	_, vendorPort, _ := net.SplitHostPort(vendor.TLSAddr)
-	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle}
+	runID := os.Getenv("GITHUB_RUN_ID")
+	if runID == "" {
+		runID = "local"
+	}
+	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle,
+		tags: PushTags{RunID: runID, Shape: cfg.Shape, Rate: cfg.Rate, Label: cfg.Label}}
 	if d.settle == 0 {
 		d.settle = DefaultSettle
 	}
@@ -253,7 +258,7 @@ func Run(cfg Config) (string, error) {
 	d.directURL = "http://" + vendor.PlainAddr + "/"
 	d.proxyURL = "http://" + p.addr + "/https://localhost:" + vendorPort + "/"
 	// A short warm-up, so connections and caches are not part of the numbers.
-	if _, err := d.k6run(filepath.Join(work, "warmup.json"), "3s", d.proxyURL, true, 100); err != nil {
+	if _, err := d.k6run(filepath.Join(work, "warmup.json"), "3s", d.proxyURL, true, 100, "warmup", 0); err != nil {
 		return "", fmt.Errorf("warm-up through the proxy failed: %w", err)
 	}
 
@@ -263,11 +268,11 @@ func Run(cfg Config) (string, error) {
 		if err := os.Mkdir(repeat, 0o750); err != nil {
 			return "", err
 		}
-		direct, err := d.k6run(filepath.Join(repeat, "direct-summary.json"), cfg.Duration, d.directURL, false, cfg.Rate)
+		direct, err := d.k6run(filepath.Join(repeat, "direct-summary.json"), cfg.Duration, d.directURL, false, cfg.Rate, "measured", n)
 		if err != nil {
 			return "", fmt.Errorf("direct run %d: %w", n, err)
 		}
-		r, err := d.measured(p, receiver, filepath.Join(repeat, "proxy-summary.json"), cfg.Duration)
+		r, err := d.measured(p, receiver, filepath.Join(repeat, "proxy-summary.json"), cfg.Duration, n)
 		if err != nil {
 			return "", fmt.Errorf("proxy run %d: %w", n, err)
 		}
@@ -309,7 +314,7 @@ func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
 		time.Sleep(2 * time.Second)
 		cpu <- FetchProfile(fmt.Sprintf("http://%s/debug/pprof/profile?seconds=%d", p.pprofAddr, seconds), filepath.Join(folder, "cpu.pprof"))
 	}()
-	if _, err := d.k6run(filepath.Join(folder, "proxy-summary.json"), duration, d.proxyURL, true, d.rate); err != nil {
+	if _, err := d.k6run(filepath.Join(folder, "proxy-summary.json"), duration, d.proxyURL, true, d.rate, "profile", 0); err != nil {
 		return err
 	}
 	if err := <-cpu; err != nil {
@@ -390,17 +395,21 @@ type driver struct {
 	call                call
 	rate                int
 	settle              time.Duration
+	tags                PushTags
 	directURL, proxyURL string
 	// exact says the proxy serves its own memory number, so no waiting.
 	exact bool
 }
 
-func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (Latency, error) {
-	auth := "0"
+func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int, phase string, repeat int) (Latency, error) {
+	auth, target := "0", "direct"
 	if viaProxy {
-		auth = "1"
+		auth, target = "1", "proxy"
 	}
-	cmd := exec.CommandContext(context.Background(), d.k6, "run", "-q", "--summary-export="+summary, d.script) //nolint:gosec // the k6 the person chose
+	args := []string{"run", "-q", "--summary-export=" + summary}
+	args = append(args, PushOptions(os.Getenv("K6_PROMETHEUS_RW_SERVER_URL"), d.tags, target, phase, repeat)...)
+	args = append(args, d.script)
+	cmd := exec.CommandContext(context.Background(), d.k6, args...) //nolint:gosec // the k6 the person chose
 	cmd.Env = append(os.Environ(), "URL="+url+d.call.path, "METHOD="+d.call.method, "SERVICE="+d.call.service,
 		"BODY="+d.call.body, "ACTION="+d.call.action, "AUTH="+auth,
 		"RATE="+strconv.Itoa(rate), "DURATION="+duration)
@@ -414,6 +423,29 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (L
 	return ReadSummary(raw)
 }
 
+// PushTags says which run the numbers sent to Grafana belong to.
+type PushTags struct {
+	RunID, Shape, Label string
+	Rate                int
+}
+
+// PushOptions are the extra k6 options that send k6's own numbers to Grafana
+// by Prometheus remote write. With no push address there are none, so local
+// runs behave as before. The url tag is left out: the proxy's port changes on
+// every run, and each new url would make a new series.
+func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) []string {
+	if pushURL == "" {
+		return nil
+	}
+	return []string{
+		"-o", "experimental-prometheus-rw",
+		"--system-tags=method,status,name,scenario,expected_response",
+		"--tag", "testid=" + t.RunID, "--tag", "shape=" + t.Shape, "--tag", "rate=" + strconv.Itoa(t.Rate),
+		"--tag", "target=" + target, "--tag", "label=" + t.Label,
+		"--tag", "repeat=" + strconv.Itoa(repeat), "--tag", "phase=" + phase,
+	}
+}
+
 // DefaultSettle is how long to wait before and after each proxy run for the
 // proxy's memory number. The proxy sends its telemetry every second, but the
 // OpenTelemetry Go runtime library re-reads Go's counters at most every 15
@@ -423,7 +455,7 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (L
 const DefaultSettle = 16 * time.Second
 
 // measured runs k6 through the proxy and reads the proxy's own cost.
-func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, duration string) (Result, error) {
+func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, duration string, repeat int) (Result, error) {
 	allocated := func() (uint64, bool) {
 		if d.exact {
 			n, err := TotalAllocated(p.pprofAddr)
@@ -445,7 +477,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 		return Result{}, err
 	}
 	sampler := p.sampleMemory()
-	l, err := d.k6run(summary, duration, d.proxyURL, true, d.rate)
+	l, err := d.k6run(summary, duration, d.proxyURL, true, d.rate, "measured", repeat)
 	peak := sampler()
 	if err != nil {
 		return Result{}, err

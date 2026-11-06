@@ -41,6 +41,6 @@ export const options = {
 };
 
 export default function () {
-  const r = http.request(__ENV.METHOD, __ENV.URL, body, { headers });
+  const r = http.request(__ENV.METHOD, __ENV.URL, body, { headers, tags: { name: 'call' } });
   check(r, { '200': (x) => x.status === 200 });
 }
