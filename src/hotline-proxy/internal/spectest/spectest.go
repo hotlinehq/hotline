@@ -81,6 +81,11 @@ func Checks(engine string, newEngine spec.NewEngine) bool {
 				Expect(Written(got.Request)).To(Equal("body $ maximum 9223372036854775807"))
 			})
 
+			It("reads null", func() {
+				got := check(`{ properties: { a: { type: "null" } } }`, `{"a":null}`)
+				Expect(got.Request).To(BeEmpty())
+			})
+
 			It("keeps the last of a name given twice", func() {
 				got := check(`{ properties: { a: { type: string } } }`, `{"a":1,"a":"x"}`)
 				Expect(got.Request).To(BeEmpty())
@@ -312,6 +317,11 @@ responses: {}
 				Expect(err).To(MatchError(ContainSubstring("the schema of query q cannot be used")))
 				Expect(err).To(MatchError(ContainSubstring("the schema of query r cannot be used")))
 				Expect(err).NotTo(MatchError(ContainSubstring("exists")))
+			})
+
+			It("reports a broken schema of a reply header", func() {
+				_, err := spec.Parse("test.yaml", []byte(Route("responses:\n  \"200\":\n    description: Fine\n    headers:\n      X-Count: { schema: { type: integr } }\n")), newEngine)
+				Expect(err).To(MatchError(ContainSubstring("the schema of the 200 reply header X-Count cannot be used")))
 			})
 
 			It("refuses a broken shared schema no route uses", func() {

@@ -34,6 +34,13 @@ var _ = Describe("Reading a path value", func() {
 	)
 })
 
+var _ = Describe("Reading XML", func() {
+	It("says which root element the schema names", func() {
+		_, err := (&read.XMLBody{Root: "Order"}).Read([]byte("<Cart/>"))
+		Expect(err).To(MatchError("the root element is not Order"))
+	})
+})
+
 var _ = Describe("Shaping parameter values", func() {
 	It("takes the first value when the schema wants no list", func() {
 		Expect(read.Shape([]string{"a", "b"}, false, false)).To(Equal("a"))

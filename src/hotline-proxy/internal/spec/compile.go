@@ -3,9 +3,7 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/url"
 	"slices"
@@ -48,23 +46,15 @@ func newBuilder(name string, data []byte, newEngine NewEngine) *builder {
 	return b
 }
 
-// decodeJSON reads the spec, as JSON data, with its numbers kept as
-// written. A body is read by the schema engine, not here.
+// decodeJSON reads the spec, as the JSON data json.Marshal made of it,
+// with its numbers kept as written.
 func decodeJSON(data []byte) (any, error) {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
 	var v any
-	if err := d.Decode(&v); err != nil {
-		return nil, err
-	}
-	if _, err := d.Token(); !errors.Is(err, io.EOF) {
-		return nil, errTrailing
-	}
-	return v, nil
+	err := d.Decode(&v)
+	return v, err
 }
-
-// errTrailing marks JSON data with more after its value.
-var errTrailing = errors.New("more data after the JSON value")
 
 // normalize makes YAML data plain JSON data: every object key a string.
 func normalize(v any) any {

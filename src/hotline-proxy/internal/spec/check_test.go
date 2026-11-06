@@ -314,6 +314,8 @@ var _ = Describe("Specs the proxy cannot use", func() {
 			spectest.Route("parameters:\n  - { $ref: \"#/components/parameters/a\" }\nresponses: {}\n")+
 				"components:\n  parameters:\n    a: { $ref: \"#/components/parameters/b\" }\n    b: { $ref: \"#/components/parameters/a\" }\n",
 			"a $ref goes round in a circle"),
+		Entry("a shared schema that is no schema",
+			spectest.Route("responses: {}\n")+"components:\n  schemas:\n    Bad: 5\n", "the schema Bad cannot be used"),
 		Entry("a schema that is no schema",
 			spectest.Route("parameters:\n  - { name: q, in: query, schema: 5 }\nresponses: {}\n"), "the schema of query q cannot be used"),
 		Entry("a value JSON cannot hold",
@@ -326,7 +328,7 @@ var _ = Describe("Specs the proxy cannot use", func() {
 	})
 
 	It("is refused when the schema engine cannot start", func() {
-		_, err := spec.Parse("test.yaml", []byte(spectest.Route("responses: {}\n")), failToStart)
+		_, err := spec.Parse("test.yaml", []byte(spectest.Route("responses:\n  \"200\": { description: Fine }\n")), failToStart)
 		Expect(err).To(MatchError(ContainSubstring("cannot be read as JSON Schema: the engine cannot start")))
 	})
 

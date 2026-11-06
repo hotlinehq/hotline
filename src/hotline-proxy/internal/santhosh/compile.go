@@ -156,9 +156,9 @@ func (e *Engine) compileSchema(s spec.Schema) (*jsonschema.Schema, error) {
 		// each $ref pointing into the shared ones.
 		e.next++
 		address := fmt.Sprintf("%s/route/%d.json", base, e.next)
-		if err := e.compiler.AddResource(address, toShared(s)); err != nil {
-			return nil, err
-		}
+		// AddResource fails only for an address that is not absolute or
+		// was added before, and each address here is new.
+		_ = e.compiler.AddResource(address, toShared(s))
 		return e.compile(address)
 	}
 	// Printed with Go's syntax, maps in key order, so the same schema
@@ -169,9 +169,7 @@ func (e *Engine) compileSchema(s spec.Schema) (*jsonschema.Schema, error) {
 	}
 	e.next++
 	address := fmt.Sprintf("%s/inline/%d.json", base, e.next)
-	if err := e.inline.AddResource(address, s); err != nil {
-		return nil, err
-	}
+	_ = e.inline.AddResource(address, s) // a new address, as above
 	compiled, err := e.inline.Compile(address)
 	if err != nil {
 		return nil, err
