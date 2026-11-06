@@ -14,19 +14,19 @@ import (
 	"hotline-proxy/internal/spec"
 )
 
-// Checks adds the shared checks, made with the engine whose compiler is
+// Checks adds the shared checks, made with the engine whose constructor is
 // given, to the suite of the test file that calls it:
 //
-//	var _ = spectest.Checks("santhosh", santhosh.NewCompiler)
+//	var _ = spectest.Checks("santhosh", santhosh.NewEngine)
 //
 // The checks have many cases of their own: every JSON Schema rule, every
 // way a parameter is written. Driving each through the whole proxy would be
 // slow, so they are listed here. The behaviour as a whole is in
 // features/checks.feature.
-func Checks(engine string, compiler spec.NewSchemaCompiler) bool {
+func Checks(engine string, newEngine spec.NewEngine) bool {
 	return Describe("The checks made with "+engine, func() {
 		parsed := func(doc string) *spec.Spec {
-			s, err := spec.Parse("test.yaml", []byte(doc), compiler)
+			s, err := spec.Parse("test.yaml", []byte(doc), newEngine)
 			Expect(err).NotTo(HaveOccurred())
 			return s
 		}
@@ -66,6 +66,127 @@ func Checks(engine string, compiler spec.NewSchemaCompiler) bool {
 					Body:   spec.Body{Data: []byte(`"a"`)},
 				})
 				Expect(Written(got.Request)).To(Equal("body $ type integer"))
+			})
+		})
+
+		Describe("Reading a JSON body", func() {
+			check := func(schema, body string) spec.Checked {
+				s := parsed(Route("requestBody:\n  content:\n    application/json:\n      schema: " + schema + "\nresponses: {}\n"))
+				header, b := JSONBody(body)
+				return s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: header, Body: b})
+			}
+
+			It("keeps numbers as written, with every digit", func() {
+				got := check(`{ maximum: 9223372036854775807 }`, `9223372036854775808`)
+				Expect(Written(got.Request)).To(Equal("body $ maximum 9223372036854775807"))
+			})
+
+			It("reads null", func() {
+				got := check(`{ properties: { a: { type: "null" } } }`, `{"a":null}`)
+				Expect(got.Request).To(BeEmpty())
+			})
+
+			It("keeps the last of a name given twice", func() {
+				got := check(`{ properties: { a: { type: string } } }`, `{"a":1,"a":"x"}`)
+				Expect(got.Request).To(BeEmpty())
+			})
+
+			DescribeTable("reports a body that is not JSON",
+				func(body string) {
+					got := check(`{ type: object }`, body)
+					Expect(Written(got.Request)).To(Equal("body $ json"))
+				},
+				Entry("cut short", `{"a":[1,`),
+				Entry("a wrong word", `{"a":nul}`),
+				Entry("a name that is not text", `{1:2}`),
+				Entry("more after the value", `{} 1`),
+			)
+
+			marked := `
+        type: object
+        properties:
+          id: { type: string, x-hotline-record: shop.id }
+          count: { type: integer, x-hotline-record: shop.count }
+          gift: { type: boolean, x-hotline-record: shop.gift }
+          box: { type: object, properties: { weight: { type: number, x-hotline-record: shop.weight } } }`
+
+			It("copies the marked fields as it reads the body", func() {
+				got := check(marked, `{"id":"a1","count":7,"gift":true,"box":{"weight":1.5},"other":"x"}`)
+				Expect(got.Request).To(BeEmpty())
+				Expect(got.Copied).To(ConsistOf(
+					spec.Field{Name: "shop.id", Value: "a1"},
+					spec.Field{Name: "shop.count", Value: int64(7)},
+					spec.Field{Name: "shop.gift", Value: true},
+					spec.Field{Name: "shop.weight", Value: 1.5},
+				))
+			})
+
+			It("copies only fields of the marked type", func() {
+				got := check(marked, `{"id":5,"count":"seven","gift":{"a":1},"box":[1]}`)
+				Expect(got.Request).NotTo(BeEmpty())
+				Expect(got.Copied).To(BeEmpty())
+			})
+
+			It("copies nothing from a body that is not JSON", func() {
+				got := check(marked, `{"id":"a1",`)
+				Expect(Written(got.Request)).To(Equal("body $ json"))
+				Expect(got.Copied).To(BeEmpty())
+			})
+		})
+
+		Describe("Reading what the spec gives no schema for", func() {
+			It("checks a parameter only for being there", func() {
+				s := parsed(Route("parameters:\n  - { name: q, in: query, required: true, content: { application/json: {} } }\nresponses: {}\n"))
+				Expect(Written(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request)).To(Equal("query q required"))
+				Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", RawQuery: "q=x"}).Request).To(BeEmpty())
+			})
+
+			DescribeTable("checks a body only for being readable",
+				func(contentType, body, want string) {
+					s := parsed(Route("requestBody:\n  content:\n    " + contentType + ": {}\nresponses: {}\n"))
+					got := s.Check(spec.Exchange{
+						Method: "GET", EscapedPath: "/a",
+						Header: http.Header{"Content-Type": {contentType}}, Body: spec.Body{Data: []byte(body)},
+					})
+					Expect(Written(got.Request)).To(Equal(want))
+				},
+				Entry("JSON", "application/json", `{"anything":1}`, ""),
+				Entry("JSON that is not", "application/json", `{} 1`, "body $ json"),
+				Entry("XML", "application/xml", `<a><b>1</b></a>`, ""),
+				Entry("XML that is not", "application/xml", `<a>`, "body $ xml"),
+				Entry("a form", "application/x-www-form-urlencoded", "a=1", ""),
+				Entry("a form that is not", "application/x-www-form-urlencoded", "a=%zz", "body $ form"),
+			)
+		})
+
+		Describe("Reading an XML body", func() {
+			It("reports a root element other than the one the schema names", func() {
+				s := parsed(Route("requestBody:\n  content:\n    application/xml:\n      schema: { type: object, xml: { name: Order } }\nresponses: {}\n"))
+				got := s.Check(spec.Exchange{
+					Method: "GET", EscapedPath: "/a",
+					Header: http.Header{"Content-Type": {"application/xml"}}, Body: spec.Body{Data: []byte(`<Cart/>`)},
+				})
+				Expect(Written(got.Request)).To(Equal("body $ xml_root Order"))
+			})
+
+			It("turns text into the type the schema wants, and copies marked fields", func() {
+				s := parsed(Route(`requestBody:
+  content:
+    application/xml:
+      schema:
+        type: object
+        xml: { name: Order }
+        properties:
+          count: { type: integer, x-hotline-record: shop.count }
+          gift: { type: boolean, x-hotline-record: shop.gift }
+responses: {}
+`))
+				got := s.Check(spec.Exchange{
+					Method: "GET", EscapedPath: "/a",
+					Header: http.Header{"Content-Type": {"application/xml"}}, Body: spec.Body{Data: []byte(`<Order><count>7</count><gift>maybe</gift></Order>`)},
+				})
+				Expect(Written(got.Request)).To(Equal("body $.gift type boolean"))
+				Expect(got.Copied).To(Equal([]spec.Field{{Name: "shop.count", Value: int64(7)}}))
 			})
 		})
 
@@ -183,15 +304,28 @@ responses: {}
 				Expect(Written(got.Request)).To(Equal("body $ minimum 5"))
 			})
 
+			It("checks a shared schema that names itself", func() {
+				s := parsed(Route("requestBody:\n  content:\n    application/json:\n      schema: { $ref: \"#/components/schemas/Node\" }\nresponses: {}\n") +
+					"components:\n  schemas:\n    Node: { type: object, properties: { name: { type: string }, children: { type: array, items: { $ref: \"#/components/schemas/Node\" } } } }\n")
+				header, b := JSONBody(`{"name":"a","children":[{"name":"b","children":[{"name":1}]}]}`)
+				got := s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: header, Body: b})
+				Expect(Written(got.Request)).To(Equal("body $.children[0].children[0].name type string"))
+			})
+
 			It("reports each broken schema, also when the same one is written twice", func() {
-				_, err := spec.Parse("test.yaml", []byte(Route("parameters:\n  - { name: q, in: query, schema: { type: integr } }\n  - { name: r, in: query, schema: { type: integr } }\nresponses: {}\n")), compiler)
+				_, err := spec.Parse("test.yaml", []byte(Route("parameters:\n  - { name: q, in: query, schema: { type: integr } }\n  - { name: r, in: query, schema: { type: integr } }\nresponses: {}\n")), newEngine)
 				Expect(err).To(MatchError(ContainSubstring("the schema of query q cannot be used")))
 				Expect(err).To(MatchError(ContainSubstring("the schema of query r cannot be used")))
 				Expect(err).NotTo(MatchError(ContainSubstring("exists")))
 			})
 
+			It("reports a broken schema of a reply header", func() {
+				_, err := spec.Parse("test.yaml", []byte(Route("responses:\n  \"200\":\n    description: Fine\n    headers:\n      X-Count: { schema: { type: integr } }\n")), newEngine)
+				Expect(err).To(MatchError(ContainSubstring("the schema of the 200 reply header X-Count cannot be used")))
+			})
+
 			It("refuses a broken shared schema no route uses", func() {
-				_, err := spec.Parse("test.yaml", []byte(Route("responses: {}\n")+"components:\n  schemas:\n    Bad: { type: integr }\n"), compiler)
+				_, err := spec.Parse("test.yaml", []byte(Route("responses: {}\n")+"components:\n  schemas:\n    Bad: { type: integr }\n"), newEngine)
 				Expect(err).To(MatchError(ContainSubstring("the schema Bad cannot be used")))
 			})
 		})

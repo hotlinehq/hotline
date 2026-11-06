@@ -1,15 +1,14 @@
 package spec
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
 	"net/http"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+
+	"hotline-proxy/internal/spec/read"
 )
 
 // Field is one body field the spec marks x-hotline-record, copied from a
@@ -26,9 +25,6 @@ type field struct {
 	name  string
 	types []string
 }
-
-// longestText is how many characters of a copied text a record holds.
-const longestText = 256
 
 // recordName is what a copied field's name may hold.
 var recordName = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
@@ -212,55 +208,8 @@ func (c *checks) copiedHeaders(header http.Header) []Field {
 	var out []Field
 	for _, p := range c.params {
 		if values := header.Values(p.name); p.record != "" && len(values) > 0 {
-			out = append(out, Field{Name: p.record, Value: cut(strings.Join(values, ", "))})
+			out = append(out, Field{Name: p.record, Value: read.Cut(strings.Join(values, ", "))})
 		}
 	}
 	return out
-}
-
-// copied are the marked fields found in a read body, each with the value
-// it has, if that value is of the marked type.
-func (c *content) copied(instance any) []Field {
-	var out []Field
-	for _, f := range c.fields {
-		v := instance
-		for _, step := range f.path {
-			m, _ := v.(map[string]any)
-			v = m[step]
-		}
-		if value, ok := plain(v, f.types); ok {
-			out = append(out, Field{Name: f.name, Value: value})
-		}
-	}
-	return out
-}
-
-func plain(v any, types []string) (any, bool) {
-	switch x := v.(type) {
-	case string:
-		if !slices.Contains(types, "string") {
-			return nil, false
-		}
-		return cut(x), true
-	case bool:
-		return x, slices.Contains(types, "boolean")
-	case json.Number:
-		if !slices.Contains(types, "integer") && !slices.Contains(types, "number") {
-			return nil, false
-		}
-		if n, err := strconv.ParseInt(string(x), 10, 64); err == nil {
-			return n, true
-		}
-		f, err := strconv.ParseFloat(string(x), 64)
-		return f, err == nil && !math.IsInf(f, 0)
-	}
-	return nil, false
-}
-
-// cut keeps the first longestText characters of a text.
-func cut(text string) string {
-	if runes := []rune(text); len(runes) > longestText {
-		return string(runes[:longestText])
-	}
-	return text
 }

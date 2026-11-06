@@ -2,11 +2,8 @@ package spec
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/url"
 	"slices"
@@ -14,23 +11,25 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"hotline-proxy/internal/spec/read"
 )
 
 // builder turns the spec, read as plain data, into the checks of each
-// route. Its schemas are compiled once, and $ref is followed only within
-// the spec.
+// route. $ref is followed only within the spec.
 type builder struct {
 	name string
 	doc  any
-	// schemas builds the schema checks of each route.
-	schemas  *schemas
+	// engine builds the schema checks of each route; nil when it could not
+	// start, so the spec is refused.
+	engine   Engine
 	schemes  map[string]*credential
 	problems []error
 	// reported holds the x-hotline-record marks already found broken.
 	reported map[string]bool
 }
 
-func newBuilder(name string, data []byte, compiler NewSchemaCompiler) *builder {
+func newBuilder(name string, data []byte, newEngine NewEngine) *builder {
 	b := &builder{name: name, schemes: map[string]*credential{}, reported: map[string]bool{}}
 	var raw any
 	_ = yaml.Unmarshal(data, &raw)
@@ -38,34 +37,24 @@ func newBuilder(name string, data []byte, compiler NewSchemaCompiler) *builder {
 	if err == nil {
 		b.doc, err = decodeJSON(plain)
 	}
-	var started error
-	b.schemas, started = newSchemas(b, compiler)
-	if err = cmp.Or(err, started); err != nil {
-		b.schemas.compiler = nil
+	if err != nil {
 		b.problem("%s cannot be read as JSON Schema: %v", name, err)
 		return b
 	}
 	b.readSchemes()
-	b.schemas.components()
+	b.startEngine(newEngine)
 	return b
 }
 
-// decodeJSON reads JSON data with its numbers kept as written.
+// decodeJSON reads the spec, as the JSON data json.Marshal made of it,
+// with its numbers kept as written.
 func decodeJSON(data []byte) (any, error) {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
 	var v any
-	if err := d.Decode(&v); err != nil {
-		return nil, err
-	}
-	if _, err := d.Token(); !errors.Is(err, io.EOF) {
-		return nil, errTrailing
-	}
-	return v, nil
+	err := d.Decode(&v)
+	return v, err
 }
-
-// errTrailing marks JSON data with more after its value.
-var errTrailing = errors.New("more data after the JSON value")
 
 // normalize makes YAML data plain JSON data: every object key a string.
 func normalize(v any) any {
@@ -304,8 +293,8 @@ func (b *builder) bodySpec(m map[string]any, pointer, where, what string) *bodyS
 		}
 		// XML is read by the schema's shape, built only where a body can
 		// be XML: by the mark, by its type, or by a wildcard type.
-		if ct.xmlMark || isXML(strings.ToLower(mediaType)) || strings.Contains(mediaType, "*") {
-			ct.xml = &xmlBody{}
+		if ct.xmlMark || read.IsXML(strings.ToLower(mediaType)) || strings.Contains(mediaType, "*") {
+			ct.xml = &read.XMLBody{}
 			if hasSchema {
 				ct.xml = b.xmlBody(schema, at+"/schema")
 			}
@@ -332,6 +321,6 @@ func (b *builder) reply(m map[string]any, pointer, where, code string) *reply {
 			schema: schemaOf(h, hp, "the "+code+" reply header "+name),
 		})
 	}
-	r.check = b.schemas.response(r, where)
+	r.check = b.responseCheck(r, where)
 	return r
 }
