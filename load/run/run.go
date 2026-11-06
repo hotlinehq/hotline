@@ -43,15 +43,16 @@ var (
 
 // Config is what a run needs.
 type Config struct {
-	// Proxy is the built hotline-proxy program; Spec the SSM spec it checks
-	// calls against.
+	// Proxy is the built hotline-proxy program; Spec the spec it checks
+	// calls against: SSM's, or S3's for the xml shape.
 	Proxy string
 	Spec  string
 	// K6 is the k6 program; empty means the one on the path.
 	K6 string
 	// OutDir holds one folder per run.
 	OutDir string
-	// Shape names the call shape: small-json, medium-json, large-json, huge-json or slow.
+	// Shape names the call shape: small-json, medium-json, large-json,
+	// huge-json, slow or xml.
 	Shape string
 	// Rate is calls a second; Duration is how long each repeat lasts, as k6
 	// writes it ("20s").
@@ -151,18 +152,26 @@ func NextRunDir(out string) (string, error) {
 	}
 }
 
-// call is what k6 sends for a shape.
-type call struct{ action, body string }
+// call is what k6 sends for a shape: the API the proxy knows it as, the
+// method, what follows the vendor's address (the path and query), the
+// service the request is signed for, and for SSM the action and body. name
+// is how the scenario line names the call.
+type call struct{ api, method, path, service, action, body, name string }
 
 func callFor(shape string) (call, error) {
 	if _, ok := fakes.Shapes()[shape]; !ok {
 		return call{}, fmt.Errorf("%w: no call shape called %q", errUnknownShape, shape)
 	}
+	ssm := func(action, body string) call {
+		return call{api: "ssm", method: http.MethodPost, service: "ssm", action: action, body: body, name: action}
+	}
 	switch shape {
 	case "medium-json", "large-json", "huge-json":
-		return call{"AmazonSSM.GetParametersByPath", `{"Path":"/shop"}`}, nil
+		return ssm("AmazonSSM.GetParametersByPath", `{"Path":"/shop"}`), nil
 	case "small-json", "slow":
-		return call{"AmazonSSM.GetParameter", `{"Name":"/shop/db-url","WithDecryption":true}`}, nil
+		return ssm("AmazonSSM.GetParameter", `{"Name":"/shop/db-url","WithDecryption":true}`), nil
+	case "xml":
+		return call{api: "s3", method: http.MethodGet, path: "?list-type=2&prefix=invoice-", service: "s3", name: "S3 ListObjectsV2"}, nil
 	}
 	return call{}, fmt.Errorf("%w: %q", errShapeNotWired, shape)
 }
@@ -184,7 +193,7 @@ func Scenario(cfg Config) (string, error) {
 		repeats = "1 repeat"
 	}
 	return fmt.Sprintf("scenario: %s (%s, reply about %s), %d calls a second for %s, %s, each direct then through the proxy",
-		cfg.Shape, c.action, reply, cfg.Rate, cfg.Duration, repeats), nil
+		cfg.Shape, c.name, reply, cfg.Rate, cfg.Duration, repeats), nil
 }
 
 // Run does the whole run and returns its folder.
@@ -224,7 +233,7 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
-	p, err := startProxy(cfg, work, vendor, receiver)
+	p, err := startProxy(cfg, c.api, work, vendor, receiver)
 	if err != nil {
 		return "", err
 	}
@@ -392,7 +401,8 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int) (L
 		auth = "1"
 	}
 	cmd := exec.CommandContext(context.Background(), d.k6, "run", "-q", "--summary-export="+summary, d.script) //nolint:gosec // the k6 the person chose
-	cmd.Env = append(os.Environ(), "URL="+url, "BODY="+d.call.body, "ACTION="+d.call.action, "AUTH="+auth,
+	cmd.Env = append(os.Environ(), "URL="+url+d.call.path, "METHOD="+d.call.method, "SERVICE="+d.call.service,
+		"BODY="+d.call.body, "ACTION="+d.call.action, "AUTH="+auth,
 		"RATE="+strconv.Itoa(rate), "DURATION="+duration)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Latency{}, fmt.Errorf("k6 failed: %w: %s", err, strings.TrimSpace(string(out)))
@@ -478,7 +488,7 @@ func freeAddr() (string, error) {
 
 // startProxy writes the proxy's config, starts it and waits until it is
 // ready for calls.
-func startProxy(cfg Config, work string, vendor *fakes.Vendor, receiver *fakes.Receiver) (*proxyProcess, error) {
+func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fakes.Receiver) (*proxyProcess, error) {
 	proxyAddr, err := freeAddr()
 	if err != nil {
 		return nil, err
@@ -507,15 +517,15 @@ telemetry:
     endpoint: http://%s
     metricInterval: 1s
 apis:
-  ssm:
+  %s:
     hosts: [localhost]
     spec: %q
     allowInternalIPs: true
 integrations:
   - id: bench-shop
     fingerprintKey: { file: %q }
-    apis: [ssm]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, spec, key)
+    apis: [%s]
+`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, api, spec, key, api)
 	for path, data := range map[string][]byte{cert: vendor.CertPEM, key: []byte("hotline-load-test-fingerprint-key"), conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err

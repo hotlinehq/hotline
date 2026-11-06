@@ -12,10 +12,10 @@ import (
 func main() {
 	var cfg run.Config
 	flag.StringVar(&cfg.Proxy, "proxy", "", "the built hotline-proxy program (required)")
-	flag.StringVar(&cfg.Spec, "spec", "", "the SSM spec the proxy checks calls against (required)")
+	flag.StringVar(&cfg.Spec, "spec", "", "the spec the proxy checks calls against: SSM's, or S3's for xml (required)")
 	flag.StringVar(&cfg.K6, "k6", "", "the k6 program (default: the one on the path)")
 	flag.StringVar(&cfg.OutDir, "out", "load/results", "where the run folders go")
-	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json or slow")
+	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json, slow or xml")
 	flag.IntVar(&cfg.Rate, "rate", 500, "calls a second")
 	flag.StringVar(&cfg.Duration, "duration", "20s", "how long each repeat lasts")
 	flag.IntVar(&cfg.Repeats, "repeats", 3, "how many times direct and proxy are each run")

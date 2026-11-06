@@ -94,22 +94,22 @@ var _ = Describe("A run that cannot start", func() {
 })
 
 // The whole run, against the real proxy and k6. It needs both: set
-// HOTLINE_PROXY to the built program, HOTLINE_SPEC to the SSM spec, and have
-// k6 on the path (or K6).
-var _ = Describe("A run with the proxy at a tiny rate", func() {
-	It("finishes with no failed calls and writes every repeat", func() {
-		proxy, spec := os.Getenv("HOTLINE_PROXY"), os.Getenv("HOTLINE_SPEC")
+// HOTLINE_PROXY to the built program, HOTLINE_SPEC to the SSM spec,
+// HOTLINE_S3_SPEC to the S3 spec, and have k6 on the path (or K6).
+var _ = DescribeTable("A run with the proxy at a tiny rate",
+	func(shape, specVar string) {
+		proxy, spec := os.Getenv("HOTLINE_PROXY"), os.Getenv(specVar)
 		k6 := os.Getenv("K6")
 		if k6 == "" {
 			k6 = "k6"
 		}
 		if _, err := exec.LookPath(k6); err != nil || proxy == "" || spec == "" {
-			Skip("needs k6, and HOTLINE_PROXY and HOTLINE_SPEC (make load-test sets them)")
+			Skip("needs k6, and HOTLINE_PROXY and " + specVar)
 		}
 		out := GinkgoT().TempDir()
 		dir, err := run.Run(run.Config{
 			Proxy: proxy, Spec: spec, K6: k6, OutDir: out,
-			Shape: "small-json", Rate: 5, Duration: "3s", Repeats: 3, Settle: 2 * time.Second,
+			Shape: shape, Rate: 5, Duration: "3s", Repeats: 3, Settle: 2 * time.Second,
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(filepath.Base(dir)).To(Equal("run-001"))
@@ -125,12 +125,14 @@ var _ = Describe("A run with the proxy at a tiny rate", func() {
 			// Go reports memory handed out in lumps, so a run of 15 calls can
 			// show none; the figure is meant for runs of hundreds of calls a second.
 			Expect(r.AllocatedBytesPerCall).To(BeNumerically(">=", 0))
-			Expect(strings.TrimSpace(r.Shape)).To(Equal("small-json"))
+			Expect(strings.TrimSpace(r.Shape)).To(Equal(shape))
 		}
 		Expect(filepath.Join(dir, "repeat-1", "proxy-summary.json")).To(BeAnExistingFile())
 		Expect(filepath.Join(dir, "repeat-1", "direct-summary.json")).To(BeAnExistingFile())
-	})
-})
+	},
+	Entry("finishes an SSM call with no failures and writes every repeat", "small-json", "HOTLINE_SPEC"),
+	Entry("finishes an S3 listing in XML with no failures and writes every repeat", "xml", "HOTLINE_S3_SPEC"),
+)
 
 var _ = Describe("The scenario line", func() {
 	It("says which call, how big the reply, how fast and how long", func() {
@@ -154,6 +156,13 @@ var _ = Describe("The scenario line", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(line).To(ContainSubstring("AmazonSSM.GetParameter, reply about 200 bytes"))
 		Expect(line).To(ContainSubstring("1 repeat,"))
+	})
+
+	It("gives the XML reply an S3 listing of a bucket", func() {
+		line, err := run.Scenario(run.Config{Shape: "xml", Rate: 500, Duration: "20s", Repeats: 3})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(line).To(Equal("scenario: xml (S3 ListObjectsV2, reply about 7 KB), " +
+			"500 calls a second for 20s, 3 repeats, each direct then through the proxy"))
 	})
 
 	It("refuses a shape it does not know", func() {
