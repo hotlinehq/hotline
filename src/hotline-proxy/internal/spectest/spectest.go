@@ -69,6 +69,66 @@ func Checks(engine string, compiler spec.NewSchemaCompiler) bool {
 			})
 		})
 
+		Describe("Reading a JSON body", func() {
+			check := func(schema, body string) spec.Checked {
+				s := parsed(Route("requestBody:\n  content:\n    application/json:\n      schema: " + schema + "\nresponses: {}\n"))
+				header, b := JSONBody(body)
+				return s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: header, Body: b})
+			}
+
+			It("keeps numbers as written, with every digit", func() {
+				got := check(`{ maximum: 9223372036854775807 }`, `9223372036854775808`)
+				Expect(Written(got.Request)).To(Equal("body $ maximum 9223372036854775807"))
+			})
+
+			It("keeps the last of a name given twice", func() {
+				got := check(`{ properties: { a: { type: string } } }`, `{"a":1,"a":"x"}`)
+				Expect(got.Request).To(BeEmpty())
+			})
+
+			DescribeTable("reports a body that is not JSON",
+				func(body string) {
+					got := check(`{ type: object }`, body)
+					Expect(Written(got.Request)).To(Equal("body $ json"))
+				},
+				Entry("cut short", `{"a":[1,`),
+				Entry("a wrong word", `{"a":nul}`),
+				Entry("a name that is not text", `{1:2}`),
+				Entry("more after the value", `{} 1`),
+			)
+
+			marked := `
+        type: object
+        properties:
+          id: { type: string, x-hotline-record: shop.id }
+          count: { type: integer, x-hotline-record: shop.count }
+          gift: { type: boolean, x-hotline-record: shop.gift }
+          box: { type: object, properties: { weight: { type: number, x-hotline-record: shop.weight } } }`
+
+			It("copies the marked fields as it reads the body", func() {
+				got := check(marked, `{"id":"a1","count":7,"gift":true,"box":{"weight":1.5},"other":"x"}`)
+				Expect(got.Request).To(BeEmpty())
+				Expect(got.Copied).To(ConsistOf(
+					spec.Field{Name: "shop.id", Value: "a1"},
+					spec.Field{Name: "shop.count", Value: int64(7)},
+					spec.Field{Name: "shop.gift", Value: true},
+					spec.Field{Name: "shop.weight", Value: 1.5},
+				))
+			})
+
+			It("copies only fields of the marked type", func() {
+				got := check(marked, `{"id":5,"count":"seven","gift":{"a":1},"box":[1]}`)
+				Expect(got.Request).NotTo(BeEmpty())
+				Expect(got.Copied).To(BeEmpty())
+			})
+
+			It("copies nothing from a body that is not JSON", func() {
+				got := check(marked, `{"id":"a1",`)
+				Expect(Written(got.Request)).To(Equal("body $ json"))
+				Expect(got.Copied).To(BeEmpty())
+			})
+		})
+
 		Describe("Reading form bodies and query values", func() {
 			form := Route(`requestBody:
   content:

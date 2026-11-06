@@ -4,6 +4,7 @@ package spec
 // values a SchemaCompiler makes.
 
 import (
+	"encoding/json"
 	"maps"
 	"net/http"
 	"net/url"
@@ -200,11 +201,18 @@ func (b schemaBody) check(mediaType string, data []byte) ([]Result, []Field) {
 		}
 		instance = schema.Coerce(instance)
 	case jsonBodyKind:
-		var err error
-		instance, err = decodeJSON(data)
-		if err != nil {
+		if schema == nil {
+			// No schema, so no marked fields: the body need only be JSON.
+			if !json.Valid(data) {
+				return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
+			}
+			return nil, nil
+		}
+		failures, values, ok := schema.CheckJSON(data, c.places)
+		if !ok {
 			return []Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
 		}
+		return resultsOf(partBody, failures), c.fieldsOf(values)
 	default: // formBodyKind, as gate let through only bodies it can read
 		values, err := url.ParseQuery(string(data))
 		if err != nil {

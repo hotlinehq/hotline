@@ -107,6 +107,9 @@ type content struct {
 	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
+	// places are the paths of fields, in order, for a schema engine to
+	// pick their values from a JSON body as it reads it.
+	places [][]string
 }
 
 type reply struct {

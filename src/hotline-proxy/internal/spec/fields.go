@@ -218,17 +218,30 @@ func (c *checks) copiedHeaders(header http.Header) []Field {
 	return out
 }
 
-// copied are the marked fields found in a read body, each with the value
-// it has, if that value is of the marked type.
+// copied are the marked fields found in a body read into Go values, each
+// with the value it has, if that value is of the marked type.
 func (c *content) copied(instance any) []Field {
-	var out []Field
-	for _, f := range c.fields {
+	values := make([]any, len(c.fields))
+	for i, f := range c.fields {
 		v := instance
 		for _, step := range f.path {
 			m, _ := v.(map[string]any)
 			v = m[step]
 		}
-		if value, ok := plain(v, f.types); ok {
+		values[i] = v
+	}
+	return c.fieldsOf(values)
+}
+
+// fieldsOf are the marked fields, given the value found at each one's
+// place, in order: those whose value is of the marked type.
+func (c *content) fieldsOf(values []any) []Field {
+	var out []Field
+	for i, f := range c.fields {
+		if i >= len(values) {
+			break
+		}
+		if value, ok := plain(values[i], f.types); ok {
 			out = append(out, Field{Name: f.name, Value: value})
 		}
 	}

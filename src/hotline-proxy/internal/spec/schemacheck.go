@@ -55,6 +55,15 @@ type Schema interface {
 	// Validate checks a value and says what is wrong with it, sorted by
 	// place. base names the value: a parameter's name, or $ for a body.
 	Validate(v any, base string) []Failure
+	// CheckJSON reads a JSON body and checks it, as Validate does with base
+	// $, in one pass. As it reads, it picks out the value at each of the
+	// places, a path of property names, so the fields the spec marks
+	// x-hotline-record can be copied without reading the body again. Each
+	// value is a string, a bool, a json.Number as written, or nil when
+	// there is none or it is something else. ok is false when the body is
+	// not JSON. Like Go's json package, it lets a name come twice, the last
+	// one winning.
+	CheckJSON(data []byte, places [][]string) (failures []Failure, values []any, ok bool)
 }
 
 // Failure is one thing a value breaks: the place in it, the rule it broke
