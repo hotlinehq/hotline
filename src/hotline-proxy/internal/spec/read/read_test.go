@@ -119,6 +119,7 @@ var _ = Describe("Reading XML", func() {
 		Entry("not closed", `<Order><count>1</count>`),
 		Entry("closed by another name", `<Order></Cart>`),
 		Entry("closed twice", `<Order/></Order>`),
+		Entry("closed in the wrong order", `<Order><count></Order></count>`),
 		Entry("two roots", `<Order/><Order/>`),
 		Entry("text outside the root", `<Order/>x`),
 		Entry("a DOCTYPE", `<!DOCTYPE Order [<!ENTITY a "b">]><Order/>`),
