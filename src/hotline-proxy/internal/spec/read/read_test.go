@@ -39,6 +39,114 @@ var _ = Describe("Reading XML", func() {
 		_, err := (&read.XMLBody{Root: "Order"}).Read([]byte("<Cart/>"))
 		Expect(err).To(MatchError("the root element is not Order"))
 	})
+
+	text := &read.XMLShape{Kind: read.Text}
+	order := &read.XMLShape{Kind: read.Object, Props: []read.XMLProp{
+		{Key: "id", Name: "id", Attribute: true, Shape: text},
+		{Key: "count", Name: "count", Shape: text},
+		{Key: "total", Name: "Sum", Shape: text},
+		{Key: "lines", Name: "lines", Shape: &read.XMLShape{Kind: read.Array, Wrapped: true, ItemName: "line", Item: text}},
+		{Key: "tags", Name: "tags", Shape: &read.XMLShape{Kind: read.Array, ItemName: "tag", Item: text}},
+		{Key: "notes", Name: "note", Shape: &read.XMLShape{Kind: read.Array, Item: text}},
+		{Key: "box", Name: "box", Shape: &read.XMLShape{Kind: read.Any}},
+	}}
+	readXML := func(shape *read.XMLShape, body string) (any, error) {
+		return (&read.XMLBody{Shape: shape}).Read([]byte(body))
+	}
+
+	DescribeTable("reads an element by its shape into the data a JSON body would give",
+		func(body string, want map[string]any) {
+			got, err := readXML(order, body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(got).To(Equal(want))
+		},
+		Entry("an attribute, and a child read by another name",
+			`<Order id="7" xmlns="urn:x" xmlns:p="urn:p"><Sum>9.5</Sum></Order>`,
+			map[string]any{"id": "7", "total": "9.5"}),
+		Entry("the first of an element given twice",
+			`<Order><count>1</count><count>2</count></Order>`,
+			map[string]any{"count": "1"}),
+		Entry("a wrapped list, by its items' name",
+			`<Order><lines><line>a</line><other>x</other><line>b</line></lines></Order>`,
+			map[string]any{"lines": []any{"a", "b"}}),
+		Entry("an unwrapped list, by its items' name",
+			`<Order><tag>a</tag><count>1</count><tag>b</tag></Order>`,
+			map[string]any{"tags": []any{"a", "b"}, "count": "1"}),
+		Entry("an unwrapped list with no item name, by the property's name",
+			`<Order><note>a</note><note>b</note></Order>`,
+			map[string]any{"notes": []any{"a", "b"}}),
+		Entry("an element the schema doesn't name, as it comes",
+			`<Order><extra>1</extra><more><a>1</a><a>2</a><a>3</a><b/></more></Order>`,
+			map[string]any{"extra": "1", "more": map[string]any{"a": []any{"1", "2", "3"}, "b": ""}}),
+		Entry("not an element that would take another property's key",
+			`<Order><total>1</total><count>2</count></Order>`,
+			map[string]any{"count": "2"}),
+		Entry("a property of no type, as it comes",
+			`<Order><box><w>1</w></box></Order>`,
+			map[string]any{"box": map[string]any{"w": "1"}}),
+		Entry("space between elements",
+			"<Order>\n  <count>1</count>\n</Order>",
+			map[string]any{"count": "1"}),
+		Entry("names without their prefix",
+			`<p:Order xmlns:p="urn:p"><p:count>3</p:count></p:Order>`,
+			map[string]any{"count": "3"}),
+	)
+
+	It("reads text in pieces as one, and only the element's own text", func() {
+		got, err := readXML(text, `<a>x<!-- note -->y<![CDATA[<z>]]><b>not mine</b></a>`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal("xy<z>"))
+	})
+
+	It("reads a list with no item name as all its elements", func() {
+		got, err := readXML(&read.XMLShape{Kind: read.Array, Wrapped: true, Item: text}, `<a><b>1</b><c>2</c></a>`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal([]any{"1", "2"}))
+	})
+
+	It("reads a body with no shape as no value", func() {
+		got, err := readXML(nil, `<a><b>1</b></a>`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(BeNil())
+	})
+
+	DescribeTable("refuses a body that is not one XML document",
+		func(body string) {
+			_, err := readXML(order, body)
+			Expect(err).To(MatchError(read.ErrNotXML))
+		},
+		Entry("empty", ``),
+		Entry("not closed", `<Order><count>1</count>`),
+		Entry("closed by another name", `<Order></Cart>`),
+		Entry("closed twice", `<Order/></Order>`),
+		Entry("two roots", `<Order/><Order/>`),
+		Entry("text outside the root", `<Order/>x`),
+		Entry("a DOCTYPE", `<!DOCTYPE Order [<!ENTITY a "b">]><Order/>`),
+		Entry("a DOCTYPE inside the root", `<Order><!DOCTYPE x></Order>`),
+		Entry("not XML", `{"count": 1}`),
+		Entry("broken inside", `<Order><</Order>`),
+		Entry("ending inside a child", `<Order><count>1`),
+		Entry("ending inside a list", `<Order><lines>`),
+		Entry("ending inside a list's item", `<Order><lines><line>a`),
+	)
+
+	DescribeTable("refuses a body that ends inside an element of any shape",
+		func(shape *read.XMLShape, body string) {
+			_, err := readXML(shape, body)
+			Expect(err).To(MatchError(read.ErrNotXML))
+		},
+		Entry("of no shape", nil, `<a><b>`),
+		Entry("of text", text, `<a>x`),
+		Entry("of text, inside a child", text, `<a>x<b>`),
+		Entry("of no type", &read.XMLShape{Kind: read.Any}, `<a>x`),
+		Entry("of no type, inside a child", &read.XMLShape{Kind: read.Any}, `<a><b>1`),
+	)
+
+	It("takes space around the root", func() {
+		got, err := readXML(order, "<?xml version=\"1.0\"?>\n<Order><count>1</count></Order>\n")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(map[string]any{"count": "1"}))
+	})
 })
 
 var _ = Describe("Shaping parameter values", func() {
