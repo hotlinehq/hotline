@@ -46,7 +46,8 @@ func parameters(n int) []byte {
 
 // Shapes are the call shapes by name: a small JSON reply (an SSM
 // GetParameter), JSON replies of about 30 KB, 115 KB and 500 KB (an SSM
-// GetParametersByPath of 105, 400 and 1780 parameters), an XML reply (an S3 listing), and a small reply after a
+// GetParametersByPath of 105, 400 and 1780 parameters), an XML reply of
+// about 7 KB (an S3 ListObjectsV2 of 50 files), and a small reply after a
 // wait of 50 ms.
 func Shapes() map[string]Shape {
 	const json = "application/x-amz-json-1.1"
