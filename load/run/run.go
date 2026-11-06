@@ -437,13 +437,17 @@ func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) [
 	if pushURL == "" {
 		return nil
 	}
-	return []string{
+	opts := []string{
 		"-o", "experimental-prometheus-rw",
 		"--system-tags=method,status,name,scenario,expected_response",
 		"--tag", "testid=" + t.RunID, "--tag", "shape=" + t.Shape, "--tag", "rate=" + strconv.Itoa(t.Rate),
-		"--tag", "target=" + target, "--tag", "label=" + t.Label,
-		"--tag", "repeat=" + strconv.Itoa(repeat), "--tag", "phase=" + phase,
+		"--tag", "target=" + target,
 	}
+	// k6 refuses a tag with an empty value, and a run without a label has none.
+	if t.Label != "" {
+		opts = append(opts, "--tag", "label="+t.Label)
+	}
+	return append(opts, "--tag", "repeat="+strconv.Itoa(repeat), "--tag", "phase="+phase)
 }
 
 // DefaultSettle is how long to wait before and after each proxy run for the
