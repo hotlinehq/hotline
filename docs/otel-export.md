@@ -178,9 +178,9 @@ Plain HTTP sent to a TLS port is a failed TLS setup, not a request, so it has no
 
 | Name | Type | Unit | Attributes |
 |---|---|---|---|
-| `hotline.requests` | Sum that only goes up | `{request}` | `hotline.integration.id`, `url.template`, `http.request.method`, `http.response.status_code`, `error.type` |
+| `hotline.requests` | Sum that only goes up | `{request}` | `hotline.integration.id`, `http.request.method`, `http.response.status_code`, `error.type` |
 
-Every record above also counts once here, refused calls and failed tunnels included. Each attribute is there only when the record has it, so minimal records carry no `url.template`.
+Every record above also counts once here, refused calls and failed tunnels included. Each attribute is there only when the record has it. The route (`url.template`) is not a label here: it would make a series for each route of each spec, too many for a big spec such as AWS's. It stays in the records, so per-route counts come from them (Peter, 2026-11-07).
 
 There is no latency histogram and no pass or fail count: the control plane builds those from the records.
 

@@ -68,9 +68,11 @@ type destination struct {
 }
 
 // counted are the record attributes the hotline.requests counter carries.
+// The route (url.template) is not one: a series for each route of each spec
+// is too many for a big spec (Peter, 2026-11-07).
 func counted(kv attribute.KeyValue) bool {
 	switch kv.Key {
-	case "hotline.integration.id", semconv.URLTemplateKey, semconv.HTTPRequestMethodKey,
+	case "hotline.integration.id", semconv.HTTPRequestMethodKey,
 		semconv.HTTPResponseStatusCodeKey, semconv.ErrorTypeKey:
 		return true
 	}

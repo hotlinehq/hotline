@@ -171,15 +171,15 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^it carries hotline.integration.id, url.template, http.request.method, http.response.status_code and error.type$`, func() error {
+	sc.Step(`^it carries hotline.integration.id, http.request.method, http.response.status_code and error.type$`, func() error {
 		counts := w.counts()
 		attrs := counts[len(counts)-1].attrs
-		if err := hasAll(attrs, "hotline.integration.id", "url.template", "http.request.method", "http.response.status_code"); err != nil {
+		if err := hasAll(attrs, "hotline.integration.id", "http.request.method", "http.response.status_code"); err != nil {
 			return err
 		}
 		for key := range attrs {
 			switch key {
-			case "hotline.integration.id", "url.template", "http.request.method", "http.response.status_code", "error.type":
+			case "hotline.integration.id", "http.request.method", "http.response.status_code", "error.type":
 			default:
 				return failf("the counter carries %s", key)
 			}

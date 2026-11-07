@@ -37,10 +37,13 @@ Feature: Sending OpenTelemetry data
   Scenario: The hotline.requests counter
     When a call ends
     Then hotline.requests goes up by one, with unit {request}
-    And it carries hotline.integration.id, url.template, http.request.method, http.response.status_code and error.type
+    And it carries hotline.integration.id, http.request.method, http.response.status_code and error.type
 
-  Scenario: The counter for not-passed calls
-    When a not-passed call ends
+  Scenario: The counter has no url.template
+    The template is in every record, but a counter label per route would
+    make a series for each route of each spec, too many for a big spec such as
+    AWS's (Peter, 2026-11-07).
+    When a call ends
     Then hotline.requests carries no url.template
 
   Scenario Outline: Temporality

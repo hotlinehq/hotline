@@ -16,5 +16,6 @@ Full wording is at the end of [docs/proxy-slice-1.md](../proxy-slice-1.md).
 12. Fields not built yet (schema, fingerprints) are left out of the record.
 13. Dropped records: a warning at most once a minute per destination, plus one at shutdown. Queues hold 10 000 records unless `queueSize` says otherwise. Each exporter sends counts every 60s (`metricInterval`), records and spans every 15s (`logInterval`, `traceInterval`), or sooner once 512 wait (Peter, 2026-11-01): a data point a minute fits Grafana Cloud's standard pricing.
 14. TLS from apps to the proxy waits for a later slice.
+15. The `hotline.requests` counter has no `url.template` label (Peter, 2026-11-07): a series for each route of each spec is too many for a big spec such as AWS's. The route stays in every record.
 
 Also from the review of pull request #11: `vendorTimeout` also limits how long a reply may go silent between its parts. A vendor silent for longer is cut off, recorded as `http_response_incomplete`. WebSockets are exempt.
