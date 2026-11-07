@@ -380,3 +380,17 @@ var _ = Describe("Loading many specs into the proxy", func() {
 		Expect(names).To(Equal(", kms"))
 	})
 })
+
+var _ = Describe("Giving the proxy its own cores", func() {
+	It("runs the proxy as it is when no cores are named", func() {
+		name, args := run.ProxyCommand("", "out/hotline-proxy", []string{"-config", "c.yaml"})
+		Expect(name).To(Equal("out/hotline-proxy"))
+		Expect(args).To(Equal([]string{"-config", "c.yaml"}))
+	})
+
+	It("runs the proxy under taskset on the named cores", func() {
+		name, args := run.ProxyCommand("0,1", "out/hotline-proxy", []string{"-config", "c.yaml"})
+		Expect(name).To(Equal("taskset"))
+		Expect(args).To(Equal([]string{"-c", "0,1", "out/hotline-proxy", "-config", "c.yaml"}))
+	})
+})

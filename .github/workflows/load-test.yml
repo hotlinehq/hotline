@@ -65,7 +65,11 @@ jobs:
           GRAFANA_PYROSCOPE_URL: ${{ vars.GRAFANA_PYROSCOPE_URL }}
           GRAFANA_PYROSCOPE_USERNAME: ${{ secrets.GRAFANA_PYROSCOPE_USERNAME }}
           GRAFANA_PYROSCOPE_PASSWORD: ${{ secrets.GRAFANA_PYROSCOPE_PASSWORD }}
-        run: make load
+          # The runner has 4 cores. The proxy gets cores 0 and 1 and everything
+          # else (k6, the fake vendor and receiver) cores 2 and 3, so they do
+          # not queue for the same cores and a drop shows the proxy's own limit.
+          HOTLINE_LOAD_PROXY_CPUS: "0,1"
+        run: taskset -c 2,3 make load
 
       # The other build is checked out next to this one and built from its
       # own source; the two take turns, see "load-compare" in the Makefile.
@@ -87,9 +91,13 @@ jobs:
           GRAFANA_OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
           GRAFANA_OTLP_USERNAME: ${{ secrets.GRAFANA_OTLP_USERNAME }}
           GRAFANA_OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+          # The runner has 4 cores. The proxy gets cores 0 and 1 and everything
+          # else (k6, the fake vendor and receiver) cores 2 and 3, so they do
+          # not queue for the same cores and a drop shows the proxy's own limit.
+          HOTLINE_LOAD_PROXY_CPUS: "0,1"
         run: |
           (cd base/src/hotline-proxy && go build -o "$GITHUB_WORKSPACE/load/out-base-proxy" ./cmd)
-          make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"
+          taskset -c 2,3 make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"
 
       # What the numbers were measured on, next to them.
       - name: note the commit and the computer
