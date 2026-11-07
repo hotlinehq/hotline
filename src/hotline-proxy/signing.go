@@ -33,29 +33,29 @@ type pooledSigner struct {
 
 // get gives a signer with nothing written yet, keyed with key.
 func (p *signPool) get(key []byte) *pooledSigner {
-	x, _ := p.pool.Get().(*pooledSigner)
-	if x == nil {
-		x = &pooledSigner{}
+	borrowed, _ := p.pool.Get().(*pooledSigner)
+	if borrowed == nil {
+		borrowed = &pooledSigner{}
 	}
-	x.s.mac = hmac.New(sha256.New, key)
-	x.s.n = 0
-	return x
+	borrowed.s.mac = hmac.New(sha256.New, key)
+	borrowed.s.n = 0
+	return borrowed
 }
 
 // put takes a signer back, dropping its key and what its lists point to, so
 // the pool keeps no call's key or strings alive.
-func (p *signPool) put(x *pooledSigner) {
-	x.s.mac = nil
-	clear(x.sorted)
-	clear(x.spans)
-	x.sorted, x.spans = x.sorted[:0], x.spans[:0]
-	p.pool.Put(x)
+func (p *signPool) put(borrowed *pooledSigner) {
+	borrowed.s.mac = nil
+	clear(borrowed.sorted)
+	clear(borrowed.spans)
+	borrowed.sorted, borrowed.spans = borrowed.sorted[:0], borrowed.spans[:0]
+	p.pool.Put(borrowed)
 }
 
 // sum is the HMAC of everything written, in base64.
-func (x *pooledSigner) sum() string {
-	x.s.flush()
-	return base64.StdEncoding.EncodeToString(x.s.mac.Sum(x.out[:0]))
+func (ps *pooledSigner) sum() string {
+	ps.s.flush()
+	return base64.StdEncoding.EncodeToString(ps.s.mac.Sum(ps.out[:0]))
 }
 
 // keyID names the key a record was signed with: the first 8 bytes of its

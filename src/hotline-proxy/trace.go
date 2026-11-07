@@ -108,19 +108,19 @@ func callSpan(sc trace.SpanContext, parent trace.SpanID, from, to time.Time, fai
 // status and number of attributes, then its attributes sorted by name, all
 // as entries (docs/proxy-traces.md).
 func (p *signPool) traceSignature(key []byte, sc trace.SpanContext, spans []export.Span) attribute.KeyValue {
-	x := p.get(key)
-	defer p.put(x)
-	x.spans = append(x.spans[:0], spans...)
-	slices.SortFunc(x.spans, func(a, b export.Span) int {
+	borrowed := p.get(key)
+	defer p.put(borrowed)
+	borrowed.spans = append(borrowed.spans[:0], spans...)
+	slices.SortFunc(borrowed.spans, func(a, b export.Span) int {
 		if c := cmp.Compare(a.Start.UnixNano(), b.Start.UnixNano()); c != 0 {
 			return c
 		}
 		return bytes.Compare(a.ID[:], b.ID[:])
 	})
-	s := &x.s
+	s := &borrowed.s
 	traceID := sc.TraceID()
 	s.hex("trace.trace_id", traceID[:])
-	for _, span := range x.spans {
+	for _, span := range borrowed.spans {
 		status := "unset"
 		if span.Failed {
 			status = "error"
@@ -150,13 +150,13 @@ func (p *signPool) traceSignature(key []byte, sc trace.SpanContext, spans []expo
 		// Sorted by name, as the record's are; one attribute or none needs no copy.
 		attrs := span.Attrs
 		if len(attrs) > 1 {
-			x.sorted = append(x.sorted[:0], attrs...)
-			slices.SortFunc(x.sorted, byKey)
-			attrs = x.sorted
+			borrowed.sorted = append(borrowed.sorted[:0], attrs...)
+			slices.SortFunc(borrowed.sorted, byKey)
+			attrs = borrowed.sorted
 		}
 		for _, kv := range attrs {
 			s.entry(kv)
 		}
 	}
-	return attribute.String("hotline.trace.signature", x.sum())
+	return attribute.String("hotline.trace.signature", borrowed.sum())
 }
