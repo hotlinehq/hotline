@@ -353,6 +353,22 @@ var _ = Describe("Loading many specs into the proxy", func() {
 		}))
 	})
 
+	It("gives absolute paths, which the proxy needs because it reads relative ones from its config's folder", func() {
+		dir := GinkgoT().TempDir()
+		Expect(os.MkdirAll(filepath.Join(dir, "kms"), 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(dir, "kms", "2020-01-01.openapi.yaml"), []byte("openapi: 3.0.0\n"), 0o644)).To(Succeed())
+		wd, err := os.Getwd()
+		Expect(err).NotTo(HaveOccurred())
+		rel, err := filepath.Rel(wd, dir)
+		Expect(err).NotTo(HaveOccurred())
+
+		got, err := run.MoreAPIs(rel, "ssm")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		Expect(filepath.IsAbs(got[0].Spec)).To(BeTrue())
+		Expect(got[0].Spec).To(Equal(filepath.Join(dir, "kms", "2020-01-01.openapi.yaml")))
+	})
+
 	It("refuses a folder with no specs in it", func() {
 		_, err := run.MoreAPIs(GinkgoT().TempDir(), "ssm")
 		Expect(err).To(MatchError(ContainSubstring("no specs")))
