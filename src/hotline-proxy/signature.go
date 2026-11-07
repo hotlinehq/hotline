@@ -1,8 +1,6 @@
 package proxy
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"slices"
 	"time"
 
@@ -15,15 +13,13 @@ import (
 // attribute as an entry, sorted by name, then the record's timestamp, trace
 // id, span id and flags (docs/proxy-signatures.md). The whole record is
 // signed, so no list of names is needed (Peter, 2026-10-31).
-func signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext, key []byte) []attribute.KeyValue {
-	sum := sha256.Sum256(key)
-	keyID := attribute.String("hotline.signature_key_id", hex.EncodeToString(sum[:8]))
-	// The exact size, so adding the key id does not copy the list again.
-	sorted := make([]attribute.KeyValue, 0, len(attrs)+1)
-	sorted = append(append(sorted, attrs...), keyID)
-	slices.SortFunc(sorted, byKey)
-	s := newSigner(key)
-	for _, kv := range sorted {
+func (p *signPool) signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext) []attribute.KeyValue {
+	x := p.get()
+	defer p.put(x)
+	x.sorted = append(append(x.sorted[:0], attrs...), p.keyID)
+	slices.SortFunc(x.sorted, byKey)
+	s := &x.s
+	for _, kv := range x.sorted {
 		s.entry(kv)
 	}
 	traceID, spanID := sc.TraceID(), sc.SpanID()
@@ -31,5 +27,5 @@ func signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext, k
 	s.hex("log.record.trace_id", traceID[:])
 	s.hex("log.record.span_id", spanID[:])
 	s.hex("log.record.trace_flags", []byte{byte(sc.TraceFlags())})
-	return []attribute.KeyValue{keyID, attribute.String("hotline.signature", s.sum())}
+	return []attribute.KeyValue{p.keyID, attribute.String("hotline.signature", x.sum())}
 }

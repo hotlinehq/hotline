@@ -59,23 +59,36 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 
 func benchKey() []byte { return []byte("hotline-load-test-fingerprint-key") }
 
-// BenchmarkSignature is what signing a record costs, the part of building a
-// record that the load test's profile shows next to the log record.
+// BenchmarkSignature is what signing a record costs, with the signer
+// reused from its key's pool as the proxy does.
 func BenchmarkSignature(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
-	key := benchKey()
+	pool := proxy.NewSigningPool(benchKey())
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = proxy.Signature(attrs, at, sc, key)
+		_ = pool.Signature(attrs, at, sc)
 	}
+}
+
+// BenchmarkSignatureParallel signs records from many goroutines at once, as
+// calls do under load.
+func BenchmarkSignatureParallel(b *testing.B) {
+	sc, at, attrs, _ := benchRecord()
+	pool := proxy.NewSigningPool(benchKey())
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = pool.Signature(attrs, at, sc)
+		}
+	})
 }
 
 // BenchmarkTraceSignature is what signing a trace costs.
 func BenchmarkTraceSignature(b *testing.B) {
 	sc, _, _, spans := benchRecord()
-	key := benchKey()
+	pool := proxy.NewSigningPool(benchKey())
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = proxy.TraceSignature(sc, spans, key)
+		_ = pool.TraceSignature(sc, spans)
 	}
 }

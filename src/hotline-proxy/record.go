@@ -87,8 +87,9 @@ func (c *call) record(end time.Time) {
 		if replied {
 			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
-		attrs = append(attrs, traceSignature(c.trace, spans, c.api.SigningKey))
-		attrs = append(attrs, signature(attrs, c.start, c.trace, c.api.SigningKey)...)
+		signing := c.h.signers.forKey(c.api.SigningKey)
+		attrs = append(attrs, signing.traceSignature(c.trace, spans))
+		attrs = append(attrs, signing.signature(attrs, c.start, c.trace)...)
 	}
 	c.h.record(c.in, finished{
 		sc: c.trace, at: c.start, attrs: attrs, spans: spans,
