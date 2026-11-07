@@ -63,10 +63,10 @@ func benchKey() []byte { return []byte("hotline-load-test-fingerprint-key") }
 // reused from its key's pool as the proxy does.
 func BenchmarkSignature(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
-	pool := proxy.NewSigningPool(benchKey())
+	pool, key := proxy.NewSigningPool(), benchKey()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = pool.Signature(attrs, at, sc)
+		_ = pool.Signature(key, attrs, at, sc)
 	}
 }
 
@@ -74,11 +74,11 @@ func BenchmarkSignature(b *testing.B) {
 // calls do under load.
 func BenchmarkSignatureParallel(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
-	pool := proxy.NewSigningPool(benchKey())
+	pool, key := proxy.NewSigningPool(), benchKey()
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = pool.Signature(attrs, at, sc)
+			_ = pool.Signature(key, attrs, at, sc)
 		}
 	})
 }
@@ -86,9 +86,9 @@ func BenchmarkSignatureParallel(b *testing.B) {
 // BenchmarkTraceSignature is what signing a trace costs.
 func BenchmarkTraceSignature(b *testing.B) {
 	sc, _, _, spans := benchRecord()
-	pool := proxy.NewSigningPool(benchKey())
+	pool, key := proxy.NewSigningPool(), benchKey()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = pool.TraceSignature(sc, spans)
+		_ = pool.TraceSignature(key, sc, spans)
 	}
 }

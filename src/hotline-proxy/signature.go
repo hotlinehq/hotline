@@ -13,10 +13,11 @@ import (
 // attribute as an entry, sorted by name, then the record's timestamp, trace
 // id, span id and flags (docs/proxy-signatures.md). The whole record is
 // signed, so no list of names is needed (Peter, 2026-10-31).
-func (p *signPool) signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext) []attribute.KeyValue {
-	x := p.get()
+func (p *signPool) signature(key []byte, attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext) []attribute.KeyValue {
+	x := p.get(key)
 	defer p.put(x)
-	x.sorted = append(append(x.sorted[:0], attrs...), p.keyID)
+	id := keyID(key)
+	x.sorted = append(append(x.sorted[:0], attrs...), id)
 	slices.SortFunc(x.sorted, byKey)
 	s := &x.s
 	for _, kv := range x.sorted {
@@ -27,5 +28,5 @@ func (p *signPool) signature(attrs []attribute.KeyValue, at time.Time, sc trace.
 	s.hex("log.record.trace_id", traceID[:])
 	s.hex("log.record.span_id", spanID[:])
 	s.hex("log.record.trace_flags", []byte{byte(sc.TraceFlags())})
-	return []attribute.KeyValue{p.keyID, attribute.String("hotline.signature", x.sum())}
+	return []attribute.KeyValue{id, attribute.String("hotline.signature", x.sum())}
 }

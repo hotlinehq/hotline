@@ -107,8 +107,8 @@ func callSpan(sc trace.SpanContext, parent trace.SpanID, from, to time.Time, fai
 // going by span id: its span id, parent span id, name, kind, start, end,
 // status and number of attributes, then its attributes sorted by name, all
 // as entries (docs/proxy-traces.md).
-func (p *signPool) traceSignature(sc trace.SpanContext, spans []export.Span) attribute.KeyValue {
-	x := p.get()
+func (p *signPool) traceSignature(key []byte, sc trace.SpanContext, spans []export.Span) attribute.KeyValue {
+	x := p.get(key)
 	defer p.put(x)
 	x.spans = append(x.spans[:0], spans...)
 	slices.SortFunc(x.spans, func(a, b export.Span) int {

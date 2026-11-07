@@ -60,8 +60,9 @@ type handler struct {
 	bodies bodyPool
 	// checks run the spec checks of every call.
 	checks *checkLine
-	// signers sign records and traces, one pool per signing key.
-	signers signers
+	// signers sign every integration's records and traces, reusing their
+	// buffers between calls.
+	signers signPool
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
