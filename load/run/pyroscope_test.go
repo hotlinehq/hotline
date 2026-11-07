@@ -31,8 +31,8 @@ var _ = Describe("Sending profiles to Pyroscope", func() {
 
 	It("names the profiled program after the shape, rate and label", func() {
 		Expect(run.PyroscopeName(run.PushTags{Shape: "small-json", Rate: 5000, Label: "main"})).To(
-			Equal(`hotline-proxy{shape="small-json",rate="5000",label="main"}`))
-		Expect(run.PyroscopeName(run.PushTags{Shape: "xml", Rate: 500})).To(Equal(`hotline-proxy{shape="xml",rate="500"}`))
+			Equal(`hotline-proxy{shape=small-json,rate=5000,label=main}`))
+		Expect(run.PyroscopeName(run.PushTags{Shape: "xml", Rate: 500})).To(Equal(`hotline-proxy{shape=xml,rate=500}`))
 	})
 
 	It("uploads a profile file with the name and the time span, signed in with the user and password", func() {
