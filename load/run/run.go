@@ -247,6 +247,7 @@ func Run(cfg Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer KeepProxyLog(work, dir, cfg.Out) // after the proxy has stopped, before the folder goes
 	defer p.stop()
 
 	scriptPath := filepath.Join(work, "load.js")
@@ -484,6 +485,36 @@ func TelemetryResource(t PushTags) string {
 		fmt.Fprintf(&b, "      hotline.load.label: %q\n", t.Label)
 	}
 	return b.String()
+}
+
+// proxyLogLines is how many of the last lines of the proxy's log are printed.
+const proxyLogLines = 100
+
+// KeepProxyLog copies the proxy's log (proxy.log in work) into the run folder
+// and prints its last lines, so a warning of the proxy, such as an exporter
+// that cannot send, shows in the job log instead of being deleted with the
+// temporary folder. The proxy logs warnings and errors only.
+func KeepProxyLog(work, dir string, out io.Writer) {
+	raw, err := os.ReadFile(filepath.Join(work, "proxy.log")) //nolint:gosec // in our own temporary folder
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "proxy.log"), raw, 0o600)
+	if out == nil {
+		return
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "" {
+		fmt.Fprintln(out, "proxy log: empty (the proxy logs warnings and errors only)")
+		return
+	}
+	lines := strings.Split(text, "\n")
+	note := ""
+	if len(lines) > proxyLogLines {
+		note = fmt.Sprintf(", the last %d of %d lines, all in proxy.log of the run folder", proxyLogLines, len(lines))
+		lines = lines[len(lines)-proxyLogLines:]
+	}
+	fmt.Fprintf(out, "proxy log:%s\n%s\n", note, strings.Join(lines, "\n"))
 }
 
 // DefaultSettle is how long to wait before and after each proxy run for the
