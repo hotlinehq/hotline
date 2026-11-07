@@ -60,6 +60,11 @@ jobs:
           GRAFANA_OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
           GRAFANA_OTLP_USERNAME: ${{ secrets.GRAFANA_OTLP_USERNAME }}
           GRAFANA_OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+          # The saved profiles also go to Grafana Cloud Pyroscope; without the
+          # address they stay in the artifact only.
+          GRAFANA_PYROSCOPE_URL: ${{ vars.GRAFANA_PYROSCOPE_URL }}
+          GRAFANA_PYROSCOPE_USERNAME: ${{ secrets.GRAFANA_PYROSCOPE_USERNAME }}
+          GRAFANA_PYROSCOPE_PASSWORD: ${{ secrets.GRAFANA_PYROSCOPE_PASSWORD }}
         run: make load
 
       # The other build is checked out next to this one and built from its

@@ -312,8 +312,17 @@ func Run(cfg Config) (string, error) {
 		}
 	}
 	if cfg.Profile {
+		began := time.Now()
 		if err := d.profileRun(p, filepath.Join(dir, "profile"), cfg.Duration); err != nil {
 			return "", fmt.Errorf("profile run: %w", err)
+		}
+		if pyroscope := PyroscopeFromEnv(os.Getenv); pyroscope != nil {
+			// A failed upload is a warning: the files are in the artifact.
+			for _, name := range []string{"cpu.pprof", "allocs.pprof"} {
+				if err := pyroscope.Upload(filepath.Join(dir, "profile", name), PyroscopeName(tags), began, time.Now()); err != nil && cfg.Out != nil {
+					fmt.Fprintf(cfg.Out, "warning: sending %s to Pyroscope failed: %v\n", name, err)
+				}
+			}
 		}
 	}
 	return dir, nil
