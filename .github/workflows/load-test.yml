@@ -64,7 +64,7 @@ jobs:
           # address they stay in the artifact only.
           GRAFANA_PYROSCOPE_URL: ${{ vars.GRAFANA_PYROSCOPE_URL }}
           GRAFANA_PYROSCOPE_USERNAME: ${{ secrets.GRAFANA_PYROSCOPE_USERNAME }}
-          GRAFANA_PYROSCOPE_PASSWORD: ${{ secrets.GRAFANA_PYROSCOPE_PASSWORD }}
+          GRAFANA_PYROSCOPE_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
           # The runner has 4 cores. The proxy gets cores 0 and 1 and everything
           # else (k6, the fake vendor and receiver) cores 2 and 3, so they do
           # not queue for the same cores and a drop shows the proxy's own limit.
