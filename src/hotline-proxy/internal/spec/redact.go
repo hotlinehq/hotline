@@ -45,9 +45,9 @@ type Redacted struct {
 const redacted = "REDACTED"
 
 // Redact applies the marks of the call's route, and the spec's secrets, to
-// a call. Path and query
-// values are redacted unless marked x-hotline-redact false. Headers are kept
-// only when on the default list or marked; secrets never are.
+// a call. Path and query values are redacted unless marked
+// x-hotline-redact false. Headers are kept only when on the default list or
+// marked; secrets never are.
 func (s *Spec) Redact(found Route, c Call) Redacted {
 	r := found.r
 	redacted := Redacted{
