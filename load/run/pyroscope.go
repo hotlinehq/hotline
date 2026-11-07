@@ -35,10 +35,11 @@ func PyroscopeFromEnv(getenv func(string) string) *Pyroscope {
 
 // PyroscopeName is the name a run's profiles are stored under: the program
 // and the labels that tell runs apart, the same ones the proxy's numbers carry.
+// Pyroscope keeps quote marks as part of a value, so values are written bare.
 func PyroscopeName(t PushTags) string {
-	labels := []string{fmt.Sprintf("shape=%q", t.Shape), fmt.Sprintf("rate=%q", strconv.Itoa(t.Rate))}
+	labels := []string{"shape=" + t.Shape, "rate=" + strconv.Itoa(t.Rate)}
 	if t.Label != "" {
-		labels = append(labels, fmt.Sprintf("label=%q", t.Label))
+		labels = append(labels, "label="+t.Label)
 	}
 	return "hotline-proxy{" + strings.Join(labels, ",") + "}"
 }
