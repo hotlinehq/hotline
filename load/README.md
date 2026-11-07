@@ -40,3 +40,7 @@ In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `comp
 The same build also serves `/debug/vars`. When the runner finds that page, it reads the proxy's total bytes handed out from it at once, so it does not wait the 2 times 16 seconds for the telemetry number (about 32 seconds less per repeat). A proxy built without the tag (for example an older `main`) is still measured the old way, with the wait.
 
 The proxy sends its own numbers every second unless `HOTLINE_LOAD_METRIC_INTERVAL` (or `-metric-interval`) says otherwise; the workflow sets `60s` for `make load`, so Grafana gets one point a minute for each series: within a window the proxy keeps the latest value of a gauge and the total of a counter. A long interval needs the proxy built with `-tags loadprofile`, which serves its memory exactly (`make load` does, `make load-compare` does not, so it stays at 1s); the runner refuses the combination.
+
+## Many specs at once
+
+`-more-specs specs/aws` makes the proxy load the spec of every folder in `specs/aws` besides the one in `-spec` (12 more, about 5 MB of YAML), each on a host of its own that no call goes to. Calls still go to `-spec`'s api, so the lines show what a proxy that knows many apis costs in memory. `make load` has two such lines, `large-json` at 200 a second and `huge-json` at 50, labelled `all-specs`. An idle proxy with all of them loaded held about 114 MB resident when tried by hand.
