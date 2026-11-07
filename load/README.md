@@ -35,7 +35,9 @@ In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `comp
 
 ## Profiles and the exact memory number
 
-The runner writes `telemetry.pprof: true` into the proxy's config, so the admin port serves Go's profile pages (off by default in the proxy; see `docs/decisions/profile-pages.md`). The lines marked `-profile` (115 KB at 200 a second, 500 KB at 50, XML at 500, the small call at 5000) run once more after the repeats, not counted in the numbers, and save `profile/cpu.pprof` (where processor time goes) and `profile/allocs.pprof` (where memory is handed out) in the run folder. Open one with `go tool pprof -http=: load/results/run-005/profile/allocs.pprof`. 
+The runner writes `telemetry.pprof: true` into the proxy's config, so the admin port serves Go's profile pages (off by default in the proxy; see `docs/decisions/profile-pages.md`). The lines marked `-profile` (115 KB at 200 a second, 500 KB at 50, XML at 500, the small call at 5000) run once more after the repeats, not counted in the numbers, and save `profile/cpu.pprof` (where processor time goes) and `profile/allocs.pprof` (where memory is handed out) in the run folder. Open one with `go tool pprof -http=: load/results/run-005/profile/allocs.pprof`.
+
+With `GRAFANA_PYROSCOPE_URL` (Grafana Cloud's Pyroscope address, a repository variable in the workflow), `GRAFANA_PYROSCOPE_USERNAME` and `GRAFANA_PYROSCOPE_PASSWORD` (a token that may write profiles; secrets) set, the runner also uploads both files to Pyroscope under `hotline-proxy{shape,rate,label}`. Without the address nothing is sent, and a failed upload is only a warning. Only the load test does this; the proxy never sends profiles anywhere. 
 
 The same setting also serves `/debug/vars`. When the runner finds that page, it reads the proxy's total bytes handed out from it at once, so it does not wait the 2 times 16 seconds for the telemetry number (about 32 seconds less per repeat). A proxy without the setting (for example an older `main`) is still measured the old way, with the wait.
 
