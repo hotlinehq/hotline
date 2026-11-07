@@ -24,6 +24,7 @@ func main() {
 	// The workflow sets the environment variable, so the Makefile lines need no flag.
 	interval := os.Getenv("HOTLINE_LOAD_METRIC_INTERVAL")
 	flag.StringVar(&cfg.MetricInterval, "metric-interval", interval, "how often the proxy sends its own numbers, such as 60s (default 1s, or HOTLINE_LOAD_METRIC_INTERVAL); above 1s needs a proxy built with -tags loadprofile")
+	flag.StringVar(&cfg.MoreSpecs, "more-specs", "", "a folder of specs, one folder each (for example specs/aws), that the proxy loads as well; calls still go to -spec's api")
 	flag.Parse()
 	if cfg.Proxy == "" || cfg.Spec == "" {
 		fmt.Fprintln(os.Stderr, "-proxy and -spec are required")
