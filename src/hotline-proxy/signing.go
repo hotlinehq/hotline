@@ -33,23 +33,23 @@ type pooledSigner struct {
 
 // get gives a signer with nothing written yet, keyed with key.
 func (p *signPool) get(key []byte) *pooledSigner {
-	borrowed, _ := p.pool.Get().(*pooledSigner)
-	if borrowed == nil {
-		borrowed = &pooledSigner{}
+	signer, _ := p.pool.Get().(*pooledSigner)
+	if signer == nil {
+		signer = &pooledSigner{}
 	}
-	borrowed.s.mac = hmac.New(sha256.New, key)
-	borrowed.s.n = 0
-	return borrowed
+	signer.s.mac = hmac.New(sha256.New, key)
+	signer.s.n = 0
+	return signer
 }
 
 // put takes a signer back, dropping its key and what its lists point to, so
 // the pool keeps no call's key or strings alive.
-func (p *signPool) put(borrowed *pooledSigner) {
-	borrowed.s.mac = nil
-	clear(borrowed.sorted)
-	clear(borrowed.spans)
-	borrowed.sorted, borrowed.spans = borrowed.sorted[:0], borrowed.spans[:0]
-	p.pool.Put(borrowed)
+func (p *signPool) put(signer *pooledSigner) {
+	signer.s.mac = nil
+	clear(signer.sorted)
+	clear(signer.spans)
+	signer.sorted, signer.spans = signer.sorted[:0], signer.spans[:0]
+	p.pool.Put(signer)
 }
 
 // sum is the HMAC of everything written, in base64.
