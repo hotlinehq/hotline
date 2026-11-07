@@ -38,6 +38,7 @@ var (
 	errProxyStopped  = errors.New("the proxy stopped while starting")
 	errProxyNotReady = errors.New("the proxy was not ready within 20 seconds")
 	errNoProfile     = errors.New("the proxy has no profiling page: build it with -tags loadprofile")
+	errBadInterval   = errors.New("bad metric interval")
 	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
 	errPSTime        = errors.New("not a time from ps")
 )
@@ -64,6 +65,12 @@ type Config struct {
 	// Settle is the wait before and after each proxy run for the proxy's
 	// memory number; zero means DefaultSettle.
 	Settle time.Duration
+	// MetricInterval is how often the proxy sends its own numbers, as the
+	// proxy's metricInterval writes it ("1s"); empty means DefaultMetricInterval.
+	// Within a window the proxy keeps the latest value of a gauge and the
+	// total of a counter, so a long interval sends fewer points. It needs a
+	// proxy that serves its memory exactly (built with -tags loadprofile).
+	MetricInterval string
 	// Profile adds one more proxy run after the repeats, not counted in the
 	// numbers, that saves a processor and a memory profile into the run
 	// folder. The proxy must be built with -tags loadprofile.
@@ -262,6 +269,9 @@ func Run(cfg Config) (string, error) {
 	}
 	_, probe := TotalAllocated(p.pprofAddr)
 	d.exact = probe == nil
+	if err := CheckMetricInterval(cfg.metricInterval(), d.exact); err != nil {
+		return "", err
+	}
 	d.directURL = "http://" + vendor.PlainAddr + "/"
 	d.proxyURL = "http://" + p.addr + "/https://localhost:" + vendorPort + "/"
 	// A short warm-up, so connections and caches are not part of the numbers.
@@ -460,6 +470,13 @@ func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) [
 	return append(opts, "--tag", "repeat="+strconv.Itoa(repeat), "--tag", "phase="+phase)
 }
 
+func (c Config) metricInterval() string {
+	if c.MetricInterval == "" {
+		return DefaultMetricInterval
+	}
+	return c.MetricInterval
+}
+
 // ForwardFromEnv says where the proxy's own numbers go on to, from
 // GRAFANA_OTLP_ENDPOINT (Grafana Cloud's OpenTelemetry address, ending in
 // /otlp), GRAFANA_OTLP_USERNAME (the instance id) and GRAFANA_OTLP_PASSWORD
@@ -541,6 +558,25 @@ func KeepProxyLog(work, dir string) {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(dir, "proxy.log"), raw, 0o600)
+}
+
+// DefaultMetricInterval is how often the proxy sends its own numbers, unless
+// told otherwise: fast, because the runner reads the proxy's memory from them
+// when the proxy does not serve it exactly.
+const DefaultMetricInterval = "1s"
+
+// CheckMetricInterval refuses an interval that is no duration, and one
+// longer than a second for a proxy that does not serve its memory exactly,
+// whose memory the runner has to read from the numbers it sends.
+func CheckMetricInterval(interval string, exact bool) error {
+	d, err := time.ParseDuration(interval)
+	if err != nil {
+		return fmt.Errorf("%w: %q is not a duration", errBadInterval, interval)
+	}
+	if !exact && d > time.Second {
+		return fmt.Errorf("%w: a metric interval of %s needs a proxy built with -tags loadprofile, which serves its memory exactly; without it the interval must be 1s", errBadInterval, interval)
+	}
+	return nil
 }
 
 // DefaultSettle is how long to wait before and after each proxy run for the
@@ -644,7 +680,7 @@ telemetry:
   otlp:
     protocol: http/protobuf
     endpoint: http://%s%s
-    metricInterval: 1s
+    metricInterval: %s
 %sapis:
   %s:
     hosts: [localhost]
@@ -654,7 +690,7 @@ integrations:
   - id: bench-shop
     fingerprintKey: { file: %q }
     apis: [%s]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, resource, api, spec, key, api)
+`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, key, api)
 	for path, data := range map[string][]byte{cert: vendor.CertPEM, key: []byte("hotline-load-test-fingerprint-key"), conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
