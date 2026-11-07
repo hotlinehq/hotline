@@ -191,11 +191,11 @@ var _ = Describe("Saving a profile from the proxy", func() {
 		Expect(string(got)).To(Equal("profile of /debug/pprof/allocs"))
 	})
 
-	It("says plainly when the proxy was not built for profiling", func() {
+	It("says plainly when the proxy serves no profile pages", func() {
 		page := httptest.NewServer(http.NotFoundHandler())
 		DeferCleanup(page.Close)
 		err := run.FetchProfile(page.URL+"/debug/pprof/allocs", filepath.Join(GinkgoT().TempDir(), "x"))
-		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
+		Expect(err).To(MatchError(ContainSubstring("telemetry.pprof")))
 	})
 })
 
@@ -211,11 +211,11 @@ var _ = Describe("Reading memory handed out from the proxy's own page", func() {
 		Expect(got).To(Equal(uint64(123456789)))
 	})
 
-	It("says there is no page when the proxy was not built for the load test", func() {
+	It("says there is no page when the proxy has telemetry.pprof off or lacks it", func() {
 		page := httptest.NewServer(http.NotFoundHandler())
 		DeferCleanup(page.Close)
 		_, err := run.TotalAllocated(page.URL[len("http://"):])
-		Expect(err).To(MatchError(ContainSubstring("-tags loadprofile")))
+		Expect(err).To(MatchError(ContainSubstring("telemetry.pprof")))
 	})
 
 	It("says there is no page when nothing listens", func() {
@@ -326,7 +326,7 @@ var _ = Describe("The proxy's metric interval in the load test", func() {
 
 	It("refuses a long interval when the memory has to come from the proxy's numbers", func() {
 		err := run.CheckMetricInterval("60s", false)
-		Expect(err).To(MatchError(ContainSubstring("loadprofile")))
+		Expect(err).To(MatchError(ContainSubstring("telemetry.pprof")))
 		Expect(run.CheckMetricInterval("1s", false)).To(Succeed())
 	})
 

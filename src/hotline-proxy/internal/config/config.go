@@ -47,6 +47,9 @@ type Config struct {
 	// Telemetry, when set, is where the proxy sends numbers about itself;
 	// nil means they are not sent.
 	Telemetry *Telemetry
+	// Pprof turns on Go's profile pages (/debug/pprof/ and /debug/vars) on
+	// the admin port, from telemetry.pprof. Off unless set.
+	Pprof bool
 	// NotPassed applies to calls without a known integration ID, and to
 	// calls to a host outside the integration's apis.
 	NotPassed Settings
@@ -352,6 +355,12 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		c.Exporters = append(c.Exporters, l.exporter(e.OTLP, now))
 	}
 	c.Telemetry = l.telemetry(f.Telemetry, now)
+	if f.Telemetry != nil && f.Telemetry.Pprof {
+		c.Pprof = true
+		if f.Listen.Admin == "" {
+			c.Warnings = append(c.Warnings, "telemetry.pprof is on but there is no listen.admin address, so there are no profile pages")
+		}
+	}
 	c.CheckQueueMemory = l.size("specChecks.queueMemory", f.SpecChecks.QueueMemory, 64<<20)
 	apis := map[string]*API{}
 	hosts := map[string][]string{}

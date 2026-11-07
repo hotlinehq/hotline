@@ -167,6 +167,7 @@ Feature: Loading the config file
       | a field name has a typo, such as tlsOrigintion        | tlsOrigintion |
       | an integration changes tlsOrigination of an api it names | tlsOrigination |
       | there is no admin listen address                      | listen.admin  |
+      | telemetry.pprof is on but there is no admin listen address | telemetry.pprof |
       | the config still has a version field                  | version       |
 
   Scenario: A busy listen address

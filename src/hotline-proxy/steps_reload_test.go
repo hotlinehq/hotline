@@ -150,6 +150,8 @@ func (w *world) changeConfig(change string) error {
 		w.listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 	case "the telemetry section turns off go.*":
 		w.telemetryDisable = append(w.telemetryDisable, "go.*")
+	case "telemetry.pprof is turned on":
+		w.telemetryPprof = true
 	case "listen.connect is added":
 		w.useInterceptionIssuer(newIssuer())
 	default:

@@ -452,6 +452,8 @@ func (w *world) brokenConfig(problem string) error {
 		w.rawConfig = w.raw(start+exporters, integration("shop", w.apiFor("api.x.com", "    tlsOrigintion: false\n")))
 	case "there is no admin listen address":
 		w.rawConfig = one("")
+	case "telemetry.pprof is on but there is no admin listen address":
+		w.rawConfig = w.raw(start+exporters+"telemetry:\n  pprof: true\n", integration("shop", w.apiFor("api.x.com", "")))
 	case "the config still has a version field":
 		w.rawConfig = "version: \"1\"\n" + one("")
 	case "an integration changes tlsOrigination of an api it names":

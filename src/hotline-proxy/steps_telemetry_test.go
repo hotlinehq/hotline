@@ -49,6 +49,10 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.telemetry = nil
 		return nil
 	})
+	sc.Step(`^the telemetry section turns on the profile pages$`, func() error {
+		w.telemetryPprof = true
+		return nil
+	})
 	sc.Step(`^the telemetry section turns off (\S+)$`, func(name string) error {
 		w.telemetryDisable = append(w.telemetryDisable, name)
 		return nil

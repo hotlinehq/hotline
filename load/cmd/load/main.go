@@ -20,10 +20,10 @@ func main() {
 	flag.StringVar(&cfg.Duration, "duration", "20s", "how long each repeat lasts")
 	flag.IntVar(&cfg.Repeats, "repeats", 3, "how many times direct and proxy are each run")
 	flag.StringVar(&cfg.Label, "label", "", "names what is measured (for example main or branch), kept in every result")
-	flag.BoolVar(&cfg.Profile, "profile", false, "after the repeats, save a processor and a memory profile (needs a proxy built with -tags loadprofile)")
+	flag.BoolVar(&cfg.Profile, "profile", false, "after the repeats, save a processor and a memory profile (needs a proxy with the telemetry.pprof setting)")
 	// The workflow sets the environment variable, so the Makefile lines need no flag.
 	interval := os.Getenv("HOTLINE_LOAD_METRIC_INTERVAL")
-	flag.StringVar(&cfg.MetricInterval, "metric-interval", interval, "how often the proxy sends its own numbers, such as 60s (default 1s, or HOTLINE_LOAD_METRIC_INTERVAL); above 1s needs a proxy built with -tags loadprofile")
+	flag.StringVar(&cfg.MetricInterval, "metric-interval", interval, "how often the proxy sends its own numbers, such as 60s (default 1s, or HOTLINE_LOAD_METRIC_INTERVAL); above 1s needs a proxy with the telemetry.pprof setting")
 	flag.StringVar(&cfg.MoreSpecs, "more-specs", "", "a folder of specs, one folder each (for example specs/aws), that the proxy loads as well; calls still go to -spec's api")
 	flag.Parse()
 	if cfg.Proxy == "" || cfg.Spec == "" {

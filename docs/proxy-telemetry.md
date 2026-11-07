@@ -77,5 +77,6 @@ Changed by the rework above where they name metrics: decisions 1, 2, 3, 5 and 8.
 8. **The Go runtime numbers are sent,** from `go.opentelemetry.io/contrib/instrumentation/runtime` (Apache-2.0, the OpenTelemetry project).
 9. **Every metric can be turned off on its own** with `telemetry.disable`: exact names, or a name ending in `*` for every name that starts with what is before it. A turned off metric is not measured or sent. A name that matches none of ours is a config warning, so a typo is seen.
 10. **`telemetry` changes only on a restart,** like exporters; a change is logged as `telemetry changed and needs a restart` and sets `hotline.config.restart_needed`.
+11. **Profile pages are off by default.** `telemetry.pprof: true` serves Go's profile pages (`/debug/pprof/`, `/debug/vars`) on the admin port, for finding why a proxy is slow, with a warning at start because the admin port has no password. It needs a restart to change. Details: [decisions/profile-pages.md](decisions/profile-pages.md).
 
 Chosen without a question: the certificate expiry is a time, not "days left", so it does not change every day; telemetry is sent on the same timing as the exporters; when the telemetry receiver itself is down only the warning lines show it.

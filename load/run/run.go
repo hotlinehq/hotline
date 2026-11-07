@@ -37,7 +37,7 @@ var (
 	errNoAllocated   = errors.New("the proxy has not sent go.memory.allocated to the telemetry destination")
 	errProxyStopped  = errors.New("the proxy stopped while starting")
 	errProxyNotReady = errors.New("the proxy was not ready within 20 seconds")
-	errNoProfile     = errors.New("the proxy has no profiling page: build it with -tags loadprofile")
+	errNoProfile     = errors.New("the proxy serves no profile pages: its admin port needs telemetry.pprof, which an older build lacks")
 	errNoMoreSpecs   = errors.New("no more specs")
 	errBadInterval   = errors.New("bad metric interval")
 	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
@@ -70,7 +70,7 @@ type Config struct {
 	// proxy's metricInterval writes it ("1s"); empty means DefaultMetricInterval.
 	// Within a window the proxy keeps the latest value of a gauge and the
 	// total of a counter, so a long interval sends fewer points. It needs a
-	// proxy that serves its memory exactly (built with -tags loadprofile).
+	// proxy that serves its memory exactly (telemetry.pprof, which the runner turns on).
 	MetricInterval string
 	// MoreSpecs is a folder of specs (one folder each, as in specs/aws) that
 	// the proxy loads as well, besides Spec. Calls still go to Spec's api; the
@@ -78,7 +78,7 @@ type Config struct {
 	MoreSpecs string
 	// Profile adds one more proxy run after the repeats, not counted in the
 	// numbers, that saves a processor and a memory profile into the run
-	// folder. The proxy must be built with -tags loadprofile.
+	// folder. The proxy needs the telemetry.pprof setting, which the runner turns on.
 	Profile bool
 	// Label names what is measured (for example the branch), kept in every
 	// result so runs of two builds can be set side by side.
@@ -345,7 +345,7 @@ func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
 }
 
 // TotalAllocated is the proxy's total bytes handed out so far, read from the
-// page a proxy built with -tags loadprofile serves at addr. It is exact at
+// page a proxy with telemetry.pprof on serves on its admin port at addr. It is exact at
 // once, unlike the telemetry number that lags up to 15 seconds.
 func TotalAllocated(addr string) (uint64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -574,7 +574,7 @@ func CheckMetricInterval(interval string, exact bool) error {
 		return fmt.Errorf("%w: %q is not a duration", errBadInterval, interval)
 	}
 	if !exact && d > time.Second {
-		return fmt.Errorf("%w: a metric interval of %s needs a proxy built with -tags loadprofile, which serves its memory exactly; without it the interval must be 1s", errBadInterval, interval)
+		return fmt.Errorf("%w: a metric interval of %s needs a proxy with the telemetry.pprof setting, which serves its memory exactly; without it the interval must be 1s", errBadInterval, interval)
 	}
 	return nil
 }
@@ -638,7 +638,8 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 type proxyProcess struct {
 	cmd  *exec.Cmd
 	addr string
-	// pprofAddr is where the proxy serves profiles, when asked to.
+	// pprofAddr is where the proxy serves profiles, its admin address, when
+	// its telemetry section turns them on (telemetry.pprof).
 	pprofAddr string
 }
 
@@ -688,7 +689,8 @@ telemetry:
     protocol: http/protobuf
     endpoint: http://%s%s
     metricInterval: %s
-%sapis:
+%s  pprof: true
+apis:
   %s:
     hosts: [localhost]
     spec: %q
@@ -715,17 +717,10 @@ telemetry:
 		logs = io.MultiWriter(logFile, NewPrefixWriter(cfg.Out, "proxy: "))
 	}
 	cmd.Stdout, cmd.Stderr = logs, logs
-	// A proxy built with -tags loadprofile serves memory and profile pages
-	// here; any other build ignores the variable.
-	pprofAddr, err := freeAddr()
-	if err != nil {
-		return nil, err
-	}
-	cmd.Env = append(os.Environ(), "HOTLINE_LOAD_PPROF_ADDR="+pprofAddr)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("the proxy could not be started: %w", err)
 	}
-	p := &proxyProcess{cmd: cmd, addr: proxyAddr, pprofAddr: pprofAddr}
+	p := &proxyProcess{cmd: cmd, addr: proxyAddr, pprofAddr: adminAddr}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	deadline := time.Now().Add(20 * time.Second)

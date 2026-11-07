@@ -7,10 +7,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"expvar"
 	"log"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/pprof" //nolint:gosec // only served when telemetry.pprof is on
 	"net/netip"
 	"runtime"
 	"sync/atomic"
@@ -189,7 +191,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		_ = p.tunnelServer.Serve(h.tunnels)
 	}()
 	if adminListener != nil {
-		p.serveAdmin(adminListener, o.Logger)
+		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
 	for _, w := range cfg.Warnings {
 		o.Logger.Warn("config warning", "reason", w)
@@ -223,8 +225,9 @@ func Validate(configPath string, clock Clock, lookupEnv func(string) (string, bo
 
 // serveAdmin answers the health checks: /livez says the proxy is alive
 // while it answers at all, /readyz says it takes calls until it starts to
-// stop. Nothing else is served there, and nothing there is recorded.
-func (p *Proxy) serveAdmin(l net.Listener, logger *slog.Logger) {
+// stop. Nothing else is served there, and nothing there is recorded, except
+// Go's profile pages when telemetry.pprof is on.
+func (p *Proxy) serveAdmin(l net.Listener, logger *slog.Logger, pprofPages bool) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
@@ -236,6 +239,15 @@ func (p *Proxy) serveAdmin(l net.Listener, logger *slog.Logger) {
 		}
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	if pprofPages {
+		// Off unless telemetry.pprof is set: the admin port has no password.
+		logger.Warn("telemetry.pprof is on: Go's profile pages are served on the admin port, keep it on a private network")
+		mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
+		mux.Handle("GET /debug/vars", expvar.Handler())
+	}
 	p.admin = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
