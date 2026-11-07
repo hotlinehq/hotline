@@ -1,4 +1,4 @@
-package proxy
+package proxy_test
 
 import (
 	"testing"
@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	proxy "hotline-proxy"
 	"hotline-proxy/internal/export"
 )
 
@@ -56,23 +57,25 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 	return sc, at, attrs, spans
 }
 
-var benchKey = []byte("hotline-load-test-fingerprint-key")
+func benchKey() []byte { return []byte("hotline-load-test-fingerprint-key") }
 
 // BenchmarkSignature is what signing a record costs, the part of building a
 // record that the load test's profile shows next to the log record.
 func BenchmarkSignature(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
+	key := benchKey()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = signature(attrs, at, sc, benchKey)
+		_ = proxy.Signature(attrs, at, sc, key)
 	}
 }
 
 // BenchmarkTraceSignature is what signing a trace costs.
 func BenchmarkTraceSignature(b *testing.B) {
 	sc, _, _, spans := benchRecord()
+	key := benchKey()
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = traceSignature(sc, spans, benchKey)
+		_ = proxy.TraceSignature(sc, spans, key)
 	}
 }
