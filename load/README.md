@@ -44,3 +44,7 @@ The proxy sends its own numbers every second unless `HOTLINE_LOAD_METRIC_INTERVA
 ## Many specs at once
 
 `-more-specs specs/aws` makes the proxy load the spec of every folder in `specs/aws` besides the one in `-spec` (12 more, about 5 MB of YAML), each on a host of its own that no call goes to. Calls still go to `-spec`'s api, so the lines show what a proxy that knows many apis costs in memory. `make load` has two such lines, `large-json` at 200 a second and `huge-json` at 50, labelled `all-specs`. An idle proxy with all of them loaded held about 114 MB resident when tried by hand.
+
+## Very high rates, and a long run
+
+`make load` also sends the small call at 5000, 10000 and 20000 a second, and once at 5000 a second for 120 seconds (label `long`) to show memory that creeps up slowly. k6, the fake vendor and the proxy share one computer, so at some rate k6 itself cannot send fast enough: k6 then reports dropped iterations (calls it did not make) and the achieved rate falls below the one asked for. Read that as the limit of the test computer, not of the proxy.
