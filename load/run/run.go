@@ -878,6 +878,12 @@ type MoreAPI struct{ Name, Host, Spec string }
 // MoreAPIs finds the spec in every folder of dir, except the folder named
 // skip (the api the calls go to, which is loaded anyway).
 func MoreAPIs(dir, skip string) ([]MoreAPI, error) {
+	// The proxy reads a relative spec path from the folder of its config file,
+	// which is a temporary one, so the paths must be absolute.
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
 	folders, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
