@@ -4,6 +4,7 @@
 package run
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -247,7 +248,7 @@ func Run(cfg Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer KeepProxyLog(work, dir, cfg.Out) // after the proxy has stopped, before the folder goes
+	defer KeepProxyLog(work, dir) // after the proxy has stopped, before the folder goes
 	defer p.stop()
 
 	scriptPath := filepath.Join(work, "load.js")
@@ -487,34 +488,45 @@ func TelemetryResource(t PushTags) string {
 	return b.String()
 }
 
-// proxyLogLines is how many of the last lines of the proxy's log are printed.
-const proxyLogLines = 100
+// prefixWriter puts a prefix in front of each complete line it is given.
+type prefixWriter struct {
+	mu     sync.Mutex
+	out    io.Writer
+	prefix string
+	part   []byte
+}
 
-// KeepProxyLog copies the proxy's log (proxy.log in work) into the run folder
-// and prints its last lines, so a warning of the proxy, such as an exporter
-// that cannot send, shows in the job log instead of being deleted with the
-// temporary folder. The proxy logs warnings and errors only.
-func KeepProxyLog(work, dir string, out io.Writer) {
+// NewPrefixWriter makes a writer that passes each complete line on to out
+// with prefix in front, so the proxy's log lines show in the job log as they
+// happen, apart from k6's. A line that is not finished waits for its end.
+func NewPrefixWriter(out io.Writer, prefix string) io.Writer {
+	return &prefixWriter{out: out, prefix: prefix}
+}
+
+func (w *prefixWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.part = append(w.part, p...)
+	for {
+		i := bytes.IndexByte(w.part, '\n')
+		if i < 0 {
+			break
+		}
+		// A failing console is no reason to stop the proxy.
+		_, _ = io.WriteString(w.out, w.prefix+string(w.part[:i+1]))
+		w.part = w.part[i+1:]
+	}
+	return len(p), nil
+}
+
+// KeepProxyLog copies the proxy's log (proxy.log in work) into the run
+// folder, so it is kept with the results.
+func KeepProxyLog(work, dir string) {
 	raw, err := os.ReadFile(filepath.Join(work, "proxy.log")) //nolint:gosec // in our own temporary folder
 	if err != nil {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(dir, "proxy.log"), raw, 0o600)
-	if out == nil {
-		return
-	}
-	text := strings.TrimSpace(string(raw))
-	if text == "" {
-		fmt.Fprintln(out, "proxy log: empty (the proxy logs warnings and errors only)")
-		return
-	}
-	lines := strings.Split(text, "\n")
-	note := ""
-	if len(lines) > proxyLogLines {
-		note = fmt.Sprintf(", the last %d of %d lines, all in proxy.log of the run folder", proxyLogLines, len(lines))
-		lines = lines[len(lines)-proxyLogLines:]
-	}
-	fmt.Fprintf(out, "proxy log:%s\n%s\n", note, strings.Join(lines, "\n"))
 }
 
 // DefaultSettle is how long to wait before and after each proxy run for the
@@ -639,7 +651,13 @@ integrations:
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdout, cmd.Stderr = logFile, logFile
+	// What the proxy prints goes to its log file and, line by line as it
+	// happens, to the console (the job log), each line marked "proxy:".
+	var logs io.Writer = logFile
+	if cfg.Out != nil {
+		logs = io.MultiWriter(logFile, NewPrefixWriter(cfg.Out, "proxy: "))
+	}
+	cmd.Stdout, cmd.Stderr = logs, logs
 	// A proxy built with -tags loadprofile serves memory and profile pages
 	// here; any other build ignores the variable.
 	pprofAddr, err := freeAddr()
