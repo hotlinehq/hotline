@@ -186,7 +186,7 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 		RawQuery:     c.target.RawQuery,
 		Header:       c.in.Header,
 		ReplyHeaders: replyHeaders,
-		Action:       c.action,
+		Action:       c.reqCheck.action, // record waited for the request check
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()

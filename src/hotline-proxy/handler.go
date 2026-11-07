@@ -384,10 +384,6 @@ type call struct {
 	// it is whole.
 	reqCheck   *specCheck
 	replyCheck *specCheck
-	// action is what the request body names as the action, for a spec
-	// that picks routes by a body field. The request check sets it before
-	// it ends; read it only after reqCheck.done.
-	action string
 
 	mu        sync.Mutex
 	phase     phase
