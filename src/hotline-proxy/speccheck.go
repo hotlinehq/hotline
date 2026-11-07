@@ -19,6 +19,11 @@ type specCheck struct {
 	waited time.Time
 	end    time.Time
 	found  spec.Checked
+	// action is what the request body names as the action, for a spec that
+	// picks routes by a body field; only the request's check sets it. Read
+	// it only once the check has ended (after done), so the request check,
+	// the reply check and the record never share a field while it changes.
+	action string
 	// dropped says the check gave way in a full line, and never ran.
 	dropped bool
 }
@@ -61,14 +66,15 @@ func (c *call) checkRequest(start time.Time) {
 	}
 	c.reqCheck.begin(start, c.h.checks, c.reqBody, nil, func() spec.Checked {
 		body := c.reqBody.copied()
-		c.action = c.api.Spec.BodyAction(c.in.Header.Get("Content-Type"), body)
+		action := c.api.Spec.BodyAction(c.in.Header.Get("Content-Type"), body)
+		c.reqCheck.action = action
 		found := c.api.Spec.CheckRequest(spec.Exchange{
 			Method:      c.in.Method,
 			EscapedPath: c.target.EscapedPath(),
 			RawQuery:    c.target.RawQuery,
 			Header:      c.in.Header,
 			Body:        body,
-			Action:      c.action,
+			Action:      action,
 		})
 		c.reqBody.drop()
 		return found
@@ -89,12 +95,20 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 		after = c.reqCheck.done
 	}
 	c.replyCheck.begin(start, c.h.checks, c.respBody, after, func() spec.Checked {
+		// Only a spec that names its action in the body needs it, and then
+		// this check runs after the request's has ended. Any other spec
+		// has no action, and must not read the field the request's check
+		// may be writing at the same time.
+		action := ""
+		if after != nil {
+			action = c.reqCheck.action
+		}
 		found := c.api.Spec.CheckReply(spec.Exchange{
 			Method:      c.in.Method,
 			EscapedPath: c.target.EscapedPath(),
 			RawQuery:    c.target.RawQuery,
 			Header:      c.in.Header,
-			Action:      c.action,
+			Action:      action,
 			Status:      resp.StatusCode,
 			ReplyHeader: resp.Header,
 			ReplyBody:   c.respBody.copied(),

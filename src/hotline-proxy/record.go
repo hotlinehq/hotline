@@ -87,8 +87,9 @@ func (c *call) record(end time.Time) {
 		if replied {
 			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
-		attrs = append(attrs, traceSignature(c.trace, spans, c.api.SigningKey))
-		attrs = append(attrs, signature(attrs, c.start, c.trace, c.api.SigningKey)...)
+		key := c.api.SigningKey
+		attrs = append(attrs, c.h.signers.traceSignature(key, c.trace, spans))
+		attrs = append(attrs, c.h.signers.signature(key, attrs, c.start, c.trace)...)
 	}
 	c.h.record(c.in, finished{
 		sc: c.trace, at: c.start, attrs: attrs, spans: spans,
@@ -185,7 +186,7 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 		RawQuery:     c.target.RawQuery,
 		Header:       c.in.Header,
 		ReplyHeaders: replyHeaders,
-		Action:       c.action,
+		Action:       c.reqCheck.action, // record waited for the request check
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()

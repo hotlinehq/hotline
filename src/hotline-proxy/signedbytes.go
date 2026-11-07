@@ -1,9 +1,6 @@
 package proxy
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
@@ -24,8 +21,6 @@ type signer struct {
 	buf [512]byte
 	n   int
 }
-
-func newSigner(key []byte) *signer { return &signer{mac: hmac.New(sha256.New, key)} }
 
 // write adds bytes, sending the buffer on to the HMAC when it is full.
 func (s *signer) write(p []byte) {
@@ -147,12 +142,6 @@ func (s *signer) value(v attribute.Value) {
 func (s *signer) list(n uint64) {
 	s.byte('l')
 	s.uint(n)
-}
-
-// sum is the HMAC of everything written, in base64.
-func (s *signer) sum() string {
-	s.flush()
-	return base64.StdEncoding.EncodeToString(s.mac.Sum(nil))
 }
 
 func byKey(a, b attribute.KeyValue) int { return strings.Compare(string(a.Key), string(b.Key)) }
