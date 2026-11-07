@@ -127,7 +127,8 @@ const (
 // Check checks a finished call against the spec, both sides. A call with
 // no route is not checked.
 func (s *Spec) Check(e Exchange) Checked {
-	return s.CheckRequest(e).With(s.CheckReply(e))
+	found := s.Find(e)
+	return s.CheckRequest(found, e).With(s.CheckReply(found, e))
 }
 
 // With joins the check of a request with the check of its reply. When both
@@ -139,11 +140,11 @@ func (c Checked) With(reply Checked) Checked {
 	return c
 }
 
-// CheckRequest checks the request side of a call: its parameters, login
-// and body. It can run as soon as the request has been sent (Peter,
-// 2026-10-31).
-func (s *Spec) CheckRequest(e Exchange) Checked {
-	r := s.match(e.Method, e.EscapedPath, e.RawQuery, e.Header, e.Action)
+// CheckRequest checks the request side of a call, on the route Find found:
+// its parameters, login and body. It can run as soon as the request has
+// been sent (Peter, 2026-10-31).
+func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
+	r := found.r
 	if r.segments == nil {
 		return Checked{Skipped: "no_spec_route"}
 	}
@@ -167,10 +168,11 @@ func (s *Spec) CheckRequest(e Exchange) Checked {
 	return c
 }
 
-// CheckReply checks the reply side of a call: its status, headers and
-// body. It can run as soon as the reply has arrived (Peter, 2026-10-31).
-func (s *Spec) CheckReply(e Exchange) Checked {
-	r := s.match(e.Method, e.EscapedPath, e.RawQuery, e.Header, e.Action)
+// CheckReply checks the reply side of a call, on the route Find found: its
+// status, headers and body. It can run as soon as the reply has arrived
+// (Peter, 2026-10-31).
+func (s *Spec) CheckReply(found Route, e Exchange) Checked {
+	r := found.r
 	if r.segments == nil {
 		return Checked{Skipped: "no_spec_route"}
 	}

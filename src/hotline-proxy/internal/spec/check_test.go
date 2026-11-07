@@ -337,3 +337,28 @@ var _ = Describe("Specs the proxy cannot use", func() {
 		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request).To(BeEmpty())
 	})
 })
+
+var _ = Describe("A route found once", func() {
+	doc := "openapi: 3.1.0\npaths:\n" +
+		"  /a/{id}:\n    get:\n      parameters:\n        - { name: id, in: path, x-hotline-redact: false }\n      responses: {}\n" +
+		"  /b/{id}:\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n"
+
+	It("is the one each check and the redaction use, without looking again", func() {
+		s := parsed(doc)
+		b := s.Find(spec.Exchange{Method: "GET", EscapedPath: "/b/1"})
+		e := spec.Exchange{Method: "GET", EscapedPath: "/a/1", RawQuery: "q=1"}
+		Expect(spectest.Written(s.CheckRequest(s.Find(e), e).Request)).To(Equal("query q not_in_spec"))
+		Expect(s.CheckRequest(b, e).Request).To(BeEmpty())
+		Expect(s.CheckReply(b, e).Skipped).To(BeEmpty())
+		redacted := s.Redact(b, spec.Call{Origin: "https://x", EscapedPath: "/a/1"})
+		Expect(redacted.Template).To(Equal("/b/{id}"))
+		Expect(redacted.URLFull).To(Equal("https://x/a/REDACTED"))
+	})
+
+	It("is none for a call the spec has no route for", func() {
+		s := parsed(doc)
+		none := s.Find(spec.Exchange{Method: "GET", EscapedPath: "/c"})
+		Expect(s.CheckRequest(none, spec.Exchange{Method: "GET", EscapedPath: "/a/1"}).Skipped).To(Equal("no_spec_route"))
+		Expect(s.Redact(none, spec.Call{Origin: "https://x", EscapedPath: "/a/1"}).Template).To(BeEmpty())
+	})
+})

@@ -344,13 +344,13 @@ responses: {}
 			})
 
 			It("checks only the request", func() {
-				got := s.CheckRequest(e)
+				got := s.CheckRequest(s.Find(e), e)
 				Expect(Written(got.Request)).To(Equal("query n type integer"))
 				Expect(got.Reply).To(BeEmpty())
 			})
 
 			It("checks only the reply", func() {
-				got := s.CheckReply(e)
+				got := s.CheckReply(s.Find(e), e)
 				Expect(got.Request).To(BeEmpty())
 				Expect(Written(got.Reply)).To(Equal("status 418 not_in_spec"))
 			})
@@ -363,8 +363,8 @@ responses: {}
 
 			It("says a call with no route was skipped, on each side", func() {
 				other := spec.Exchange{Method: "GET", EscapedPath: "/b", Status: 200}
-				Expect(s.CheckRequest(other).Skipped).To(Equal("no_spec_route"))
-				Expect(s.CheckReply(other).Skipped).To(Equal("no_spec_route"))
+				Expect(s.CheckRequest(s.Find(other), other).Skipped).To(Equal("no_spec_route"))
+				Expect(s.CheckReply(s.Find(other), other).Skipped).To(Equal("no_spec_route"))
 			})
 
 			It("keeps the request's reason when both sides skipped part", func() {

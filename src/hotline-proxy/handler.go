@@ -385,6 +385,10 @@ type call struct {
 	// it is whole.
 	reqCheck   *specCheck
 	replyCheck *specCheck
+	// found is the call's route in the spec, looked up once by route and
+	// shared by both checks and the record.
+	found     spec.Route
+	findRoute sync.Once
 
 	mu        sync.Mutex
 	phase     phase
