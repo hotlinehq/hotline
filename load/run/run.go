@@ -38,6 +38,7 @@ var (
 	errProxyStopped  = errors.New("the proxy stopped while starting")
 	errProxyNotReady = errors.New("the proxy was not ready within 20 seconds")
 	errNoProfile     = errors.New("the proxy has no profiling page: build it with -tags loadprofile")
+	errNoMoreSpecs   = errors.New("no more specs")
 	errBadInterval   = errors.New("bad metric interval")
 	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
 	errPSTime        = errors.New("not a time from ps")
@@ -71,6 +72,10 @@ type Config struct {
 	// total of a counter, so a long interval sends fewer points. It needs a
 	// proxy that serves its memory exactly (built with -tags loadprofile).
 	MetricInterval string
+	// MoreSpecs is a folder of specs (one folder each, as in specs/aws) that
+	// the proxy loads as well, besides Spec. Calls still go to Spec's api; the
+	// others only show what a proxy that knows many apis costs in memory.
+	MoreSpecs string
 	// Profile adds one more proxy run after the repeats, not counted in the
 	// numbers, that saves a processor and a memory profile into the run
 	// folder. The proxy must be built with -tags loadprofile.
@@ -664,6 +669,13 @@ func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fa
 	if err != nil {
 		return nil, err
 	}
+	var more []MoreAPI
+	if cfg.MoreSpecs != "" {
+		if more, err = MoreAPIs(cfg.MoreSpecs, api); err != nil {
+			return nil, err
+		}
+	}
+	moreAPIs, moreNames := MoreYAML(more)
 	yaml := fmt.Sprintf(`listen:
   proxy: %q
   admin: %q
@@ -681,11 +693,11 @@ telemetry:
     hosts: [localhost]
     spec: %q
     allowInternalIPs: true
-integrations:
+%sintegrations:
   - id: bench-shop
     fingerprintKey: { file: %q }
-    apis: [%s]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, key, api)
+    apis: [%s%s]
+`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, key, api, moreNames)
 	for path, data := range map[string][]byte{cert: vendor.CertPEM, key: []byte("hotline-load-test-fingerprint-key"), conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
@@ -857,4 +869,46 @@ func (p *proxyProcess) sampleMemory() func() int {
 		defer mu.Unlock()
 		return peak
 	}
+}
+
+// MoreAPI is one more api for the proxy to load: named after its folder,
+// on a host of its own that no call is sent to.
+type MoreAPI struct{ Name, Host, Spec string }
+
+// MoreAPIs finds the spec in every folder of dir, except the folder named
+// skip (the api the calls go to, which is loaded anyway).
+func MoreAPIs(dir, skip string) ([]MoreAPI, error) {
+	folders, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var more []MoreAPI
+	for _, f := range folders {
+		if !f.IsDir() || f.Name() == skip {
+			continue
+		}
+		specs, err := filepath.Glob(filepath.Join(dir, f.Name(), "*.openapi.yaml"))
+		if err != nil {
+			return nil, err
+		}
+		if len(specs) == 0 {
+			continue
+		}
+		more = append(more, MoreAPI{Name: f.Name(), Host: f.Name() + ".more.test", Spec: specs[len(specs)-1]})
+	}
+	if len(more) == 0 {
+		return nil, fmt.Errorf("%w: no specs in the folders of %s", errNoMoreSpecs, dir)
+	}
+	return more, nil
+}
+
+// MoreYAML writes the extra apis for the proxy's apis section (two spaces
+// in) and the names to add to the integration's list of apis.
+func MoreYAML(more []MoreAPI) (apis, names string) {
+	var b strings.Builder
+	for _, m := range more {
+		fmt.Fprintf(&b, "  %s:\n    hosts: [%s]\n    spec: %q\n    allowInternalIPs: true\n", m.Name, m.Host, m.Spec)
+		names += ", " + m.Name
+	}
+	return b.String(), names
 }

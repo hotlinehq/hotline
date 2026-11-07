@@ -334,3 +334,33 @@ var _ = Describe("The proxy's metric interval in the load test", func() {
 		Expect(run.CheckMetricInterval("often", true)).To(MatchError(ContainSubstring("not a duration")))
 	})
 })
+
+var _ = Describe("Loading many specs into the proxy", func() {
+	It("takes the spec of every folder but the one that calls go to, each on a host of its own", func() {
+		dir := GinkgoT().TempDir()
+		for _, name := range []string{"ssm", "sqs", "kms"} {
+			Expect(os.MkdirAll(filepath.Join(dir, name), 0o755)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(dir, name, "2020-01-01.openapi.yaml"), []byte("openapi: 3.0.0\n"), 0o644)).To(Succeed())
+		}
+		Expect(os.WriteFile(filepath.Join(dir, "README.md"), []byte("notes"), 0o644)).To(Succeed())
+		Expect(os.MkdirAll(filepath.Join(dir, "empty"), 0o755)).To(Succeed())
+
+		got, err := run.MoreAPIs(dir, "ssm")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal([]run.MoreAPI{
+			{Name: "kms", Host: "kms.more.test", Spec: filepath.Join(dir, "kms", "2020-01-01.openapi.yaml")},
+			{Name: "sqs", Host: "sqs.more.test", Spec: filepath.Join(dir, "sqs", "2020-01-01.openapi.yaml")},
+		}))
+	})
+
+	It("refuses a folder with no specs in it", func() {
+		_, err := run.MoreAPIs(GinkgoT().TempDir(), "ssm")
+		Expect(err).To(MatchError(ContainSubstring("no specs")))
+	})
+
+	It("writes the apis and the names the integration lists", func() {
+		apis, names := run.MoreYAML([]run.MoreAPI{{Name: "kms", Host: "kms.more.test", Spec: "/s/kms.yaml"}})
+		Expect(apis).To(Equal("  kms:\n    hosts: [kms.more.test]\n    spec: \"/s/kms.yaml\"\n    allowInternalIPs: true\n"))
+		Expect(names).To(Equal(", kms"))
+	})
+})
