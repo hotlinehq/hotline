@@ -33,6 +33,10 @@ The fake vendor, receiver and k6 run on the same computer as the proxy, so the n
 
 In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `compare_with` (for example `main`).
 
+## Keeping the proxy off the other programs' cores
+
+On a 4 core computer the proxy, k6, and the fake vendor and receiver all compete for the same cores, so at a few thousand calls a second a slow run may only show a computer that is full. `-proxy-cpus 0,1` (or `HOTLINE_LOAD_PROXY_CPUS`) starts the proxy under `taskset` on those cores; start the load test itself on the others, for example `HOTLINE_LOAD_PROXY_CPUS=0,1 taskset -c 2,3 make load`. The workflow does this. Linux only, and unset by default, so a laptop run is unchanged.
+
 ## Profiles and the exact memory number
 
 The runner writes `telemetry.pprof: true` into the proxy's config, so the admin port serves Go's profile pages (off by default in the proxy; see `docs/decisions/profile-pages.md`). The lines marked `-profile` (115 KB at 200 a second, 500 KB at 50, XML at 500, the small call at 5000) run once more after the repeats, not counted in the numbers, and save `profile/cpu.pprof` (where processor time goes) and `profile/allocs.pprof` (where memory is handed out) in the run folder. Open one with `go tool pprof -http=: load/results/run-005/profile/allocs.pprof`.

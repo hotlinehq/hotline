@@ -80,6 +80,11 @@ type Config struct {
 	// numbers, that saves a processor and a memory profile into the run
 	// folder. The proxy needs the telemetry.pprof setting, which the runner turns on.
 	Profile bool
+	// ProxyCPUs names the processor cores the proxy runs on, as taskset writes
+	// them ("0,1"); empty means any. With the rest of the load test (k6, the
+	// fake vendor and receiver) kept on the other cores, the proxy no longer
+	// shares a core with them, so a drop shows the proxy's own limit.
+	ProxyCPUs string
 	// Label names what is measured (for example the branch), kept in every
 	// result so runs of two builds can be set side by side.
 	Label string
@@ -487,6 +492,17 @@ func (c Config) metricInterval() string {
 	return c.MetricInterval
 }
 
+// ProxyCommand is the program and arguments that start the proxy: as it is,
+// or, with cores named, under taskset (Linux), which starts the proxy itself
+// in the same process, so its processor time and memory are still read from
+// the same process number.
+func ProxyCommand(cpus, proxy string, args []string) (string, []string) {
+	if cpus == "" {
+		return proxy, args
+	}
+	return "taskset", append([]string{"-c", cpus, proxy}, args...)
+}
+
 // ForwardFromEnv says where the proxy's own numbers go on to, from
 // GRAFANA_OTLP_ENDPOINT (Grafana Cloud's OpenTelemetry address, ending in
 // /otlp), GRAFANA_OTLP_USERNAME (the instance id) and GRAFANA_OTLP_PASSWORD
@@ -714,8 +730,9 @@ apis:
 			return nil, err
 		}
 	}
-	cmd := exec.CommandContext(context.Background(), cfg.Proxy, ProxyArgs(conf, cert)...) //nolint:gosec // the proxy the person built
-	logFile, err := os.Create(filepath.Join(work, "proxy.log"))                           //nolint:gosec // in our own temporary folder
+	program, programArgs := ProxyCommand(cfg.ProxyCPUs, cfg.Proxy, ProxyArgs(conf, cert))
+	cmd := exec.CommandContext(context.Background(), program, programArgs...) //nolint:gosec // the proxy the person built
+	logFile, err := os.Create(filepath.Join(work, "proxy.log"))               //nolint:gosec // in our own temporary folder
 	if err != nil {
 		return nil, err
 	}
