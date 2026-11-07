@@ -85,6 +85,8 @@ type program struct {
 	// tls makes the program's proxy port accept only TLS, with a
 	// certificate for hotline-proxy from the test issuer.
 	tls bool
+	// pprof turns on telemetry.pprof, the profile pages on the admin port.
+	pprof bool
 	// interception, when set, is the issuer in the listen.connect files.
 	interception *issuer
 
@@ -132,6 +134,10 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 			return err
 		}
 		return p.waitForExit(10 * time.Second)
+	})
+	sc.Step(`^the telemetry section turns on the profile pages$`, func() error {
+		p.pprof = true
+		return nil
 	})
 	sc.Step(`^the hotline-proxy program runs with integration test-shop for the test vendor$`, func() error {
 		return p.run()
@@ -672,6 +678,10 @@ func (p *program) config(validateOnly bool) string {
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(issuerKeyPEM(p.interception)), 0o600)
 		listenTLS += "  connect: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}
+	telemetry := ""
+	if p.pprof {
+		telemetry = "telemetry:\n  pprof: true\n"
+	}
 	// The test vendor runs on this computer, an internal address, so the
 	// config allows internal IPs.
 	return fmt.Sprintf(`listen:
@@ -683,7 +693,7 @@ func (p *program) config(validateOnly bool) string {
       metricInterval: 100ms
       logInterval: 100ms
       traceInterval: 100ms
-apis:
+%sapis:
   test-vendor:
     hosts: [localhost]
     spec: ./specs/test-vendor.yaml
@@ -693,7 +703,7 @@ integrations:
     apis: [test-vendor]
   - id: not-passed
     allowInternalIPs: true
-`, p.proxyAddr, p.adminAddr, listenTLS, endpoint)
+`, p.proxyAddr, p.adminAddr, listenTLS, endpoint, telemetry)
 }
 
 // configLabels are the hotline.config.version of each record, each checked
