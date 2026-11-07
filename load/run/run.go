@@ -519,6 +519,13 @@ func (w *prefixWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// ProxyArgs are the arguments the proxy is started with. The log level is
+// info, so what the proxy says about itself (starting, stopping, warnings)
+// shows in the job log, a line at a time.
+func ProxyArgs(conf, cert string) []string {
+	return []string{"run", "--config", conf, "--trust-file", cert, "--log-level", "info", "--drain-delay", "0s"}
+}
+
 // KeepProxyLog copies the proxy's log (proxy.log in work) into the run
 // folder, so it is kept with the results.
 func KeepProxyLog(work, dir string) {
@@ -646,8 +653,8 @@ integrations:
 			return nil, err
 		}
 	}
-	cmd := exec.CommandContext(context.Background(), cfg.Proxy, "run", "--config", conf, "--trust-file", cert, "--log-level", "warn", "--drain-delay", "0s") //nolint:gosec // the proxy the person built
-	logFile, err := os.Create(filepath.Join(work, "proxy.log"))                                                                                              //nolint:gosec // in our own temporary folder
+	cmd := exec.CommandContext(context.Background(), cfg.Proxy, ProxyArgs(conf, cert)...) //nolint:gosec // the proxy the person built
+	logFile, err := os.Create(filepath.Join(work, "proxy.log"))                           //nolint:gosec // in our own temporary folder
 	if err != nil {
 		return nil, err
 	}

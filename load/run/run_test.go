@@ -307,3 +307,11 @@ var _ = Describe("Keeping the proxy's log", func() {
 		Expect(func() { run.KeepProxyLog(GinkgoT().TempDir(), GinkgoT().TempDir()) }).NotTo(Panic())
 	})
 })
+
+var _ = Describe("How the load test starts the proxy", func() {
+	It("asks for the info log level, so its starting and stopping show in the job log", func() {
+		args := run.ProxyArgs("hotline-proxy.yaml", "vendor.pem")
+		Expect(args).To(ContainElements("--log-level", "info"))
+		Expect(args).To(ContainElements("--config", "hotline-proxy.yaml", "--trust-file", "vendor.pem"))
+	})
+})
