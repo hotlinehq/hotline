@@ -8,7 +8,7 @@ Install [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/), then `make 
 
 ## Sending the numbers to Grafana Cloud
 
-Only when set, so local runs are unchanged. k6's own numbers go by Prometheus remote write: `K6_PROMETHEUS_RW_SERVER_URL`, `K6_PROMETHEUS_RW_USERNAME` and `K6_PROMETHEUS_RW_PASSWORD`. The proxy's own numbers (its `telemetry` destination, not the records of the calls) are passed on by the fake receiver to Grafana's OpenTelemetry address: `GRAFANA_OTLP_ENDPOINT` (ending in `/otlp`), `GRAFANA_OTLP_USERNAME` (the instance id) and `GRAFANA_OTLP_PASSWORD`. In the workflow, the address is the repository variable `GRAFANA_OTLP_ENDPOINT`, the username a secret, and the password is the k6 secret. Both carry the run id (`testid`), so they can be lined up.
+Only when set, so local runs are unchanged. k6's own numbers go by Prometheus remote write: `K6_PROMETHEUS_RW_SERVER_URL`, `K6_PROMETHEUS_RW_USERNAME` and `K6_PROMETHEUS_RW_PASSWORD`. The proxy's own numbers (its `telemetry` destination, not the records of the calls) are passed on by the fake receiver to Grafana's OpenTelemetry address: `GRAFANA_OTLP_ENDPOINT` (ending in `/otlp`), `GRAFANA_OTLP_USERNAME` (the instance id) and `GRAFANA_OTLP_PASSWORD`. In the workflow, the address is the repository variable `GRAFANA_OTLP_ENDPOINT`, the username a secret, and the password is the k6 secret. One load test runs at a time, so neither carries a run id; runs are told apart by time.
 
 Results go to `load/results/run-001`, `run-002` and so on (never overwritten). Each has `repeat-1`, `repeat-2` and `repeat-3` with k6's own summary files and a `result.json`.
 

@@ -225,7 +225,7 @@ var _ = Describe("Reading memory handed out from the proxy's own page", func() {
 })
 
 var _ = Describe("Sending k6's own numbers to Grafana", func() {
-	run1 := run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"}
+	run1 := run.PushTags{Shape: "xml", Rate: 500, Label: "main"}
 
 	It("adds nothing when no push address is set", func() {
 		Expect(run.PushOptions("", run1, "proxy", "measured", 2)).To(BeEmpty())
@@ -236,14 +236,14 @@ var _ = Describe("Sending k6's own numbers to Grafana", func() {
 		Expect(got).To(Equal([]string{
 			"-o", "experimental-prometheus-rw",
 			"--system-tags=method,status,name,scenario,expected_response",
-			"--tag", "testid=123", "--tag", "shape=xml", "--tag", "rate=500",
+			"--tag", "shape=xml", "--tag", "rate=500",
 			"--tag", "target=proxy", "--tag", "label=main",
 			"--tag", "repeat=2", "--tag", "phase=measured",
 		}))
 	})
 
 	It("leaves the label tag out when there is no label, as k6 refuses an empty tag value", func() {
-		got := run.PushOptions("https://prom.example/api/prom/push", run.PushTags{RunID: "123", Shape: "xml", Rate: 500}, "direct", "warmup", 0)
+		got := run.PushOptions("https://prom.example/api/prom/push", run.PushTags{Shape: "xml", Rate: 500}, "direct", "warmup", 0)
 		Expect(strings.Join(got, " ")).NotTo(ContainSubstring("label="))
 		Expect(got).To(ContainElement("target=direct"))
 	})
@@ -266,11 +266,11 @@ var _ = Describe("Sending the proxy's own numbers to Grafana", func() {
 		Expect(*got).To(Equal(fakes.Forward{URL: "https://otlp.example/otlp", Username: "42", Password: "token"}))
 	})
 
-	It("labels the proxy's numbers with the run, and names its instance after it so k6's testid finds it", func() {
-		Expect(run.TelemetryResource(run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"})).To(Equal(
-			"    resource:\n      service.name: \"hotline-proxy-load\"\n      service.instance.id: \"123-xml-500-main\"\n      hotline.load.testid: \"123\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
-		got := run.TelemetryResource(run.PushTags{RunID: "local", Shape: "xml", Rate: 500})
-		Expect(got).To(ContainSubstring("service.instance.id: \"local-xml-500\""))
+	It("labels the proxy's numbers with the shape, rate and label, and names its instance after them", func() {
+		Expect(run.TelemetryResource(run.PushTags{Shape: "xml", Rate: 500, Label: "main"})).To(Equal(
+			"    resource:\n      service.name: \"hotline-proxy-load\"\n      service.instance.id: \"xml-500-main\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
+		got := run.TelemetryResource(run.PushTags{Shape: "xml", Rate: 500})
+		Expect(got).To(ContainSubstring("service.instance.id: \"xml-500\""))
 		Expect(got).NotTo(ContainSubstring("label"))
 	})
 })
