@@ -241,11 +241,7 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
-	runID := os.Getenv("GITHUB_RUN_ID")
-	if runID == "" {
-		runID = "local"
-	}
-	tags := PushTags{RunID: runID, Shape: cfg.Shape, Rate: cfg.Rate, Label: cfg.Label}
+	tags := PushTags{Shape: cfg.Shape, Rate: cfg.Rate, Label: cfg.Label}
 	resource := ""
 	if forward := ForwardFromEnv(os.Getenv); forward != nil {
 		receiver.Forward(forward)
@@ -443,10 +439,10 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int, ph
 	return ReadSummary(raw)
 }
 
-// PushTags says which run the numbers sent to Grafana belong to.
+// PushTags says which call shape the numbers sent to Grafana belong to.
 type PushTags struct {
-	RunID, Shape, Label string
-	Rate                int
+	Shape, Label string
+	Rate         int
 }
 
 // PushOptions are the extra k6 options that send k6's own numbers to Grafana
@@ -460,7 +456,7 @@ func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) [
 	opts := []string{
 		"-o", "experimental-prometheus-rw",
 		"--system-tags=method,status,name,scenario,expected_response",
-		"--tag", "testid=" + t.RunID, "--tag", "shape=" + t.Shape, "--tag", "rate=" + strconv.Itoa(t.Rate),
+		"--tag", "shape=" + t.Shape, "--tag", "rate=" + strconv.Itoa(t.Rate),
 		"--tag", "target=" + target,
 	}
 	// k6 refuses a tag with an empty value, and a run without a label has none.
@@ -496,14 +492,13 @@ func TelemetryResource(t PushTags) string {
 	var b strings.Builder
 	b.WriteString("    resource:\n")
 	fmt.Fprintf(&b, "      service.name: %q\n", "hotline-proxy-load")
-	// The instance names the run, shape, rate and label, so one value finds the
-	// proxy's numbers of a call shape: the run id is the start of it.
-	instance := fmt.Sprintf("%s-%s-%d", t.RunID, t.Shape, t.Rate)
+	// One load test runs at a time, so the instance names only the shape, rate
+	// and label; runs are told apart by time.
+	instance := fmt.Sprintf("%s-%d", t.Shape, t.Rate)
 	if t.Label != "" {
 		instance += "-" + t.Label
 	}
 	fmt.Fprintf(&b, "      service.instance.id: %q\n", instance)
-	fmt.Fprintf(&b, "      hotline.load.testid: %q\n", t.RunID)
 	fmt.Fprintf(&b, "      hotline.load.shape: %q\n", t.Shape)
 	fmt.Fprintf(&b, "      hotline.load.rate: %q\n", strconv.Itoa(t.Rate))
 	if t.Label != "" {
