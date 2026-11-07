@@ -42,19 +42,26 @@ func (c *call) finish() {
 
 // record builds the call's record and trace, and hands them to the
 // exporters without waiting for them.
+// recordRoom is the room made for a full record's attributes: the call's own,
+// what the spec check found, and the two signatures.
+const recordRoom = 40
+
 func (c *call) record(end time.Time) {
 	c.reqCheck.wait()
 	replied := c.replyCheck.wait()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	attrs := []attribute.KeyValue{
+	// A full record holds about 30 attributes; the room is made once, so the
+	// list is not copied again as it grows.
+	attrs := make([]attribute.KeyValue, 0, recordRoom)
+	attrs = append(attrs,
 		attribute.String("hotline.integration.id", orNotPassed(c.id)),
 		attribute.String("hotline.ingress", c.ingress),
 		clientAddress(c.in),
 		semconv.ServerAddress(c.host),
 		semconv.HTTPRequestMethodKey.String(c.in.Method),
 		semconv.HTTPResponseStatusCode(c.status),
-	}
+	)
 	if c.respBody != nil {
 		if _, err := c.respBody.counts(); err != nil {
 			c.errorType, c.failedStep = "http_response_incomplete", "receive reply"
@@ -182,13 +189,14 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()
-	attrs := []attribute.KeyValue{
+	attrs := make([]attribute.KeyValue, 0, 16+len(redacted.Header)+len(redacted.ReplyHeaders))
+	attrs = append(attrs,
 		semconv.URLScheme(c.scheme),
 		semconv.ServerPort(port),
 		semconv.HTTPRequestBodySize(int(sent)),
 		attribute.Bool("hotline.client.cancelled", c.app.failed()),
 		attribute.String("hotline.config.version", c.cfg.Label()),
-	}
+	)
 	if redacted.Template != "" {
 		attrs = append(attrs, semconv.URLFull(redacted.URLFull), semconv.URLTemplate(redacted.Template))
 	}
@@ -247,7 +255,13 @@ func checked(found spec.Checked) []attribute.KeyValue {
 		status = "invalid"
 	}
 
-	for side, results := range map[string][]spec.Result{"request": found.Request, "response": found.Reply} {
+	// A fixed pair, not a map built for every call.
+	sides := [2]struct {
+		name    string
+		results []spec.Result
+	}{{"request", found.Request}, {"response", found.Reply}}
+	for _, one := range sides {
+		side, results := one.name, one.results
 		if len(results) == 0 {
 			continue
 		}

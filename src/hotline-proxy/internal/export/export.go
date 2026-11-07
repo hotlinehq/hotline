@@ -280,9 +280,10 @@ func (s *Sink) Record(ctx context.Context, at time.Time, attrs []attribute.KeyVa
 	severity := level(attrs)
 	r.SetSeverity(severity)
 	r.SetSeverityText(severity.String())
-	var counter []attribute.KeyValue
+	// One call to add them all, so the record's list is made once.
+	r.AddAttributes(attrs...)
+	counter := make([]attribute.KeyValue, 0, 5)
 	for _, kv := range attrs {
-		r.AddAttributes(kv)
 		if counted(kv) {
 			counter = append(counter, kv)
 		}
