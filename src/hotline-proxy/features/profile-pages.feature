@@ -15,6 +15,8 @@ Feature: Profile pages on the admin port
     Then GET /debug/pprof/ on the admin port answers 404
     And GET /debug/vars on the admin port answers 404
     And GET /livez on the admin port answers 200
+    When the program gets SIGTERM
+    Then it exits with code 0
 
   Scenario: Turned on, the admin port serves the profile pages
     Given a fake OTLP receiver
@@ -25,3 +27,5 @@ Feature: Profile pages on the admin port
     And GET /debug/pprof/goroutine on the admin port answers 200
     And GET /debug/vars on the admin port answers 200
     And GET /livez on the admin port answers 200
+    When the program gets SIGTERM
+    Then it exits with code 0
