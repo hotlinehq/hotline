@@ -317,3 +317,20 @@ var _ = Describe("How the load test starts the proxy", func() {
 		Expect(args).To(ContainElements("--config", "hotline-proxy.yaml", "--trust-file", "vendor.pem"))
 	})
 })
+
+var _ = Describe("The proxy's metric interval in the load test", func() {
+	It("accepts any interval when the memory is read exactly from the proxy", func() {
+		Expect(run.CheckMetricInterval("60s", true)).To(Succeed())
+		Expect(run.CheckMetricInterval("1s", true)).To(Succeed())
+	})
+
+	It("refuses a long interval when the memory has to come from the proxy's numbers", func() {
+		err := run.CheckMetricInterval("60s", false)
+		Expect(err).To(MatchError(ContainSubstring("loadprofile")))
+		Expect(run.CheckMetricInterval("1s", false)).To(Succeed())
+	})
+
+	It("refuses an interval that is not a duration", func() {
+		Expect(run.CheckMetricInterval("often", true)).To(MatchError(ContainSubstring("not a duration")))
+	})
+})
