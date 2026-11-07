@@ -479,6 +479,13 @@ func TelemetryResource(t PushTags) string {
 	var b strings.Builder
 	b.WriteString("    resource:\n")
 	fmt.Fprintf(&b, "      service.name: %q\n", "hotline-proxy-load")
+	// The instance names the run, shape, rate and label, so one value finds the
+	// proxy's numbers of a call shape: the run id is the start of it.
+	instance := fmt.Sprintf("%s-%s-%d", t.RunID, t.Shape, t.Rate)
+	if t.Label != "" {
+		instance += "-" + t.Label
+	}
+	fmt.Fprintf(&b, "      service.instance.id: %q\n", instance)
 	fmt.Fprintf(&b, "      hotline.load.testid: %q\n", t.RunID)
 	fmt.Fprintf(&b, "      hotline.load.shape: %q\n", t.Shape)
 	fmt.Fprintf(&b, "      hotline.load.rate: %q\n", strconv.Itoa(t.Rate))

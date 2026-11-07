@@ -266,10 +266,12 @@ var _ = Describe("Sending the proxy's own numbers to Grafana", func() {
 		Expect(*got).To(Equal(fakes.Forward{URL: "https://otlp.example/otlp", Username: "42", Password: "token"}))
 	})
 
-	It("labels the proxy's numbers with the run, so they line up with k6's", func() {
+	It("labels the proxy's numbers with the run, and names its instance after it so k6's testid finds it", func() {
 		Expect(run.TelemetryResource(run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"})).To(Equal(
-			"    resource:\n      service.name: \"hotline-proxy-load\"\n      hotline.load.testid: \"123\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
-		Expect(run.TelemetryResource(run.PushTags{RunID: "local", Shape: "xml", Rate: 500})).NotTo(ContainSubstring("label"))
+			"    resource:\n      service.name: \"hotline-proxy-load\"\n      service.instance.id: \"123-xml-500-main\"\n      hotline.load.testid: \"123\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
+		got := run.TelemetryResource(run.PushTags{RunID: "local", Shape: "xml", Rate: 500})
+		Expect(got).To(ContainSubstring("service.instance.id: \"local-xml-500\""))
+		Expect(got).NotTo(ContainSubstring("label"))
 	})
 })
 
