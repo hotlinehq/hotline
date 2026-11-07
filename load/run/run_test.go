@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -270,5 +271,52 @@ var _ = Describe("Sending the proxy's own numbers to Grafana", func() {
 		Expect(run.TelemetryResource(run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"})).To(Equal(
 			"    resource:\n      service.name: \"hotline-proxy-load\"\n      hotline.load.testid: \"123\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
 		Expect(run.TelemetryResource(run.PushTags{RunID: "local", Shape: "xml", Rate: 500})).NotTo(ContainSubstring("label"))
+	})
+})
+
+var _ = Describe("Keeping the proxy's log", func() {
+	setup := func(log string, write bool) (work, dir string) {
+		work, dir = GinkgoT().TempDir(), GinkgoT().TempDir()
+		if write {
+			Expect(os.WriteFile(filepath.Join(work, "proxy.log"), []byte(log), 0o600)).To(Succeed())
+		}
+		return work, dir
+	}
+
+	It("copies the log into the run folder and prints it", func() {
+		work, dir := setup("{\"level\":\"WARN\",\"msg\":\"exporter down\"}\n", true)
+		var out strings.Builder
+		run.KeepProxyLog(work, dir, &out)
+		saved, err := os.ReadFile(filepath.Join(dir, "proxy.log"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(saved)).To(ContainSubstring("exporter down"))
+		Expect(out.String()).To(ContainSubstring("proxy log:"))
+		Expect(out.String()).To(ContainSubstring("exporter down"))
+	})
+
+	It("says so when the proxy logged nothing", func() {
+		work, dir := setup("", true)
+		var out strings.Builder
+		run.KeepProxyLog(work, dir, &out)
+		Expect(out.String()).To(ContainSubstring("proxy log: empty"))
+	})
+
+	It("prints only the last 100 lines, but keeps all of them in the file", func() {
+		var b strings.Builder
+		for i := 1; i <= 150; i++ {
+			b.WriteString("line " + strconv.Itoa(i) + "\n")
+		}
+		work, dir := setup(b.String(), true)
+		var out strings.Builder
+		run.KeepProxyLog(work, dir, &out)
+		Expect(out.String()).To(ContainSubstring("line 150"))
+		Expect(out.String()).NotTo(ContainSubstring("line 50\n"))
+		saved, _ := os.ReadFile(filepath.Join(dir, "proxy.log"))
+		Expect(string(saved)).To(ContainSubstring("line 1\n"))
+	})
+
+	It("copes with no log file and no place to print", func() {
+		work, dir := setup("", false)
+		Expect(func() { run.KeepProxyLog(work, dir, nil) }).NotTo(Panic())
 	})
 })
