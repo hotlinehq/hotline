@@ -6,6 +6,10 @@ Measures what the proxy costs a call. Part one of the k6 pipeline: it only measu
 
 Install [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/), then `make load`. It builds the proxy, starts a fake vendor and a fake receiver, and for each line of the Makefile runs k6 three times straight to the vendor and three times through the proxy, alternating. Every repeat is kept as it came: nothing is averaged.
 
+## Sending the numbers to Grafana Cloud
+
+Only when set, so local runs are unchanged. k6's own numbers go by Prometheus remote write: `K6_PROMETHEUS_RW_SERVER_URL`, `K6_PROMETHEUS_RW_USERNAME` and `K6_PROMETHEUS_RW_PASSWORD`. The proxy's own numbers (its `telemetry` destination, not the records of the calls) are passed on by the fake receiver to Grafana's OpenTelemetry address: `GRAFANA_OTLP_ENDPOINT` (ending in `/otlp`), `GRAFANA_OTLP_USERNAME` (the instance id) and `GRAFANA_OTLP_PASSWORD`. In the workflow, the address is the repository variable `GRAFANA_OTLP_ENDPOINT`, the username a secret, and the password is the k6 secret. Both carry the run id (`testid`), so they can be lined up.
+
 Results go to `load/results/run-001`, `run-002` and so on (never overwritten). Each has `repeat-1`, `repeat-2` and `repeat-3` with k6's own summary files and a `result.json`.
 
 One call: `go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -rate 500`.

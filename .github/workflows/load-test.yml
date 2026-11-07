@@ -53,6 +53,9 @@ jobs:
           K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
           K6_PROMETHEUS_RW_TREND_STATS: "p(50),p(95),p(99),max"
+          GRAFANA_OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
+          GRAFANA_OTLP_USERNAME: ${{ secrets.GRAFANA_OTLP_USERNAME }}
+          GRAFANA_OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
         run: make load
 
       # The other build is checked out next to this one and built from its
@@ -72,6 +75,9 @@ jobs:
           K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
           K6_PROMETHEUS_RW_TREND_STATS: "p(50),p(95),p(99),max"
+          GRAFANA_OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
+          GRAFANA_OTLP_USERNAME: ${{ secrets.GRAFANA_OTLP_USERNAME }}
+          GRAFANA_OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
         run: |
           (cd base/src/hotline-proxy && go build -o "$GITHUB_WORKSPACE/load/out-base-proxy" ./cmd)
           make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"

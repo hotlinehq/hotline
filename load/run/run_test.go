@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"hotline-load/fakes"
 	"hotline-load/run"
 )
 
@@ -245,5 +246,29 @@ var _ = Describe("Sending k6's own numbers to Grafana", func() {
 		got := run.PushOptions("https://prom.example/api/prom/push", run.PushTags{RunID: "123", Shape: "xml", Rate: 500}, "direct", "warmup", 0)
 		Expect(strings.Join(got, " ")).NotTo(ContainSubstring("label="))
 		Expect(got).To(ContainElement("target=direct"))
+	})
+})
+
+var _ = Describe("Sending the proxy's own numbers to Grafana", func() {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+
+	It("forwards nothing unless the address and the instance id are both set", func() {
+		Expect(run.ForwardFromEnv(env(nil))).To(BeNil())
+		Expect(run.ForwardFromEnv(env(map[string]string{"GRAFANA_OTLP_ENDPOINT": "https://otlp.example/otlp"}))).To(BeNil())
+		Expect(run.ForwardFromEnv(env(map[string]string{"GRAFANA_OTLP_USERNAME": "42"}))).To(BeNil())
+	})
+
+	It("takes the address, instance id and token from the environment", func() {
+		got := run.ForwardFromEnv(env(map[string]string{
+			"GRAFANA_OTLP_ENDPOINT": "https://otlp.example/otlp", "GRAFANA_OTLP_USERNAME": "42", "GRAFANA_OTLP_PASSWORD": "token",
+		}))
+		Expect(got).NotTo(BeNil())
+		Expect(*got).To(Equal(fakes.Forward{URL: "https://otlp.example/otlp", Username: "42", Password: "token"}))
+	})
+
+	It("labels the proxy's numbers with the run, so they line up with k6's", func() {
+		Expect(run.TelemetryResource(run.PushTags{RunID: "123", Shape: "xml", Rate: 500, Label: "main"})).To(Equal(
+			"    resource:\n      service.name: \"hotline-proxy-load\"\n      hotline.load.testid: \"123\"\n      hotline.load.shape: \"xml\"\n      hotline.load.rate: \"500\"\n      hotline.load.label: \"main\"\n"))
+		Expect(run.TelemetryResource(run.PushTags{RunID: "local", Shape: "xml", Rate: 500})).NotTo(ContainSubstring("label"))
 	})
 })
