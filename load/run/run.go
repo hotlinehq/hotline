@@ -233,7 +233,17 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
-	p, err := startProxy(cfg, c.api, work, vendor, receiver)
+	runID := os.Getenv("GITHUB_RUN_ID")
+	if runID == "" {
+		runID = "local"
+	}
+	tags := PushTags{RunID: runID, Shape: cfg.Shape, Rate: cfg.Rate, Label: cfg.Label}
+	resource := ""
+	if forward := ForwardFromEnv(os.Getenv); forward != nil {
+		receiver.Forward(forward)
+		resource = TelemetryResource(tags)
+	}
+	p, err := startProxy(cfg, c.api, work, vendor, receiver, resource)
 	if err != nil {
 		return "", err
 	}
@@ -244,12 +254,7 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	_, vendorPort, _ := net.SplitHostPort(vendor.TLSAddr)
-	runID := os.Getenv("GITHUB_RUN_ID")
-	if runID == "" {
-		runID = "local"
-	}
-	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle,
-		tags: PushTags{RunID: runID, Shape: cfg.Shape, Rate: cfg.Rate, Label: cfg.Label}}
+	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle, tags: tags}
 	if d.settle == 0 {
 		d.settle = DefaultSettle
 	}
@@ -289,6 +294,9 @@ func Run(cfg Config) (string, error) {
 	}
 	if cfg.Out != nil {
 		table(cfg.Out, results)
+		if n := receiver.ForwardFailures(); n > 0 {
+			fmt.Fprintf(cfg.Out, "warning: %d sends of the proxy's own numbers to Grafana failed, the last: %s\n", n, receiver.ForwardError())
+		}
 	}
 	if cfg.Profile {
 		if err := d.profileRun(p, filepath.Join(dir, "profile"), cfg.Duration); err != nil {
@@ -450,6 +458,34 @@ func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) [
 	return append(opts, "--tag", "repeat="+strconv.Itoa(repeat), "--tag", "phase="+phase)
 }
 
+// ForwardFromEnv says where the proxy's own numbers go on to, from
+// GRAFANA_OTLP_ENDPOINT (Grafana Cloud's OpenTelemetry address, ending in
+// /otlp), GRAFANA_OTLP_USERNAME (the instance id) and GRAFANA_OTLP_PASSWORD
+// (a token that may write metrics). Without the address and the instance id
+// it is nil, and nothing is sent.
+func ForwardFromEnv(getenv func(string) string) *fakes.Forward {
+	url, user := getenv("GRAFANA_OTLP_ENDPOINT"), getenv("GRAFANA_OTLP_USERNAME")
+	if url == "" || user == "" {
+		return nil
+	}
+	return &fakes.Forward{URL: url, Username: user, Password: getenv("GRAFANA_OTLP_PASSWORD")}
+}
+
+// TelemetryResource is the resource section of the proxy's telemetry setting
+// (two levels in), naming the run, so its numbers can be told apart in Grafana.
+func TelemetryResource(t PushTags) string {
+	var b strings.Builder
+	b.WriteString("    resource:\n")
+	fmt.Fprintf(&b, "      service.name: %q\n", "hotline-proxy-load")
+	fmt.Fprintf(&b, "      hotline.load.testid: %q\n", t.RunID)
+	fmt.Fprintf(&b, "      hotline.load.shape: %q\n", t.Shape)
+	fmt.Fprintf(&b, "      hotline.load.rate: %q\n", strconv.Itoa(t.Rate))
+	if t.Label != "" {
+		fmt.Fprintf(&b, "      hotline.load.label: %q\n", t.Label)
+	}
+	return b.String()
+}
+
 // DefaultSettle is how long to wait before and after each proxy run for the
 // proxy's memory number. The proxy sends its telemetry every second, but the
 // OpenTelemetry Go runtime library re-reads Go's counters at most every 15
@@ -524,7 +560,7 @@ func freeAddr() (string, error) {
 
 // startProxy writes the proxy's config, starts it and waits until it is
 // ready for calls.
-func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fakes.Receiver) (*proxyProcess, error) {
+func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fakes.Receiver, resource string) (*proxyProcess, error) {
 	proxyAddr, err := freeAddr()
 	if err != nil {
 		return nil, err
@@ -550,9 +586,9 @@ exporters:
 telemetry:
   otlp:
     protocol: http/protobuf
-    endpoint: http://%s
+    endpoint: http://%s%s
     metricInterval: 1s
-apis:
+%sapis:
   %s:
     hosts: [localhost]
     spec: %q
@@ -561,7 +597,7 @@ integrations:
   - id: bench-shop
     fingerprintKey: { file: %q }
     apis: [%s]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, api, spec, key, api)
+`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, resource, api, spec, key, api)
 	for path, data := range map[string][]byte{cert: vendor.CertPEM, key: []byte("hotline-load-test-fingerprint-key"), conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err

@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -201,5 +203,112 @@ var _ = Describe("The fake receiver", func() {
 	It("refuses a body it cannot read as OTLP metrics with 400", func() {
 		resp := send("/v1/metrics", []byte("not protobuf at all \xff\xff"), false)
 		Expect(resp.StatusCode).To(Equal(400))
+	})
+})
+
+var _ = Describe("The fake receiver forwarding the proxy's own numbers", func() {
+	type got struct {
+		path, user, pass, contentType string
+		body                          []byte
+	}
+	var (
+		mu       sync.Mutex
+		arrived  []got
+		upstream *httptest.Server
+		status   int
+	)
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(arrived)
+	}
+
+	BeforeEach(func() {
+		arrived, status = nil, http.StatusOK
+		upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			user, pass, _ := r.BasicAuth()
+			mu.Lock()
+			arrived = append(arrived, got{r.URL.Path, user, pass, r.Header.Get("Content-Type"), body})
+			code := status
+			mu.Unlock()
+			w.WriteHeader(code)
+		}))
+		DeferCleanup(upstream.Close)
+	})
+
+	start := func(f *fakes.Forward) *fakes.Receiver {
+		r, err := fakes.StartReceiver()
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(r.Close)
+		r.Forward(f)
+		return r
+	}
+	metricsBody := func() []byte {
+		m := &metrics.Metric{Name: "go.goroutine.count", Data: &metrics.Metric_Gauge{Gauge: &metrics.Gauge{
+			DataPoints: []*metrics.NumberDataPoint{{Value: &metrics.NumberDataPoint_AsInt{AsInt: 7}}}}}}
+		out, err := proto.Marshal(&colmetrics.ExportMetricsServiceRequest{
+			ResourceMetrics: []*metrics.ResourceMetrics{{ScopeMetrics: []*metrics.ScopeMetrics{{Metrics: []*metrics.Metric{m}}}}},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		return out
+	}
+	post := func(r *fakes.Receiver, path string, body []byte) {
+		resp, err := http.Post("http://"+r.Addr+path, "application/x-protobuf", bytes.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		_ = resp.Body.Close()
+		Expect(resp.StatusCode).To(Equal(200))
+	}
+
+	It("passes the telemetry destination's metrics on, signed in with the instance id and token", func() {
+		r := start(&fakes.Forward{URL: upstream.URL + "/otlp", Username: "42", Password: "token"})
+		body := metricsBody()
+		post(r, fakes.TelemetryPath+"/v1/metrics", body)
+		Eventually(count).Should(Equal(1))
+		mu.Lock()
+		defer mu.Unlock()
+		Expect(arrived[0].path).To(Equal("/otlp/v1/metrics"))
+		Expect(arrived[0].user).To(Equal("42"))
+		Expect(arrived[0].pass).To(Equal("token"))
+		Expect(arrived[0].contentType).To(Equal("application/x-protobuf"))
+		Expect(arrived[0].body).To(Equal(body))
+	})
+
+	It("does not pass on the exporters' counts, records or spans", func() {
+		r := start(&fakes.Forward{URL: upstream.URL + "/otlp", Username: "42", Password: "token"})
+		post(r, "/v1/metrics", metricsBody())
+		post(r, "/v1/logs", []byte("records"))
+		post(r, fakes.TelemetryPath+"/v1/traces", []byte("spans"))
+		Consistently(count, "300ms").Should(Equal(0))
+	})
+
+	It("still reads the proxy's memory from what it forwards", func() {
+		r := start(&fakes.Forward{URL: upstream.URL + "/otlp", Username: "42", Password: "token"})
+		point := &metrics.NumberDataPoint{Value: &metrics.NumberDataPoint_AsInt{AsInt: 4096}}
+		m := &metrics.Metric{Name: "go.memory.allocated", Data: &metrics.Metric_Sum{Sum: &metrics.Sum{DataPoints: []*metrics.NumberDataPoint{point}}}}
+		out, err := proto.Marshal(&colmetrics.ExportMetricsServiceRequest{
+			ResourceMetrics: []*metrics.ResourceMetrics{{ScopeMetrics: []*metrics.ScopeMetrics{{Metrics: []*metrics.Metric{m}}}}},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		post(r, fakes.TelemetryPath+"/v1/metrics", out)
+		allocated, ok := r.Allocated()
+		Expect(ok).To(BeTrue())
+		Expect(allocated).To(Equal(int64(4096)))
+	})
+
+	It("forwards nothing when it is not told where to", func() {
+		r := start(nil)
+		post(r, fakes.TelemetryPath+"/v1/metrics", metricsBody())
+		Consistently(count, "300ms").Should(Equal(0))
+	})
+
+	It("counts the sends Grafana refused, and never lets that fail the answer to the proxy", func() {
+		mu.Lock()
+		status = http.StatusUnauthorized
+		mu.Unlock()
+		r := start(&fakes.Forward{URL: upstream.URL + "/otlp", Username: "42", Password: "bad"})
+		post(r, fakes.TelemetryPath+"/v1/metrics", metricsBody())
+		Eventually(r.ForwardFailures).Should(Equal(int64(1)))
+		Expect(r.ForwardError()).To(ContainSubstring("401"))
 	})
 })
