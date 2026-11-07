@@ -126,9 +126,12 @@ func traceSignature(sc trace.SpanContext, spans []export.Span, key []byte) attri
 		if span.OK {
 			status = "ok"
 		}
-		kind := map[trace.SpanKind]string{trace.SpanKindServer: "server", trace.SpanKindClient: "client"}[span.Kind]
-		if kind == "" {
-			kind = "internal"
+		kind := "internal"
+		switch span.Kind {
+		case trace.SpanKindServer:
+			kind = "server"
+		case trace.SpanKindClient:
+			kind = "client"
 		}
 		s.hex("span.span_id", span.ID[:])
 		if span.Parent.IsValid() {
@@ -142,7 +145,12 @@ func traceSignature(sc trace.SpanContext, spans []export.Span, key []byte) attri
 		s.int("span.end_time", span.End.UnixNano())
 		s.text("span.status", status)
 		s.int("span.attribute_count", int64(len(span.Attrs)))
-		for _, kv := range slices.SortedFunc(slices.Values(span.Attrs), byKey) {
+		// Sorted by name, as the record's are; one attribute or none needs no copy.
+		attrs := span.Attrs
+		if len(attrs) > 1 {
+			attrs = slices.SortedFunc(slices.Values(attrs), byKey)
+		}
+		for _, kv := range attrs {
 			s.entry(kv)
 		}
 	}

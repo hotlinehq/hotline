@@ -18,7 +18,9 @@ import (
 func signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext, key []byte) []attribute.KeyValue {
 	sum := sha256.Sum256(key)
 	keyID := attribute.String("hotline.signature_key_id", hex.EncodeToString(sum[:8]))
-	sorted := append(slices.Clone(attrs), keyID)
+	// The exact size, so adding the key id does not copy the list again.
+	sorted := make([]attribute.KeyValue, 0, len(attrs)+1)
+	sorted = append(append(sorted, attrs...), keyID)
 	slices.SortFunc(sorted, byKey)
 	s := newSigner(key)
 	for _, kv := range sorted {
