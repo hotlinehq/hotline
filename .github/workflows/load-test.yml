@@ -50,7 +50,8 @@ jobs:
         if: ${{ inputs.compare_with == '' }}
         env:
           # One point a minute of the proxy's own numbers; make load builds the
-          # proxy with -tags loadprofile, which reads its memory exactly.
+          # proxy as it ships, and the runner turns on telemetry.pprof, so the
+          # memory is read exactly.
           HOTLINE_LOAD_METRIC_INTERVAL: 60s
           K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
           K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}

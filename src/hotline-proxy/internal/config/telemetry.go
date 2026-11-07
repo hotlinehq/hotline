@@ -19,6 +19,8 @@ type Telemetry struct {
 type telemetryFile struct {
 	OTLP    *exporterFile `yaml:"otlp"`
 	Disable []string      `yaml:"disable"`
+	// Pprof serves Go's profile pages on the admin port.
+	Pprof bool `yaml:"pprof"`
 }
 
 // OwnMetrics are the names of every metric the proxy sends about itself, so

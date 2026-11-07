@@ -122,6 +122,9 @@ func needRestart(old, cfg *config.Config) []string {
 	if !reflect.DeepEqual(old.Telemetry, cfg.Telemetry) {
 		changed = append(changed, "telemetry")
 	}
+	if old.Pprof != cfg.Pprof {
+		changed = append(changed, "telemetry.pprof")
+	}
 	return changed
 }
 

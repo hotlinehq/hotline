@@ -93,3 +93,4 @@ Feature: Reloading the config without a restart
       | there is one more exporter            | exporters     |
       | listen.tls is added                   | listen.tls    |
       | listen.connect is added               | listen.connect |
+      | telemetry.pprof is turned on          | telemetry.pprof |

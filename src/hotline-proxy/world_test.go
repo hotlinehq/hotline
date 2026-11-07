@@ -68,6 +68,8 @@ type world struct {
 	// Otherwise everything is sent every 20ms, to keep tests quick.
 	unsetIntervals   bool
 	unsetOwnInterval bool
+	// telemetryPprof turns on the profile pages in the telemetry section.
+	telemetryPprof bool
 	// telemetryExtra are more lines for the telemetry section's otlp.
 	telemetryExtra string
 	// env is the proxy's environment.
@@ -395,6 +397,9 @@ func (w *world) config() string {
 	for _, e := range w.downEndpoints {
 		fmt.Fprintf(&b, "  - otlp:\n      endpoint: %s\n", e)
 	}
+	if w.telemetry == nil && w.telemetryPprof {
+		b.WriteString("telemetry:\n  pprof: true\n")
+	}
 	if w.telemetry != nil {
 		fmt.Fprintf(&b, "telemetry:\n  otlp:\n    endpoint: %s\n", w.telemetry.endpoint)
 		if !w.unsetOwnInterval {
@@ -406,6 +411,9 @@ func (w *world) config() string {
 				b.WriteString("  disable:\n")
 			}
 			fmt.Fprintf(&b, "    - %q\n", name)
+		}
+		if w.telemetryPprof {
+			b.WriteString("  pprof: true\n")
 		}
 	}
 	b.WriteString(w.topExtra)

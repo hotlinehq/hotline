@@ -59,4 +59,5 @@ Open only the file for the topic at hand.
 - Health check: [docs/decisions/health-checks.md](docs/decisions/health-checks.md)
 - Config reload: [docs/decisions/config-reload.md](docs/decisions/config-reload.md)
 - Proxy telemetry: [docs/decisions/proxy-telemetry.md](docs/decisions/proxy-telemetry.md)
+- Profile pages on the admin port, `telemetry.pprof`, off by default: [docs/decisions/profile-pages.md](docs/decisions/profile-pages.md)
 - Trace context: [docs/decisions/trace-context.md](docs/decisions/trace-context.md)

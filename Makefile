@@ -27,12 +27,13 @@ e2e:
 # load builds the proxy and runs the load test: the fakes, the proxy and k6
 # (which must be installed), each call shape at its rates, three repeats
 # each, one folder load/results/run-NNN per line below. The proxy is built
-# with -tags loadprofile so the lines marked -profile can also save a
+# as it ships; the runner turns on its profile pages (telemetry.pprof) so the
+# lines marked -profile can also save a
 # processor and a memory profile. See load/README.md.
 .PHONY: load
 load:
 	mkdir -p load/out
-	cd src/hotline-proxy && go build -tags loadprofile -o ../../load/out/hotline-proxy ./cmd
+	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 2000
