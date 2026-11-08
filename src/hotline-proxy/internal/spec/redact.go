@@ -9,7 +9,6 @@ import (
 
 // Call is what the proxy knows about a call when it builds the record.
 type Call struct {
-	Method string
 	// Origin is the vendor address up to the path, such as
 	// https://api.talon.one or http://api.x.com:8080.
 	Origin       string
@@ -17,9 +16,20 @@ type Call struct {
 	RawQuery     string
 	Header       http.Header
 	ReplyHeaders http.Header
-	// Action is what the request body names as the action, from
-	// BodyAction, for a spec that picks routes by a body field.
-	Action string
+}
+
+// Route is the spec's route for one call, found once by Find and handed to
+// the checks and the redaction, so none of them looks it up again. The zero
+// Route is no route.
+type Route struct {
+	r route
+}
+
+// Find finds the route for a call from its method, path, query and
+// headers, and for a spec that picks routes by a body field, the action
+// the request body names (Exchange.Action).
+func (s *Spec) Find(e Exchange) Route {
+	return Route{r: s.match(e.Method, e.EscapedPath, e.RawQuery, e.Header, e.Action)}
 }
 
 // Redacted is the part of a record that the spec decides. URLFull and
@@ -34,11 +44,12 @@ type Redacted struct {
 
 const redacted = "REDACTED"
 
-// Redact applies the spec's marks and secrets to a call. Path and query
-// values are redacted unless marked x-hotline-redact false. Headers are kept
-// only when on the default list or marked; secrets never are.
-func (s *Spec) Redact(c Call) Redacted {
-	r := s.match(c.Method, c.EscapedPath, c.RawQuery, c.Header, c.Action)
+// Redact applies the marks of the call's route, and the spec's secrets, to
+// a call. Path and query values are redacted unless marked
+// x-hotline-redact false. Headers are kept only when on the default list or
+// marked; secrets never are.
+func (s *Spec) Redact(found Route, c Call) Redacted {
+	r := found.r
 	redacted := Redacted{
 		Header:       s.headers(c.Header, r.marks["header"]),
 		ReplyHeaders: s.headers(c.ReplyHeaders, r.marks["reply"]),

@@ -179,14 +179,13 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 	if c.resp != nil {
 		replyHeaders = c.resp.Header
 	}
-	redacted := c.api.Spec.Redact(spec.Call{
-		Method:       c.in.Method,
+	// record waited for both checks, so the route is found by now.
+	redacted := c.api.Spec.Redact(c.route, spec.Call{
 		Origin:       origin,
 		EscapedPath:  c.target.EscapedPath(),
 		RawQuery:     c.target.RawQuery,
 		Header:       c.in.Header,
 		ReplyHeaders: replyHeaders,
-		Action:       c.reqCheck.action, // record waited for the request check
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()

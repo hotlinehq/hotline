@@ -8,6 +8,7 @@ Decisions already made, so a new session does not have to dig through old thread
 - How to write, test and review proxy code in Go: the [`hotline-go-proxy` skill](.claude/skills/hotline-go-proxy/SKILL.md). It covers the system under test, testing only through the proxy's ways in and out, and no test-only code.
 - Describe each problem in plain words first, with the fix and its tests, and build only after Peter approves (Peter, 2026-11-02).
 - Keep to one thread at a time. Do not watch CI or subscribe to pull requests unless Peter asks. When Peter says stop, stop and wait for his go-ahead. If a short "yes" could answer more than one question, ask which one first (Peter, 2026-11-02).
+- Ask Peter before changing a contract, such as the exported functions and types one package offers another, and show him the new one first (Peter, 2026-11-07).
 - Every number in a pull request description, commit message or doc is well defined: say what was measured, over what (whole process or proxy only, per call or in total, allocated over time or held at once), how, and its unit (Peter, 2026-11-02).
 - Every `x-hotline-` mark in a vendor spec, with its use and an example: [docs/spec-marks.md](docs/spec-marks.md). A new mark is added only when a real example needs it, and listed there in the same pull request (Peter, 2026-11-01).
 - The proxy's spec and examples: `proxy-spec.md` and `proxy-example/` in the `hotline-strategic` repo.
