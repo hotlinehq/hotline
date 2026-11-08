@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -101,6 +102,14 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^http.response.body.size is (\d+)$`, func(size int) error { return w.lastHas("http.response.body.size", size) })
+	sc.Step(`^the record has no body sizes$`, func() error {
+		record, err := w.lastRecord()
+		if err != nil {
+			return err
+		}
+		return hasNo(record, "http.request.body.size", "http.response.body.size")
+	})
 	sc.Step(`^http.request.body.size is (\d+)$`, func(size int) error { return w.lastHas("http.request.body.size", size) })
 
 	sc.Step(`^(a call without Proxy-Authorization|a call with the unknown ID talon-shop-x|a call from talon-shop-a to api.stripe.com, outside its apis)$`, func(call string) error {
@@ -115,10 +124,43 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^a call without Proxy-Authorization, a (\d+) byte request body and a (\d+) byte reply$`, func(sent, reply int) error {
+		w.addIntegration(integration("talon-shop-a", w.talonAPI("")))
+		w.appID = ""
+		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_, _ = rw.Write([]byte(strings.Repeat("r", reply)))
+		})
+		w.pending = &request{method: "PUT", target: w.target, length: sent, body: strings.NewReader(strings.Repeat("q", sent))}
+		return nil
+	})
+	sc.Step(`^the not-passed entry has urlFull (on|off)$`, func(state string) error {
+		w.addIntegration("  - id: not-passed\n    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
+		return nil
+	})
+	sc.Step(`^integration (\S+) with an api for (\S+), with urlFull (on|off)$`, func(id, host, state string) error {
+		w.addIntegration(integration(id, w.apiFor(host, "")) + "    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
+		return nil
+	})
+	sc.Step(`^the app (\S+) calls (https://\S+?), outside its apis$`, func(id, target string) error {
+		w.appID = id
+		return w.call("GET", target)
+	})
+	sc.Step(`^a call with no integration ID goes to (https://\S+)$`, func(target string) error {
+		w.appID = ""
+		return w.call("GET", target)
+	})
+	sc.Step(`^there is no url.full$`, func() error {
+		record, err := w.lastRecord()
+		if err != nil {
+			return err
+		}
+		return hasNo(record, "url.full")
+	})
 	sc.Step(`^client.address is the app's IP address$`, func() error {
 		return w.lastHas("client.address", "127.0.0.1")
 	})
-	sc.Step(`^the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, error.type and hotline.timing.total_us$`, func() error {
+	sc.Step(`^the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, http.request.body.size, http.response.body.size, error.type and hotline.timing.total_us$`, func() error {
 		record, err := w.lastRecord()
 		if err != nil {
 			return err
@@ -126,6 +168,7 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		allowed := map[string]bool{
 			"hotline.integration.id": true, "hotline.ingress": true, "client.address": true, "server.address": true, "network.peer.address": true,
 			"http.request.method": true, "http.response.status_code": true, "error.type": true,
+			"http.request.body.size": true, "http.response.body.size": true,
 		}
 		for key := range record {
 			if !allowed[key] && key != "hotline.timing.total_us" {
@@ -133,7 +176,8 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 			}
 		}
 		if err := hasAll(record, "hotline.integration.id", "hotline.ingress", "client.address", "server.address",
-			"http.request.method", "http.response.status_code", "hotline.timing.total_us"); err != nil {
+			"http.request.method", "http.response.status_code", "http.request.body.size", "http.response.body.size",
+			"hotline.timing.total_us"); err != nil {
 			return err
 		}
 		// The vendor IP is the one the proxy connected to.

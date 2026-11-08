@@ -44,6 +44,7 @@ integrations:
     fingerprintKey: { env: HOTLINE_KEY_TALON_SHOP_B }   # also allowed; a file is preferred
     traceFormat: b3               # how the app sends its trace id: w3c (default), b3, xray or jaeger
     traceForward: false           # default false; true sends the proxy's trace id and span id on to the vendor
+    urlFull: false                # default false; true puts the address as sent in url.full on minimal records, query included
     apis:
       - { api: talon-one, vendorTimeout: 5s }   # an integration may change only vendorTimeout
 

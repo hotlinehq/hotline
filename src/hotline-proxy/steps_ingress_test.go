@@ -201,6 +201,7 @@ func (w *world) minimalWith(fields string) error {
 	allowed := map[string]bool{
 		"hotline.integration.id": true, "hotline.ingress": true, "client.address": true, "server.address": true,
 		"http.request.method": true, "http.response.status_code": true, "error.type": true,
+		"http.request.body.size": true, "http.response.body.size": true,
 	}
 	for key := range record {
 		if !allowed[key] && key != "hotline.timing.total_us" {

@@ -60,7 +60,7 @@ Feature: The vendor URL in path ingress
   Scenario: A not-passed call gets the minimal record
     Given a not-passed call with the built-in settings
     When an app sends "GET /https://api.x.com/a" with "Host: localhost:8080"
-    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, error.type and hotline.timing.total_us
+    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, http.request.body.size, http.response.body.size, error.type and hotline.timing.total_us
     And the record's ID is not-passed
     And the record says hotline.ingress url_in_path
 

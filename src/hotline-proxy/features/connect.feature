@@ -53,6 +53,7 @@ Feature: The CONNECT ingress, with interception
     Then the proxy answers 421 with a Proxy-Status header
     And nothing is sent to any vendor
     And the record is minimal with hotline.ingress connect, http.response.status_code 421 and error.type http_request_error
+    And the record has no body sizes
 
   Scenario Outline: HTTP versions inside the tunnel
     Given the app offers only <version> inside the tunnel

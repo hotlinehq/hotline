@@ -52,10 +52,24 @@ Feature: Building the request record
     When the call ends
     Then error.type is dns_error
 
+  Scenario: A minimal record counts the bytes that passed in both bodies
+    Body sizes are on minimal records too, counted as the bodies stream
+    through, never kept (Peter, 2026-11-08).
+    Given a call without Proxy-Authorization, a 40 byte request body and a 120 byte reply
+    When the call ends
+    Then http.request.body.size is 40
+    And http.response.body.size is 120
+
+  Scenario: A minimal record of a call and a reply with no body has size 0
+    Given a call without Proxy-Authorization, a 0 byte request body and a 0 byte reply
+    When the call ends
+    Then http.request.body.size is 0
+    And http.response.body.size is 0
+
   Scenario Outline: Minimal record
     Given <call>
     When the call ends
-    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, error.type and hotline.timing.total_us
+    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, http.request.body.size, http.response.body.size, error.type and hotline.timing.total_us
     And hotline.integration.id is <id>
 
     Examples:
@@ -63,6 +77,53 @@ Feature: Building the request record
       | a call without Proxy-Authorization                  | not-passed   |
       | a call with the unknown ID talon-shop-x             | talon-shop-x |
       | a call from talon-shop-a to api.stripe.com, outside its apis | talon-shop-a |
+
+  Scenario: A minimal record leaves out url.full unless it is switched on
+    Off by default (Peter, 2026-11-08).
+    Given integration talon-shop-a with an api for api.talon.one
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then there is no url.full
+
+  Scenario: An integration switches url.full on
+    The address as sent, query included, with nothing redacted: a minimal
+    record has no spec to say what is secret.
+    Given integration talon-shop-a with an api for api.talon.one, with urlFull on
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
+  Scenario: url.full keeps a port the app wrote and drops a user and password
+    Given integration talon-shop-a with an api for api.talon.one, with urlFull on
+    When the app talon-shop-a calls https://user:pass@api.stripe.com:443/v1/charges, outside its apis
+    Then url.full is "https://api.stripe.com:443/v1/charges"
+
+  Scenario: Switching it on for one integration leaves the others alone
+    Given integration talon-shop-a with an api for api.talon.one, with urlFull on
+    And integration talon-shop-b with an api for api.talon.one
+    When the app talon-shop-b calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then there is no url.full
+
+  Scenario: The not-passed entry is the default for every integration
+    Given the not-passed entry has urlFull on
+    And integration talon-shop-a with an api for api.talon.one
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
+  Scenario: A call with no integration ID follows the not-passed entry
+    Given the not-passed entry has urlFull on
+    When a call with no integration ID goes to https://api.stripe.com/v1/charges?limit=3
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
+  Scenario: An integration can switch it off again
+    Given the not-passed entry has urlFull on
+    And integration talon-shop-a with an api for api.talon.one, with urlFull off
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then there is no url.full
+
+  Scenario: Switching it on does not change a full record
+    Given the not-passed entry has urlFull on
+    And integration talon-shop-a with an api for api.talon.one
+    When the Talon.One sample call ends
+    Then url.full holds the redacted address
 
   Scenario: Fields for later slices are left out
     Given integration talon-shop-a with an api for api.talon.one
