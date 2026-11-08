@@ -29,9 +29,10 @@ jobs:
           fi
       - name: hotline
         if: ${{ env.GRAFANA_OTLP_AUTH != '' }}
-        uses: petercipov/hotline-github-action@529e9bd6aa4a6f6fdbab85b19efa4086912ea883 # hotline-github-action pull request 2
+        uses: petercipov/hotline-github-action@2767d03c0c7143467fb6eda3a3ca815e5dc290de # hotline-github-action main, with record-urls
         with:
           signing-key: ${{ secrets.HOTLINE_SIGNING_KEY }}
+          record-urls: 'true'
           exporters: |
             - otlp:
                 endpoint: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
@@ -69,4 +70,4 @@ jobs:
           working-directory: ./tools/aws-openapi
       - name: hotline teardown
         if: ${{ always() && env.GRAFANA_OTLP_AUTH != '' }}
-        uses: petercipov/hotline-github-action/teardown@529e9bd6aa4a6f6fdbab85b19efa4086912ea883 # hotline-github-action pull request 2
+        uses: petercipov/hotline-github-action/teardown@2767d03c0c7143467fb6eda3a3ca815e5dc290de # hotline-github-action main, with record-urls
