@@ -579,9 +579,20 @@ paths:
 // issuer, and waits until its proxy port takes calls.
 func (p *program) run(flags ...string) error {
 	p.startVendors()
-	p.pickPorts()
-	p.writeConfig(p.config(false))
-	return p.launch(flags...)
+	// A port that was free a moment ago can be taken by another program
+	// on a busy computer before ours binds it. When the program says so,
+	// the test picks new ports and starts it again.
+	var err error
+	for range 3 {
+		p.pickPorts()
+		p.writeConfig(p.config(false))
+		if err = p.launch(flags...); err == nil || !strings.Contains(p.stderr.String(), "address already in use") {
+			return err
+		}
+		p.stdout.Reset()
+		p.stderr.Reset()
+	}
+	return err
 }
 
 // pickPorts chooses the program's ports again, once the test's own

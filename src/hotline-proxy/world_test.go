@@ -708,6 +708,12 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
 func sprint(v any) string { return fmt.Sprint(v) }
 
 // apiFor adds an api for host: the example specs for Talon.One and
