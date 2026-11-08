@@ -91,6 +91,11 @@ Feature: Building the request record
     When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
     Then url.full is "https://api.stripe.com/v1/charges?limit=3"
 
+  Scenario: url.full keeps a port the app wrote and drops a user and password
+    Given integration talon-shop-a with an api for api.talon.one, with urlFull on
+    When the app talon-shop-a calls https://user:pass@api.stripe.com:443/v1/charges, outside its apis
+    Then url.full is "https://api.stripe.com:443/v1/charges"
+
   Scenario: Switching it on for one integration leaves the others alone
     Given integration talon-shop-a with an api for api.talon.one, with urlFull on
     And integration talon-shop-b with an api for api.talon.one
