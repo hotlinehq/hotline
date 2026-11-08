@@ -154,6 +154,8 @@ type world struct {
 
 	// listenConnect, when set, is the listen.connect line of the config.
 	listenConnect string
+	// issuersSection is the config's issuers section, when it has one.
+	issuersSection string
 	// interception is the issuer in the listen.connect files, and second
 	// the one that replaced it.
 	interception *issuer
@@ -376,6 +378,7 @@ func (w *world) config() string {
 	fmt.Fprintf(&b, "listen:\n  proxy: %q\n  admin: %q\n", w.addr, admin)
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
+	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
 		b.WriteString("  - otlp:\n")

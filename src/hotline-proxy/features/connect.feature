@@ -4,12 +4,12 @@ Feature: The CONNECT ingress, with interception
   ID in Proxy-Authorization, and the proxy answers 200. The app then sets up
   TLS inside the tunnel, and the proxy answers it itself, posing as the
   vendor: it shows a certificate for that host, made on the fly and signed
-  by the customer's own issuer, read from the listen.connect files. Every
+  by the customer's own issuer. The issuer is written once in the issuers section, under a name, with two PEM files; listen.connect picks it with issuer: <name> (Peter, 2026-11-08). Every
   call inside the tunnel is then handled like a call on any other ingress,
   with hotline.ingress connect (Peter, 2026-10-29).
 
   Background:
-    Given an interception issuer whose cert and key files are set in listen.connect
+    Given an interception issuer named customer in issuers, which listen.connect picks
     And an app that trusts the interception issuer
 
   Scenario: A call through a tunnel reaches the vendor unchanged
@@ -163,7 +163,7 @@ Feature: The CONNECT ingress, with interception
 
   Scenario: A renewed issuer is used without a restart
     Given the app has opened a tunnel to api.stripe.com:443
-    When the listen.connect files are replaced with a second issuer
+    When the files of the issuer named customer are replaced with a second issuer
     And the proxy checks its files
     And the app opens a tunnel to api.stripe.com:443
     Then the app sees a certificate for api.stripe.com signed by the second issuer
@@ -179,6 +179,16 @@ Feature: The CONNECT ingress, with interception
       | the listen.connect key does not belong to its certificate |
       | the listen.connect issuer has already expired            |
       | listen.connect has a cert file but no key file           |
+      | listen.connect names the issuer "missing", which is not in issuers |
+      | listen.connect has the files of an issuer and no issuer name |
+      | an issuer is written with no files                       |
+      | listen.connect names no issuer                           |
+      | an issuer that listen.connect does not use is not an issuer certificate |
+
+  Scenario: An issuer is written once and used by name
+    Given an interception issuer named customer in issuers, which listen.connect picks
+    When the proxy starts
+    Then the proxy is running
 
   Scenario: An issuer valid for more than a year gets a warning
     Given an interception issuer valid for two years

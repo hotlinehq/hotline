@@ -84,6 +84,18 @@ None. All nine were answered; see the decisions below.
   - Traces show the wait as `wait for check worker` under each spec check; a skipped one is an error with `error.type=overloaded`. Own telemetry: `hotline.spec_check.queue.memory.usage`, `hotline.spec_check.queue.size`, `hotline.spec_check.dropped`.
   - When the time to stop runs out, checks still waiting are skipped as `overloaded`, and the proxy logs how many (`stop ran out of time, skipped the spec checks still waiting`).
 
+## Which parts run (Peter, 2026-11-08)
+
+`checks` on an api picks the parts to check: `path`, `query`, `headers`, `cookies`, `body` for the request, and `status`, `reply-headers`, `reply-body` for the reply. Finding the route and its template always happens. Leaving `checks` out checks every part; `checks: []` checks none, so the record has the route template but no `hotline.schema.*` attributes and the trace has no spec check spans. An unknown name stops the start. A part left out leaves no result and no skipped reason. A body copy is kept only when `body` (request) or `reply-body` is picked; the one exception is a spec that names the route's action in the request body (AWS), which needs that body to find the route. It applies on every ingress.
+
+```yaml
+apis:
+  stripe:
+    hosts: [api.stripe.com]
+    spec: ./specs/stripe.yaml
+    checks: [path, query, headers, status]   # no bodies
+```
+
 ## What changes in the proxy spec
 
 - Section 1: "JSON checks" becomes checks of every part of the call (path, query, headers, cookies, body; and the reply's status, headers and body).

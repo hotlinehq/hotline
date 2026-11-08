@@ -232,3 +232,67 @@ Feature: Checking calls against the vendor's spec
       Given the app sends no integration ID
       When the app sends GET /orders?limit=abc
       Then the record has no request results
+
+  Rule: Which parts run is a list on the api
+
+    The api names the parts to check in checks: path, query, headers,
+    cookies and body for the request, and status, reply-headers and
+    reply-body for the reply. Finding the route and its template always
+    happens. Leaving checks out checks every part; checks: [] finds the
+    route only. A part left out leaves no result and no skipped reason
+    (Peter, 2026-11-08).
+
+    Scenario Outline: A part left out is not checked
+      Given the shop spec with checks <picked>
+      And the vendor answers <answer>
+      When the app sends <call>
+      Then the record has no request or reply results
+      And the record says hotline.schema.status=valid
+
+      Examples:
+        | left out      | picked                                                       | answer                                              | call                                                                    |
+        | path          | [query, headers, cookies, body, status, reply-headers, reply-body] | 200 with "X-Request-Id: r1" and the json body {"item":"A1","quantity":1} | GET /orders/1234 |
+        | query         | [path, headers, cookies, body, status, reply-headers, reply-body] | 200                                                 | GET /orders?limit=abc                                                   |
+        | headers       | [path, query, cookies, body, status, reply-headers, reply-body] | 201                                                 | POST /orders and the json body {"item":"A1","quantity":2}               |
+        | cookies       | [path, query, headers, body, status, reply-headers, reply-body] | 200                                                 | GET /orders with "Cookie: session=abc"                                  |
+        | body          | [path, query, headers, cookies, status, reply-headers, reply-body] | 201                                                 | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} |
+        | status        | [path, query, headers, cookies, body, reply-headers, reply-body] | 418                                                 | GET /orders                                                             |
+        | reply-headers | [path, query, headers, cookies, body, status, reply-body]    | 200 and the json body {"item":"A1","quantity":1}    | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
+        | reply-body    | [path, query, headers, cookies, body, status, reply-headers] | 200 with "X-Request-Id: r1" and the json body {"item":"A1"} | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d |
+
+    Scenario: A part in the list is still checked
+      Given the shop spec with checks [query]
+      When the app sends GET /orders?limit=abc with "Cookie: session=abc"
+      Then the request results are query limit type integer
+
+    Scenario: A reply part in the list is still checked
+      Given the shop spec with checks [reply-body]
+      And the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"A1"}
+      When the app sends GET /orders/1234
+      Then the record has no request results
+      And the reply results are body $.quantity required
+
+    Scenario: An empty list finds the route only
+      Given the shop spec with checks []
+      And the vendor answers 418
+      When the app sends POST /orders and the json body {"item":"A1"}
+      And the record has url.template /orders
+      And the record has no request or reply results
+      And the record has no hotline.schema.status
+      And the trace has no "request spec check" span
+      And the trace has no "reply spec check" span
+
+    Scenario: A large body is not even looked at when no body is picked
+      A body over 2 MiB is skipped when the body is checked. With no body
+      picked there is nothing to skip, and the proxy keeps no copy of it.
+      Given the shop spec with checks [path, query, headers, cookies]
+      And the vendor answers 201
+      When the app sends POST /orders with "Idempotency-Key: k1" and a json body of 3 MiB
+      Then the record has no request or reply results
+      And the record has no hotline.schema.skipped
+      And the record says hotline.schema.status=valid
+
+    Scenario: An unknown check name stops the proxy at start
+      Given the shop spec with the unknown check "queery"
+      When the proxy loads the config
+      Then the config is refused with a message naming the problem

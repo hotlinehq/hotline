@@ -42,7 +42,10 @@ type Config struct {
 	TLS *TLS
 	// Connect, when set, makes CONNECT an ingress: this issuer signs the
 	// certificate the proxy shows for each vendor host inside a tunnel.
-	Connect   *TLS
+	Connect *TLS
+	// Issuers are the named issuers of the issuers section, each checked
+	// to be an issuer, used or not.
+	Issuers   map[string]*TLS
 	Exporters []Exporter
 	// Telemetry, when set, is where the proxy sends numbers about itself;
 	// nil means they are not sent.
@@ -142,6 +145,9 @@ type Settings struct {
 type API struct {
 	Settings
 	Spec *spec.Spec
+	// Checks are the parts of a call the api checks against its spec: all
+	// of them when the config leaves checks out.
+	Checks Parts
 	// SigningKey signs the integration's records: its fingerprintKey, or
 	// its ID when it has none.
 	SigningKey []byte
@@ -168,12 +174,15 @@ func (c *Config) API(integrationID, host string) *API {
 // file is the config file's layout.
 type file struct {
 	Listen struct {
-		Proxy   string    `yaml:"proxy"`
-		Admin   string    `yaml:"admin"`
-		TLS     *pairFile `yaml:"tls"`
-		Connect *pairFile `yaml:"connect"`
+		Proxy   string       `yaml:"proxy"`
+		Admin   string       `yaml:"admin"`
+		TLS     *pairFile    `yaml:"tls"`
+		Connect *connectFile `yaml:"connect"`
 	} `yaml:"listen"`
-	Telemetry  *telemetryFile `yaml:"telemetry"`
+	// Issuers are certificate authorities the proxy signs with, each
+	// written once under a name that the ingresses pick.
+	Issuers    map[string]*pairFile `yaml:"issuers"`
+	Telemetry  *telemetryFile       `yaml:"telemetry"`
 	SpecChecks struct {
 		QueueMemory string `yaml:"queueMemory"`
 	} `yaml:"specChecks"`
@@ -183,7 +192,9 @@ type file struct {
 		Hosts []string `yaml:"hosts"`
 		Spec  string   `yaml:"spec"`
 		// Overlays change the spec for this api only, in this order.
-		Overlays []string     `yaml:"overlays"`
+		Overlays []string `yaml:"overlays"`
+		// Checks picks the parts of a call to check; left out means all.
+		Checks   *[]string    `yaml:"checks"`
 		Settings settingsFile `yaml:",inline"`
 	} `yaml:"apis"`
 	Exporters []struct {
@@ -252,6 +263,14 @@ func (s *secret) UnmarshalYAML(node *yaml.Node) error {
 
 // pairFile names a certificate file and its key file.
 type pairFile struct {
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
+}
+
+// connectFile is listen.connect: the name of the issuer it signs with.
+type connectFile struct {
+	Issuer string `yaml:"issuer"`
+	// Cert and Key are the removed inline form, read only to refuse it.
 	Cert string `yaml:"cert"`
 	Key  string `yaml:"key"`
 }
@@ -347,8 +366,27 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	if t := f.Listen.TLS; t != nil {
 		c.TLS = l.pair("listen.tls", t, LoadCertificate, now)
 	}
+	c.Issuers = map[string]*TLS{}
+	for _, name := range slices.Sorted(maps.Keys(f.Issuers)) {
+		if f.Issuers[name] == nil {
+			l.problem("issuer %s needs both cert and key", name)
+			continue
+		}
+		c.Issuers[name] = l.pair("issuer "+name, f.Issuers[name], LoadIssuer, now)
+	}
 	if t := f.Listen.Connect; t != nil {
-		c.Connect = l.pair("listen.connect", t, LoadIssuer, now)
+		switch {
+		case t.Cert != "" || t.Key != "":
+			l.problem("listen.connect must name an issuer, as { issuer: name } with the issuer in the issuers section; cert and key are no longer written in listen.connect")
+		case t.Issuer == "":
+			l.problem("listen.connect must name an issuer, as { issuer: name }")
+		default:
+			if _, known := f.Issuers[t.Issuer]; known {
+				c.Connect = c.Issuers[t.Issuer]
+			} else {
+				l.problem("listen.connect names the issuer %s, which is not in issuers", t.Issuer)
+			}
+		}
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -373,6 +411,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			l.problem("%s has no spec", label)
 		}
 		apis[name] = &API{
+			Checks:   l.checks(label, a.Checks),
 			Settings: l.settings(label, a.Settings, Settings{TLSOrigination: true, VendorTimeout: time.Minute}),
 			Spec:     l.spec(label, a.Spec, a.Overlays),
 		}
@@ -652,6 +691,21 @@ func (l *loader) settings(label string, f settingsFile, s Settings) Settings {
 	return s
 }
 
+func (l *loader) checks(label string, f *[]string) Parts {
+	if f == nil {
+		return AllParts
+	}
+	var p Parts
+	for _, name := range *f {
+		part, known := partNamed(name)
+		if !known {
+			l.problem("%s: unknown check %q; the checks are path, query, headers, cookies, body, status, reply-headers and reply-body", label, name)
+		}
+		p |= part
+	}
+	return p
+}
+
 func (l *loader) pair(label string, f *pairFile, load func(certFile, keyFile string, now time.Time) (*tls.Certificate, error), now time.Time) *TLS {
 	if f.Cert == "" || f.Key == "" {
 		l.problem("%s needs both cert and key", label)
@@ -678,12 +732,12 @@ func LoadCertificate(certFile, keyFile string, now time.Time) (*tls.Certificate,
 // hosts with, as LoadCertificate does, and checks that it is an issuer:
 // a certificate authority allowed to sign certificates.
 func LoadIssuer(certFile, keyFile string, now time.Time) (*tls.Certificate, error) {
-	cert, err := loadPair("listen.connect", certFile, keyFile, now)
+	cert, err := loadPair("issuer", certFile, keyFile, now)
 	if err != nil {
 		return nil, err
 	}
 	if leaf := cert.Leaf; !leaf.IsCA || leaf.KeyUsage != 0 && leaf.KeyUsage&x509.KeyUsageCertSign == 0 {
-		return nil, fmt.Errorf("%w: listen.connect: the certificate in %s is not an issuer: it may not sign certificates", ErrInvalid, certFile)
+		return nil, fmt.Errorf("%w: the certificate in %s is not an issuer: it may not sign certificates", ErrInvalid, certFile)
 	}
 	return cert, nil
 }
