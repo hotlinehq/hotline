@@ -707,7 +707,7 @@ func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fa
   admin: %q
 exporters:
   - otlp:
-      protocol: http/protobuf
+      protocol: http/protobuf   # ignored with a warning now; kept so load-compare can run an older proxy
       endpoint: http://%s
 telemetry:
   otlp:

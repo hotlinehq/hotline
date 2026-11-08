@@ -51,6 +51,10 @@ Only a breakdown fails a span; the vendor's own answer never does, a 404 or a 50
 
 A failed step ends at the failure. The two spec checks are the only spans set to ok on purpose: when their side passed. A skipped check leaves it unset, since nothing was proven. The check's status itself is only on the record, as `hotline.schema.status`: `valid`, `invalid` or `skipped`.
 
+## Which parent is remote
+
+A span's OTLP flags say whether its parent ran in another program, which OpenTelemetry calls remote. Only `hotline call` has such a parent, the app's own span, when the app sent its trace context. Every other span's parent is a step of the proxy, so it is not remote. Until 2026-11-08 every span said its parent was remote (Peter, 2026-11-08).
+
 ## Nothing on both
 
 Each piece of data is either on the trace or on the record, never on both, unless there is a good reason (Peter, 2026-10-31).
@@ -77,7 +81,7 @@ To check a call, take its record and its spans (found by trace id), and rebuild 
 
 ## How it is sent
 
-- OTLP traces over gRPC, or over HTTP to `/v1/traces`, with each exporter's endpoint, TLS, login headers, gzip, resource labels and timing.
+- OTLP traces over HTTP to `/v1/traces`, with each exporter's endpoint, TLS, login headers, gzip, resource labels and timing.
 - Each destination has a queue of spans next to its queue of records, of the same `queueSize`, counted in spans. A full queue drops its oldest span and warns, at most once a minute.
 - The proxy's own telemetry counts them like records, with `hotline.signal=span` on `hotline.exporter.queue.size`, `.sent` and `.dropped`.
 - The proxy's own time is the `routing` plus `reply to app` steps; since 2026-11-01 there is no metric for it, as every trace carries it.
@@ -85,6 +89,6 @@ To check a call, take its record and its spans (found by trace id), and rebuild 
 ## Where it lives
 
 - `trace.go`: the spans of a call, and the trace signature.
-- `internal/export/trace.go`: spans as the OpenTelemetry SDK sends them, and the two senders. It builds each span with the SDK's `tracetest.SpanStub`, since the proxy sets its own ids and times.
+- `internal/export/trace.go` and `wire.go`: the proxy writes each span as OTLP protobuf itself, since 2026-11-08 ([otlp-encoder-scope.md](otlp-encoder-scope.md)); before, it went through the SDK's `tracetest.SpanStub` and trace senders.
 - `internal/export/queue.go`: one queue type for records and spans.
-- New modules: `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` and `otlptracehttp`, Apache-2.0, the OpenTelemetry trace senders.
+- New modules, at first: `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` and `otlptracehttp`, Apache-2.0, the OpenTelemetry trace senders. Removed again on 2026-11-08.

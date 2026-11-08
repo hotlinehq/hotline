@@ -437,14 +437,50 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the exporter uses (grpc|http/protobuf)$`, func(protocol string) error {
-		if protocol == "http/protobuf" {
-			w.receivers[0].stop()
-			w.receivers[0] = newReceiverWith(receiverSetup{http: true})
+	// The span flags OTLP defines: the parent's remoteness is known, and
+	// the parent is remote.
+	const hasIsRemote, isRemote = 0x100, 0x200
+	remote := func(s receivedSpan) (bool, error) {
+		if s.flags&hasIsRemote == 0 {
+			return false, failf("%q does not say whether its parent is remote; its flags are %#x", s.name, s.flags)
+		}
+		return s.flags&isRemote != 0, nil
+	}
+	sc.Step(`^"hotline call" says its parent is (remote|not remote)$`, func(want string) error {
+		t, err := w.lastTrace()
+		if err != nil {
+			return err
+		}
+		got, err := remote(t.call())
+		if err != nil {
+			return err
+		}
+		if got != (want == "remote") {
+			return failf("the call span says its parent is remote: %v", got)
 		}
 		return nil
 	})
-	sc.Step(`^the receiver gets the spans (over gRPC|at /v1/traces), with the exporter's resource labels$`, func(where string) error {
+	sc.Step(`^every other span says its parent is not remote$`, func() error {
+		t, err := w.lastTrace()
+		if err != nil {
+			return err
+		}
+		for _, s := range t.spans {
+			if s.name == "hotline call" {
+				continue
+			}
+			got, err := remote(s)
+			if err != nil {
+				return err
+			}
+			if got {
+				return failf("%q says its parent is remote", s.name)
+			}
+		}
+		return nil
+	})
+
+	sc.Step(`^the receiver gets the spans at /v1/traces, with the exporter's resource labels$`, func() error {
 		t, err := w.lastTrace()
 		if err != nil {
 			return err
@@ -454,15 +490,12 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 				return failf("%q has the resource %v", s.name, s.resource)
 			}
 		}
-		if where == "at /v1/traces" {
-			for _, seen := range w.receivers[0].requests() {
-				if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
-					return nil
-				}
+		for _, seen := range w.receivers[0].requests() {
+			if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
+				return nil
 			}
-			return failf("no export came to /v1/traces; the receiver got %v", w.receivers[0].requests())
 		}
-		return nil
+		return failf("no export came to /v1/traces; the receiver got %v", w.receivers[0].requests())
 	})
 	sc.Step(`^a second exporter$`, func() error {
 		w.receivers = append(w.receivers, newReceiver())

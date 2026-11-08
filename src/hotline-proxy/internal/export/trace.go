@@ -1,22 +1,11 @@
 package export
 
 import (
-	"context"
-	"crypto/tls"
-	"strings"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/instrumentation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/credentials"
-
-	"hotline-proxy/internal/config"
 )
 
 // Span is one step of a call, with its own start and end.
@@ -37,85 +26,24 @@ type Span struct {
 }
 
 // Trace queues the spans of one call, in the trace sc names, for every
-// destination. It never blocks: a full queue drops its oldest span.
+// destination. It never blocks: a full queue drops its oldest span. The
+// spans are written once, into one block that every destination shares.
 func (s *Sink) Trace(sc trace.SpanContext, spans []Span) {
+	scratch := s.scratch.Get().(*[]byte)
+	b := (*scratch)[:0]
+	ends := make([]int, len(spans))
+	for i, span := range spans {
+		b = appendSpan(b, sc, span)
+		ends[i] = len(b)
+	}
+	written := slices.Clone(b)
+	*scratch = b
+	s.scratch.Put(scratch)
 	for _, d := range s.destinations {
-		for _, span := range spans {
-			d.spans.add(readOnly(sc, span, d))
+		start := 0
+		for _, end := range ends {
+			d.spans.add(written[start:end:end])
+			start = end
 		}
 	}
-}
-
-// readOnly is a span as the trace SDK's senders take it.
-func readOnly(sc trace.SpanContext, s Span, d destination) sdktrace.ReadOnlySpan {
-	stub := tracetest.SpanStub{
-		Name: s.Name,
-		SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
-			TraceID: sc.TraceID(), SpanID: s.ID, TraceFlags: sc.TraceFlags(),
-		}),
-		SpanKind:             s.Kind,
-		StartTime:            s.Start,
-		EndTime:              s.End,
-		Attributes:           s.Attrs,
-		Resource:             d.res,
-		InstrumentationScope: instrumentation.Scope{Name: "hotline-proxy"},
-	}
-	if s.Parent.IsValid() {
-		stub.Parent = trace.NewSpanContext(trace.SpanContextConfig{
-			TraceID: sc.TraceID(), SpanID: s.Parent, TraceFlags: sc.TraceFlags(), Remote: true,
-		})
-	}
-	if s.Failed {
-		stub.Status = sdktrace.Status{Code: codes.Error}
-	}
-	if s.OK {
-		stub.Status = sdktrace.Status{Code: codes.Ok}
-	}
-	return stub.Snapshot()
-}
-
-// grpcTraces sends spans over gRPC.
-func grpcTraces(e config.Exporter, tlsConfig *tls.Config, timing Timing) sdktrace.SpanExporter {
-	compressor := "none"
-	if e.Gzip {
-		compressor = "gzip"
-	}
-	options := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(e.URL.Host),
-		otlptracegrpc.WithHeaders(e.Headers),
-		otlptracegrpc.WithCompressor(compressor),
-		otlptracegrpc.WithTimeout(timing.Timeout),
-		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{Enabled: true, InitialInterval: retryFirst, MaxInterval: retryMost, MaxElapsedTime: timing.Timeout}),
-		otlptracegrpc.WithInsecure(),
-	}
-	if tlsConfig != nil {
-		options[len(options)-1] = otlptracegrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig))
-	}
-	// New only starts the client, which connects on the first send.
-	traces, _ := otlptracegrpc.New(context.Background(), options...)
-	return traces
-}
-
-// httpTraces sends spans over HTTP as protobuf, to /v1/traces after the
-// endpoint's own path.
-func httpTraces(e config.Exporter, tlsConfig *tls.Config, timing Timing) sdktrace.SpanExporter {
-	base := strings.TrimSuffix(e.URL.Path, "/")
-	compression := otlptracehttp.NoCompression
-	if e.Gzip {
-		compression = otlptracehttp.GzipCompression
-	}
-	options := []otlptracehttp.Option{
-		otlptracehttp.WithEndpoint(e.URL.Host),
-		otlptracehttp.WithURLPath(base + "/v1/traces"),
-		otlptracehttp.WithHeaders(e.Headers),
-		otlptracehttp.WithCompression(compression),
-		otlptracehttp.WithTimeout(timing.Timeout),
-		otlptracehttp.WithRetry(otlptracehttp.RetryConfig{Enabled: true, InitialInterval: retryFirst, MaxInterval: retryMost, MaxElapsedTime: timing.Timeout}),
-		otlptracehttp.WithTLSClientConfig(tlsConfig),
-	}
-	if tlsConfig == nil {
-		options = append(options, otlptracehttp.WithInsecure())
-	}
-	traces, _ := otlptracehttp.New(context.Background(), options...)
-	return traces
 }

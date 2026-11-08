@@ -7,19 +7,19 @@ listen:
 
 exporters:                        # one or more; each gets the same data
   - otlp:
-      endpoint: hotline-control-plane.hotline:4317    # the control plane's ingestion
+      endpoint: http://hotline-control-plane.hotline:4318    # the control plane's ingestion, OTLP over HTTP
   - otlp:
-      endpoint: otel-collector.observability:4317     # the customer's own collector
+      endpoint: http://otel-collector.observability:4318     # the customer's own collector
       temporality: delta
-  # - otlp:                      # a hosted collector over HTTP, with TLS and a login token
-  #     protocol: http/protobuf   # grpc (default) or http/protobuf
+      # h2c: true                 # HTTP/2 without TLS, when the collector takes it
+  # - otlp:                      # a hosted collector with TLS and a login token
   #     endpoint: https://otel.example.com:4318
   #     headers:
   #       Authorization: { file: /etc/hotline/otlp/token }
 
 telemetry:                        # the proxy's own health data, kept separate
   otlp:
-    endpoint: otel-collector.observability:4317
+    endpoint: http://otel-collector.observability:4318
 
 # specChecks:
 #   queueMemory: 64MiB            # memory the bodies of checks waiting for a worker may take; beyond it the oldest are skipped as overloaded

@@ -18,14 +18,7 @@ import (
 	common "go.opentelemetry.io/proto/otlp/common/v1"
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 
-	// gzip lets the gRPC side take gzipped exports.
-	_ "google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/stats"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -59,7 +52,9 @@ type receivedSpan struct {
 	start int64
 	end   int64
 	// status is unset, ok or error.
-	status   string
+	status string
+	// flags are the span's OTLP flags.
+	flags    uint32
 	attrs    map[string]any
 	resource map[string]any
 }
@@ -101,6 +96,9 @@ type seenRequest struct {
 	header     http.Header
 	tls        bool
 	clientCert bool
+	// proto is the HTTP version an HTTP request came with, such as
+	// HTTP/1.1 or HTTP/2.0.
+	proto string
 }
 
 // answer is what the HTTP side answers a log export with, instead of
@@ -112,23 +110,20 @@ type answer struct {
 
 // receiverSetup says how a fake receiver listens.
 type receiverSetup struct {
-	http bool
 	// path goes in front of /v1/logs and /v1/metrics.
 	path string
 	// tls, when set, makes the receiver accept only TLS, with this setup.
 	tls *tls.Config
 	// listener, when set, is where the receiver listens.
 	listener net.Listener
+	// http2 offers HTTP/2 over TLS; h2c takes HTTP/2 on a plain port.
+	http2 bool
+	h2c   bool
 }
 
-// receiver is a fake OTLP destination on a local port. It has a gRPC side
-// or an HTTP side.
+// receiver is a fake OTLP destination over HTTP on a local port.
 type receiver struct {
-	collogs.UnimplementedLogsServiceServer
-
-	server     *grpc.Server
 	httpServer *http.Server
-	http       bool
 	// endpoint is how the config names the receiver.
 	endpoint string
 
@@ -147,11 +142,8 @@ type receiver struct {
 	delay time.Duration
 	// seen are the export requests, in the order they came.
 	seen []seenRequest
-	// answers are given to the first log exports over HTTP, one each.
+	// answers are given to the first log exports, one each.
 	answers []answer
-	// encodings are the compression of each gRPC export, as the gRPC
-	// side saw it.
-	encodings []string
 }
 
 func newReceiver() *receiver {
@@ -164,35 +156,28 @@ func newReceiverWith(setup receiverSetup) *receiver {
 		listener = listenLocal()
 	}
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
-	r := &receiver{http: setup.http, endpoint: listener.Addr().String()}
+	r := &receiver{endpoint: "http://" + listener.Addr().String()}
 	if setup.tls != nil {
 		r.endpoint = "https://localhost:" + port
 	}
-	if setup.http {
-		if setup.tls == nil {
-			r.endpoint = "http://" + r.endpoint
-		}
-		r.endpoint += setup.path
-		r.httpServer = &http.Server{Handler: r, TLSConfig: setup.tls, ReadHeaderTimeout: 5 * time.Second}
-		if setup.tls != nil {
-			listener = tls.NewListener(listener, setup.tls)
-		}
-		go func() { _ = r.httpServer.Serve(listener) }()
-		return r
-	}
-	options := []grpc.ServerOption{grpc.StatsHandler(encodingHandler{r})}
+	r.endpoint += setup.path
+	r.httpServer = &http.Server{Handler: r, TLSConfig: setup.tls, ReadHeaderTimeout: 5 * time.Second}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(setup.h2c)
+	protocols.SetHTTP2(setup.http2)
+	r.httpServer.Protocols = protocols
 	if setup.tls != nil {
-		options = append(options, grpc.Creds(credentials.NewTLS(setup.tls)))
+		if setup.http2 {
+			setup.tls.NextProtos = []string{"h2", "http/1.1"}
+		}
+		listener = tls.NewListener(listener, setup.tls)
 	}
-	r.server = grpc.NewServer(options...)
-	collogs.RegisterLogsServiceServer(r.server, r)
-	colmetrics.RegisterMetricsServiceServer(r.server, metricsService{receiver: r})
-	coltrace.RegisterTraceServiceServer(r.server, traceService{receiver: r})
-	go func() { _ = r.server.Serve(listener) }()
+	go func() { _ = r.httpServer.Serve(listener) }()
 	return r
 }
 
-// ServeHTTP is the HTTP side: protobuf exports on /v1/logs, /v1/metrics and /v1/traces,
+// ServeHTTP takes protobuf exports on /v1/logs, /v1/metrics and /v1/traces,
 // after any path the endpoint has.
 func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	logs := strings.HasSuffix(req.URL.Path, "/v1/logs")
@@ -206,6 +191,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		header:        req.Header.Clone(),
 		tls:           req.TLS != nil,
 		clientCert:    req.TLS != nil && len(req.TLS.PeerCertificates) > 0,
+		proto:         req.Proto,
 	})
 	var refuse *answer
 	if logs && len(r.answers) > 0 {
@@ -267,49 +253,11 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	_, _ = rw.Write(out)
 }
 
-// sawGRPC remembers a gRPC export request.
-func (r *receiver) sawGRPC(ctx context.Context, logs bool) {
-	md, _ := metadata.FromIncomingContext(ctx)
-	seen := seenRequest{logs: logs, authorization: md.Get("authorization")}
-	if p, ok := peer.FromContext(ctx); ok {
-		if info, ok := p.AuthInfo.(credentials.TLSInfo); ok {
-			seen.tls = true
-			seen.clientCert = len(info.State.PeerCertificates) > 0
-		}
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.seen = append(r.seen, seen)
-}
-
 func (r *receiver) requests() []seenRequest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	seen := append([]seenRequest(nil), r.seen...)
-	for i := range seen {
-		if !r.http && i < len(r.encodings) {
-			seen[i].encoding = r.encodings[i]
-		}
-	}
-	return seen
+	return append([]seenRequest(nil), r.seen...)
 }
-
-// encodingHandler sees the compression of each gRPC export.
-type encodingHandler struct{ *receiver }
-
-func (encodingHandler) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context { return ctx }
-
-func (h encodingHandler) HandleRPC(_ context.Context, s stats.RPCStats) {
-	if in, ok := s.(*stats.InHeader); ok {
-		h.mu.Lock()
-		h.encodings = append(h.encodings, in.Compression)
-		h.mu.Unlock()
-	}
-}
-
-func (encodingHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context { return ctx }
-
-func (encodingHandler) HandleConn(context.Context, stats.ConnStats) {}
 
 func (r *receiver) wait(ctx context.Context) {
 	r.mu.Lock()
@@ -328,9 +276,6 @@ func (r *receiver) wait(ctx context.Context) {
 }
 
 func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceRequest) (*collogs.ExportLogsServiceResponse, error) {
-	if !r.http {
-		r.sawGRPC(ctx, true)
-	}
 	r.mu.Lock()
 	if r.hold != nil {
 		r.logsHeld++
@@ -358,16 +303,6 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 		}
 	}
 	return &collogs.ExportLogsServiceResponse{}, nil
-}
-
-type metricsService struct {
-	colmetrics.UnimplementedMetricsServiceServer
-	*receiver
-}
-
-func (m metricsService) Export(ctx context.Context, req *colmetrics.ExportMetricsServiceRequest) (*colmetrics.ExportMetricsServiceResponse, error) {
-	m.sawGRPC(ctx, false)
-	return m.exportMetrics(ctx, req)
 }
 
 func (r *receiver) exportMetrics(ctx context.Context, req *colmetrics.ExportMetricsServiceRequest) (*colmetrics.ExportMetricsServiceResponse, error) {
@@ -435,16 +370,6 @@ func (r *receiver) metricPoints() []receivedPoint {
 	return append([]receivedPoint(nil), r.points...)
 }
 
-type traceService struct {
-	coltrace.UnimplementedTraceServiceServer
-	*receiver
-}
-
-func (t traceService) Export(ctx context.Context, req *coltrace.ExportTraceServiceRequest) (*coltrace.ExportTraceServiceResponse, error) {
-	t.sawGRPC(ctx, false)
-	return t.exportTraces(ctx, req)
-}
-
 func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceServiceRequest) (*coltrace.ExportTraceServiceResponse, error) {
 	r.wait(ctx)
 	r.mu.Lock()
@@ -470,6 +395,7 @@ func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceSe
 					start:    int64(s.GetStartTimeUnixNano()), //nolint:gosec // nanoseconds since 1970 fit until 2262
 					end:      int64(s.GetEndTimeUnixNano()),   //nolint:gosec // as above
 					status:   statuses[s.GetStatus().GetCode()],
+					flags:    s.GetFlags(),
 					attrs:    values(s.GetAttributes()),
 					resource: res,
 				})
@@ -519,9 +445,7 @@ func (r *receiver) got() ([]receivedRecord, []receivedCount) {
 
 func (r *receiver) stop() {
 	r.release()
-	if r.server != nil {
-		r.server.Stop()
-	}
+	// A receiver for a destination that is down never started a server.
 	if r.httpServer != nil {
 		_ = r.httpServer.Close()
 	}

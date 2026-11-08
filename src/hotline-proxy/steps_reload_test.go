@@ -143,7 +143,7 @@ func (w *world) changeConfig(change string) error {
 	case "listen.admin moves to another port":
 		w.adminAddr = freePort()
 	case "there is one more exporter":
-		w.downEndpoints = append(w.downEndpoints, freePort())
+		w.downEndpoints = append(w.downEndpoints, "http://"+freePort())
 	case "listen.tls is added":
 		cert := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(cert, cert)

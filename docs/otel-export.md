@@ -16,9 +16,9 @@ A fourth kind, numbers about the proxy itself, goes only to the `telemetry` dest
 
 | What | Today |
 |---|---|
-| Protocol | OTLP over gRPC (the default) or over HTTP as protobuf (`protocol: http/protobuf`), to `/v1/logs`, `/v1/metrics` and `/v1/traces`. Detail: [proxy-otlp-protocols.md](proxy-otlp-protocols.md). |
+| Protocol | OTLP over HTTP as protobuf, to `/v1/logs`, `/v1/metrics` and `/v1/traces`. No gRPC since 2026-11-08. Over TLS, HTTP/2 when the collector offers it; to a plain endpoint, HTTP/1.1, or HTTP/2 with `h2c: true`. The proxy writes records and spans as OTLP itself; the counts go through the OpenTelemetry metrics library. Detail: [proxy-otlp-protocols.md](proxy-otlp-protocols.md). |
 | Connection to the collector | Plain, or TLS with an `https://` endpoint, with `tls.ca` and a client certificate if needed. Login headers from `headers`. |
-| Compression | gzip, unless `compression: none`. |
+| Compression | gzip, unless `compression: none`; records and spans at gzip's fastest level. |
 | Destinations | Every entry under `exporters` gets the same records and counts, each with its own resource labels. Each has its own queue, so one that is down never holds up the others or the calls. |
 | How often | Counts every 60 seconds (`metricInterval`), records every 15 seconds (`logInterval`) and spans every 15 seconds (`traceInterval`), each set per exporter. Records and spans also go sooner once 512 are waiting. One data point a minute is what Grafana Cloud's standard pricing covers (Peter, 2026-11-01). |
 | Time limit per send | 10 seconds, retries included. Fixed in the program. A busy collector is tried again after about a second at first, then at most every 5 seconds. A send the collector refuses loses its records, counted in a warning line like a full queue. |
@@ -33,16 +33,15 @@ Config example:
 ```yaml
 exporters:
   - otlp:
-      endpoint: hotline-control-plane.hotline:4317
+      endpoint: http://hotline-control-plane.hotline:4318
   - otlp:
-      endpoint: otel-collector.observability:4317
+      endpoint: http://otel-collector.observability:4318
       temporality: delta
       queueSize: 10000
       metricInterval: 60s
       logInterval: 15s
       traceInterval: 15s
   - otlp:
-      protocol: http/protobuf
       endpoint: https://otel.example.com:4318
       headers:
         Authorization: { file: /etc/hotline/otlp/token }

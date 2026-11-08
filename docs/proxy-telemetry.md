@@ -9,7 +9,7 @@ The proxy sends numbers about itself as OpenTelemetry metrics (numbers sent once
 ```yaml
 telemetry:
   otlp:                       # the same settings as one entry under exporters
-    endpoint: otel-collector.observability:4317
+    endpoint: http://otel-collector.observability:4318
     resource:                 # optional; labels on every metric
       service.name: payments-proxy
       deployment.environment.name: prod

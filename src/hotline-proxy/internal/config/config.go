@@ -100,10 +100,8 @@ type TLS struct {
 type Exporter struct {
 	// Endpoint is the destination as the config names it.
 	Endpoint string
-	// HTTP sends OTLP over HTTP as protobuf; otherwise it goes over gRPC.
-	HTTP bool
-	// URL is where to send. Its scheme is https for TLS, else http. Over
-	// HTTP its path goes in front of /v1/logs and /v1/metrics.
+	// URL is where to send. Its scheme is https for TLS, else http. Its
+	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
 	URL *url.URL
 	// CAs are PEM certificates of issuers to trust on top of the proxy's
 	// own, for TLS.
@@ -113,7 +111,10 @@ type Exporter struct {
 	// Headers go with every request, login headers among them.
 	Headers map[string]string
 	Gzip    bool
-	Delta   bool
+	// H2C sends HTTP/2 from the first byte to a plain http:// endpoint
+	// (Peter, 2026-11-08).
+	H2C   bool
+	Delta bool
 	// QueueSize is how many records wait for the destination at most.
 	QueueSize int
 	// MetricInterval, LogInterval and TraceInterval are how often counts,
@@ -202,13 +203,14 @@ type file struct {
 
 // exporterFile is one OTLP destination as the config writes it.
 type exporterFile struct {
-	Protocol    string            `yaml:"protocol"`
 	Endpoint    string            `yaml:"endpoint"`
 	Headers     map[string]secret `yaml:"headers"`
 	TLS         *exporterTLSFile  `yaml:"tls"`
 	Compression string            `yaml:"compression"`
-	Temporality string            `yaml:"temporality"`
-	QueueSize   *int              `yaml:"queueSize"`
+	// H2C is true or false, read as text so a wrong value is named.
+	H2C         string `yaml:"h2c"`
+	Temporality string `yaml:"temporality"`
+	QueueSize   *int   `yaml:"queueSize"`
 	// The intervals are durations, such as 15s.
 	MetricInterval *string           `yaml:"metricInterval"`
 	LogInterval    *string           `yaml:"logInterval"`
@@ -481,7 +483,6 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 	label := "exporter " + f.Endpoint
 	e := Exporter{
 		Endpoint:  f.Endpoint,
-		HTTP:      f.Protocol == "http/protobuf",
 		Gzip:      true,
 		Delta:     f.Temporality == "delta",
 		QueueSize: 10_000,
@@ -492,18 +493,23 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 		LogInterval:    l.interval(label, "logInterval", f.LogInterval, 15*time.Second),
 		TraceInterval:  l.interval(label, "traceInterval", f.TraceInterval, 15*time.Second),
 	}
-	switch f.Protocol {
-	case "", "grpc", "http/protobuf":
-	default:
-		l.problem("%s: protocol must be grpc or http/protobuf", label)
-	}
-	e.URL = l.endpoint(label, f.Endpoint, e.HTTP)
+	e.URL = l.endpoint(label, f.Endpoint)
 	switch f.Compression {
 	case "", "gzip":
 	case "none":
 		e.Gzip = false
 	default:
 		l.problem("%s: compression must be gzip or none", label)
+	}
+	switch f.H2C {
+	case "", "false":
+	case "true":
+		if e.URL != nil && e.URL.Scheme != "http" {
+			l.problem("%s: h2c needs a plain http:// endpoint", label)
+		}
+		e.H2C = true
+	default:
+		l.problem("%s: h2c must be true or false", label)
 	}
 	switch f.Temporality {
 	case "", "cumulative", "delta":
@@ -555,18 +561,14 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 // resourceName is what a resource label's name may hold.
 var resourceName = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 
-// endpoint reads where an exporter sends. Over HTTP it is a URL; over gRPC
-// a host:port, or a URL with no path, whose https:// turns TLS on.
-func (l *loader) endpoint(label, endpoint string, http bool) *url.URL {
-	raw := endpoint
+// endpoint reads where an exporter sends: a URL, whose https:// turns TLS
+// on.
+func (l *loader) endpoint(label, endpoint string) *url.URL {
 	if !strings.Contains(endpoint, "://") {
-		if http {
-			l.problem("%s: an HTTP endpoint must start with http:// or https://", label)
-			return nil
-		}
-		raw = "http://" + endpoint
+		l.problem("%s: the endpoint must start with http:// or https://", label)
+		return nil
 	}
-	u, err := url.Parse(raw)
+	u, err := url.Parse(endpoint)
 	switch {
 	case err != nil || u.Host == "" || u.Scheme != "http" && u.Scheme != "https":
 		l.problem("%s: endpoint %s is not a valid address", label, endpoint)
@@ -574,8 +576,6 @@ func (l *loader) endpoint(label, endpoint string, http bool) *url.URL {
 		l.problem("%s: the endpoint may not hold a user name or password; use headers", label)
 	case u.RawQuery != "" || u.Fragment != "":
 		l.problem("%s: the endpoint may not have a query", label)
-	case !http && strings.Trim(u.Path, "/") != "":
-		l.problem("%s: a gRPC endpoint may not have a path", label)
 	default:
 		return u
 	}

@@ -140,6 +140,19 @@ Feature: Each call's timings are a trace
       When a call ends
       Then "hotline call" has no parent
 
+    Scenario: Only the app's span is a remote parent
+      A span's flags say whether its parent ran in another program, which
+      OpenTelemetry calls remote. Only the parent of "hotline call", the
+      app's own span, did; every other span's parent is a step of the proxy
+      itself (Peter, 2026-11-08).
+      When a call ends with "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+      Then "hotline call" says its parent is remote
+      And every other span says its parent is not remote
+
+    Scenario: A call span with no parent says so
+      When a call ends
+      Then "hotline call" says its parent is not remote
+
     Scenario: A call without an integration gets a trace too
       Given the app sends no integration ID
       When a call ends
@@ -147,15 +160,9 @@ Feature: Each call's timings are a trace
 
   Rule: Spans are sent like records
 
-    Scenario Outline: Each protocol
-      Given the exporter uses <protocol>
+    Scenario: Spans go to /v1/traces
       When a call ends
-      Then the receiver gets the spans <where>, with the exporter's resource labels
-
-      Examples:
-        | protocol      | where         |
-        | grpc          | over gRPC     |
-        | http/protobuf | at /v1/traces |
+      Then the receiver gets the spans at /v1/traces, with the exporter's resource labels
 
     Scenario: Every exporter gets the trace
       Given a second exporter
