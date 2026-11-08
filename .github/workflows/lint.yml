@@ -31,6 +31,7 @@ jobs:
         if: ${{ env.GRAFANA_OTLP_AUTH != '' }}
         uses: petercipov/hotline-github-action@529e9bd6aa4a6f6fdbab85b19efa4086912ea883 # hotline-github-action pull request 2
         with:
+          signing-key: ${{ secrets.HOTLINE_SIGNING_KEY }}
           exporters: |
             - otlp:
                 endpoint: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
