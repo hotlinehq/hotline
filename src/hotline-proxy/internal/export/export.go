@@ -27,6 +27,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/grpc/credentials"
@@ -65,6 +66,8 @@ type destination struct {
 	// place names the destination in the proxy's own numbers.
 	up    *atomic.Int64
 	place attribute.Set
+	// wire is the spike's new path, for HTTP destinations.
+	wire *wireDest
 }
 
 // counted are the record attributes the hotline.requests counter carries.
@@ -118,6 +121,9 @@ func New(exporters []config.Exporter, roots *x509.CertPool, service Service, tim
 			res:   res,
 			up:    up,
 			place: attribute.NewSet(exporterLabel(e)),
+		}
+		if e.HTTP {
+			d.wire = newWireDest(e, nil, res.Attributes())
 		}
 		d.logger = d.logs.Logger("hotline-proxy")
 		// The name and unit are fixed and valid, so there is no error to handle.
@@ -289,7 +295,11 @@ func (s *Sink) Record(ctx context.Context, at time.Time, attrs []attribute.KeyVa
 		}
 	}
 	for _, d := range s.destinations {
-		d.logger.Emit(ctx, r)
+		if d.wire != nil {
+			d.wire.record(at, trace.SpanContextFromContext(ctx), attrs)
+		} else {
+			d.logger.Emit(ctx, r)
+		}
 		d.requests.Add(ctx, 1, metric.WithAttributes(counter...))
 	}
 }
@@ -321,6 +331,9 @@ func level(attrs []attribute.KeyValue) log.Severity {
 func (s *Sink) Shutdown(ctx context.Context) error {
 	var errs []error
 	for _, d := range s.destinations {
+		if d.wire != nil {
+			errs = append(errs, d.wire.shutdown(ctx))
+		}
 		errs = append(errs, d.logs.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
 	}
 	return errors.Join(errs...)

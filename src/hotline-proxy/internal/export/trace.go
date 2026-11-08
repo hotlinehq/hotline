@@ -40,6 +40,10 @@ type Span struct {
 // destination. It never blocks: a full queue drops its oldest span.
 func (s *Sink) Trace(sc trace.SpanContext, spans []Span) {
 	for _, d := range s.destinations {
+		if d.wire != nil {
+			d.wire.trace(sc, spans)
+			continue
+		}
 		for _, span := range spans {
 			d.spans.add(readOnly(sc, span, d))
 		}

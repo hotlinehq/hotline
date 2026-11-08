@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/cucumber/godog v0.16.0
+	github.com/klauspost/compress v1.18.0
 	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
