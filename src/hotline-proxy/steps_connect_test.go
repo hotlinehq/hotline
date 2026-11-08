@@ -325,6 +325,12 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 		w.listenConnect = "  connect: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 		return nil
 	})
+	sc.Step(`^an issuer is written with no files$`, func() error {
+		w.problem = "issuer customer needs both cert and key"
+		w.useInterceptionIssuer(newIssuer())
+		w.issuersSection = "issuers:\n  customer:\n"
+		return nil
+	})
 	sc.Step(`^listen.connect names no issuer$`, func() error {
 		w.problem = "listen.connect must name an issuer"
 		w.useInterceptionIssuer(newIssuer())

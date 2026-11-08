@@ -144,8 +144,6 @@ func picked(parts config.Parts, found spec.Checked, request bool) spec.Checked {
 // partOf is the checks entry that a result's part belongs to.
 func partOf(part string, request bool) config.Parts {
 	switch part {
-	case "path":
-		return config.PartPath
 	case "query":
 		return config.PartQuery
 	case "cookie":
@@ -163,5 +161,5 @@ func partOf(part string, request bool) config.Parts {
 	case "status":
 		return config.PartStatus
 	}
-	return 0
+	return config.PartPath
 }

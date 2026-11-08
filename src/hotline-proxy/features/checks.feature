@@ -265,6 +265,13 @@ Feature: Checking calls against the vendor's spec
       When the app sends GET /orders?limit=abc with "Cookie: session=abc"
       Then the request results are query limit type integer
 
+    Scenario: A reply part in the list is still checked
+      Given the shop spec with checks [reply-body]
+      And the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"A1"}
+      When the app sends GET /orders/1234
+      Then the record has no request results
+      And the reply results are body $.quantity required
+
     Scenario: An empty list finds the route only
       Given the shop spec with checks []
       And the vendor answers 418

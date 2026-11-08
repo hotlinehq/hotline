@@ -181,6 +181,7 @@ Feature: The CONNECT ingress, with interception
       | listen.connect has a cert file but no key file           |
       | listen.connect names the issuer "missing", which is not in issuers |
       | listen.connect has the files of an issuer and no issuer name |
+      | an issuer is written with no files                       |
       | listen.connect names no issuer                           |
       | an issuer that listen.connect does not use is not an issuer certificate |
 
