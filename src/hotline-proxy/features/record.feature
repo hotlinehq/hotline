@@ -52,10 +52,24 @@ Feature: Building the request record
     When the call ends
     Then error.type is dns_error
 
+  Scenario: A minimal record counts the bytes that passed in both bodies
+    Body sizes are on minimal records too, counted as the bodies stream
+    through, never kept (Peter, 2026-11-08).
+    Given a call without Proxy-Authorization, a 40 byte request body and a 120 byte reply
+    When the call ends
+    Then http.request.body.size is 40
+    And http.response.body.size is 120
+
+  Scenario: A minimal record of a call and a reply with no body has size 0
+    Given a call without Proxy-Authorization, a 0 byte request body and a 0 byte reply
+    When the call ends
+    Then http.request.body.size is 0
+    And http.response.body.size is 0
+
   Scenario Outline: Minimal record
     Given <call>
     When the call ends
-    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, error.type and hotline.timing.total_us
+    Then the record holds only hotline.integration.id, hotline.ingress, client.address, server.address, network.peer.address, http.request.method, http.response.status_code, http.request.body.size, http.response.body.size, error.type and hotline.timing.total_us
     And hotline.integration.id is <id>
 
     Examples:

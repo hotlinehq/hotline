@@ -93,6 +93,16 @@ func (c *call) record(end time.Time) {
 		key := c.api.SigningKey
 		attrs = append(attrs, c.h.signers.traceSignature(key, c.trace, spans))
 		attrs = append(attrs, c.h.signers.signature(key, attrs, c.start, c.trace)...)
+	} else {
+		// A minimal record carries the sizes too, counted as the bodies
+		// passed and never kept (Peter, 2026-11-08). The reply's size is there
+		// only when a reply came.
+		sent, _ := c.reqBody.counts()
+		attrs = append(attrs, semconv.HTTPRequestBodySize(int(sent)))
+		if c.respBody != nil {
+			got, _ := c.respBody.counts()
+			attrs = append(attrs, semconv.HTTPResponseBodySize(int(got)))
+		}
 	}
 	c.h.record(c.in, finished{
 		sc: c.trace, at: c.start, attrs: attrs, spans: spans,
