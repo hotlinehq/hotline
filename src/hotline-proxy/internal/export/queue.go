@@ -10,8 +10,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	sdklog "go.opentelemetry.io/otel/sdk/log"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // batchSize is how many records or spans one send carries at most.
@@ -195,30 +193,15 @@ func (q *queue[T]) Shutdown(ctx context.Context) error {
 	return errors.Join(err, q.close(ctx))
 }
 
-// logQueue is the queue of records, as the log SDK's processor.
-type logQueue struct {
-	*queue[sdklog.Record]
-	rest
-}
-
-// rest gives the processor's methods a queue has nothing to add to. It
-// sits one level further down, so the queue's own methods win.
-type rest struct{ sdklog.Processor }
-
-func newLogQueue(exporter sdklog.Exporter, s queueSetup) logQueue {
-	return logQueue{
-		queue: newQueue("records", exporter.Export, exporter.Shutdown, s),
-		rest:  rest{sdklog.NewSimpleProcessor(nil)},
+// newItemQueue is the queue of one kind of written items for one
+// destination. A send writes the waiting items into one request, in a
+// buffer the queue keeps, since its sends come one at a time.
+func newItemQueue(what string, k kind, t transport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
+	var body []byte
+	send := func(ctx context.Context, items [][]byte) error {
+		body = appendBatch(body[:0], resource, items)
+		return sendWithRetry(ctx, t, k, body, timeout)
 	}
-}
-
-// OnEmit queues a record without waiting.
-func (q logQueue) OnEmit(_ context.Context, r *sdklog.Record) error {
-	q.add(r.Clone())
-	return nil
-}
-
-// newSpanQueue is the queue of spans.
-func newSpanQueue(exporter sdktrace.SpanExporter, s queueSetup) *queue[sdktrace.ReadOnlySpan] {
-	return newQueue("spans", exporter.ExportSpans, exporter.Shutdown, s)
+	// The destination closes the transport once both queues are done.
+	return newQueue(what, send, func(context.Context) error { return nil }, s)
 }

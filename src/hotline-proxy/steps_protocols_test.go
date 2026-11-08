@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"google.golang.org/grpc/codes"
 )
 
 func protocolSteps(sc *godog.ScenarioContext, w *world) {
@@ -255,6 +256,50 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 			}
 		}
 		return failf("no warning about the dropped record; the log is %s", w.logs.String())
+	})
+
+	sc.Step(`^a gRPC receiver that answers the first log send with (Unavailable|InvalidArgument)$`, func(code string) error {
+		w.receivers[0].grpcAnswers = []codes.Code{map[string]codes.Code{"Unavailable": codes.Unavailable, "InvalidArgument": codes.InvalidArgument}[code]}
+		w.exportTimeout = 5 * time.Second
+		return nil
+	})
+	sc.Step(`^an HTTP receiver (over TLS|plain) that offers (HTTP/2|HTTP/1.1|h2c)$`, func(over, offers string) error {
+		setup := receiverSetup{http: true, http2: offers == "HTTP/2", h2c: offers == "h2c"}
+		if over == "over TLS" {
+			setup.tls = &tls.Config{
+				Certificates: []tls.Certificate{w.issuer.leaf("localhost", time.Now().Add(24*time.Hour), false)},
+				MinVersion:   tls.VersionTLS12,
+			}
+		}
+		use(setup)
+		// A send that cannot be read is tried again until its time runs out.
+		w.exportTimeout = 300 * time.Millisecond
+		return nil
+	})
+	sc.Step(`^the exporter (does not set h2c|sets h2c to true)$`, func(sets string) error {
+		if sets == "sets h2c to true" {
+			w.exporterExtra = []string{"      h2c: true\n"}
+		}
+		return nil
+	})
+	sc.Step(`^the receiver gets the record$`, func() error {
+		if got := len(w.records()); got != 1 {
+			return failf("the receiver got %d records, want 1", got)
+		}
+		return nil
+	})
+	sc.Step(`^every request to the receiver came over (HTTP/2.0|HTTP/1.1)$`, func(version string) error {
+		w.settle()
+		seen := w.receivers[0].requests()
+		if len(seen) == 0 {
+			return failf("the receiver got no request")
+		}
+		for _, s := range seen {
+			if s.proto != version {
+				return failf("a request to %s came over %s, want %s", s.path, s.proto, version)
+			}
+		}
+		return nil
 	})
 
 	sc.Step(`^OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS and OTEL_EXPORTER_OTLP_COMPRESSION are set to other values$`, func() error {

@@ -1,6 +1,7 @@
 Feature: How OpenTelemetry data is sent
   Each exporter picks gRPC, the default, or HTTP. Over HTTP the proxy sends
-  protobuf (a compact binary format) to /v1/logs and /v1/metrics. Both
+  protobuf (a compact binary format) to /v1/logs, /v1/metrics and
+  /v1/traces. Both
   protocols take the same login headers, TLS settings and compression, and
   only the config file says how: the standard OTEL_EXPORTER_OTLP_*
   environment variables are ignored (Peter, 2026-10-30). Tests use a fake
@@ -103,6 +104,43 @@ Feature: How OpenTelemetry data is sent
       | 503                    | arrives on the second try                      |
       | 429 with Retry-After 1 | arrives on the second try                      |
       | 400                    | is lost, and the proxy logs that 1 was dropped |
+
+  Scenario Outline: Retries over gRPC
+    The same rule as over HTTP: a busy collector is tried again, any other
+    refusal loses the batch.
+    Given a gRPC receiver that answers the first log send with <code>
+    When a call ends
+    Then the record <arrives>
+
+    Examples:
+      | code             | arrives                                        |
+      | Unavailable      | arrives on the second try                      |
+      | InvalidArgument  | is lost, and the proxy logs that 1 was dropped |
+
+  Scenario Outline: HTTP/2 to the collector
+    Over TLS the proxy uses HTTP/2 when the collector offers it, and
+    HTTP/1.1 when it does not. A plain http:// endpoint uses HTTP/1.1,
+    unless h2c is true: then it speaks HTTP/2 from the first byte, which is
+    called h2c, HTTP/2 without TLS (Peter, 2026-11-08).
+    Given an HTTP receiver <over> that offers <offers>
+    And the exporter <sets>
+    When a call ends
+    Then the receiver gets the record
+    And every request to the receiver came over <version>
+
+    Examples:
+      | over     | offers      | sets             | version  |
+      | over TLS | HTTP/2      | does not set h2c | HTTP/2.0 |
+      | over TLS | HTTP/1.1    | does not set h2c | HTTP/1.1 |
+      | plain    | h2c         | does not set h2c | HTTP/1.1 |
+      | plain    | h2c         | sets h2c to true | HTTP/2.0 |
+
+  Scenario: A collector without h2c gets nothing
+    Given an HTTP receiver plain that offers HTTP/1.1
+    And the exporter sets h2c to true
+    When a call ends
+    Then the receiver gets no record
+    And the proxy logs a warning that the send to that endpoint failed
 
   Scenario: The standard environment variables are ignored
     Given an HTTP receiver

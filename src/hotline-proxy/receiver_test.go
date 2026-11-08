@@ -19,6 +19,7 @@ import (
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 
 	// gzip lets the gRPC side take gzipped exports.
@@ -26,6 +27,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/stats"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -59,7 +61,9 @@ type receivedSpan struct {
 	start int64
 	end   int64
 	// status is unset, ok or error.
-	status   string
+	status string
+	// flags are the span's OTLP flags.
+	flags    uint32
 	attrs    map[string]any
 	resource map[string]any
 }
@@ -101,6 +105,9 @@ type seenRequest struct {
 	header     http.Header
 	tls        bool
 	clientCert bool
+	// proto is the HTTP version an HTTP request came with, such as
+	// HTTP/1.1 or HTTP/2.0.
+	proto string
 }
 
 // answer is what the HTTP side answers a log export with, instead of
@@ -119,6 +126,9 @@ type receiverSetup struct {
 	tls *tls.Config
 	// listener, when set, is where the receiver listens.
 	listener net.Listener
+	// http2 offers HTTP/2 over TLS; h2c takes HTTP/2 on a plain port.
+	http2 bool
+	h2c   bool
 }
 
 // receiver is a fake OTLP destination on a local port. It has a gRPC side
@@ -147,8 +157,10 @@ type receiver struct {
 	delay time.Duration
 	// seen are the export requests, in the order they came.
 	seen []seenRequest
-	// answers are given to the first log exports over HTTP, one each.
-	answers []answer
+	// answers are given to the first log exports over HTTP, one each,
+	// and grpcAnswers to the first ones over gRPC.
+	answers     []answer
+	grpcAnswers []codes.Code
 	// encodings are the compression of each gRPC export, as the gRPC
 	// side saw it.
 	encodings []string
@@ -174,7 +186,15 @@ func newReceiverWith(setup receiverSetup) *receiver {
 		}
 		r.endpoint += setup.path
 		r.httpServer = &http.Server{Handler: r, TLSConfig: setup.tls, ReadHeaderTimeout: 5 * time.Second}
+		protocols := new(http.Protocols)
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(setup.h2c)
+		protocols.SetHTTP2(setup.http2)
+		r.httpServer.Protocols = protocols
 		if setup.tls != nil {
+			if setup.http2 {
+				setup.tls.NextProtos = []string{"h2", "http/1.1"}
+			}
 			listener = tls.NewListener(listener, setup.tls)
 		}
 		go func() { _ = r.httpServer.Serve(listener) }()
@@ -206,6 +226,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		header:        req.Header.Clone(),
 		tls:           req.TLS != nil,
 		clientCert:    req.TLS != nil && len(req.TLS.PeerCertificates) > 0,
+		proto:         req.Proto,
 	})
 	var refuse *answer
 	if logs && len(r.answers) > 0 {
@@ -335,7 +356,14 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 	if r.hold != nil {
 		r.logsHeld++
 	}
+	var refuse codes.Code
+	if !r.http && len(r.grpcAnswers) > 0 {
+		refuse, r.grpcAnswers = r.grpcAnswers[0], r.grpcAnswers[1:]
+	}
 	r.mu.Unlock()
+	if refuse != codes.OK {
+		return nil, status.Error(refuse, "the receiver refuses this export")
+	}
 	r.wait(ctx)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -470,6 +498,7 @@ func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceSe
 					start:    int64(s.GetStartTimeUnixNano()), //nolint:gosec // nanoseconds since 1970 fit until 2262
 					end:      int64(s.GetEndTimeUnixNano()),   //nolint:gosec // as above
 					status:   statuses[s.GetStatus().GetCode()],
+					flags:    s.GetFlags(),
 					attrs:    values(s.GetAttributes()),
 					resource: res,
 				})

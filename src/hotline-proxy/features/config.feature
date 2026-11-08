@@ -132,6 +132,9 @@ Feature: Loading the config file
       | an exporter's header secret file does not exist      |
       | an exporter's header environment variable is not set |
       | an exporter's compression is neither gzip nor none   |
+      | an exporter sets h2c over gRPC                       |
+      | an exporter sets h2c on an https:// endpoint         |
+      | an exporter's h2c is neither true nor false          |
       | an exporter's resource sets service.version          |
       | an exporter's resource has the name "my label"       |
       | an exporter's resource environment variable is not set |

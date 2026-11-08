@@ -437,6 +437,49 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
+	// The span flags OTLP defines: the parent's remoteness is known, and
+	// the parent is remote.
+	const hasIsRemote, isRemote = 0x100, 0x200
+	remote := func(s receivedSpan) (bool, error) {
+		if s.flags&hasIsRemote == 0 {
+			return false, failf("%q does not say whether its parent is remote; its flags are %#x", s.name, s.flags)
+		}
+		return s.flags&isRemote != 0, nil
+	}
+	sc.Step(`^"hotline call" says its parent is (remote|not remote)$`, func(want string) error {
+		t, err := w.lastTrace()
+		if err != nil {
+			return err
+		}
+		got, err := remote(t.call())
+		if err != nil {
+			return err
+		}
+		if got != (want == "remote") {
+			return failf("the call span says its parent is remote: %v", got)
+		}
+		return nil
+	})
+	sc.Step(`^every other span says its parent is not remote$`, func() error {
+		t, err := w.lastTrace()
+		if err != nil {
+			return err
+		}
+		for _, s := range t.spans {
+			if s.name == "hotline call" {
+				continue
+			}
+			got, err := remote(s)
+			if err != nil {
+				return err
+			}
+			if got {
+				return failf("%q says its parent is remote", s.name)
+			}
+		}
+		return nil
+	})
+
 	sc.Step(`^the exporter uses (grpc|http/protobuf)$`, func(protocol string) error {
 		if protocol == "http/protobuf" {
 			w.receivers[0].stop()

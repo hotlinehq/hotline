@@ -113,7 +113,10 @@ type Exporter struct {
 	// Headers go with every request, login headers among them.
 	Headers map[string]string
 	Gzip    bool
-	Delta   bool
+	// H2C sends HTTP/2 from the first byte to a plain http:// endpoint
+	// (Peter, 2026-11-08).
+	H2C   bool
+	Delta bool
 	// QueueSize is how many records wait for the destination at most.
 	QueueSize int
 	// MetricInterval, LogInterval and TraceInterval are how often counts,
@@ -207,8 +210,10 @@ type exporterFile struct {
 	Headers     map[string]secret `yaml:"headers"`
 	TLS         *exporterTLSFile  `yaml:"tls"`
 	Compression string            `yaml:"compression"`
-	Temporality string            `yaml:"temporality"`
-	QueueSize   *int              `yaml:"queueSize"`
+	// H2C is true or false, read as text so a wrong value is named.
+	H2C         string `yaml:"h2c"`
+	Temporality string `yaml:"temporality"`
+	QueueSize   *int   `yaml:"queueSize"`
 	// The intervals are durations, such as 15s.
 	MetricInterval *string           `yaml:"metricInterval"`
 	LogInterval    *string           `yaml:"logInterval"`
@@ -504,6 +509,20 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 		e.Gzip = false
 	default:
 		l.problem("%s: compression must be gzip or none", label)
+	}
+	switch f.H2C {
+	case "", "false":
+	case "true":
+		switch {
+		case !e.HTTP:
+			l.problem("%s: h2c needs protocol http/protobuf", label)
+		case e.URL != nil && e.URL.Scheme != "http":
+			l.problem("%s: h2c needs a plain http:// endpoint", label)
+		default:
+			e.H2C = true
+		}
+	default:
+		l.problem("%s: h2c must be true or false", label)
 	}
 	switch f.Temporality {
 	case "", "cumulative", "delta":

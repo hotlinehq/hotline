@@ -416,6 +416,15 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's header environment variable is not set":
 		w.rawConfig = start + exporters + "      headers:\n        Authorization: { env: OTLP_TOKEN }\n"
 		w.problem = "header Authorization: the environment variable OTLP_TOKEN is not set"
+	case "an exporter sets h2c over gRPC":
+		w.rawConfig = start + exporters + "      h2c: true\n"
+		w.problem = "h2c needs protocol http/protobuf"
+	case "an exporter sets h2c on an https:// endpoint":
+		w.rawConfig = start + "exporters:\n  - otlp:\n      protocol: http/protobuf\n      endpoint: https://collector:4318\n      h2c: true\n"
+		w.problem = "exporter https://collector:4318: h2c needs a plain http:// endpoint"
+	case "an exporter's h2c is neither true nor false":
+		w.rawConfig = start + "exporters:\n  - otlp:\n      protocol: http/protobuf\n      endpoint: http://collector:4318\n      h2c: maybe\n"
+		w.problem = "h2c"
 	case "an exporter's compression is neither gzip nor none":
 		w.rawConfig = start + exporters + "      compression: zstd\n"
 		w.problem = "compression must be gzip or none"

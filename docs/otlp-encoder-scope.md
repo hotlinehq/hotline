@@ -1,6 +1,6 @@
 # Own OTLP encoder for records and traces: scope (draft)
 
-Status: draft for Peter to read. Nothing here is built, and no contract changes until Peter agrees (2026-11-07).
+Status: agreed with Peter and built on 2026-11-08; decisions in [decisions/otlp-encoder.md](decisions/otlp-encoder.md). The spike sections below describe the throwaway code that measured the gain; the built code lives in `internal/export` (`wire.go`, `send.go`).
 
 OTLP is the OpenTelemetry protocol: the standard way to ship records, counts and traces to a collector. Protobuf is the compact binary format OTLP uses on the wire. An encoder is the code that turns data into those bytes.
 
@@ -67,21 +67,19 @@ If the answer is go, the real work follows the TDD loop of the repo: the compati
 ## Decisions (Peter, 2026-11-08)
 
 - The bar: at least 15% less proxy processor time on the small call at 5000 a second, and no worse on large calls.
-- Gzip: the fastest level, and `klauspost/compress` if it helps (a new dependency, standard gzip output).
+- Gzip: the fastest level. `klauspost/compress` was allowed if it helped, but it saved under 1 microsecond per call, so it is not used.
 - The OpenTelemetry log and trace exporters are dropped; grpc-go stays for the connection; the config stays the same.
 - Traces are needed, so they are not optional. Making them optional is out of scope and the trace signature contract stays as it is.
 - The old path is replaced outright once the tests pass. No hidden switch.
 
-## Still open
-
-- May the spike start (throwaway code and a benchmark, nothing merged)? Not answered yet.
+- The spike may start (Peter, 2026-11-08), and then the real build, as one pull request, with the remote-parent flag fixed.
 
 ## Spike results (2026-11-08)
 
-Throwaway code: `internal/otlpwire` (the encoder) and `internal/export/wire_spike.go` (wired in for HTTP destinations only, with no retries, no TLS and always gzip at the fastest level).
+Throwaway code, since replaced: an encoder package and the encoder wired in for HTTP destinations only, with no retries, no TLS and always gzip at the fastest level.
 
-- **Same as the library.** The official OTLP types decode the same records and spans from both paths, lists of maps included (`TestSpikeSameAsLibrary`). 837 of the 845 behaviour scenarios pass unchanged; the 8 that fail test exactly what the spike left out (TLS, no compression, retries, the warnings and counts of a failed send).
-- **Encoder alone** (`BenchmarkSpike*`, one call's record and 11 spans, batch sends over HTTP included, processor time of the whole test process): about 75 to 84 microseconds per call today, about 13 to 15 with the new path at the fastest gzip level, 16 to 19 at the default level. Memory handed out: about 33 KB per call today, 1.2 KB with the new path. `klauspost/compress` saved under 1 microsecond more, so it is not worth a new dependency.
+- **Same as the library.** The official OTLP types decode the same records and spans from both paths, lists of maps included (a spike test, since removed with the old path). 837 of the 845 behaviour scenarios pass unchanged; the 8 that fail test exactly what the spike left out (TLS, no compression, retries, the warnings and counts of a failed send).
+- **Encoder alone** (a spike benchmark, one call's record and 11 spans, batch sends over HTTP included, processor time of the whole test process): about 75 to 84 microseconds per call today, about 13 to 15 with the new path at the fastest gzip level, 16 to 19 at the default level. Memory handed out: about 33 KB per call today, 1.2 KB with the new path. `klauspost/compress` saved under 1 microsecond more, so it is not worth a new dependency.
 - **Whole proxy** (`make load-compare`, proxy on 2 cores, three repeats each, taking turns; the full table is in the project files as `otlp-encoder/spike-compare.txt`): small call at 5000 a second, processor time per call 314 to 315 microseconds on main, 264 to 267 on the spike, 15 to 16% less; memory handed out per call 64 KB on main, 35 KB on the spike, 45% less; extra delay of the slowest 1 in 100 calls 23 ms on main, 5 to 17 ms on the spike. Large call (115 KB) at 200 a second: from 15% less to 3% more processor time, within the noise, and 12% less memory.
 
 ## Setting `h2c` (agreed with Peter, 2026-11-08)
