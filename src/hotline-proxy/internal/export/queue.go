@@ -196,7 +196,7 @@ func (q *queue[T]) Shutdown(ctx context.Context) error {
 // newItemQueue is the queue of one kind of written items for one
 // destination. A send writes the waiting items into one request, in a
 // buffer the queue keeps, since its sends come one at a time.
-func newItemQueue(what string, k kind, t transport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
+func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
 	var body []byte
 	send := func(ctx context.Context, items [][]byte) error {
 		body = appendBatch(body[:0], resource, items)

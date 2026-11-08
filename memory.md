@@ -61,4 +61,4 @@ Open only the file for the topic at hand.
 - Proxy telemetry: [docs/decisions/proxy-telemetry.md](docs/decisions/proxy-telemetry.md)
 - Profile pages on the admin port, `telemetry.pprof`, off by default: [docs/decisions/profile-pages.md](docs/decisions/profile-pages.md)
 - Trace context: [docs/decisions/trace-context.md](docs/decisions/trace-context.md)
-- Own OTLP encoder for records and spans, and `h2c`: [docs/decisions/otlp-encoder.md](docs/decisions/otlp-encoder.md)
+- Own OTLP encoder for records and spans, `h2c`, and no more gRPC: [docs/decisions/otlp-encoder.md](docs/decisions/otlp-encoder.md)

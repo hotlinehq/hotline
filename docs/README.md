@@ -33,7 +33,7 @@
 - [Signed records](proxy-signatures.md)
 - [Body fields and headers in the record](proxy-body-fields.md)
 - [Trace context on records](proxy-trace-context.md)
-- [OTLP over gRPC or HTTP](proxy-otlp-protocols.md)
+- [OTLP over HTTP](proxy-otlp-protocols.md)
 - [The proxy's own telemetry](proxy-telemetry.md)
 
 ## Examples

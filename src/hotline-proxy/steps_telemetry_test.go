@@ -240,7 +240,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^a product destination over HTTP that refuses every log export with 400$`, func() error {
 		w.receivers[0].stop()
-		w.receivers[0] = newReceiverWith(receiverSetup{http: true})
+		w.receivers[0] = newReceiverWith(receiverSetup{})
 		for range 100 {
 			w.receivers[0].answers = append(w.receivers[0].answers, answer{status: http.StatusBadRequest})
 		}
@@ -248,11 +248,12 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^a product destination that is down$`, func() error {
 		w.receivers[0].stop()
-		w.receivers[0] = &receiver{endpoint: freePort()}
+		// Nothing listens there yet.
+		w.receivers[0] = &receiver{endpoint: "http://" + freePort()}
 		return nil
 	})
 	sc.Step(`^the destination comes back and another call ends$`, func() error {
-		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", w.receivers[0].endpoint)
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(w.receivers[0].endpoint, "http://"))
 		if err != nil {
 			return err
 		}

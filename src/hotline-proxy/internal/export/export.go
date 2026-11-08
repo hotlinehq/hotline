@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
@@ -27,7 +26,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/credentials"
 
 	"hotline-proxy/internal/config"
 )
@@ -60,7 +58,7 @@ type destination struct {
 	// sent with transport.
 	queue     *queue[[]byte]
 	spans     *queue[[]byte]
-	transport transport
+	transport *httpTransport
 	// up is 1 while sends work, 0 from a failed send until one works, and
 	// place names the destination in the proxy's own numbers.
 	up    *atomic.Int64
@@ -93,12 +91,7 @@ func New(exporters []config.Exporter, roots *x509.CertPool, service Service, tim
 	}
 	stats := newSendStats(meter)
 	for _, e := range exporters {
-		var t transport
-		if e.HTTP {
-			t = newHTTPTransport(e, tlsFor(e, roots), service.Version)
-		} else {
-			t = newGRPCTransport(e, tlsFor(e, roots), service.Version)
-		}
+		t := newHTTPTransport(e, tlsFor(e, roots), service.Version)
 		metrics := metricSender(e, roots, timing)
 		up := &atomic.Int64{}
 		up.Store(1)
@@ -154,17 +147,13 @@ const (
 	retryMost  = 5 * time.Second
 )
 
-// metricSender sends a destination's metrics, over gRPC or HTTP.
+// metricSender sends a destination's metrics over HTTP.
 func metricSender(e config.Exporter, roots *x509.CertPool, timing Timing) sdkmetric.Exporter {
 	temporality := sdkmetric.DefaultTemporalitySelector
 	if e.Delta {
 		temporality = delta
 	}
-	send := grpcMetrics
-	if e.HTTP {
-		send = httpMetrics
-	}
-	return send(e, tlsFor(e, roots), timing, temporality)
+	return httpMetrics(e, tlsFor(e, roots), timing, temporality)
 }
 
 // tlsFor is the TLS setup for a destination, nil for a plain one.
@@ -173,28 +162,6 @@ func tlsFor(e config.Exporter, roots *x509.CertPool) *tls.Config {
 		return nil
 	}
 	return destinationTLS(e, roots)
-}
-
-// grpcMetrics sends metrics over gRPC.
-func grpcMetrics(e config.Exporter, tlsConfig *tls.Config, timing Timing, temporality sdkmetric.TemporalitySelector) sdkmetric.Exporter {
-	compressor := "none"
-	if e.Gzip {
-		compressor = "gzip"
-	}
-	options := []otlpmetricgrpc.Option{
-		otlpmetricgrpc.WithEndpoint(e.URL.Host),
-		otlpmetricgrpc.WithHeaders(e.Headers),
-		otlpmetricgrpc.WithCompressor(compressor),
-		otlpmetricgrpc.WithTimeout(timing.Timeout),
-		otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{Enabled: true, InitialInterval: retryFirst, MaxInterval: retryMost, MaxElapsedTime: timing.Timeout}),
-		otlpmetricgrpc.WithTemporalitySelector(temporality),
-		otlpmetricgrpc.WithInsecure(),
-	}
-	if tlsConfig != nil {
-		options[len(options)-1] = otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig))
-	}
-	metrics, _ := otlpmetricgrpc.New(context.Background(), options...)
-	return metrics
 }
 
 // httpMetrics sends metrics over HTTP as protobuf, to /v1/metrics after the

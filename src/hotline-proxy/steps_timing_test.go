@@ -480,14 +480,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the exporter uses (grpc|http/protobuf)$`, func(protocol string) error {
-		if protocol == "http/protobuf" {
-			w.receivers[0].stop()
-			w.receivers[0] = newReceiverWith(receiverSetup{http: true})
-		}
-		return nil
-	})
-	sc.Step(`^the receiver gets the spans (over gRPC|at /v1/traces), with the exporter's resource labels$`, func(where string) error {
+	sc.Step(`^the receiver gets the spans at /v1/traces, with the exporter's resource labels$`, func() error {
 		t, err := w.lastTrace()
 		if err != nil {
 			return err
@@ -497,15 +490,12 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 				return failf("%q has the resource %v", s.name, s.resource)
 			}
 		}
-		if where == "at /v1/traces" {
-			for _, seen := range w.receivers[0].requests() {
-				if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
-					return nil
-				}
+		for _, seen := range w.receivers[0].requests() {
+			if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
+				return nil
 			}
-			return failf("no export came to /v1/traces; the receiver got %v", w.receivers[0].requests())
 		}
-		return nil
+		return failf("no export came to /v1/traces; the receiver got %v", w.receivers[0].requests())
 	})
 	sc.Step(`^a second exporter$`, func() error {
 		w.receivers = append(w.receivers, newReceiver())

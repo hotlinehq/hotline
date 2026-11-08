@@ -10,7 +10,7 @@ listen:
 
 exporters:
   - otlp:
-      endpoint: &collector otel-collector.observability:4317   # your OpenTelemetry collector
+      endpoint: &collector http://otel-collector.observability:4318   # your OpenTelemetry collector
 
 telemetry:                         # the proxy's own numbers, to the same collector
   otlp:

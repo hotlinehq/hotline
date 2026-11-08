@@ -13,16 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	grpcgzip "google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/mem"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
-
 	"hotline-proxy/internal/config"
 )
 
@@ -37,14 +27,6 @@ const (
 	spans
 )
 
-// transport sends one export request, already written as protobuf, to a
-// destination. A busy collector's error is a busy, which says how long it
-// asked to wait.
-type transport interface {
-	post(ctx context.Context, k kind, body []byte) error
-	close()
-}
-
 // busy is a refusal worth trying again, after at least wait.
 type busy struct {
 	wait time.Duration
@@ -56,7 +38,7 @@ func (b busy) Error() string { return b.err.Error() }
 // sendWithRetry sends body, and tries again while the collector is busy and
 // the send's time allows: first after about a second, then at most every
 // few seconds, or later when the collector asks.
-func sendWithRetry(ctx context.Context, t transport, k kind, body []byte, timeout time.Duration) error {
+func sendWithRetry(ctx context.Context, t *httpTransport, k kind, body []byte, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	backoff := retryFirst
@@ -79,8 +61,9 @@ func sendWithRetry(ctx context.Context, t transport, k kind, body []byte, timeou
 	}
 }
 
-// httpTransport sends over HTTP as protobuf, to /v1/logs and /v1/traces
-// after the endpoint's own path. Over TLS it uses HTTP/2 when the
+// httpTransport sends one export request, already written as protobuf,
+// over HTTP to /v1/logs or /v1/traces after the endpoint's own path. A busy
+// collector's error is a busy, which says how long it asked to wait. Over TLS it uses HTTP/2 when the
 // collector offers it; a plain endpoint uses HTTP/1.1, or HTTP/2 from the
 // first byte when h2c is set (Peter, 2026-11-08).
 type httpTransport struct {
@@ -178,85 +161,3 @@ func (t *httpTransport) post(ctx context.Context, k kind, body []byte) error {
 }
 
 func (t *httpTransport) close() { t.client.CloseIdleConnections() }
-
-// grpcTransport sends over gRPC, to the standard OTLP services, with the
-// written bytes as the message.
-type grpcTransport struct {
-	conn    *grpc.ClientConn
-	headers metadata.MD
-	options []grpc.CallOption
-}
-
-// grpcMethod is the OTLP service that takes records or spans.
-func grpcMethod(k kind) string {
-	if k == spans {
-		return "/opentelemetry.proto.collector.trace.v1.TraceService/Export"
-	}
-	return "/opentelemetry.proto.collector.logs.v1.LogsService/Export"
-}
-
-// newGRPCTransport connects on the first send. The config has checked the
-// endpoint, the only thing that could fail here.
-func newGRPCTransport(e config.Exporter, tlsConfig *tls.Config, version string) *grpcTransport {
-	creds := insecure.NewCredentials()
-	if tlsConfig != nil {
-		creds = credentials.NewTLS(tlsConfig)
-	}
-	conn, _ := grpc.NewClient(e.URL.Host,
-		grpc.WithTransportCredentials(creds),
-		grpc.WithUserAgent("hotline-proxy/"+version),
-		grpc.WithDefaultCallOptions(grpc.ForceCodecV2(rawCodec{})))
-	t := &grpcTransport{conn: conn, headers: metadata.New(e.Headers)}
-	if e.Gzip {
-		t.options = append(t.options, grpc.UseCompressor(grpcgzip.Name))
-	}
-	return t
-}
-
-func (t *grpcTransport) post(ctx context.Context, k kind, body []byte) error {
-	ctx = metadata.NewOutgoingContext(ctx, t.headers)
-	var reply []byte
-	err := t.conn.Invoke(ctx, grpcMethod(k), &body, &reply, t.options...)
-	if err == nil {
-		return nil
-	}
-	s := status.Convert(err)
-	refused := fmt.Errorf("%w: gRPC %s", ErrRefused, s.Code())
-	switch s.Code() {
-	case codes.Canceled, codes.DeadlineExceeded, codes.Aborted, codes.OutOfRange, codes.Unavailable, codes.DataLoss:
-		return busy{wait: retryDelay(s), err: refused}
-	case codes.ResourceExhausted:
-		// Only a collector that says when to come back is busy; any
-		// other means the send is too large.
-		if wait := retryDelay(s); wait > 0 {
-			return busy{wait: wait, err: refused}
-		}
-	}
-	return refused
-}
-
-// retryDelay is how long the collector asked to wait, or 0.
-func retryDelay(s *status.Status) time.Duration {
-	for _, d := range s.Details() {
-		if info, ok := d.(*errdetails.RetryInfo); ok {
-			return info.GetRetryDelay().AsDuration()
-		}
-	}
-	return 0
-}
-
-func (t *grpcTransport) close() { _ = t.conn.Close() }
-
-// rawCodec hands gRPC the written bytes as they are, and drops the reply,
-// whose partial success, if any, is not acted on.
-type rawCodec struct{}
-
-// Marshal takes the *[]byte the transport always passes.
-func (rawCodec) Marshal(v any) (mem.BufferSlice, error) {
-	body, _ := v.(*[]byte)
-	return mem.BufferSlice{mem.SliceBuffer(*body)}, nil
-}
-
-func (rawCodec) Unmarshal(mem.BufferSlice, any) error { return nil }
-
-func (rawCodec) Name() string { return "proto" }

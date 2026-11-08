@@ -658,7 +658,7 @@ func port(s *httptest.Server) string {
 // config is a config for the test vendor. A config only to validate needs
 // no receiver.
 func (p *program) config(validateOnly bool) string {
-	endpoint := "127.0.0.1:4317"
+	endpoint := "http://127.0.0.1:4318"
 	if !validateOnly {
 		endpoint = p.receiver.endpoint
 	}

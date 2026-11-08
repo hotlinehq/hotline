@@ -10,7 +10,7 @@ listen:
 
 exporters:
   - otlp:
-      endpoint: &collector localhost:4317   # an OpenTelemetry collector
+      endpoint: &collector http://localhost:4318   # an OpenTelemetry collector
 
 telemetry:                         # the proxy's own numbers, to the same collector
   otlp:

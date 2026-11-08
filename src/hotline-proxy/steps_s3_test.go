@@ -85,7 +85,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		w.addr = freePort()
 		config, err := shopConfig(
 			[2]string{`":8080"`, fmt.Sprintf("%q", w.addr)},
-			[2]string{"localhost:4317", w.receivers[0].endpoint},
+			[2]string{"http://localhost:4318", w.receivers[0].endpoint},
 		)
 		w.rawConfig = config
 		if err != nil {

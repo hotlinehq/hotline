@@ -64,7 +64,7 @@ listen:
   proxy: %q
 exporters:
   - otlp:
-      endpoint: 127.0.0.1:4317
+      endpoint: http://127.0.0.1:4318
 apis:
   shop:
     hosts: [api.shop.test]

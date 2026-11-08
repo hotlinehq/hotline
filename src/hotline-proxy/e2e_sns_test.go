@@ -174,7 +174,7 @@ func (p *program) records() ([]map[string]any, error) {
 func exampleConfig(proxyAddr, otlpEndpoint string) (string, error) {
 	config, err := shopConfig(
 		[2]string{`":8080"`, fmt.Sprintf("%q", proxyAddr)},
-		[2]string{"localhost:4317", otlpEndpoint},
+		[2]string{"http://localhost:4318", otlpEndpoint},
 	)
 	if err != nil {
 		return "", err

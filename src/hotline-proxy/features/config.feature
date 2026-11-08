@@ -118,11 +118,9 @@ Feature: Loading the config file
       | an exporter's metricInterval is zero                 |
       | an exporter's logInterval is not a duration          |
       | an exporter's traceInterval is negative              |
-      | an exporter's protocol is http/json                  |
-      | an HTTP exporter's endpoint has no http:// or https:// |
+      | an exporter's endpoint has no http:// or https://    |
       | an exporter's endpoint has a query                   |
       | an exporter's endpoint has a user name in it         |
-      | a gRPC exporter's endpoint has a path                |
       | an exporter sets tls on a plain http:// endpoint     |
       | an exporter sets tls.cert without tls.key            |
       | an exporter's tls.ca file does not exist             |
@@ -132,7 +130,6 @@ Feature: Loading the config file
       | an exporter's header secret file does not exist      |
       | an exporter's header environment variable is not set |
       | an exporter's compression is neither gzip nor none   |
-      | an exporter sets h2c over gRPC                       |
       | an exporter sets h2c on an https:// endpoint         |
       | an exporter's h2c is neither true nor false          |
       | an exporter's resource sets service.version          |
@@ -172,6 +169,7 @@ Feature: Loading the config file
       | there is no admin listen address                      | listen.admin  |
       | telemetry.pprof is on but there is no admin listen address | telemetry.pprof |
       | the config still has a version field                  | version       |
+      | an exporter still sets protocol                       | protocol      |
 
   Scenario: A busy listen address
     Given another program listens on the proxy address

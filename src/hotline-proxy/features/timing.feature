@@ -160,15 +160,9 @@ Feature: Each call's timings are a trace
 
   Rule: Spans are sent like records
 
-    Scenario Outline: Each protocol
-      Given the exporter uses <protocol>
+    Scenario: Spans go to /v1/traces
       When a call ends
-      Then the receiver gets the spans <where>, with the exporter's resource labels
-
-      Examples:
-        | protocol      | where         |
-        | grpc          | over gRPC     |
-        | http/protobuf | at /v1/traces |
+      Then the receiver gets the spans at /v1/traces, with the exporter's resource labels
 
     Scenario: Every exporter gets the trace
       Given a second exporter

@@ -1,6 +1,6 @@
 # Own OTLP encoder for records and traces: scope (draft)
 
-Status: agreed with Peter and built on 2026-11-08; decisions in [decisions/otlp-encoder.md](decisions/otlp-encoder.md). The spike sections below describe the throwaway code that measured the gain; the built code lives in `internal/export` (`wire.go`, `send.go`).
+Status: agreed with Peter and built on 2026-11-08; decisions in [decisions/otlp-encoder.md](decisions/otlp-encoder.md). gRPC was removed in the same build, so the transports below are HTTP only. The spike sections below describe the throwaway code that measured the gain; the built code lives in `internal/export` (`wire.go`, `send.go`).
 
 OTLP is the OpenTelemetry protocol: the standard way to ship records, counts and traces to a collector. Protobuf is the compact binary format OTLP uses on the wire. An encoder is the code that turns data into those bytes.
 

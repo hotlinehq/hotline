@@ -8,10 +8,6 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func protocolSteps(sc *godog.ScenarioContext, w *world) {
@@ -21,9 +17,9 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		w.receivers[0].stop()
 		w.receivers[0] = newReceiverWith(setup)
 	}
-	// overTLS starts a receiver of the protocol over TLS, with a certificate
-	// for localhost from signer.
-	overTLS := func(protocol string, signer *issuer, change func(*tls.Config)) {
+	// overTLS starts a receiver over TLS, with a certificate for localhost
+	// from signer.
+	overTLS := func(signer *issuer, change func(*tls.Config)) {
 		cfg := &tls.Config{
 			Certificates: []tls.Certificate{signer.leaf("localhost", time.Now().Add(24*time.Hour), false)},
 			MinVersion:   tls.VersionTLS12,
@@ -31,31 +27,11 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		if change != nil {
 			change(cfg)
 		}
-		use(receiverSetup{http: protocol == "HTTP", tls: cfg})
+		use(receiverSetup{tls: cfg})
 	}
-	sc.Step(`^an exporter with no protocol set$`, func() error { return nil })
-	sc.Step(`^the receiver gets the record and the count over gRPC$`, func() error {
-		if len(w.counts()) == 0 {
-			return failf("no count arrived")
-		}
-		if got := len(w.records()); got != 1 {
-			return failf("the receiver got %d records, want 1", got)
-		}
-		for _, seen := range w.receivers[0].requests() {
-			if seen.path != "" {
-				return failf("a request came over HTTP, to %s", seen.path)
-			}
-		}
-		return nil
-	})
-	sc.Step(`^an? (gRPC|HTTP) receiver$`, func(protocol string) error {
-		if protocol == "HTTP" {
-			use(receiverSetup{http: true})
-		}
-		return nil
-	})
-	sc.Step(`^an HTTP receiver whose endpoint ends in (/\S+)$`, func(path string) error {
-		use(receiverSetup{http: true, path: path})
+	sc.Step(`^a receiver$`, func() error { return nil })
+	sc.Step(`^a receiver whose endpoint ends in (/\S+)$`, func(path string) error {
+		use(receiverSetup{path: path})
 		return nil
 	})
 	sc.Step(`^the receiver gets the record on /v1/logs and the count on /v1/metrics$`, func() error {
@@ -93,14 +69,10 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return failf("no record came to %s; the receiver got %v", path, w.receivers[0].requests())
 	})
-	sc.Step(`^a gRPC receiver and an HTTP receiver$`, func() error {
-		w.receivers = append(w.receivers, newReceiverWith(receiverSetup{http: true}))
-		return nil
-	})
 
-	sc.Step(`^an? (gRPC|HTTP) receiver over TLS whose issuer only tls.ca trusts$`, func(protocol string) error {
+	sc.Step(`^a receiver over TLS whose issuer only tls.ca trusts$`, func() error {
 		other := newIssuer()
-		overTLS(protocol, other, nil)
+		overTLS(other, nil)
 		ca := w.writeFile("otlp/ca.crt", issuerCertPEM(other))
 		w.exporterExtra = []string{"      tls:\n        ca: " + ca + "\n"}
 		return nil
@@ -116,8 +88,8 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^an? (gRPC|HTTP) receiver over TLS whose issuer nobody trusts$`, func(protocol string) error {
-		overTLS(protocol, newIssuer(), nil)
+	sc.Step(`^a receiver over TLS whose issuer nobody trusts$`, func() error {
+		overTLS(newIssuer(), nil)
 		// Each send is tried again until its time runs out.
 		w.exportTimeout = 300 * time.Millisecond
 		return nil
@@ -138,8 +110,8 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return failf("no warning about the failed send; the log is %s", w.logs.String())
 	})
-	sc.Step(`^an? (gRPC|HTTP) receiver over TLS that asks for a client certificate$`, func(protocol string) error {
-		overTLS(protocol, w.issuer, func(cfg *tls.Config) {
+	sc.Step(`^a receiver over TLS that asks for a client certificate$`, func() error {
+		overTLS(w.issuer, func(cfg *tls.Config) {
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
 			cfg.ClientCAs = w.issuer.pool
 		})
@@ -197,10 +169,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^an? (gRPC|HTTP) receiver and an exporter that (does not set compression|sets compression to none)$`, func(protocol, sets string) error {
-		if protocol == "HTTP" {
-			use(receiverSetup{http: true})
-		}
+	sc.Step(`^a receiver and an exporter that (does not set compression|sets compression to none)$`, func(sets string) error {
 		if sets == "sets compression to none" {
 			w.exporterExtra = []string{"      compression: none\n"}
 		}
@@ -221,8 +190,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^an HTTP receiver that answers the first log send with (\d+)(?: with Retry-After (\d+))?$`, func(status int, retryAfter string) error {
-		use(receiverSetup{http: true})
+	sc.Step(`^a receiver that answers the first log send with (\d+)(?: with Retry-After (\d+))?$`, func(status int, retryAfter string) error {
 		w.receivers[0].answers = []answer{{status: status, retryAfter: retryAfter}}
 		w.exportTimeout = 5 * time.Second
 		return nil
@@ -261,21 +229,8 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no warning about the dropped record; the log is %s", w.logs.String())
 	})
 
-	sc.Step(`^a gRPC receiver that answers the first log send with (Unavailable|InvalidArgument|ResourceExhausted)( with RetryInfo 1s)?$`, func(code, retryInfo string) error {
-		codeOf := map[string]codes.Code{"Unavailable": codes.Unavailable, "InvalidArgument": codes.InvalidArgument, "ResourceExhausted": codes.ResourceExhausted}
-		answer := status.New(codeOf[code], "the receiver refuses this export")
-		if retryInfo != "" {
-			var err error
-			if answer, err = answer.WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(time.Second)}); err != nil {
-				return err
-			}
-		}
-		w.receivers[0].grpcAnswers = []*status.Status{answer}
-		w.exportTimeout = 5 * time.Second
-		return nil
-	})
-	sc.Step(`^an HTTP receiver (over TLS|plain) that offers (HTTP/2|HTTP/1.1|h2c)$`, func(over, offers string) error {
-		setup := receiverSetup{http: true, http2: offers == "HTTP/2", h2c: offers == "h2c"}
+	sc.Step(`^a receiver (over TLS|plain) that offers (HTTP/2|HTTP/1.1|h2c)$`, func(over, offers string) error {
+		setup := receiverSetup{http2: offers == "HTTP/2", h2c: offers == "h2c"}
 		if over == "over TLS" {
 			setup.tls = &tls.Config{
 				Certificates: []tls.Certificate{w.issuer.leaf("localhost", time.Now().Add(24*time.Hour), false)},

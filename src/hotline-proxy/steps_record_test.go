@@ -223,16 +223,16 @@ func (w *world) useExample() error {
 	w.writeFile("specs/stripe.openapi.yaml", w.exampleFile("specs/stripe.openapi.yaml"))
 	w.addr = freePort()
 	config := w.exampleFile("hotline-proxy.yaml")
-	for _, from := range []string{`":8080"`, "hotline-control-plane.hotline:4317", "otel-collector.observability:4317",
+	for _, from := range []string{`":8080"`, "http://hotline-control-plane.hotline:4318", "http://otel-collector.observability:4318",
 		"/etc/hotline/keys/talon-shop-a", "HOTLINE_KEY_TALON_SHOP_B"} {
 		if !strings.Contains(config, from) {
 			return failf("the example config no longer has %s", from)
 		}
 	}
 	config = strings.Replace(config, `":8080"`, fmt.Sprintf("%q", w.addr), 1)
-	config = strings.ReplaceAll(config, "hotline-control-plane.hotline:4317", w.receivers[0].endpoint)
+	config = strings.ReplaceAll(config, "http://hotline-control-plane.hotline:4318", w.receivers[0].endpoint)
 	w.receivers = append(w.receivers, newReceiver())
-	config = strings.ReplaceAll(config, "otel-collector.observability:4317", w.receivers[1].endpoint)
+	config = strings.ReplaceAll(config, "http://otel-collector.observability:4318", w.receivers[1].endpoint)
 	// The keys live where the test can write them.
 	config = strings.ReplaceAll(config, "/etc/hotline/keys/talon-shop-a", w.writeFile("keys/talon-shop-a", "example-key-a\n"))
 	w.env = map[string]string{"HOTLINE_KEY_TALON_SHOP_B": "example-key-b"}

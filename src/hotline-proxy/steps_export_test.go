@@ -301,7 +301,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^two exporters, one of them down$`, func() error {
-		w.downEndpoints = []string{freePort()}
+		w.downEndpoints = []string{"http://" + freePort()}
 		// The down exporter retries until a send times out, which holds up
 		// the proxy's shutdown at the end of the scenario.
 		w.exportTimeout = 300 * time.Millisecond

@@ -379,9 +379,6 @@ func (w *world) config() string {
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
 		b.WriteString("  - otlp:\n")
-		if r.http {
-			b.WriteString("      protocol: http/protobuf\n")
-		}
 		fmt.Fprintf(&b, "      endpoint: %s\n", r.endpoint)
 		extra := ""
 		if i < len(w.exporterExtra) {
