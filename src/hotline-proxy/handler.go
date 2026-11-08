@@ -130,6 +130,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reqCheck:   newSpecCheck(),
 		replyCheck: newSpecCheck(),
 	}
+	if api != nil && !api.Spec.NamesActionInBody() {
+		// A search of a few microseconds, even for a spec as large as AWS
+		// SSM's, against a vendor call of milliseconds (Peter, 2026-11-08).
+		c.route = api.Spec.Find(spec.Exchange{
+			Method: r.Method, EscapedPath: target.EscapedPath(), RawQuery: target.RawQuery, Header: r.Header,
+		})
+	}
 	traced, parent, tracing := h.traced(id, r.Header, start)
 	c.trace, c.parent, c.vendorSpan = traced, parent, tracectx.NewSpanID()
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
@@ -385,10 +392,11 @@ type call struct {
 	// it is whole.
 	reqCheck   *specCheck
 	replyCheck *specCheck
-	// found is the call's route in the spec, looked up once by route and
-	// shared by both checks and the record.
-	found     spec.Route
-	findRoute sync.Once
+	// route is the call's route in the spec, found once. For most specs
+	// the call finds it as it starts, before any check exists. For a spec
+	// that names its action in the body, the request's check finds it, and
+	// the reply's check and the record read it only once that check ended.
+	route spec.Route
 
 	mu        sync.Mutex
 	phase     phase

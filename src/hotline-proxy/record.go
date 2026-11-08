@@ -179,9 +179,8 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 	if c.resp != nil {
 		replyHeaders = c.resp.Header
 	}
-	// record waited for both checks, so for a spec that names its action
-	// in the body, the route was found with it.
-	redacted := c.api.Spec.Redact(c.route(""), spec.Call{
+	// record waited for both checks, so the route is found by now.
+	redacted := c.api.Spec.Redact(c.route, spec.Call{
 		Origin:       origin,
 		EscapedPath:  c.target.EscapedPath(),
 		RawQuery:     c.target.RawQuery,

@@ -61,8 +61,18 @@ func (c *call) checkRequest(start time.Time) {
 	}
 	c.reqCheck.begin(start, c.h.checks, c.reqBody, nil, func() spec.Checked {
 		body := c.reqBody.copied()
-		route := c.route(c.api.Spec.BodyAction(c.in.Header.Get("Content-Type"), body))
-		found := c.api.Spec.CheckRequest(route, spec.Exchange{
+		if c.api.Spec.NamesActionInBody() {
+			// Only this check writes the route, before it ends; the reply's
+			// check and the record read it after.
+			c.route = c.api.Spec.Find(spec.Exchange{
+				Method:      c.in.Method,
+				EscapedPath: c.target.EscapedPath(),
+				RawQuery:    c.target.RawQuery,
+				Header:      c.in.Header,
+				Action:      c.api.Spec.BodyAction(c.in.Header.Get("Content-Type"), body),
+			})
+		}
+		found := c.api.Spec.CheckRequest(c.route, spec.Exchange{
 			Method:      c.in.Method,
 			EscapedPath: c.target.EscapedPath(),
 			RawQuery:    c.target.RawQuery,
@@ -89,9 +99,9 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 	}
 	c.replyCheck.begin(start, c.h.checks, c.respBody, after, func() spec.Checked {
 		// For a spec that names its action in the body, the request's
-		// check has ended and found the route with that action, unless it
-		// gave way in a full line.
-		found := c.api.Spec.CheckReply(c.route(""), spec.Exchange{
+		// check has ended and found the route; when it gave way in a full
+		// line, there is no route.
+		found := c.api.Spec.CheckReply(c.route, spec.Exchange{
 			Status:      resp.StatusCode,
 			ReplyHeader: resp.Header,
 			ReplyBody:   c.respBody.copied(),
@@ -99,22 +109,4 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 		c.respBody.drop()
 		return found
 	})
-}
-
-// route finds the call's route in the spec once, and hands every later
-// caller the same one. Only a spec that names its action in the body needs
-// action, read from the body: the request's check asks first then, and the
-// reply's check and the record ask only once it has ended. For any other
-// spec the action makes no difference, so whichever asks first may find it.
-func (c *call) route(action string) spec.Route {
-	c.findRoute.Do(func() {
-		c.found = c.api.Spec.Find(spec.Exchange{
-			Method:      c.in.Method,
-			EscapedPath: c.target.EscapedPath(),
-			RawQuery:    c.target.RawQuery,
-			Header:      c.in.Header,
-			Action:      action,
-		})
-	})
-	return c.found
 }
