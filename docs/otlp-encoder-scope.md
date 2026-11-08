@@ -83,3 +83,25 @@ Throwaway code: `internal/otlpwire` (the encoder) and `internal/export/wire_spik
 - **Same as the library.** The official OTLP types decode the same records and spans from both paths, lists of maps included (`TestSpikeSameAsLibrary`). 837 of the 845 behaviour scenarios pass unchanged; the 8 that fail test exactly what the spike left out (TLS, no compression, retries, the warnings and counts of a failed send).
 - **Encoder alone** (`BenchmarkSpike*`, one call's record and 11 spans, batch sends over HTTP included, processor time of the whole test process): about 75 to 84 microseconds per call today, about 13 to 15 with the new path at the fastest gzip level, 16 to 19 at the default level. Memory handed out: about 33 KB per call today, 1.2 KB with the new path. `klauspost/compress` saved under 1 microsecond more, so it is not worth a new dependency.
 - **Whole proxy** (`make load-compare`, proxy on 2 cores, three repeats each, taking turns; the full table is in the project files as `otlp-encoder/spike-compare.txt`): small call at 5000 a second, processor time per call 314 to 315 microseconds on main, 264 to 267 on the spike, 15 to 16% less; memory handed out per call 64 KB on main, 35 KB on the spike, 45% less; extra delay of the slowest 1 in 100 calls 23 ms on main, 5 to 17 ms on the spike. Large call (115 KB) at 200 a second: from 15% less to 3% more processor time, within the noise, and 12% less memory.
+
+## Proposed setting: `http2` (draft, not agreed yet)
+
+Asked by Peter on 2026-11-08: a setting per exporter to turn HTTP/2 on or off for the HTTP sender, including h2c (HTTP/2 without TLS).
+
+```yaml
+exporters:
+  - otlp:
+      protocol: http/protobuf
+      endpoint: http://otel-collector.observability:4318
+      http2: true
+```
+
+| `http2` | `https://` endpoint | `http://` endpoint |
+|---|---|---|
+| not set (default) | HTTP/2 when the collector offers it, else HTTP/1.1 | HTTP/1.1 |
+| `true` | HTTP/2 when the collector offers it, else HTTP/1.1 | h2c: HTTP/2 from the first byte; a collector without h2c fails the send |
+| `false` | HTTP/1.1 only | HTTP/1.1 |
+
+- With `protocol` unset or `grpc` the setting is refused, since gRPC is always HTTP/2.
+- Anything but `true` or `false` is refused.
+- Tests: a fake collector over TLS with and without HTTP/2, and a plain one with and without h2c, checking which HTTP version each send arrived with, and that a refused h2c send is counted and warned about like any failed send.
