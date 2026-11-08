@@ -43,6 +43,9 @@ type Config struct {
 	// Connect, when set, makes CONNECT an ingress: this issuer signs the
 	// certificate the proxy shows for each vendor host inside a tunnel.
 	Connect *TLS
+	// Intercept, when set, makes a port of its own an ingress for
+	// connections a firewall redirected to the proxy.
+	Intercept *Intercept
 	// Issuers are the named issuers of the issuers section, each checked
 	// to be an issuer, used or not.
 	Issuers   map[string]*TLS
@@ -174,10 +177,11 @@ func (c *Config) API(integrationID, host string) *API {
 // file is the config file's layout.
 type file struct {
 	Listen struct {
-		Proxy   string       `yaml:"proxy"`
-		Admin   string       `yaml:"admin"`
-		TLS     *pairFile    `yaml:"tls"`
-		Connect *connectFile `yaml:"connect"`
+		Proxy     string         `yaml:"proxy"`
+		Admin     string         `yaml:"admin"`
+		TLS       *pairFile      `yaml:"tls"`
+		Connect   *connectFile   `yaml:"connect"`
+		Intercept *interceptFile `yaml:"intercept"`
 	} `yaml:"listen"`
 	// Issuers are certificate authorities the proxy signs with, each
 	// written once under a name that the ingresses pick.
@@ -273,6 +277,17 @@ type connectFile struct {
 	// Cert and Key are the removed inline form, read only to refuse it.
 	Cert string `yaml:"cert"`
 	Key  string `yaml:"key"`
+}
+
+// interceptFile is listen.intercept.
+type interceptFile struct {
+	Address     string   `yaml:"address"`
+	Issuer      string   `yaml:"issuer"`
+	Integration string   `yaml:"integration"`
+	Passthrough []string `yaml:"passthrough"`
+	ECH         struct {
+		Relay []string `yaml:"relay"`
+	} `yaml:"ech"`
 }
 
 // apiRef is an api an integration names: just its name, or
@@ -387,6 +402,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 				l.problem("listen.connect names the issuer %s, which is not in issuers", t.Issuer)
 			}
 		}
+	}
+	if t := f.Listen.Intercept; t != nil {
+		c.Intercept = l.intercept(t, c.Issuers, f.Issuers)
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -689,6 +707,45 @@ func (l *loader) settings(label string, f settingsFile, s Settings) Settings {
 		s.AllowInternalIPs = *f.AllowInternalIPs
 	}
 	return s
+}
+
+func (l *loader) intercept(f *interceptFile, issuers map[string]*TLS, written map[string]*pairFile) *Intercept {
+	i := &Intercept{Address: f.Address, Integration: f.Integration}
+	if f.Address == "" {
+		l.problem("listen.intercept needs an address")
+	}
+	switch _, known := written[f.Issuer]; {
+	case f.Issuer == "":
+		l.problem("listen.intercept must name an issuer, as issuer: name")
+	case !known:
+		l.problem("listen.intercept names the issuer %s, which is not in issuers", f.Issuer)
+	default:
+		i.Issuer = issuers[f.Issuer]
+	}
+	for _, name := range f.Passthrough {
+		if validPattern(name, true) {
+			i.Passthrough = append(i.Passthrough, strings.ToLower(name))
+		} else {
+			l.problem("listen.intercept: passthrough %q must be a host name or %q and a suffix", name, "*.")
+		}
+	}
+	for _, name := range f.ECH.Relay {
+		if validPattern(name, false) {
+			i.ECHRelay = append(i.ECHRelay, strings.ToLower(name))
+		} else {
+			l.problem("listen.intercept: ech.relay %q must be a host name", name)
+		}
+	}
+	return i
+}
+
+// validPattern says whether name is a host name, or with wild set also "*."
+// and a suffix.
+func validPattern(name string, wild bool) bool {
+	if wild {
+		name = strings.TrimPrefix(name, "*.")
+	}
+	return name != "" && !strings.ContainsAny(name, "*/: ") && !strings.HasPrefix(name, ".")
 }
 
 func (l *loader) checks(label string, f *[]string) Parts {

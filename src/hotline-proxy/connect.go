@@ -36,6 +36,8 @@ import (
 // integration ID, which covers every call inside the tunnel.
 type tunnel struct {
 	host, port, id string
+	// ingress is what the records of its calls say: connect when empty.
+	ingress string
 }
 
 // connect opens a tunnel for an app. The proxy answers 200, then sets up

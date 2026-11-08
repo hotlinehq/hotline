@@ -87,8 +87,13 @@ type program struct {
 	tls bool
 	// pprof turns on telemetry.pprof, the profile pages on the admin port.
 	pprof bool
-	// interception, when set, is the issuer in the listen.connect files.
+	// interception, when set, is the issuer in the issuers section, which
+	// listen.connect names, or listen.intercept when redirect is set.
 	interception *issuer
+	redirect     bool
+	interceptAt  string
+	// cleanups undo what the scenario changed outside the program.
+	cleanups []func()
 
 	process  *exec.Cmd
 	stdout   syncBuffer
@@ -150,6 +155,18 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		p.interception = newIssuer()
 		p.tls = withTLS != ""
 		return p.run()
+	})
+	sc.Step(`^the hotline-proxy program runs with listen.intercept and integration test-shop for the test vendor$`, func() error {
+		if err := redirectAvailable(); err != nil {
+			return godog.ErrSkip
+		}
+		p.interception, p.redirect, p.interceptAt = newIssuer(), true, freePort()
+		return p.run()
+	})
+	sc.Step(`^the Go client sends POST to the test vendor's https address while a firewall redirects its connection to the listener$`, func() error {
+		resp, err := p.goRedirected()
+		p.respond(resp, err)
+		return p.respErr
 	})
 	sc.Step(`^the Go client sends POST to the test vendor's https address through the proxy at an (http|https) one$`, func(scheme string) error {
 		p.respond(p.goConnect(scheme, p.vendorURL+paymentPath, "test-shop"))
@@ -493,7 +510,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		}
 		return nil
 	})
-	sc.Step(`^the receiver got one hotline.request record with hotline.ingress (forward_proxy|url_in_path|host_header|connect) and ID test-shop$`, func(ingress string) error {
+	sc.Step(`^the receiver got one hotline.request record with hotline.ingress (forward_proxy|url_in_path|host_header|connect|intercept) and ID test-shop$`, func(ingress string) error {
 		record, err := p.record()
 		if err != nil {
 			return err
@@ -687,7 +704,12 @@ func (p *program) config(validateOnly bool) string {
 		_ = os.MkdirAll(filepath.Join(p.dir, "ca"), 0o750)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(issuerCertPEM(p.interception)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(issuerKeyPEM(p.interception)), 0o600)
-		listenTLS += "  connect: { issuer: customer }\nissuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+		if p.redirect {
+			listenTLS += fmt.Sprintf("  intercept: { address: %q, issuer: customer, integration: test-shop }\n", p.interceptAt)
+		} else {
+			listenTLS += "  connect: { issuer: customer }\n"
+		}
+		listenTLS += "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}
 	telemetry := ""
 	if p.pprof {
@@ -865,6 +887,9 @@ func (p *program) releaseVendor() {
 }
 
 func (p *program) close() {
+	for _, undo := range p.cleanups {
+		undo()
+	}
 	p.releaseVendor()
 	if p.process != nil && p.process.ProcessState == nil {
 		_ = p.process.Process.Kill()
@@ -1032,4 +1057,52 @@ func goRedirected(target, proxyAddr, id string, http2 bool) (*http.Response, err
 	req := paymentRequest(target)
 	req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(id+":x")))
 	return t.RoundTrip(req)
+}
+
+// redirectDestination is an address nobody answers at, so the only way the
+// program's client reaches anything is the firewall redirect.
+const redirectDestination = "192.0.2.77"
+
+// firewall runs the firewall tool, through sudo when the test is not run
+// as root.
+func firewall(args ...string) ([]byte, error) {
+	name := "iptables"
+	if os.Geteuid() != 0 {
+		name, args = "sudo", append([]string{"-n", "iptables"}, args...)
+	}
+	return exec.CommandContext(context.Background(), name, args...).CombinedOutput() //nolint:gosec // the test changes its own firewall
+}
+
+// redirectAvailable says whether the test can change the firewall.
+func redirectAvailable() error {
+	_, err := firewall("-t", "nat", "-L", "OUTPUT", "-n")
+	return err
+}
+
+// goRedirected calls the test vendor's own https address from a Go client
+// that knows nothing of the proxy. A firewall rule redirects its connection
+// to the vendor's port, at an address nobody answers at, to the program's
+// intercept listener; the client names the vendor in the TLS handshake, and
+// the program reads the port from the operating system.
+func (p *program) goRedirected() (*http.Response, error) {
+	vendorPort := strings.TrimPrefix(p.vendorURL, "https://localhost:")
+	_, listenerPort, _ := net.SplitHostPort(p.interceptAt)
+	rule := []string{"-p", "tcp", "-d", redirectDestination, "--dport", vendorPort, "-j", "REDIRECT", "--to-ports", listenerPort}
+	if out, err := firewall(append([]string{"-t", "nat", "-A", "OUTPUT"}, rule...)...); err != nil {
+		return nil, fmt.Errorf("adding the firewall rule failed: %w: %s", err, out)
+	}
+	p.cleanups = append(p.cleanups, func() {
+		_, _ = firewall(append([]string{"-t", "nat", "-D", "OUTPUT"}, rule...)...)
+	})
+	roots := p.interception.pool.Clone()
+	roots.AddCert(p.issuer.cert)
+	t := &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(redirectDestination, vendorPort))
+		},
+		TLSClientConfig:   &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+		ForceAttemptHTTP2: true,
+	}
+	defer t.CloseIdleConnections()
+	return t.RoundTrip(paymentRequest(p.vendorURL + paymentPath))
 }

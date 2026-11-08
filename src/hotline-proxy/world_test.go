@@ -175,9 +175,20 @@ type world struct {
 	tunnelErr error
 	// tunnelCerts are the certificates the proxy showed in each tunnel.
 	tunnelCerts []*x509.Certificate
+	// intercept is the listen.intercept setting, when the scenario has one.
+	intercept *interceptConf
+	// interceptHost is the site the app's last connection to the intercept
+	// listener named, and original what the connection was first sent to,
+	// when the scenario lets the proxy read that.
+	interceptHost string
+	interceptAddr string
+	original      netip.AddrPort
+	originalKnown bool
 	// sentRecords are the records that arrived while the proxy runs.
 	sentRecords []receivedRecord
 }
+
+var errNoOriginal = errors.New("the original destination is not known")
 
 func newWorld() (*world, error) {
 	dir, err := os.MkdirTemp("", "hotline-proxy-test-")
@@ -378,6 +389,7 @@ func (w *world) config() string {
 	fmt.Fprintf(&b, "listen:\n  proxy: %q\n  admin: %q\n", w.addr, admin)
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
+	b.WriteString(w.interceptSection())
 	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
@@ -432,6 +444,11 @@ func (w *world) start() error {
 	if w.addr == "" {
 		w.addr = freePort()
 	}
+	if w.intercept != nil && w.intercept.address == "" && w.intercept.without != "address" {
+		// Picked as late as possible, so no other scenario takes it first.
+		w.intercept.address = freePort()
+		w.interceptAddr = w.intercept.address
+	}
 	if len(w.integrations) == 0 && !w.noIntegrations {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")))
 	}
@@ -465,8 +482,14 @@ func (w *world) start() error {
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		ExportTimeout: w.exportTimeout,
 		CheckWorkers:  w.checkWorkers,
-		Version:       "1.0.0-test",
-		InstanceID:    "proxy-test-1",
+		OriginalDestination: func(net.Conn) (netip.AddrPort, error) {
+			if !w.originalKnown {
+				return netip.AddrPort{}, errNoOriginal
+			}
+			return w.original, nil
+		},
+		Version:    "1.0.0-test",
+		InstanceID: "proxy-test-1",
 		LookupEnv: func(name string) (string, bool) {
 			v, ok := w.env[name]
 			return v, ok

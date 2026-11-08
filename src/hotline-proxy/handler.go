@@ -50,6 +50,11 @@ type handler struct {
 	// intercept makes the certificates shown inside tunnels; nil when
 	// CONNECT is not an ingress.
 	intercept *interceptor
+	// redirected makes the certificates shown on the intercept listener;
+	// nil when there is none.
+	redirected *interceptor
+	// relays dials the sites the intercept listener relays untouched.
+	relays *dialer
 	// tunnels takes each tunnel once it is set up.
 	tunnels *tunnels
 	// own are the proxy's own numbers.
@@ -80,7 +85,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case a != nil && a.tunnel != nil:
 		// The CONNECT carried the ID for every call in its tunnel.
-		ingress, id = "connect", a.tunnel.id
+		ingress, id = cmp.Or(a.tunnel.ingress, "connect"), a.tunnel.id
 		target, status = a.tunnel.find(r, a)
 	case r.Method == http.MethodConnect && h.intercept != nil:
 		h.connect(w, r, start)

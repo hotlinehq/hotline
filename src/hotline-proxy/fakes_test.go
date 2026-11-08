@@ -355,6 +355,13 @@ func (n *network) resolve(host string, alias netip.Addr, ips ...netip.Addr) {
 	}
 }
 
+// forget makes host a name nobody can look up.
+func (n *network) forget(host string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.names, host)
+}
+
 func (n *network) triedToDial(ip string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()

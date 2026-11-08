@@ -377,10 +377,15 @@ func signedHeaders() []string {
 
 // useInterceptionIssuer writes an issuer to the listen.connect files.
 func (w *world) useInterceptionIssuer(i *issuer) {
+	w.useIssuer(i)
+	w.listenConnect = "  connect: { issuer: customer }\n"
+}
+
+// useIssuer writes an issuer to the files of the issuer named customer.
+func (w *world) useIssuer(i *issuer) {
 	w.interception = i
 	w.writeFile("ca/cert.pem", issuerCertPEM(i))
 	w.writeFile("ca/key.pem", issuerKeyPEM(i))
-	w.listenConnect = "  connect: { issuer: customer }\n"
 	w.issuersSection = "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 }
 
