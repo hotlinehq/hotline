@@ -84,7 +84,7 @@ Throwaway code: `internal/otlpwire` (the encoder) and `internal/export/wire_spik
 - **Encoder alone** (`BenchmarkSpike*`, one call's record and 11 spans, batch sends over HTTP included, processor time of the whole test process): about 75 to 84 microseconds per call today, about 13 to 15 with the new path at the fastest gzip level, 16 to 19 at the default level. Memory handed out: about 33 KB per call today, 1.2 KB with the new path. `klauspost/compress` saved under 1 microsecond more, so it is not worth a new dependency.
 - **Whole proxy** (`make load-compare`, proxy on 2 cores, three repeats each, taking turns; the full table is in the project files as `otlp-encoder/spike-compare.txt`): small call at 5000 a second, processor time per call 314 to 315 microseconds on main, 264 to 267 on the spike, 15 to 16% less; memory handed out per call 64 KB on main, 35 KB on the spike, 45% less; extra delay of the slowest 1 in 100 calls 23 ms on main, 5 to 17 ms on the spike. Large call (115 KB) at 200 a second: from 15% less to 3% more processor time, within the noise, and 12% less memory.
 
-## Proposed setting: `h2c` (draft, not agreed yet)
+## Setting `h2c` (agreed with Peter, 2026-11-08)
 
 Asked by Peter on 2026-11-08: a setting per exporter to turn on h2c (HTTP/2 without TLS) for the HTTP sender. Peter preferred `h2c: true` to a wider `http2` setting.
 
