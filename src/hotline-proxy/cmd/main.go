@@ -131,6 +131,8 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		Version:       version(),
 		InstanceID:    instanceID(),
 		LookupEnv:     os.LookupEnv,
+
+		OriginalDestination: originalDestination,
 	}, stopping{timeout: *shutdownTimeout, drainDelay: *drainDelay}, signals, reloads)
 }
 

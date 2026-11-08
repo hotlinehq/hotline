@@ -152,6 +152,9 @@ func (w *world) changeConfig(change string) error {
 		w.telemetryDisable = append(w.telemetryDisable, "go.*")
 	case "telemetry.pprof is turned on":
 		w.telemetryPprof = true
+	case "listen.intercept is added":
+		w.useIssuer(newIssuer())
+		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
 	case "listen.connect is added":
 		w.useInterceptionIssuer(newIssuer())
 	default:

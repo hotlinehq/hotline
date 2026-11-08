@@ -33,7 +33,7 @@ Decisions already made, so a new session does not have to dig through old thread
 
 The proxy is built in small slices, tests first. Each item, with its decisions in full: [docs/decisions/slice-plan.md](docs/decisions/slice-plan.md).
 
-- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, and the Docker image.
+- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named issuers and the `checks` list, the intercept ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, and the Docker image.
 - In progress: the load test with k6, including pooled body buffers and the spec check queue (`specChecks.queueMemory`).
 - Still to come: the Node, Java and Rust clients in the end-to-end tests.
 
@@ -55,6 +55,7 @@ Open only the file for the topic at hand.
 - Spec checks and shared apis: [docs/decisions/spec-checks.md](docs/decisions/spec-checks.md)
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
+- Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
 - AWS and SQS: [docs/decisions/aws-sqs.md](docs/decisions/aws-sqs.md)
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)
 - Health check: [docs/decisions/health-checks.md](docs/decisions/health-checks.md)

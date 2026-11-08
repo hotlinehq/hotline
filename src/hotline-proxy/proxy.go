@@ -74,6 +74,10 @@ type Options struct {
 	// CheckWorkers is how many spec checks run at once: by default one
 	// per processor core the proxy may use.
 	CheckWorkers int
+	// OriginalDestination reads where a connection on listen.intercept was
+	// first sent, before the firewall redirected it. Without it, calls
+	// that name no site cannot be intercepted.
+	OriginalDestination OriginalDestination
 }
 
 // Proxy is a running proxy.
@@ -97,6 +101,10 @@ type Proxy struct {
 	// appCert is the certificate of the proxy port, when it takes TLS.
 	appCert *certHolder
 	reload  *reloader
+	// redirectedListener takes the connections of listen.intercept, when
+	// the config has it.
+	redirectedListener net.Listener
+	redirectedServed   chan struct{}
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -122,6 +130,17 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			return nil, err
 		}
 	}
+	var redirectedListener net.Listener
+	if cfg.Intercept != nil {
+		redirectedListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Intercept.Address)
+		if err != nil {
+			_ = listener.Close()
+			if adminListener != nil {
+				_ = adminListener.Close()
+			}
+			return nil, err
+		}
+	}
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
@@ -140,6 +159,10 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	h.checks = newCheckLine(workers, cfg.CheckQueueMemory, o.Clock, h.own.checkDropped)
 	if cfg.Connect != nil {
 		h.intercept = newInterceptor(cfg.Connect, o.Clock, o.Logger)
+	}
+	if redirectedListener != nil {
+		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
+		h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	}
 	// Calls that may reach internal IPs get their own connections, so a
 	// connection opened for them is never reused for a call that may not.
@@ -190,6 +213,13 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		defer close(p.tunnelServed)
 		_ = p.tunnelServer.Serve(h.tunnels)
 	}()
+	if redirectedListener != nil {
+		p.redirectedListener, p.redirectedServed = redirectedListener, make(chan struct{})
+		go func() {
+			defer close(p.redirectedServed)
+			h.serveIntercept(redirectedListener, o.OriginalDestination)
+		}()
+	}
 	if adminListener != nil {
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
@@ -274,6 +304,10 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	// Both servers stop at once: a tunnel opened over HTTP/2 is a call on
 	// the proxy port that lasts until the tunnels' server closes the
 	// tunnel. Tunnels still being set up are cut short.
+	if p.redirectedListener != nil {
+		_ = p.redirectedListener.Close()
+		<-p.redirectedServed
+	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()
 	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped)

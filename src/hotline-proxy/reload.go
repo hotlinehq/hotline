@@ -94,6 +94,9 @@ func (p *Proxy) load() {
 	if p.handler.intercept != nil && cfg.Connect != nil {
 		p.handler.intercept.issuer.set(cfg.Connect)
 	}
+	if p.handler.redirected != nil && cfg.Intercept != nil {
+		p.handler.redirected.issuer.set(cfg.Intercept.Issuer)
+	}
 	p.handler.cfg.Store(cfg)
 	p.handler.checks.resize(cfg.CheckQueueMemory)
 	r.own.reloaded(true, len(needRestart(r.started, cfg)) > 0)
@@ -115,6 +118,9 @@ func needRestart(old, cfg *config.Config) []string {
 	}
 	if (old.Connect == nil) != (cfg.Connect == nil) {
 		changed = append(changed, "listen.connect")
+	}
+	if (old.Intercept == nil) != (cfg.Intercept == nil) || old.Intercept != nil && old.Intercept.Address != cfg.Intercept.Address {
+		changed = append(changed, "listen.intercept")
 	}
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) {
 		changed = append(changed, "exporters")
