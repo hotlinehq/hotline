@@ -64,11 +64,14 @@ Throwaway code on a branch, not merged, to answer one question: is the gain wort
 
 If the answer is go, the real work follows the TDD loop of the repo: the compatibility tests first, then the encoder, then the transports, then a pull request.
 
-## Open questions for Peter
+## Decisions (Peter, 2026-11-08)
 
-1. May I start the spike (throwaway code, benchmark only, nothing merged)?
-2. What gain makes it worth the extra code? Suggestion: at least 15% less proxy processor time on the small call at 5000 a second, and no worse on the large calls.
-3. Gzip: may I use the fastest gzip level and, if it helps, the faster `klauspost/compress` library? It is a new dependency, and the output stays standard gzip.
-4. We would drop the OpenTelemetry log and trace exporters, keeping grpc-go for the connection. Is that fine, as long as the config stays the same?
-5. Trace optional: decide now, or after the spike shows what a trace costs once it is cheap? Suggestion: after the spike. Note that the record's `hotline.trace.signature` covers the trace, so a trace switch changes the signature contract and needs Peter's approval first.
-6. Replace the old path outright after the tests pass, or keep it behind a hidden switch for one release? Suggestion: replace outright, so there are not two paths to keep correct.
+- The bar: at least 15% less proxy processor time on the small call at 5000 a second, and no worse on large calls.
+- Gzip: the fastest level, and `klauspost/compress` if it helps (a new dependency, standard gzip output).
+- The OpenTelemetry log and trace exporters are dropped; grpc-go stays for the connection; the config stays the same.
+- Traces are needed, so they are not optional. Making them optional is out of scope and the trace signature contract stays as it is.
+- The old path is replaced outright once the tests pass. No hidden switch.
+
+## Still open
+
+- May the spike start (throwaway code and a benchmark, nothing merged)? Not answered yet.
