@@ -13,6 +13,29 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
+      # Records this job's calls (the failed downloads, for example) to Grafana
+      # Cloud through Hotline, without changing the steps below. First on
+      # purpose: it sees only what comes after it. Without the secrets (pull
+      # requests from forks) nothing is set up. Trial, Peter 2026-11-08.
+      - name: hotline auth
+        env:
+          OTLP_USER: ${{ secrets.GRAFANA_OTLP_USERNAME }}
+          OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+        run: |
+          if [ -n "$OTLP_USER" ] && [ -n "$OTLP_PASSWORD" ]; then
+            auth="Basic $(printf '%s:%s' "$OTLP_USER" "$OTLP_PASSWORD" | base64 -w0)"
+            echo "::add-mask::$auth"
+            echo "GRAFANA_OTLP_AUTH=$auth" >> "$GITHUB_ENV"
+          fi
+      - name: hotline
+        if: ${{ env.GRAFANA_OTLP_AUTH != '' }}
+        uses: petercipov/hotline-github-action@51a03c1e358ca0f8c01e2cf4d4938586a329c7e4 # main, with the first pinned image
+        with:
+          exporters: |
+            - otlp:
+                endpoint: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
+                headers:
+                  Authorization: { env: GRAFANA_OTLP_AUTH }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -43,3 +66,6 @@ jobs:
         with:
           version: v2.15
           working-directory: ./tools/aws-openapi
+      - name: hotline teardown
+        if: ${{ always() && env.GRAFANA_OTLP_AUTH != '' }}
+        uses: petercipov/hotline-github-action/teardown@51a03c1e358ca0f8c01e2cf4d4938586a329c7e4 # main
