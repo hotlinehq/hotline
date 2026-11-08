@@ -19,7 +19,6 @@ import (
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 
 	// gzip lets the gRPC side take gzipped exports.
@@ -160,7 +159,7 @@ type receiver struct {
 	// answers are given to the first log exports over HTTP, one each,
 	// and grpcAnswers to the first ones over gRPC.
 	answers     []answer
-	grpcAnswers []codes.Code
+	grpcAnswers []*status.Status
 	// encodings are the compression of each gRPC export, as the gRPC
 	// side saw it.
 	encodings []string
@@ -356,13 +355,13 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 	if r.hold != nil {
 		r.logsHeld++
 	}
-	var refuse codes.Code
+	var refuse *status.Status
 	if !r.http && len(r.grpcAnswers) > 0 {
 		refuse, r.grpcAnswers = r.grpcAnswers[0], r.grpcAnswers[1:]
 	}
 	r.mu.Unlock()
-	if refuse != codes.OK {
-		return nil, status.Error(refuse, "the receiver refuses this export")
+	if refuse != nil {
+		return nil, refuse.Err()
 	}
 	r.wait(ctx)
 	r.mu.Lock()

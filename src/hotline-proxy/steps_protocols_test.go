@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func protocolSteps(sc *godog.ScenarioContext, w *world) {
@@ -258,8 +261,16 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no warning about the dropped record; the log is %s", w.logs.String())
 	})
 
-	sc.Step(`^a gRPC receiver that answers the first log send with (Unavailable|InvalidArgument)$`, func(code string) error {
-		w.receivers[0].grpcAnswers = []codes.Code{map[string]codes.Code{"Unavailable": codes.Unavailable, "InvalidArgument": codes.InvalidArgument}[code]}
+	sc.Step(`^a gRPC receiver that answers the first log send with (Unavailable|InvalidArgument|ResourceExhausted)( with RetryInfo 1s)?$`, func(code, retryInfo string) error {
+		codeOf := map[string]codes.Code{"Unavailable": codes.Unavailable, "InvalidArgument": codes.InvalidArgument, "ResourceExhausted": codes.ResourceExhausted}
+		answer := status.New(codeOf[code], "the receiver refuses this export")
+		if retryInfo != "" {
+			var err error
+			if answer, err = answer.WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(time.Second)}); err != nil {
+				return err
+			}
+		}
+		w.receivers[0].grpcAnswers = []*status.Status{answer}
 		w.exportTimeout = 5 * time.Second
 		return nil
 	})

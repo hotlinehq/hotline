@@ -39,12 +39,10 @@ func closeField(b []byte, start int) []byte {
 	return b
 }
 
-// The append functions leave out a value that is zero, as protobuf does.
+// Only appendFixed32 leaves out a zero, the flags of a call the app did not
+// sample; every other value the proxy writes is set.
 
 func appendText(b []byte, field protowire.Number, s string) []byte {
-	if s == "" {
-		return b
-	}
 	b = protowire.AppendTag(b, field, protowire.BytesType)
 	return protowire.AppendString(b, s)
 }
@@ -55,9 +53,6 @@ func appendBytes(b []byte, field protowire.Number, v []byte) []byte {
 }
 
 func appendFixed64(b []byte, field protowire.Number, v uint64) []byte {
-	if v == 0 {
-		return b
-	}
 	b = protowire.AppendTag(b, field, protowire.Fixed64Type)
 	return protowire.AppendFixed64(b, v)
 }
@@ -71,19 +66,13 @@ func appendFixed32(b []byte, field protowire.Number, v uint32) []byte {
 }
 
 func appendVarint(b []byte, field protowire.Number, v uint64) []byte {
-	if v == 0 {
-		return b
-	}
 	b = protowire.AppendTag(b, field, protowire.VarintType)
 	return protowire.AppendVarint(b, v)
 }
 
 // nanos is t in nanoseconds since 1970, 0 for a time before it.
 func nanos(t time.Time) uint64 {
-	if n := t.UnixNano(); n > 0 {
-		return uint64(n)
-	}
-	return 0
+	return uint64(max(0, t.UnixNano())) //nolint:gosec // not negative
 }
 
 // appendKeyValue writes one KeyValue message as field.
@@ -95,7 +84,8 @@ func appendKeyValue(b []byte, field protowire.Number, kv attribute.KeyValue) []b
 }
 
 // appendValue writes one AnyValue message as field: a text, a whole
-// number, a number, true or false, bytes, a list or a map.
+// number, a number, true or false, a list of texts, a list or a map. The
+// proxy records no other kind.
 func appendValue(b []byte, field protowire.Number, v attribute.Value) []byte {
 	b, start := openField(b, field)
 	switch v.Type() {
@@ -111,16 +101,8 @@ func appendValue(b []byte, field protowire.Number, v attribute.Value) []byte {
 	case attribute.FLOAT64:
 		b = protowire.AppendTag(b, 4, protowire.Fixed64Type)
 		b = protowire.AppendFixed64(b, math.Float64bits(v.AsFloat64()))
-	case attribute.BYTESLICE:
-		b = appendBytes(b, 7, v.AsByteSlice())
 	case attribute.STRINGSLICE:
 		b = appendList(b, v.AsStringSlice(), attribute.StringValue)
-	case attribute.INT64SLICE:
-		b = appendList(b, v.AsInt64Slice(), attribute.Int64Value)
-	case attribute.FLOAT64SLICE:
-		b = appendList(b, v.AsFloat64Slice(), attribute.Float64Value)
-	case attribute.BOOLSLICE:
-		b = appendList(b, v.AsBoolSlice(), attribute.BoolValue)
 	case attribute.SLICE:
 		b = appendList(b, v.AsSlice(), func(item attribute.Value) attribute.Value { return item })
 	case attribute.MAP:

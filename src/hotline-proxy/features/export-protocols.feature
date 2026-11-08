@@ -107,15 +107,19 @@ Feature: How OpenTelemetry data is sent
 
   Scenario Outline: Retries over gRPC
     The same rule as over HTTP: a busy collector is tried again, any other
-    refusal loses the batch.
+    refusal loses the batch. ResourceExhausted means busy only when the
+    collector says when to come back, in RetryInfo; without it the send is
+    too large to take.
     Given a gRPC receiver that answers the first log send with <code>
     When a call ends
     Then the record <arrives>
 
     Examples:
-      | code             | arrives                                        |
-      | Unavailable      | arrives on the second try                      |
-      | InvalidArgument  | is lost, and the proxy logs that 1 was dropped |
+      | code                                | arrives                                        |
+      | Unavailable                         | arrives on the second try                      |
+      | ResourceExhausted with RetryInfo 1s | arrives on the second try                      |
+      | ResourceExhausted                   | is lost, and the proxy logs that 1 was dropped |
+      | InvalidArgument                     | is lost, and the proxy logs that 1 was dropped |
 
   Scenario Outline: HTTP/2 to the collector
     Over TLS the proxy uses HTTP/2 when the collector offers it, and

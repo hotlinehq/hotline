@@ -52,7 +52,6 @@ type busy struct {
 }
 
 func (b busy) Error() string { return b.err.Error() }
-func (b busy) Unwrap() error { return b.err }
 
 // sendWithRetry sends body, and tries again while the collector is busy and
 // the send's time allows: first after about a second, then at most every
@@ -74,12 +73,9 @@ func sendWithRetry(ctx context.Context, t transport, k kind, body []byte, timeou
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait {
 			return err
 		}
+		// The wait fits in the send's time, checked above.
 		timer.Reset(wait)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			return err
-		}
+		<-timer.C
 	}
 }
 
@@ -147,10 +143,8 @@ func (t *httpTransport) post(ctx context.Context, k kind, body []byte) error {
 		_ = z.w.Close()
 		body = z.out.Bytes()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.urls[k], bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrRefused, err)
-	}
+	// The config has checked the URL, the only thing that could fail here.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, t.urls[k], bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	req.Header.Set("User-Agent", t.agent)
 	if t.gzip {
@@ -257,11 +251,9 @@ func (t *grpcTransport) close() { _ = t.conn.Close() }
 // whose partial success, if any, is not acted on.
 type rawCodec struct{}
 
+// Marshal takes the *[]byte the transport always passes.
 func (rawCodec) Marshal(v any) (mem.BufferSlice, error) {
-	body, ok := v.(*[]byte)
-	if !ok {
-		return nil, fmt.Errorf("%w: not bytes", ErrRefused)
-	}
+	body, _ := v.(*[]byte)
 	return mem.BufferSlice{mem.SliceBuffer(*body)}, nil
 }
 
