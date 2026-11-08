@@ -12,7 +12,7 @@ Gains: no change in the app's code, the hop to the proxy is encrypted, and signe
 
 ## Decisions (Peter, 2026-10-29)
 
-1. **The issuer comes from the customer**: two PEM files in `listen.connect: { cert, key }`, on Kubernetes a mounted Secret, which cert-manager can make and renew. The proxy picks up renewed files through the config reload (see [proxy-config-reload.md](proxy-config-reload.md)). It never invents its own issuer. Without `listen.connect`, `CONNECT` keeps getting `501`.
+1. **The issuer comes from the customer**: two PEM files, `cert` and `key`, written once in the top level `issuers` section under a name, and picked by `listen.connect: { issuer: name }` (Peter, 2026-11-08; the earlier `listen.connect: { cert, key }` form is removed, and a config that uses it stops the start). On Kubernetes a mounted Secret, which cert-manager can make and renew. The proxy picks up renewed files through the config reload (see [proxy-config-reload.md](proxy-config-reload.md)). It never invents its own issuer. A name not in `issuers`, or files that are not an issuer, also stop the start. Without `listen.connect`, `CONNECT` keeps getting `501`.
 2. **Hotline builds nothing for apps to trust the issuer.** The setup guide below shows how per language.
 3. **Every host is intercepted**, as on the other ingresses. An app that pins a vendor's certificate leaves that host out with `NO_PROXY`. No blind tunnel.
 4. **The integration ID comes from the `CONNECT` request**, in `Proxy-Authorization`, and covers every call in the tunnel. A `Proxy-Authorization` inside the tunnel is removed and ignored. `CONNECT` works on a plain port and on a TLS port (`listen.tls`), where the ID travels encrypted too.
@@ -57,7 +57,9 @@ Mount the Secret in the proxy and point the config at it:
 listen:
   proxy: ":8443"
   tls: { cert: /etc/hotline/tls/tls.crt, key: /etc/hotline/tls/tls.key }      # optional: encrypts the CONNECT itself
-  connect: { cert: /etc/hotline/ca/tls.crt, key: /etc/hotline/ca/tls.key }
+  connect: { issuer: customer }
+issuers:
+  customer: { cert: /etc/hotline/ca/tls.crt, key: /etc/hotline/ca/tls.key }
 ```
 
 Never use the company's main issuer here: whoever holds this key can pose as any website to the apps that trust it.
@@ -94,4 +96,4 @@ Give the apps the issuer certificate (`ca.crt`, never the key), for example with
 - `connect.go`: the `CONNECT` handler (answers `200`, takes over the connection over HTTP/1.1 or carries the tunnel in its stream over HTTP/2, sets up TLS inside the tunnel, records a failed setup), how a call in a tunnel finds its vendor, and the interceptor that makes and keeps the per host certificates.
 - `appconn.go`: the app connection as the HTTP server sees it, with the handshake timing, and the listener that hands tunnels to a second HTTP server for their calls.
 - `appcert.go`: one type that follows a certificate and key in files, for `listen.tls` and `listen.connect`. On a TLS port the proxy now sets up TLS itself, on the server's own goroutine for the connection.
-- `internal/config`: `listen.connect`, checked by `LoadIssuer`.
+- `internal/config`: the `issuers` section and `listen.connect`, checked by `LoadIssuer`.

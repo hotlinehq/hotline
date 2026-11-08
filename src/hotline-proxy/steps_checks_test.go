@@ -20,6 +20,23 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		w.addIntegration(integration("talon-shop-a", w.specAPI("api.shop.test", string(spec), "")))
 		return nil
 	})
+	sc.Step(`^the shop spec with checks (\[[^\]]*\])$`, func(list string) error {
+		return w.shopSpecChecks(list)
+	})
+	sc.Step(`^the shop spec with the unknown check "([^"]*)"$`, func(name string) error {
+		w.problem = "unknown check " + `"` + name + `"`
+		return w.shopSpecChecks("[path, " + name + "]")
+	})
+	sc.Step(`^the record has no request or reply results$`, func() error {
+		record, err := w.record()
+		if err != nil {
+			return err
+		}
+		if err := hasNo(record, resultsKey("request")); err != nil {
+			return err
+		}
+		return hasNo(record, resultsKey("reply"))
+	})
 	sc.Step(`^the vendor refuses the connection$`, func() error {
 		l := listenLocal()
 		w.routeTo("api.shop.test", "443", l)
@@ -187,4 +204,17 @@ func resultsOf(record map[string]any, side string) ([]string, error) {
 		got = append(got, strings.Join(parts, " "))
 	}
 	return got, nil
+}
+
+// shopSpecChecks adds the shop api with a checks list, written as in the
+// config, such as [path, query].
+func (w *world) shopSpecChecks(list string) error {
+	spec, err := os.ReadFile(filepath.Join("testdata", "checks", "shop.openapi.yaml"))
+	if err != nil {
+		return err
+	}
+	// A feature's background may have added the shop api without checks.
+	w.integrations, w.apis = nil, nil
+	w.addIntegration(integration("talon-shop-a", w.specAPI("api.shop.test", string(spec), "    checks: "+list+"\n")))
+	return nil
 }

@@ -126,7 +126,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		in:         r,
 		timeout:    settings.VendorTimeout,
 		transport:  transport,
-		reqBody:    &tap{ReadCloser: r.Body, limit: keepFor(api), mac: macFor(api), pool: &h.bodies, expect: r.ContentLength},
+		reqBody:    &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: macFor(api), pool: &h.bodies, expect: r.ContentLength},
 		reqCheck:   newSpecCheck(),
 		replyCheck: newSpecCheck(),
 	}
@@ -456,7 +456,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepFor(c.api), mac: macFor(c.api), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: macFor(c.api), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -617,10 +617,20 @@ type upgraded struct {
 // keptBody is how much of each body the proxy keeps for the checks.
 const keptBody = 2 << 20
 
-// keepFor is how much of a body to keep: none for a call that is not
+// keepRequest is how much of the request body to keep: none for a call
+// that is not checked, and none when the api checks no body, unless the
+// spec names the route's action in the body.
+func keepRequest(api *config.API) int {
+	if api == nil || !api.Checks.Has(config.PartBody) && !api.Spec.NamesActionInBody() {
+		return 0
+	}
+	return keptBody
+}
+
+// keepReply is how much of the reply body to keep: none when it is not
 // checked.
-func keepFor(api *config.API) int {
-	if api == nil {
+func keepReply(api *config.API) int {
+	if api == nil || !api.Checks.Has(config.PartReplyBody) {
 		return 0
 	}
 	return keptBody

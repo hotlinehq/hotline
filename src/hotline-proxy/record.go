@@ -80,10 +80,13 @@ func (c *call) record(end time.Time) {
 	spans := c.spans(opened, end)
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
-		attrs = append(attrs, c.full(req.With(reply))...)
+		requested := c.reqCheck.started.Load()
+		attrs = append(attrs, c.full(req.With(reply), requested || replied)...)
 		// Each side was checked alongside the call, so its step may end
 		// after the call span (Peter, 2026-10-31).
-		spans = append(spans, c.checkSpans("request spec check", c.reqCheck, req.Request, req.Skipped)...)
+		if requested {
+			spans = append(spans, c.checkSpans("request spec check", c.reqCheck, req.Request, req.Skipped)...)
+		}
 		if replied {
 			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
@@ -170,7 +173,7 @@ func orNotPassed(id string) string {
 
 // full is the rest of the record, for calls with a known integration and
 // api, and the status of the check against the spec, which is part of it.
-func (c *call) full(found spec.Checked) []attribute.KeyValue {
+func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
 	origin := c.scheme + "://" + c.host
 	if c.target.Port() != "" {
 		origin += ":" + c.port
@@ -223,7 +226,7 @@ func (c *call) full(found spec.Checked) []attribute.KeyValue {
 	for name, values := range redacted.ReplyHeaders {
 		attrs = append(attrs, attribute.StringSlice("http.response.header."+name, values))
 	}
-	return append(attrs, checked(found)...)
+	return append(attrs, checked(found, ran)...)
 }
 
 // shownResults is how many results of one side a record holds at most.
@@ -232,7 +235,7 @@ const shownResults = 20
 // checked is what the checks found, as the record holds it, with the
 // status: valid, invalid, or skipped when nothing was found but part of
 // the check did not run (Peter, 2026-10-31).
-func checked(found spec.Checked) []attribute.KeyValue {
+func checked(found spec.Checked, ran bool) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 	for _, f := range found.Copied {
 		switch v := f.Value.(type) {
@@ -282,6 +285,10 @@ func checked(found spec.Checked) []attribute.KeyValue {
 			values[i] = attribute.MapValue(entry...)
 		}
 		attrs = append(attrs, attribute.Slice(key, values...))
+	}
+	if !ran {
+		// No part was checked, so the call is neither valid nor invalid.
+		return attrs
 	}
 	return append(attrs, attribute.String("hotline.schema.status", status))
 }

@@ -687,7 +687,7 @@ func (p *program) config(validateOnly bool) string {
 		_ = os.MkdirAll(filepath.Join(p.dir, "ca"), 0o750)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(issuerCertPEM(p.interception)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(issuerKeyPEM(p.interception)), 0o600)
-		listenTLS += "  connect: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+		listenTLS += "  connect: { issuer: customer }\nissuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}
 	telemetry := ""
 	if p.pprof {

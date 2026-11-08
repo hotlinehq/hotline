@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/spec"
 )
 
@@ -59,6 +60,11 @@ func (c *call) checkRequest(start time.Time) {
 	if c.api == nil {
 		return
 	}
+	// With no request part to check, the route is already found, unless
+	// the spec names it in the body.
+	if !c.api.Checks.Any(config.RequestParts) && !c.api.Spec.NamesActionInBody() {
+		return
+	}
 	c.reqCheck.begin(start, c.h.checks, c.reqBody, nil, func() spec.Checked {
 		body := c.reqBody.copied()
 		if c.api.Spec.NamesActionInBody() {
@@ -80,13 +86,13 @@ func (c *call) checkRequest(start time.Time) {
 			Body:        body,
 		})
 		c.reqBody.drop()
-		return found
+		return picked(c.api.Checks, found, true)
 	})
 }
 
 // checkReply starts the check of the reply.
 func (c *call) checkReply(start time.Time, resp *http.Response) {
-	if c.api == nil || resp == nil {
+	if c.api == nil || resp == nil || !c.api.Checks.Any(config.ReplyParts) {
 		return
 	}
 	var after <-chan struct{}
@@ -107,6 +113,55 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 			ReplyBody:   c.respBody.copied(),
 		})
 		c.respBody.drop()
-		return found
+		return picked(c.api.Checks, found, false)
 	})
+}
+
+// picked keeps what the check found in the parts the api checks. A part
+// left out leaves no result, and no skipped reason when it was the body
+// that would have been skipped.
+func picked(parts config.Parts, found spec.Checked, request bool) spec.Checked {
+	if parts == config.AllParts {
+		return found
+	}
+	results, body := &found.Reply, config.PartReplyBody
+	if request {
+		results, body = &found.Request, config.PartBody
+	}
+	kept := (*results)[:0]
+	for _, r := range *results {
+		if parts.Has(partOf(r.Part, request)) {
+			kept = append(kept, r)
+		}
+	}
+	*results = kept
+	if !parts.Has(body) && found.Skipped != "no_spec_route" {
+		found.Skipped = ""
+	}
+	return found
+}
+
+// partOf is the checks entry that a result's part belongs to.
+func partOf(part string, request bool) config.Parts {
+	switch part {
+	case "path":
+		return config.PartPath
+	case "query":
+		return config.PartQuery
+	case "cookie":
+		return config.PartCookies
+	case "header":
+		if request {
+			return config.PartHeaders
+		}
+		return config.PartReplyHeaders
+	case "body":
+		if request {
+			return config.PartBody
+		}
+		return config.PartReplyBody
+	case "status":
+		return config.PartStatus
+	}
+	return 0
 }
