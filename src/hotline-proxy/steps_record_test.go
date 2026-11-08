@@ -134,6 +134,29 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		w.pending = &request{method: "PUT", target: w.target, length: sent, body: strings.NewReader(strings.Repeat("q", sent))}
 		return nil
 	})
+	sc.Step(`^the not-passed entry has urlFull (on|off)$`, func(state string) error {
+		w.addIntegration("  - id: not-passed\n    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
+		return nil
+	})
+	sc.Step(`^integration (\S+) with an api for (\S+), with urlFull (on|off)$`, func(id, host, state string) error {
+		w.addIntegration(integration(id, w.apiFor(host, "")) + "    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
+		return nil
+	})
+	sc.Step(`^the app (\S+) calls (https://\S+?), outside its apis$`, func(id, target string) error {
+		w.appID = id
+		return w.call("GET", target)
+	})
+	sc.Step(`^a call with no integration ID goes to (https://\S+)$`, func(target string) error {
+		w.appID = ""
+		return w.call("GET", target)
+	})
+	sc.Step(`^there is no url.full$`, func() error {
+		record, err := w.lastRecord()
+		if err != nil {
+			return err
+		}
+		return hasNo(record, "url.full")
+	})
 	sc.Step(`^client.address is the app's IP address$`, func() error {
 		return w.lastHas("client.address", "127.0.0.1")
 	})

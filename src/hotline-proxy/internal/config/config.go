@@ -78,6 +78,20 @@ type Config struct {
 	// traces are each integration's trace settings, the not-passed entry's
 	// among them.
 	traces map[string]Trace
+	// urlFull is, for each integration, whether its minimal records carry
+	// url.full; the not-passed entry's value is the default.
+	urlFull map[string]bool
+}
+
+// URLFull says whether a minimal record of this integration's call carries
+// url.full, the address as sent. It is off unless the integration, or the
+// not-passed entry for those that say nothing, switches it on (Peter,
+// 2026-11-08).
+func (c *Config) URLFull(integrationID string) bool {
+	if on, ok := c.urlFull[integrationID]; ok {
+		return on
+	}
+	return c.urlFull[notPassed]
 }
 
 // Label is what every record carries as hotline.config.version: the
@@ -213,6 +227,8 @@ type file struct {
 		// set. TraceForward passes the proxy's own on to the vendor.
 		TraceFormat  *string `yaml:"traceFormat"`
 		TraceForward bool    `yaml:"traceForward"`
+		// URLFull puts url.full on this integration's minimal records.
+		URLFull *bool `yaml:"urlFull"`
 	} `yaml:"integrations"`
 }
 
@@ -371,6 +387,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		NotPassed:    Settings{TLSOrigination: true, VendorTimeout: time.Minute},
 		integrations: map[string]map[string]*API{},
 		traces:       map[string]Trace{},
+		urlFull:      map[string]bool{},
 	}
 	if f.Listen.Proxy == "" {
 		l.problem("there is no listen.proxy address")
@@ -454,6 +471,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			t.Format = format
 		}
 		c.traces[in.ID] = t
+		if in.URLFull != nil {
+			c.urlFull[in.ID] = *in.URLFull
+		}
 		if in.ID == notPassed {
 			c.NotPassed = l.settings("integration "+in.ID, in.Settings, c.NotPassed)
 			continue

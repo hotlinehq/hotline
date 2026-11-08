@@ -86,7 +86,7 @@ One OpenTelemetry log record per call, sent once the reply has gone back to the 
 There are two sizes of record:
 
 - A **full record** is for a call whose integration ID is known and whose host belongs to one of that integration's apis.
-- A **minimal record** is for everything else: no ID (`not-passed`), an unknown ID, a host the integration does not use, and calls the proxy refused. It carries the sizes of the bodies that passed, `http.request.body.size` and `http.response.body.size` (Peter, 2026-11-08), counted as they stream through and never kept. The reply's size is there only when a reply came; calls the proxy refused have neither.
+- A **minimal record** is for everything else: no ID (`not-passed`), an unknown ID, a host the integration does not use, and calls the proxy refused. It carries the sizes of the bodies that passed, `http.request.body.size` and `http.response.body.size` (Peter, 2026-11-08), counted as they stream through and never kept. The reply's size is there only when a reply came; calls the proxy refused have neither. With `urlFull: true` on an integration, or on the `not-passed` entry for every integration that says nothing, a minimal record also carries `url.full` (Peter, 2026-11-08): the address as the app sent it, query included and nothing redacted, since without a spec the proxy cannot know what is secret. It is off by default; refused calls and failed tunnels never carry it.
 
 ### Fields in every record
 

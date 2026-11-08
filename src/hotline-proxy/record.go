@@ -103,10 +103,27 @@ func (c *call) record(end time.Time) {
 			got, _ := c.respBody.counts()
 			attrs = append(attrs, semconv.HTTPResponseBodySize(int(got)))
 		}
+		// The address as sent, when the integration asks for it; with no
+		// spec there is nothing to say what to redact (Peter, 2026-11-08).
+		if c.cfg.URLFull(c.id) {
+			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
+		}
 	}
 	c.h.record(c.in, finished{
 		sc: c.trace, at: c.start, attrs: attrs, spans: spans,
 	})
+}
+
+// sentAddress is the address the call went to, as the app sent it: the scheme
+// the proxy used, no user and password, the path and query as written.
+func (c *call) sentAddress() string {
+	out := *c.target
+	out.Scheme, out.User, out.Fragment = c.scheme, nil, ""
+	out.Host = c.host
+	if c.target.Port() != "" {
+		out.Host = net.JoinHostPort(c.host, c.port)
+	}
+	return out.String()
 }
 
 // checkSpans are the step of one side's check, error when that side broke
