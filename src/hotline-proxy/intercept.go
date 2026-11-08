@@ -197,7 +197,7 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 	a := &appConn{Conn: secure, tunnel: t, secure: true}
 	a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
 	if err != nil {
-		h.logger.Debug("app TLS setup on the intercept listener failed", "host", host, "reason", err.Error())
+		h.logger.Debug("app TLS setup on the intercept listener failed", "reason", err.Error())
 		h.own.tlsFailed(err, attribute.String("hotline.ingress", "intercept"))
 		h.interceptRecord(conn, start, id, host, semconv.ErrorTypeKey.String(untrustedOr(err)))
 		_ = conn.Close()
