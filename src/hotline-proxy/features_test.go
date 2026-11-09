@@ -62,6 +62,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	ingressSteps(sc, w)
 	integrationSteps(sc, w)
 	forwardSteps(sc, w)
+	trailerSteps(sc, w)
 	timingSteps(sc, w)
 	redactionSteps(sc, w)
 	headerSteps(sc, w)

@@ -61,6 +61,32 @@ Feature: Forwarding a call to the vendor
     Then the app gets 101 Switching Protocols and "ping" back
     And the record says http.response.status_code 101
 
+  Scenario: A request trailer reaches the vendor
+    A trailer is a header sent after the body, such as a checksum of an
+    upload that is only known at its end. Go's own reverse proxy loses its
+    value (Go issue 82939).
+    Given a vendor that reads the trailers of the request
+    When an app sends a body in parts with the trailer "X-Checksum: crc32=3610a686"
+    Then the vendor gets the trailer "X-Checksum: crc32=3610a686"
+
+  Scenario: Reply trailers pass back, but not fields forbidden after the body
+    gRPC replies end with trailers such as Grpc-Status. Fields that change
+    how a reply is read, such as Content-Type, must never come after the
+    body (RFC 9110, section 6.5.1; Go issues 82649 and 82450).
+    Given a vendor that ends its reply with the trailers "Grpc-Status: 5", "Content-Type: text/evil" and "Www-Authenticate: Basic"
+    When an app calls it through the proxy
+    Then the app gets the trailer "Grpc-Status: 5"
+    And the app gets no trailer Content-Type or Www-Authenticate
+
+  Scenario: An early reply passes back without headers for one hop only
+    An early reply, such as 103 Early Hints, lets the app start loading
+    what it will need before the real answer comes. Headers for one hop
+    only are removed from it, as from the final reply (Go issue 81319).
+    Given a vendor that sends 103 Early Hints with a Link header and Connection, X-Nominated and Keep-Alive headers, then 200
+    When an app calls it through the proxy and reads every reply
+    Then the app gets 103 with the Link header but no Connection, X-Nominated or Keep-Alive header
+    And then the app gets 200
+
   Scenario: No forwarding headers are added
     Given an app call
     When the proxy forwards it

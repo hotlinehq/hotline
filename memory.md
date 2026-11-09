@@ -64,3 +64,4 @@ Open only the file for the topic at hand.
 - Profile pages on the admin port, `telemetry.pprof`, off by default: [docs/decisions/profile-pages.md](docs/decisions/profile-pages.md)
 - Trace context: [docs/decisions/trace-context.md](docs/decisions/trace-context.md)
 - Own OTLP encoder for records and spans, `h2c`, and no more gRPC: [docs/decisions/otlp-encoder.md](docs/decisions/otlp-encoder.md)
+- Own forwarder, `internal/forward`, instead of Go's reverse proxy; one request copy: [docs/decisions/forwarder.md](docs/decisions/forwarder.md)

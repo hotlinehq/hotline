@@ -106,7 +106,7 @@ The proxy is a small core with the outside world kept behind interfaces (often c
 **On the call path** (must stay fast; nothing here waits on checks or exports):
 
 1. **Ingress finder:** works out which ingress the call used (forward proxy, Host header, vendor URL in path), reads and removes the integration ID, and picks the integration and api from the current config.
-2. **Forwarder:** the standard library reverse proxy (`httputil.ReverseProxy` with its own `http.Transport`). It makes the call to the vendor, with TLS origination when set, and times each phase with `httptrace` (DNS, connect, TLS, first byte). On failure it answers with `502` or `504` and `Proxy-Status`.
+2. **Forwarder:** our own, in `internal/forward`, in place of `httputil.ReverseProxy` (Peter, 2026-11-09), with its own `http.Transport`. It copies the request once and never changes the app's own request. It makes the call to the vendor, with TLS origination when set, and times each phase with `httptrace` (DNS, connect, TLS, first byte). On failure it answers with `502` or `504` and `Proxy-Status`.
 3. **Body tap:** wraps the request and response bodies, passes every byte straight on, and keeps a copy of at most 1 MiB for later.
 
 **After the reply has gone back:**

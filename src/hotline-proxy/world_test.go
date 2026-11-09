@@ -508,6 +508,8 @@ type request struct {
 	length int
 	// chunked sends the body in chunks as it is read.
 	chunked bool
+	// trailers are sent after a chunked body, as "Name: value" lines.
+	trailers []string
 	// hangUp half-closes the connection once the body is sent.
 	hangUp bool
 	// hangUpAfter closes the connection after that long without reading the
@@ -625,6 +627,10 @@ func (w *world) exchange(conn net.Conn, r request) error {
 	switch {
 	case r.chunked:
 		head.WriteString("Transfer-Encoding: chunked\r\n")
+		for _, t := range r.trailers {
+			name, _, _ := strings.Cut(t, ":")
+			head.WriteString("Trailer: " + name + "\r\n")
+		}
 	case r.length >= 0:
 		fmt.Fprintf(&head, "Content-Length: %d\r\n", r.length)
 	}
@@ -668,7 +674,11 @@ func (w *world) writeBody(conn net.Conn, r request) {
 		}
 	}
 	if r.chunked {
-		_, _ = io.WriteString(conn, "0\r\n\r\n")
+		_, _ = io.WriteString(conn, "0\r\n")
+		for _, t := range r.trailers {
+			_, _ = io.WriteString(conn, t+"\r\n")
+		}
+		_, _ = io.WriteString(conn, "\r\n")
 	} else if tcp, ok := conn.(*net.TCPConn); ok && r.hangUp {
 		_ = tcp.CloseWrite()
 	}
