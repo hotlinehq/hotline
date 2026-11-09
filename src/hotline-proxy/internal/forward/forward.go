@@ -24,12 +24,10 @@ import (
 // onward, so the app's own headers stay whole for the record. Header value
 // lists are shared between the two maps, not copied, and are cut to their
 // length so an append to one never writes into the other.
+//
+// One Forwarder serves every call: what differs between calls comes in as
+// Forward's parameters.
 type Forwarder struct {
-	// Transport makes the vendor call.
-	Transport http.RoundTripper
-	// Rewrite sets what the outgoing request needs: the vendor address,
-	// Host and any header the proxy adds.
-	Rewrite func(out *http.Request)
 	// Buffers lends the buffer the reply body is copied through.
 	Buffers httputil.BufferPool
 }
@@ -75,11 +73,13 @@ func forbiddenTrailer(name string) bool {
 	return false
 }
 
-// Forward sends in to the vendor with the context ctx, which carries the
-// call's cancel signal and any trace hooks, and writes the reply to w. It
-// never changes in. It returns an error only when no reply reached the app;
+// Forward sends in to the vendor through vendor, with the context ctx, which
+// carries the call's cancel signal and any trace hooks, and writes the reply
+// to w. vendor also sets what the outgoing request needs before it sends it:
+// the vendor address, Host and any header the proxy adds. Forward never
+// changes in. It returns an error only when no reply reached the app;
 // the caller then answers the app itself.
-func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http.Request) error {
+func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http.Request, vendor http.RoundTripper) error {
 	var (
 		mu   sync.Mutex
 		done bool
@@ -132,11 +132,8 @@ func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http
 		// Stops the transport adding its own.
 		out.Header["User-Agent"] = []string{""}
 	}
-	if f.Rewrite != nil {
-		f.Rewrite(out)
-	}
 
-	res, err := f.Transport.RoundTrip(out)
+	res, err := vendor.RoundTrip(out)
 	mu.Lock()
 	done = true
 	mu.Unlock()

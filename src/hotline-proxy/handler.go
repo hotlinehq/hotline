@@ -60,6 +60,8 @@ type handler struct {
 	own *own
 	// buffers are the copy buffers calls borrow.
 	buffers bufferPool
+	// forward passes every call on to its vendor and the reply back.
+	forward forward.Forwarder
 	// bodies hold the copies of bodies kept for the checks.
 	bodies bodyPool
 	// checks run the spec checks of every call.
@@ -142,7 +144,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	traced, parent, tracing := h.traced(id, r.Header, start)
-	c.trace, c.parent, c.vendorSpan = traced, parent, tracectx.NewSpanID()
+	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
 	// The call's context, made once: it ignores the app leaving, ends on
@@ -154,34 +156,34 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, deadlineKey{}, h.clock.Now().Add(c.timeout))
 	ctx = httptrace.WithClientTrace(ctx, c.clientTrace())
 	defer c.finish()
-	f := &forward.Forwarder{
-		Transport: c,
-		Rewrite: func(out *http.Request) {
-			u := *target
-			u.Scheme = scheme
-			u.Host = net.JoinHostPort(host, port)
-			u.Fragment = ""
-			out.URL = &u
-			out.Host = target.Host
-			if strings.EqualFold(out.Header.Get("Upgrade"), "h2c") {
-				// A switch to HTTP/2 on the app's own link, which the
-				// proxy does not offer: the call stays HTTP/1.1.
-				out.Header.Del("Upgrade")
-				out.Header.Del("Connection")
-			}
-			if tracing.Forward {
-				// The vendor's own spans sit under the proxy's vendor call.
-				tracing.Format.Write(out.Header, traced.WithSpanID(c.vendorSpan))
-			}
-		},
-		Buffers: &h.buffers,
-	}
 	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done()}
 	c.app = app
-	if err := f.Forward(ctx, app, r); err != nil {
+	if err := h.forward.Forward(ctx, app, r, c); err != nil {
 		c.fail(app, err)
 	}
 	_ = http.NewResponseController(app).Flush()
+}
+
+// rewrite sets what the outgoing request needs: the vendor address, the
+// Host, no offer to switch to HTTP/2, and the trace context when the vendor
+// gets it.
+func (c *call) rewrite(out *http.Request) {
+	u := *c.target
+	u.Scheme = c.scheme
+	u.Host = net.JoinHostPort(c.host, c.port)
+	u.Fragment = ""
+	out.URL = &u
+	out.Host = c.target.Host
+	if strings.EqualFold(out.Header.Get("Upgrade"), "h2c") {
+		// A switch to HTTP/2 on the app's own link, which the proxy does
+		// not offer: the call stays HTTP/1.1.
+		out.Header.Del("Upgrade")
+		out.Header.Del("Connection")
+	}
+	if c.tracing.Forward {
+		// The vendor's own spans sit under the proxy's vendor call.
+		c.tracing.Format.Write(out.Header, c.trace.WithSpanID(c.vendorSpan))
+	}
 }
 
 // bufferPool lends each call the 32 KB buffer it copies bodies through, so
@@ -373,6 +375,9 @@ type call struct {
 	trace      trace.SpanContext
 	parent     trace.SpanID
 	vendorSpan trace.SpanID
+	// tracing says whether and how the call's trace context goes on to
+	// the vendor.
+	tracing config.Trace
 	// target is the vendor address the app named.
 	target  *url.URL
 	id      string
@@ -439,6 +444,7 @@ const (
 // RoundTrip makes the vendor call. It waits for the vendor's answer up to
 // vendorTimeout; the app giving up does not stop it.
 func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
+	c.rewrite(req)
 	c.mark(func() {
 		c.vendorIn = c.h.clock.Now()
 		c.times = map[phase][2]time.Time{}

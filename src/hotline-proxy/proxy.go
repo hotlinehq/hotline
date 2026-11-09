@@ -151,6 +151,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		sink:   sink,
 		own:    newOwn(telemetry.Meter()),
 	}
+	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
 	workers := o.CheckWorkers
 	if workers == 0 {

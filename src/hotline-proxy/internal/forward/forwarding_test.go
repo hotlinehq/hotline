@@ -33,6 +33,11 @@ func (b *buffers) Get() []byte {
 }
 func (b *buffers) Put(buf []byte) { b.p.Put(&buf) }
 
+// sender is a vendor call made by a function.
+type sender func(out *http.Request) (*http.Response, error)
+
+func (s sender) RoundTrip(out *http.Request) (*http.Response, error) { return s(out) }
+
 // rig is an app's proxy with a forwarder in front of one vendor.
 type rig struct {
 	vendor, proxy *httptest.Server
@@ -57,22 +62,20 @@ func newRig(vendor http.Handler, configure ...func(*rig)) *rig {
 	u, _ := url.Parse(r.vendor.URL)
 	transport := r.vendor.Client().Transport.(*http.Transport).Clone()
 	transport.DisableCompression = true
-	f := &forward.Forwarder{
-		Transport: transport,
-		Rewrite: func(out *http.Request) {
-			target := *u
-			target.Path, target.RawPath, target.RawQuery = out.URL.Path, out.URL.RawPath, out.URL.RawQuery
-			out.URL = &target
-			out.Host = "api.vendor.test"
-			out.Header.Set("Traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
-		},
-		Buffers: &buffers{},
-	}
+	f := &forward.Forwarder{Buffers: &buffers{}}
+	vendorCall := sender(func(out *http.Request) (*http.Response, error) {
+		target := *u
+		target.Path, target.RawPath, target.RawQuery = out.URL.Path, out.URL.RawPath, out.URL.RawQuery
+		out.URL = &target
+		out.Host = "api.vendor.test"
+		out.Header.Set("Traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+		return transport.RoundTrip(out)
+	})
 	r.proxy = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, in *http.Request) {
 		before := in.Header.Clone()
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(in.Context()), cmp.Or(r.calls, time.Minute))
 		defer cancel()
-		if err := f.Forward(ctx, w, in); err != nil {
+		if err := f.Forward(ctx, w, in, vendorCall); err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 		}
 		r.mu.Lock()
@@ -91,16 +94,17 @@ func newHTTP1Rig(vendor http.Handler, calls time.Duration) *rig {
 	r := &rig{calls: calls}
 	v := httptest.NewServer(vendor)
 	u, _ := url.Parse(v.URL)
-	f := &forward.Forwarder{
-		Transport: &http.Transport{},
-		Rewrite:   func(out *http.Request) { out.URL.Scheme, out.URL.Host = u.Scheme, u.Host },
-		Buffers:   &buffers{},
-	}
+	f := &forward.Forwarder{Buffers: &buffers{}}
+	transport := &http.Transport{}
+	vendorCall := sender(func(out *http.Request) (*http.Response, error) {
+		out.URL.Scheme, out.URL.Host = u.Scheme, u.Host
+		return transport.RoundTrip(out)
+	})
 	r.vendor = v
 	r.proxy = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, in *http.Request) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(in.Context()), cmp.Or(r.calls, time.Minute))
 		defer cancel()
-		if err := f.Forward(ctx, w, in); err != nil {
+		if err := f.Forward(ctx, w, in, vendorCall); err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 		}
 	}))

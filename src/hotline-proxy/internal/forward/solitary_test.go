@@ -2,6 +2,7 @@ package forward_test
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -74,8 +75,13 @@ func (a *appWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return a.conn, bufio.NewReadWriter(bufio.NewReader(a.conn), bufio.NewWriter(a.conn)), nil
 }
 
-func forwarder(t http.RoundTripper) *forward.Forwarder {
-	return &forward.Forwarder{Transport: t, Buffers: &buffers{}}
+// solo forwards each call to t.
+type solo struct{ t http.RoundTripper }
+
+func forwarder(t http.RoundTripper) solo { return solo{t} }
+
+func (f solo) Forward(ctx context.Context, w http.ResponseWriter, in *http.Request) error {
+	return (&forward.Forwarder{Buffers: &buffers{}}).Forward(ctx, w, in, f.t)
 }
 
 func appCall() *http.Request {
