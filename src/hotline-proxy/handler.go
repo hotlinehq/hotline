@@ -10,12 +10,10 @@ import (
 	"errors"
 	"hash"
 	"io"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync"
@@ -27,6 +25,7 @@ import (
 
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
+	"hotline-proxy/internal/forward"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
 )
@@ -61,6 +60,8 @@ type handler struct {
 	own *own
 	// buffers are the copy buffers calls borrow.
 	buffers bufferPool
+	// forward passes every call on to its vendor and the reply back.
+	forward forward.Forwarder
 	// bodies hold the copies of bodies kept for the checks.
 	bodies bodyPool
 	// checks run the spec checks of every call.
@@ -143,47 +144,51 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	traced, parent, tracing := h.traced(id, r.Header, start)
-	c.trace, c.parent, c.vendorSpan = traced, parent, tracectx.NewSpanID()
+	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
+	// The call's context, made once: it ignores the app leaving, ends on
+	// cancel, and carries the vendor timeout and the timing hooks, so the
+	// request is copied only once, by the forwarder (Peter, 2026-11-09).
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
 	c.cancel = cancel
+	ctx = context.WithValue(ctx, deadlineKey{}, h.clock.Now().Add(c.timeout))
+	ctx = httptrace.WithClientTrace(ctx, c.clientTrace())
 	defer c.finish()
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			out := *target
-			out.Scheme = scheme
-			out.Host = net.JoinHostPort(host, port)
-			out.Fragment = ""
-			pr.Out.URL = &out
-			pr.Out.Host = target.Host
-			if strings.EqualFold(pr.Out.Header.Get("Upgrade"), "h2c") {
-				// A switch to HTTP/2 on the app's own link, which the
-				// proxy does not offer: the call stays HTTP/1.1.
-				pr.Out.Header.Del("Upgrade")
-				pr.Out.Header.Del("Connection")
-			}
-			if tracing.Forward {
-				// The vendor's own spans sit under the proxy's vendor call.
-				tracing.Format.Write(pr.Out.Header, traced.WithSpanID(c.vendorSpan))
-			}
-		},
-		Transport:     c,
-		BufferPool:    &h.buffers,
-		FlushInterval: -1,
-		ErrorHandler:  c.fail,
-		ErrorLog:      log.New(io.Discard, "", 0),
-	}
 	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done()}
 	c.app = app
-	proxy.ServeHTTP(app, r.WithContext(ctx))
+	if err := h.forward.Forward(ctx, app, r, c); err != nil {
+		c.fail(app, err)
+	}
 	_ = http.NewResponseController(app).Flush()
+}
+
+// rewrite sets what the outgoing request needs: the vendor address, the
+// Host, no offer to switch to HTTP/2, and the trace context when the vendor
+// gets it.
+func (c *call) rewrite(out *http.Request) {
+	u := *c.target
+	u.Scheme = c.scheme
+	u.Host = net.JoinHostPort(c.host, c.port)
+	u.Fragment = ""
+	out.URL = &u
+	out.Host = c.target.Host
+	if strings.EqualFold(out.Header.Get("Upgrade"), "h2c") {
+		// A switch to HTTP/2 on the app's own link, which the proxy does
+		// not offer: the call stays HTTP/1.1.
+		out.Header.Del("Upgrade")
+		out.Header.Del("Connection")
+	}
+	if c.tracing.Forward {
+		// The vendor's own spans sit under the proxy's vendor call.
+		c.tracing.Format.Write(out.Header, c.trace.WithSpanID(c.vendorSpan))
+	}
 }
 
 // bufferPool lends each call the 32 KB buffer it copies bodies through, so
 // a call does not make a new buffer of its own (Peter, 2026-11-02, found by
-// the load test spike). It is the httputil.BufferPool of every call, and
+// the load test spike). It is the forwarder's Buffers for every call, and
 // keeps pointers to slices, so giving a buffer back costs a few bytes, not
 // a new buffer.
 type bufferPool struct{ pool sync.Pool }
@@ -370,6 +375,9 @@ type call struct {
 	trace      trace.SpanContext
 	parent     trace.SpanID
 	vendorSpan trace.SpanID
+	// tracing says whether and how the call's trace context goes on to
+	// the vendor.
+	tracing config.Trace
 	// target is the vendor address the app named.
 	target  *url.URL
 	id      string
@@ -436,22 +444,11 @@ const (
 // RoundTrip makes the vendor call. It waits for the vendor's answer up to
 // vendorTimeout; the app giving up does not stop it.
 func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
-	c.mark(func() { c.vendorIn = c.h.clock.Now() })
-	c.times = map[phase][2]time.Time{}
-	trace := &httptrace.ClientTrace{
-		GetConn:              func(string) { c.mark(func() { c.phase = phaseReply }) },
-		DNSStart:             func(i httptrace.DNSStartInfo) { c.lookup(i.Host) },
-		DNSDone:              func(httptrace.DNSDoneInfo) { c.end(phaseDNS) },
-		ConnectStart:         func(string, string) { c.begin(phaseConnect) },
-		ConnectDone:          func(string, string, error) { c.end(phaseConnect) },
-		TLSHandshakeStart:    func() { c.begin(phaseTLS) },
-		TLSHandshakeDone:     func(tls.ConnectionState, error) { c.end(phaseTLS) },
-		GotConn:              c.gotConn,
-		WroteRequest:         c.wroteRequest,
-		GotFirstResponseByte: func() { c.mark(func() { c.firstByte = c.h.clock.Now() }) },
-	}
-	ctx := context.WithValue(req.Context(), deadlineKey{}, c.h.clock.Now().Add(c.timeout))
-	req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
+	c.rewrite(req)
+	c.mark(func() {
+		c.vendorIn = c.h.clock.Now()
+		c.times = map[phase][2]time.Time{}
+	})
 	timer := c.h.clock.AfterFunc(c.timeout, func() {
 		c.timedOut.Store(true)
 		c.cancel()
@@ -477,6 +474,23 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	c.mark(func() { c.resp = resp; c.status = resp.StatusCode })
 	return resp, nil
+}
+
+// clientTrace is the call's timing hooks, which the transport calls as the
+// vendor call goes through its steps.
+func (c *call) clientTrace() *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
+		GetConn:              func(string) { c.mark(func() { c.phase = phaseReply }) },
+		DNSStart:             func(i httptrace.DNSStartInfo) { c.lookup(i.Host) },
+		DNSDone:              func(httptrace.DNSDoneInfo) { c.end(phaseDNS) },
+		ConnectStart:         func(string, string) { c.begin(phaseConnect) },
+		ConnectDone:          func(string, string, error) { c.end(phaseConnect) },
+		TLSHandshakeStart:    func() { c.begin(phaseTLS) },
+		TLSHandshakeDone:     func(tls.ConnectionState, error) { c.end(phaseTLS) },
+		GotConn:              c.gotConn,
+		WroteRequest:         c.wroteRequest,
+		GotFirstResponseByte: func() { c.mark(func() { c.firstByte = c.h.clock.Now() }) },
+	}
 }
 
 // waitForVendor limits one wait for the next part of the reply to
@@ -556,7 +570,7 @@ func (c *call) wroteRequest(info httptrace.WroteRequestInfo) {
 
 // fail answers the app when the proxy could not get a reply from the
 // vendor, with the RFC 9209 error name in Proxy-Status.
-func (c *call) fail(w http.ResponseWriter, _ *http.Request, err error) {
+func (c *call) fail(w http.ResponseWriter, err error) {
 	c.mu.Lock()
 	status, name := classify(c.phase, c.timedOut.Load(), err)
 	c.status, c.errorType = status, name
