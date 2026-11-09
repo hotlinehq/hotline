@@ -108,6 +108,11 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the calls handed out less than (\d+) KB of memory each, on average$`, func(kb uint64) error {
+		if raceEnabled {
+			// The race detector makes every allocation larger, so the
+			// limit only means something without it.
+			return nil
+		}
 		if perCall >= kb<<10 {
 			return failf("each call handed out %d KB on average, want less than %d KB", perCall>>10, kb)
 		}

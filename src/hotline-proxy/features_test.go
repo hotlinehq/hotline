@@ -47,7 +47,9 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 		if err == nil {
 			// Every goroutine the proxy started must be gone once it has
 			// shut down.
-			err = goleak.Find(before)
+			// net/http keeps a closed connection's goroutine for half a
+			// second, to let the other side read the reply; it is not ours.
+			err = goleak.Find(before, goleak.IgnoreAnyFunction("net/http.(*conn).closeWriteAndWait"))
 		}
 		if err != nil && w.stoppedEarly && !strings.Contains(err.Error(), "hotline-proxy.") {
 			// A stop that ran out of time cuts off the exporters' sends,

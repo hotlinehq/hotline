@@ -64,6 +64,11 @@ var _ = Describe("Checking a JSON body with santhosh", func() {
 		got := s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: header, Body: data})
 		runtime.ReadMemStats(&after)
 		Expect(got.Request).To(BeEmpty())
+		if raceEnabled {
+			// The race detector makes every allocation larger, so the
+			// limit only means something without it.
+			return
+		}
 		used := float64(after.TotalAlloc-before.TotalAlloc) / float64(len(body))
 		Expect(used).To(BeNumerically("<", 6.5), "memory used, as times the body's size")
 	})
@@ -100,6 +105,11 @@ var _ = Describe("Checking an XML body with santhosh", func() {
 		runtime.ReadMemStats(&after)
 		Expect(got.Request).To(BeEmpty())
 		Expect(got.Reply).To(BeEmpty())
+		if raceEnabled {
+			// The race detector makes every allocation larger, so the
+			// limit only means something without it.
+			return
+		}
 		used := float64(after.TotalAlloc-before.TotalAlloc) / float64(len(body))
 		Expect(used).To(BeNumerically("<", 12), "memory used, as times the body's size")
 	})
