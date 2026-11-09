@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"go.uber.org/goleak"
@@ -49,7 +50,16 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 			// shut down.
 			// net/http keeps a closed connection's goroutine for half a
 			// second, to let the other side read the reply; it is not ours.
-			err = goleak.Find(before, goleak.IgnoreAnyFunction("net/http.(*conn).closeWriteAndWait"))
+			opts := []goleak.Option{before, goleak.IgnoreAnyFunction("net/http.(*conn).closeWriteAndWait")}
+			err = goleak.Find(opts...)
+			// A stop with no time left leaves the check of the large body
+			// running to its end; a body check cannot be interrupted, and
+			// under the race detector it takes seconds, longer than Find
+			// waits. Keep looking for a while.
+			for end := time.Now().Add(30 * time.Second); err != nil && w.stoppedEarly && time.Now().Before(end); {
+				time.Sleep(100 * time.Millisecond)
+				err = goleak.Find(opts...)
+			}
 		}
 		if err != nil && w.stoppedEarly && !strings.Contains(err.Error(), "hotline-proxy.") {
 			// A stop that ran out of time cuts off the exporters' sends,
