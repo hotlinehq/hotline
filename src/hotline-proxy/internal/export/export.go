@@ -198,7 +198,7 @@ func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
 }
 
 // Record queues one hotline.request log record and counts the call. It never
-// blocks: a full queue drops its oldest record.
+// blocks: a full queue refuses the new record.
 // The record is written once, for every destination.
 func (s *Sink) Record(ctx context.Context, at time.Time, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)

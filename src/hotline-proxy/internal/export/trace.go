@@ -26,24 +26,29 @@ type Span struct {
 }
 
 // Trace queues the spans of one call, in the trace sc names, for every
-// destination. It never blocks: a full queue drops its oldest span. The
-// spans are written once, into one block that every destination shares.
+// destination. It never blocks: a queue without room for all of the call's
+// spans refuses them all, so a trace is never split. The spans are written
+// once, into one block that every destination shares.
 func (s *Sink) Trace(sc trace.SpanContext, spans []Span) {
 	scratch := s.scratch.Get().(*[]byte)
 	b := (*scratch)[:0]
-	ends := make([]int, len(spans))
-	for i, span := range spans {
+	items := make([][]byte, len(spans))
+	// A call's span ends fit on the stack, so they cost no allocation.
+	var endsOnStack [16]int
+	ends := endsOnStack[:0]
+	for _, span := range spans {
 		b = appendSpan(b, sc, span)
-		ends[i] = len(b)
+		ends = append(ends, len(b))
 	}
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
+	start := 0
+	for i, end := range ends {
+		items[i] = written[start:end:end]
+		start = end
+	}
 	for _, d := range s.destinations {
-		start := 0
-		for _, end := range ends {
-			d.spans.add(written[start:end:end])
-			start = end
-		}
+		d.spans.add(items...)
 	}
 }

@@ -93,15 +93,33 @@ Feature: Sending OpenTelemetry data
     When the proxy starts
     Then its queue holds 10 000 records
 
-  Scenario: A full queue drops the oldest
-    Until the proxy's own health data exists, drops are counted in a
-    warning log line, at most once a minute per destination (Peter,
-    2026-10-28).
+  Scenario: A full queue refuses the newest record
+    A full queue keeps what waits and refuses what is new, for records and
+    spans alike (Peter, 2026-11-09). Drops are counted in a warning log
+    line, at most once a minute per destination (Peter, 2026-10-28).
     Given an exporter with queueSize 3 whose destination is busy with the first record
     When 4 more calls end
-    Then the destination gets records 1, 3, 4 and 5
+    Then the destination gets records 1, 2, 3 and 4
     And the proxy logs a warning that 1 record was dropped for that destination
     And no call was blocked or slowed
+
+  Scenario: A full queue refuses a whole call's spans
+    A call's spans go into the queue together or not at all, so the queue
+    never splits a trace (Peter, 2026-11-09). The first call makes more
+    spans than the second, which reuses the connection; the queue has room
+    for the first call only.
+    Given an exporter with queueSize 20 that sends only on shutdown
+    When 2 calls end
+    And the proxy shuts down
+    Then the destination gets every span of the first call
+    And it gets no span of the second call
+    And the proxy logs a warning that spans of 1 call were dropped for that destination
+
+  Scenario: A call with more spans than the queue holds is dropped
+    Given an exporter with queueSize 5 that sends only on shutdown
+    When a call ends
+    And the proxy shuts down
+    Then the destination gets no span
 
   Scenario: Flushing on shutdown
     Given records waiting in the queue

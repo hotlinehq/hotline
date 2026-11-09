@@ -82,7 +82,7 @@ To check a call, take its record and its spans (found by trace id), and rebuild 
 ## How it is sent
 
 - OTLP traces over HTTP to `/v1/traces`, with each exporter's endpoint, TLS, login headers, gzip, resource labels and timing.
-- Each destination has a queue of spans next to its queue of records, of the same `queueSize`, counted in spans. A full queue drops its oldest span and warns, at most once a minute.
+- Each destination has a queue of spans next to its queue of records, of the same `queueSize`, counted in spans. A call's spans go in together or not at all, so the queue never splits a trace: a queue without room for all of them refuses the whole call, and what waits is kept. A call with more spans than the queue holds is dropped. The warning gives the spans and calls dropped, at most once a minute (Peter, 2026-11-09).
 - The proxy's own telemetry counts them like records, with `hotline.signal=span` on `hotline.exporter.queue.size`, `.sent` and `.dropped`.
 - The proxy's own time is the `routing` plus `reply to app` steps; since 2026-11-01 there is no metric for it, as every trace carries it.
 

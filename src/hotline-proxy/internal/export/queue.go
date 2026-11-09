@@ -16,8 +16,10 @@ import (
 const batchSize = 512
 
 // queue holds the records or spans for one destination and sends them in
-// batches. When it is full, the oldest is dropped and counted, so a call
-// never waits for a destination.
+// batches. When it is full, what is new is refused and counted, and what
+// waits is kept (Peter, 2026-11-09), so a call never waits for a
+// destination. The items wait in a ring: a list of fixed length that wraps
+// around and is reused, so the queue never grows.
 type queue[T any] struct {
 	export   func(context.Context, []T) error
 	close    func(context.Context) error
@@ -34,10 +36,17 @@ type queue[T any] struct {
 	labels  attribute.Set
 	up      *atomic.Int64
 
-	mu    sync.Mutex
-	items []T
-	// crowded counts items dropped from a full queue, failed those lost
-	// in a send the destination refused.
+	mu sync.Mutex
+	// ring holds the waiting items: count of them, from first on, wrapping
+	// around the end.
+	ring  []T
+	first int
+	count int
+	// batch is the sender's own copy of the items it sends, kept between
+	// sends, since sends come one at a time.
+	batch []T
+	// crowded counts items refused by a full queue, failed those lost in a
+	// send the destination refused.
 	crowded drops
 	failed  drops
 	lastErr error
@@ -72,6 +81,7 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 		dropped:  s.dropped,
 		labels:   s.labels,
 		up:       s.up,
+		ring:     make([]T, s.size),
 		full:     make(chan struct{}, 1),
 		stop:     make(chan struct{}),
 		stopped:  make(chan struct{}),
@@ -80,22 +90,46 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 	return q
 }
 
-// add queues an item without waiting.
-func (q *queue[T]) add(item T) {
+// add queues items without waiting: all of them, or none when they do not
+// all fit, so the spans of one call are never split.
+func (q *queue[T]) add(items ...T) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if len(q.items) == q.size {
-		q.items = q.items[1:]
-		q.crowded.count++
-		q.dropped.Add(context.Background(), 1, dropReason(q.labels, "queue_full"))
+	if len(items) > len(q.ring)-q.count {
+		q.crowded.count += len(items)
+		q.crowded.groups++
+		q.dropped.Add(context.Background(), int64(len(items)), dropReason(q.labels, "queue_full"))
+		return
 	}
-	q.items = append(q.items, item)
-	if len(q.items) >= batchSize {
+	end := (q.first + q.count) % len(q.ring)
+	copied := copy(q.ring[end:], items)
+	copy(q.ring, items[copied:])
+	q.count += len(items)
+	if q.count >= batchSize {
 		select {
 		case q.full <- struct{}{}:
 		default:
 		}
 	}
+}
+
+// take moves up to one batch of waiting items into the sender's batch, and
+// clears their places in the ring so what they point to can be freed. The
+// caller holds sendMu.
+func (q *queue[T]) take() []T {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := min(batchSize, q.count)
+	q.batch = q.batch[:0]
+	for n > 0 {
+		part := q.ring[q.first:min(q.first+n, len(q.ring))]
+		q.batch = append(q.batch, part...)
+		clear(part)
+		q.first = (q.first + len(part)) % len(q.ring)
+		q.count -= len(part)
+		n -= len(part)
+	}
+	return q.batch
 }
 
 func (q *queue[T]) run() {
@@ -121,14 +155,13 @@ func (q *queue[T]) send(ctx context.Context, all bool) error {
 	defer q.sendMu.Unlock()
 	defer q.warnDropped(all)
 	for {
-		q.mu.Lock()
-		batch := q.items[:min(batchSize, len(q.items))]
-		q.items = q.items[len(batch):]
-		q.mu.Unlock()
+		batch := q.take()
 		if len(batch) == 0 {
 			return nil
 		}
 		err := q.export(ctx, batch)
+		// The batch is kept for the next send; let go of what it held.
+		clear(batch)
 		measured(ctx, q.sent, q.dropped, len(batch), q.labels, err, q.up)
 		if err != nil {
 			q.mu.Lock()
@@ -142,9 +175,11 @@ func (q *queue[T]) send(ctx context.Context, all bool) error {
 	}
 }
 
-// drops counts lost items until the next warning about them.
+// drops counts lost items until the next warning about them, and for a
+// full queue the groups they came in: one call's spans are one group.
 type drops struct {
 	count  int
+	groups int
 	warned time.Time
 }
 
@@ -164,8 +199,8 @@ func (q *queue[T]) warnDropped(last bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.crowded.due(last) {
-		q.logger.Warn("export queue full, dropped the oldest "+q.what, "endpoint", q.endpoint, "dropped", q.crowded.count)
-		q.crowded.count = 0
+		q.logger.Warn("export queue full, dropped the newest "+q.what, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
+		q.crowded.count, q.crowded.groups = 0, 0
 	}
 	if q.failed.due(last) {
 		q.logger.Warn("export failed, dropped the "+q.what+" it held", "endpoint", q.endpoint, "dropped", q.failed.count, "error", q.lastErr.Error())
@@ -177,7 +212,7 @@ func (q *queue[T]) warnDropped(last bool) {
 func (q *queue[T]) fill() (int, int) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return len(q.items), q.size
+	return q.count, q.size
 }
 
 // ForceFlush sends everything queued.
