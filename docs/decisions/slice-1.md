@@ -18,3 +18,5 @@ Full wording is at the end of [docs/proxy-slice-1.md](../proxy-slice-1.md).
 14. TLS from apps to the proxy waits for a later slice.
 
 Also from the review of pull request #11: `vendorTimeout` also limits how long a reply may go silent between its parts. A vendor silent for longer is cut off, recorded as `http_response_incomplete`. WebSockets are exempt.
+
+Export queues, from the load test (Peter, 2026-11-09): a full queue keeps what waits and refuses what is new, for records and spans alike, replacing the drop of the oldest in point 13. A call's spans go into the span queue together or not at all, so the queue never splits a trace; a call with more spans than the whole queue holds is dropped. Both queues become fixed-size rings that never grow. `queueSize` still counts records and spans, and `hotline.exporter.dropped` still counts spans. Not built yet; requirements are in `span-queue/requirements.md` in the project files.
