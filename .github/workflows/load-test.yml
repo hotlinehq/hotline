@@ -2,6 +2,13 @@
 # by hand: Actions tab, "load test", Run workflow, and pick the branch to
 # measure. It never runs on its own (Peter, 2026-11-02).
 #
+# It runs on a computer of our own, not on GitHub's shared machines, so other
+# people's jobs do not make the numbers jump (Peter, 2026-11-09): a runner
+# labelled hotline-load, an ARM machine with 2 cores. See
+# docs/decisions/load-runner.md. The repository is public, so this workflow
+# must never get a pull_request trigger: only workflow_dispatch (started by
+# hand by someone who can write to the repository) may use that runner.
+#
 # Every repeat is kept as it came, nothing averaged: the whole load/results
 # folder is saved as the artifact load-results-<run number>, for the
 # comparison with earlier runs that comes later.
@@ -20,12 +27,19 @@ permissions:
 
 env:
   K6_VERSION: v1.3.0
-  # The checksum of the release file, so a changed download is refused.
-  K6_SHA256: 84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd
+  # The checksums of the release files (Intel and ARM), so a changed download
+  # is refused.
+  K6_SHA256_AMD64: 84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd
+  K6_SHA256_ARM64: df35a88b5ef534b39f4ab74b22a0d60362138af219228253f042650a36af7920
+  # The runner has 2 cores. The proxy gets core 0 and everything else (k6, the
+  # fake vendor and receiver) core 1, so they do not queue for the same core
+  # and a drop shows the proxy's own limit.
+  LOAD_PROXY_CPUS: "0"
+  LOAD_OTHER_CPUS: "1"
 
 jobs:
   load:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, arm64, hotline-load]
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,11 +54,18 @@ jobs:
 
       - name: install k6
         run: |
-          curl -sSfL -o k6.tgz "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz"
-          echo "${K6_SHA256}  k6.tgz" | sha256sum --check
+          case "$(uname -m)" in
+            x86_64)  arch=amd64; sum="${K6_SHA256_AMD64}" ;;
+            aarch64) arch=arm64; sum="${K6_SHA256_ARM64}" ;;
+            *) echo "no k6 build for $(uname -m)"; exit 1 ;;
+          esac
+          curl -sSfL -o k6.tgz "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${arch}.tar.gz"
+          echo "${sum}  k6.tgz" | sha256sum --check
           tar xzf k6.tgz
-          sudo install "k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6
-          k6 version
+          mkdir -p "${RUNNER_TEMP}/bin"
+          install "k6-${K6_VERSION}-linux-${arch}/k6" "${RUNNER_TEMP}/bin/k6"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/bin/k6" version
 
       - name: run the load test
         if: ${{ inputs.compare_with == '' }}
@@ -65,11 +86,8 @@ jobs:
           GRAFANA_PYROSCOPE_URL: ${{ vars.GRAFANA_PYROSCOPE_URL }}
           GRAFANA_PYROSCOPE_USERNAME: ${{ secrets.GRAFANA_PYROSCOPE_USERNAME }}
           GRAFANA_PYROSCOPE_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
-          # The runner has 4 cores. The proxy gets cores 0 and 1 and everything
-          # else (k6, the fake vendor and receiver) cores 2 and 3, so they do
-          # not queue for the same cores and a drop shows the proxy's own limit.
-          HOTLINE_LOAD_PROXY_CPUS: "0,1"
-        run: taskset -c 2,3 make load
+          HOTLINE_LOAD_PROXY_CPUS: ${{ env.LOAD_PROXY_CPUS }}
+        run: taskset -c "${LOAD_OTHER_CPUS}" make load
 
       # The other build is checked out next to this one and built from its
       # own source; the two take turns, see "load-compare" in the Makefile.
@@ -91,13 +109,10 @@ jobs:
           GRAFANA_OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
           GRAFANA_OTLP_USERNAME: ${{ secrets.GRAFANA_OTLP_USERNAME }}
           GRAFANA_OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
-          # The runner has 4 cores. The proxy gets cores 0 and 1 and everything
-          # else (k6, the fake vendor and receiver) cores 2 and 3, so they do
-          # not queue for the same cores and a drop shows the proxy's own limit.
-          HOTLINE_LOAD_PROXY_CPUS: "0,1"
+          HOTLINE_LOAD_PROXY_CPUS: ${{ env.LOAD_PROXY_CPUS }}
         run: |
           (cd base/src/hotline-proxy && go build -o "$GITHUB_WORKSPACE/load/out-base-proxy" ./cmd)
-          taskset -c 2,3 make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"
+          taskset -c "${LOAD_OTHER_CPUS}" make load-compare BASE_PROXY="$GITHUB_WORKSPACE/load/out-base-proxy"
 
       # What the numbers were measured on, next to them.
       - name: note the commit and the computer
@@ -109,6 +124,8 @@ jobs:
             echo "ref: ${GITHUB_REF}"
             echo "run: ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}"
             echo "processor cores: $(nproc)"
+            echo "processor: $(lscpu | grep -m1 'Model name' | sed 's/.*: *//')"
+            echo "machine: $(uname -m)"
             echo "k6: $(k6 version)"
             echo "go: $(go version)"
           } > load/results/info.txt

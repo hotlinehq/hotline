@@ -35,7 +35,7 @@ In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `comp
 
 ## Keeping the proxy off the other programs' cores
 
-On a 4 core computer the proxy, k6, and the fake vendor and receiver all compete for the same cores, so at a few thousand calls a second a slow run may only show a computer that is full. `-proxy-cpus 0,1` (or `HOTLINE_LOAD_PROXY_CPUS`) starts the proxy under `taskset` on those cores; start the load test itself on the others, for example `HOTLINE_LOAD_PROXY_CPUS=0,1 taskset -c 2,3 make load`. The workflow does this. Linux only, and unset by default, so a laptop run is unchanged.
+On a 4 core computer the proxy, k6, and the fake vendor and receiver all compete for the same cores, so at a few thousand calls a second a slow run may only show a computer that is full. `-proxy-cpus 0,1` (or `HOTLINE_LOAD_PROXY_CPUS`) starts the proxy under `taskset` on those cores; start the load test itself on the others, for example `HOTLINE_LOAD_PROXY_CPUS=0,1 taskset -c 2,3 make load`. The workflow does this on its own runner (2 cores, so core 0 for the proxy and core 1 for the rest), see `docs/decisions/load-runner.md`. Linux only, and unset by default, so a laptop run is unchanged.
 
 ## Profiles and the exact memory number
 

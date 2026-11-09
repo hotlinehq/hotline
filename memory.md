@@ -60,6 +60,7 @@ Open only the file for the topic at hand.
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)
 - Health check: [docs/decisions/health-checks.md](docs/decisions/health-checks.md)
 - Config reload: [docs/decisions/config-reload.md](docs/decisions/config-reload.md)
+- Load test runner: [docs/decisions/load-runner.md](docs/decisions/load-runner.md)
 - Proxy telemetry: [docs/decisions/proxy-telemetry.md](docs/decisions/proxy-telemetry.md)
 - Profile pages on the admin port, `telemetry.pprof`, off by default: [docs/decisions/profile-pages.md](docs/decisions/profile-pages.md)
 - Trace context: [docs/decisions/trace-context.md](docs/decisions/trace-context.md)
