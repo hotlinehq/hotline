@@ -23,7 +23,7 @@ A fourth kind, numbers about the proxy itself, goes only to the `telemetry` dest
 | How often | Counts every 60 seconds (`metricInterval`), records every 15 seconds (`logInterval`) and spans every 15 seconds (`traceInterval`), each set per exporter. Records and spans also go sooner once 512 are waiting. One data point a minute is what Grafana Cloud's standard pricing covers (Peter, 2026-11-01). |
 | Time limit per send | 10 seconds, retries included. Fixed in the program. A busy collector is tried again after about a second at first, then at most every 5 seconds. A send the collector refuses loses its records, counted in a warning line like a full queue. |
 | Records per send | At most 512. |
-| Queue size | 10 000 records per destination, or `queueSize`. When full, the oldest record is dropped, and a warning log line gives the count, at most once a minute per destination and always once at shutdown. |
+| Queue size | 10 000 records per destination, or `queueSize`. When full, the new record is refused and what waits is kept (Peter, 2026-11-09), and a warning log line gives the count, at most once a minute per destination and always once at shutdown. |
 | At shutdown | Whatever is queued is sent first, within the shutdown time limit. |
 | Sampling | None. Every call is recorded, counted and traced. |
 | Counter temporality | Cumulative by default (the running total since start); `temporality: delta` sends only the change since the last send. |

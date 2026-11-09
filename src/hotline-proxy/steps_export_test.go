@@ -374,17 +374,80 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		w.receivers[0].release()
 		return nil
 	})
-	sc.Step(`^the destination gets records 1, 3, 4 and 5$`, func() error {
+	sc.Step(`^the destination gets records 1, 2, 3 and 4$`, func() error {
 		var got []string
 		for _, r := range w.records() {
 			got = append(got, sprint(r.attrs["url.full"]))
 		}
 		want := []string{
-			"https://api.stripe.com/v1/payment_intents/pi_1", "https://api.stripe.com/v1/payment_intents/pi_3",
-			"https://api.stripe.com/v1/payment_intents/pi_4", "https://api.stripe.com/v1/payment_intents/pi_5",
+			"https://api.stripe.com/v1/payment_intents/pi_1", "https://api.stripe.com/v1/payment_intents/pi_2",
+			"https://api.stripe.com/v1/payment_intents/pi_3", "https://api.stripe.com/v1/payment_intents/pi_4",
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
 			return failf("the destination got %v, want %v", got, want)
+		}
+		return nil
+	})
+	sc.Step(`^an exporter with queueSize (\d+) that sends only on shutdown$`, func(size int) error {
+		w.exporterExtra = []string{fmt.Sprintf("      queueSize: %d\n", size), "      logInterval: 1h\n", "      traceInterval: 1h\n"}
+		return nil
+	})
+	sc.Step(`^2 calls end$`, func() error {
+		for range 2 {
+			if err := w.defaultCall("Content-Type: application/json"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the destination gets every span of the first call$`, func() error {
+		records, _ := w.receivers[0].got()
+		if len(records) != 2 {
+			return failf("the destination got %d records, want 2", len(records))
+		}
+		first := records[0].traceID
+		spans := w.receivers[0].spans()
+		ids := map[string]bool{}
+		for _, s := range spans {
+			if s.traceID == first {
+				ids[s.spanID] = true
+			}
+		}
+		if len(ids) == 0 {
+			return failf("the destination got no span of the first call; it got %d spans", len(spans))
+		}
+		for _, s := range spans {
+			if s.traceID != first {
+				continue
+			}
+			if s.name != "hotline call" && !ids[s.parent] {
+				return failf("span %q of the first call came without its parent", s.name)
+			}
+		}
+		return nil
+	})
+	sc.Step(`^it gets no span of the second call$`, func() error {
+		records, _ := w.receivers[0].got()
+		second := records[1].traceID
+		for _, s := range w.receivers[0].spans() {
+			if s.traceID == second {
+				return failf("the destination got span %q of the second call", s.name)
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the proxy logs a warning that spans of 1 call were dropped for that destination$`, func() error {
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, "level=WARN") && strings.Contains(line, "spans") && strings.Contains(line, "calls=1") &&
+				strings.Contains(line, w.receivers[0].endpoint) {
+				return nil
+			}
+		}
+		return failf("no warning about the dropped call; the log is %s", w.logs.String())
+	})
+	sc.Step(`^the destination gets no span$`, func() error {
+		if spans := w.receivers[0].spans(); len(spans) != 0 {
+			return failf("the destination got %d spans", len(spans))
 		}
 		return nil
 	})
