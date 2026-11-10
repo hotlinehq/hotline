@@ -12,8 +12,10 @@
 FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:af1bfc2614ebb1dbd31af514b78740fd678850e76498762b425ecee4c5c6ea80 AS build
 ARG TARGETOS
 ARG TARGETARCH
-# VERSION is the release's git tag, printed by hotline-proxy version.
+# VERSION is the release's git tag, printed by hotline version.
 ARG VERSION
+# COMMIT is the git commit, printed after the version.
+ARG COMMIT
 WORKDIR /src
 COPY src/hotline-proxy/go.mod src/hotline-proxy/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -21,7 +23,7 @@ COPY src/hotline-proxy/ ./
 # One static program with Go's own name lookup: no C library needed.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOWORK=off \
-    go build -trimpath -ldflags "-s -w -X main.buildVersion=${VERSION}" -o /out/hotline-proxy ./cmd
+    go build -trimpath -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${COMMIT}" -o /out/hotline-proxy ./cmd
 
 # Google's distroless static image: CA bundle, time zone data and the
 # nonroot user, with no shell and no package manager.

@@ -1,0 +1,108 @@
+# Builds the hotline program for Linux and macOS, on amd64 and arm64, and
+# checks it. Shared by binary-pr.yml (pull requests) and binary-release.yml
+# (main and release tags), so both run the very same build and smoke test.
+# Detail: docs/proxy-binaries.md.
+#
+# build makes the four programs once and saves them as the artifact
+# hotline-programs; the smoke jobs check those files. Publishing is left to
+# binary-release.yml, which uploads the same files, so what is published is
+# what was checked.
+name: binary build
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: what the program prints after its name
+        value: ${{ jobs.build.outputs.version }}
+      label:
+        description: the version part of the file names (the tag, or edge)
+        value: ${{ jobs.build.outputs.label }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      label: ${{ steps.version.outputs.label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.3'
+          check-latest: false
+          cache-dependency-path: src/hotline-proxy/go.sum
+
+      # The version the program prints: the git tag on a release, else the
+      # commit (as for the image). The file names carry the tag, or edge, so
+      # the edge download address never changes.
+      - id: version
+        run: |
+          echo "version=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "label=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}" >> "$GITHUB_OUTPUT"
+
+      # The same flags as the Dockerfile: one static file, no C code.
+      - name: build the four programs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          LABEL: ${{ steps.version.outputs.label }}
+        working-directory: src/hotline-proxy
+        run: |
+          set -eu
+          out="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$out"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            dir=$(mktemp -d)
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+              go build -trimpath -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${GITHUB_SHA}" -o "$dir/hotline" ./cmd
+            cp "$GITHUB_WORKSPACE/LICENSE" "$dir/LICENSE"
+            tar -C "$dir" -czf "$out/hotline_${LABEL}_${os}_${arch}.tar.gz" hotline LICENSE
+          done
+          cd "$out"
+          sha256sum hotline_*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hotline-programs
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Runs the Linux amd64 program, before anything is published.
+  smoke-linux:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-programs
+          path: dist
+      - name: check the files and run the program
+        run: |
+          set -eu
+          (cd dist && sha256sum -c SHA256SUMS)
+          tar -C dist -xzf "dist/hotline_${{ needs.build.outputs.label }}_linux_amd64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline "${{ needs.build.outputs.version }}"
+
+  # Runs the macOS arm64 program on a Mac runner, on every build (Peter,
+  # 2026-11-10).
+  smoke-macos:
+    needs: build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-programs
+          path: dist
+      - name: check the files and run the program
+        run: |
+          set -eu
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          tar -C dist -xzf "dist/hotline_${{ needs.build.outputs.label }}_darwin_arm64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline "${{ needs.build.outputs.version }}"

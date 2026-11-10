@@ -1,0 +1,15 @@
+# On pull requests that change the proxy's code: builds and checks the four
+# programs, and publishes nothing. Same paths as image-pr.yml. The jobs are in
+# binary-build.yml. Detail: docs/proxy-binaries.md.
+name: binary pr
+on:
+  pull_request:
+    paths:
+      - 'src/hotline-proxy/**'
+
+permissions:
+  contents: read
+
+jobs:
+  binaries:
+    uses: ./.github/workflows/binary-build.yml

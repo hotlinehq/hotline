@@ -191,9 +191,14 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	})
 
 	// Building the program the way the image does.
-	sc.Step(`^hotline-proxy is built with version "([^"]*)"$`, func(v string) error {
+	sc.Step(`^hotline-proxy is built with version "([^"]*)"(?: and commit "([^"]*)")?$`, func(v, commit string) error {
 		p.binary = filepath.Join(p.dir, "hotline-proxy")
-		args := []string{"build", "-o", p.binary, "-ldflags", "-X main.buildVersion=" + v}
+		// -buildvcs=false: the commit is the one given here, not the checkout's.
+		ldflags := "-X main.buildVersion=" + v
+		if commit != "" {
+			ldflags += " -X main.buildCommit=" + commit
+		}
+		args := []string{"build", "-buildvcs=false", "-o", p.binary, "-ldflags", ldflags}
 		if os.Getenv("GOCOVERDIR") != "" {
 			// make e2e: this program records its coverage like the main one.
 			args = append(args, "-cover", "-covermode=atomic", "-coverpkg=./...")
