@@ -113,7 +113,7 @@ type Proxy struct {
 	redirectedServed   chan struct{}
 	// captureHub holds the extension's control connections, when the proxy
 	// captures apps.
-	captureHub *captureHub
+	captureHub *capture.Hub
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -166,7 +166,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
 	if len(o.CaptureApps) > 0 {
-		h.capture = newCaptureHub(o.CaptureApps)
+		h.capture = capture.NewHub(o.CaptureApps)
 	}
 	workers := o.CheckWorkers
 	if workers == 0 {
@@ -347,7 +347,7 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	}
 	if p.captureHub != nil {
 		// The extension's control connections stay open until closed.
-		p.captureHub.close()
+		p.captureHub.Close()
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()

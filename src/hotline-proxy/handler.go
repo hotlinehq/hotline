@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"hotline-proxy/internal/capture"
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/forward"
@@ -55,7 +56,7 @@ type handler struct {
 	redirected *interceptor
 	// capture holds the extension's control connections; nil when the
 	// proxy was not asked to capture apps.
-	capture *captureHub
+	capture *capture.Hub
 	// relays dials the sites the intercept listener relays untouched.
 	relays *dialer
 	// tunnels takes each tunnel once it is set up.

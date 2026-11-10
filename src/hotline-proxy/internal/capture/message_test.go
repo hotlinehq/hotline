@@ -69,6 +69,9 @@ var _ = Describe("The first message of a connection", func() {
 		Entry("a flow with no host", framed(`{"version":1,"role":"flow","transport":"tcp","port":443}`)),
 		Entry("a flow with a host that has a slash", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a/b","port":443}`)),
 		Entry("a flow with a host with a space", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a b","port":443}`)),
+		Entry("a flow with an empty host", framed(`{"version":1,"role":"flow","transport":"tcp","host":"","port":443}`)),
+		Entry("a flow with a host with a control character", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a\u0001b","port":443}`)),
+		Entry("a flow with a host with a delete character", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a\u007fb","port":443}`)),
 		Entry("a flow with a host over 253 characters", framed(`{"version":1,"role":"flow","transport":"tcp","host":"`+strings.Repeat("a", 254)+`","port":443}`)),
 		Entry("a flow with port 0", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a.example","port":0}`)),
 		Entry("a flow with a port over 65535", framed(`{"version":1,"role":"flow","transport":"tcp","host":"a.example","port":65536}`)),
@@ -110,5 +113,17 @@ var _ = Describe("The app list sent to the extension", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(raw[4:]).To(MatchJSON(`{"version":1,"entries":["curl","!7"]}`))
 		Expect(binary.BigEndian.Uint32(raw[:4])).To(BeEquivalentTo(len(raw) - 4))
+	})
+})
+
+var _ = Describe("Framing a message", func() {
+	It("says so when the value cannot be written as JSON", func() {
+		_, err := capture.Frame(make(chan int))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("refuses a body over 16 KiB", func() {
+		_, err := capture.Frame(capture.SpecUpdate{Entries: []string{strings.Repeat("a", capture.MaxFrame)}})
+		Expect(err).To(HaveOccurred())
 	})
 })
