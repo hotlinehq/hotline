@@ -52,7 +52,8 @@ type handler struct {
 	// redirected makes the certificates shown on the intercept listener;
 	// nil when there is none.
 	redirected *interceptor
-	// relays dials the sites the intercept listener relays untouched.
+	// relays dials the sites relayed untouched, from listen.intercept or
+	// listen.connect passthrough.
 	relays *dialer
 	// tunnels takes each tunnel once it is set up.
 	tunnels *tunnels
@@ -123,6 +124,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cfg:        cfg,
 		start:      start,
 		ingress:    ingress,
+		process:    tunnelProcess(a),
 		target:     target,
 		id:         id,
 		api:        api,
@@ -369,6 +371,8 @@ type call struct {
 	cfg     *config.Config
 	start   time.Time
 	ingress string
+	// process is the program that made the call, when the ingress knows.
+	process process
 	// trace is the call's trace context, which its record carries; its
 	// span id is the call span's. parent is the app's span, the call
 	// span's parent, and vendorSpan the id of the vendor call's span.
@@ -830,4 +834,13 @@ func (t *tap) finish() {
 		t.done()
 		t.done = nil
 	}
+}
+
+// tunnelProcess is the program the tunnel an app connection came through
+// says made it; unknown for a connection that came by no tunnel.
+func tunnelProcess(a *appConn) process {
+	if a == nil || a.tunnel == nil {
+		return process{}
+	}
+	return a.tunnel.process
 }

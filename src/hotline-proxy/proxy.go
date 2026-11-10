@@ -163,8 +163,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
-		h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	}
+	// Both listen.intercept and listen.connect relay passthrough sites.
+	h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	// Calls that may reach internal IPs get their own connections, so a
 	// connection opened for them is never reused for a call that may not.
 	h.transport = newTransport(o, false)

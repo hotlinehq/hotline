@@ -244,7 +244,7 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the intercept record has (.+)$`, w.interceptRecordWith)
+	sc.Step(`^the (?:intercept|capture) record has (.+)$`, w.interceptRecordWith)
 
 	sc.Step(`^another program listens on the listen.intercept address$`, func() error {
 		l := listenLocal()
@@ -305,6 +305,7 @@ func (w *world) interceptRecordWith(fields string) error {
 	allowed := map[string]bool{
 		"hotline.integration.id": true, "hotline.ingress": true, "client.address": true, "server.address": true,
 		"error.type": true, "hotline.timing.total_us": true, "hotline.intercept.mode": true, "hotline.intercept.reason": true,
+		"process.pid": true, "process.executable.path": true,
 	}
 	for key := range record {
 		if !allowed[key] {

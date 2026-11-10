@@ -38,6 +38,29 @@ type tunnel struct {
 	host, port, id string
 	// ingress is what the records of its calls say: connect when empty.
 	ingress string
+	// process is the program that made the calls, when the ingress knows.
+	process process
+}
+
+// process is the program behind a call, as an ingress that can tell reports
+// it: the process number and the path of the program. Either is zero when
+// not known.
+type process struct {
+	pid  int
+	path string
+}
+
+// attributes is what the record says about the program: nothing for the
+// parts not known.
+func (p process) attributes() []attribute.KeyValue {
+	var attrs []attribute.KeyValue
+	if p.pid > 0 {
+		attrs = append(attrs, semconv.ProcessPID(p.pid))
+	}
+	if p.path != "" {
+		attrs = append(attrs, semconv.ProcessExecutablePath(p.path))
+	}
+	return attrs
 }
 
 // connect opens a tunnel for an app. The proxy answers 200, then sets up
@@ -56,7 +79,16 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 		return
 	}
 	t.host = strings.ToLower(t.host)
+	if isCaptured(r) {
+		h.captured(w, r, t, start)
+		return
+	}
 	conn, done := open(w, r)
+	if h.cfg.Load().ConnectPassthrough.Passes(t.host) {
+		h.passedThrough(conn, t, start)
+		<-done
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	reader := bufio.NewReader(conn)
 	inner := &bufferedConn{Conn: conn, r: reader}
