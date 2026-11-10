@@ -177,6 +177,10 @@ type world struct {
 	tunnelCerts []*x509.Certificate
 	// intercept is the listen.intercept setting, when the scenario has one.
 	intercept *interceptConf
+	// capture is the listen.capture setting, when the scenario has one, and
+	// control the extension's control connection, once opened.
+	capture *captureConf
+	control *captureControl
 	// interceptHost is the site the app's last connection to the intercept
 	// listener named, and original what the connection was first sent to,
 	// when the scenario lets the proxy read that.
@@ -390,6 +394,7 @@ func (w *world) config() string {
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
 	b.WriteString(w.interceptSection())
+	b.WriteString(w.captureSection())
 	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {

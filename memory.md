@@ -56,6 +56,7 @@ Open only the file for the topic at hand.
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
+- Capture ingress (macOS, chosen apps; Go side built, `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)
 - AWS and SQS: [docs/decisions/aws-sqs.md](docs/decisions/aws-sqs.md)
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)
 - Health check: [docs/decisions/health-checks.md](docs/decisions/health-checks.md)

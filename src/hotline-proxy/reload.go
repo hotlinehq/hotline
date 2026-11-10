@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -97,6 +98,12 @@ func (p *Proxy) load() {
 	if p.handler.redirected != nil && cfg.Intercept != nil {
 		p.handler.redirected.issuer.set(cfg.Intercept.Issuer)
 	}
+	if p.handler.captureCerts != nil && cfg.Capture != nil {
+		p.handler.captureCerts.issuer.set(cfg.Capture.Issuer)
+		if old.Capture == nil || !slices.Equal(old.Capture.Apps, cfg.Capture.Apps) {
+			p.captureHub.update(cfg.Capture.Apps)
+		}
+	}
 	p.handler.cfg.Store(cfg)
 	p.handler.checks.resize(cfg.CheckQueueMemory)
 	r.own.reloaded(true, len(needRestart(r.started, cfg)) > 0)
@@ -121,6 +128,9 @@ func needRestart(old, cfg *config.Config) []string {
 	}
 	if (old.Intercept == nil) != (cfg.Intercept == nil) || old.Intercept != nil && old.Intercept.Address != cfg.Intercept.Address {
 		changed = append(changed, "listen.intercept")
+	}
+	if (old.Capture == nil) != (cfg.Capture == nil) {
+		changed = append(changed, "listen.capture")
 	}
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) {
 		changed = append(changed, "exporters")

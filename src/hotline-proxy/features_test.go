@@ -88,6 +88,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	hostHeaderSteps(sc, w)
 	connectSteps(sc, w)
 	interceptSteps(sc, w)
+	captureSteps(sc, w)
 	overlaySteps(sc, w)
 	awsSteps(sc, w)
 	shopSteps(sc, w)

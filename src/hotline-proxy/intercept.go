@@ -138,9 +138,29 @@ func (h *handler) serveIntercept(l net.Listener, where OriginalDestination) {
 	}
 }
 
-// intercepted handles one redirected connection: it reads the first message
-// of the handshake and decides to intercept the program's calls, to relay
-// them untouched, or to refuse, recording what it did not hand on as calls.
+// source is where a connection to intercept came from and how to treat it:
+// the ingress it names in records, the integration, the sites to relay
+// untouched and the issuer to show certificates from.
+type source struct {
+	ingress     string
+	id          string
+	passes      func(host string) bool
+	relays      func(outer string) bool
+	certificate *interceptor
+	// port is the port the program called; fallback is the host to use
+	// when the handshake names no site: the address the program called.
+	port     string
+	fallback string
+	// extra says more about the connection's records, such as the program.
+	extra []attribute.KeyValue
+}
+
+// ingressAttr is the hotline.ingress attribute of the source's records.
+func (s *source) ingressAttr() attribute.KeyValue {
+	return attribute.String("hotline.ingress", s.ingress)
+}
+
+// intercepted handles one redirected connection on listen.intercept.
 func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 	start := h.clock.Now()
 	ic := h.cfg.Load().Intercept
@@ -148,58 +168,68 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 		_ = conn.Close()
 		return
 	}
-	id := ic.Integration
-	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	reader := bufio.NewReaderSize(conn, maxHello)
-	inner := &bufferedConn{Conn: conn, r: reader}
-	first, err := readHello(reader)
-	if err != nil {
-		h.own.tlsFailed(err, attribute.String("hotline.ingress", "intercept"))
-		h.interceptRecord(conn, start, id, "", semconv.ErrorTypeKey.String("not_tls"))
-		_ = conn.Close()
-		return
+	src := &source{
+		ingress: "intercept", id: ic.Integration, passes: ic.Passes, relays: ic.Relays,
+		certificate: h.redirected, port: "443",
 	}
-	port := "443"
-	var destination netip.AddrPort
 	if where != nil {
 		if got, err := where(conn); err == nil {
-			destination = got
 			if got.Port() != 0 {
-				port = strconv.Itoa(int(got.Port()))
+				src.port = strconv.Itoa(int(got.Port()))
+			}
+			if got.IsValid() {
+				src.fallback = got.Addr().Unmap().String()
 			}
 		}
 	}
+	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
+	h.serveSource(conn, bufio.NewReaderSize(conn, maxHello), src, start)
+}
+
+// serveSource handles one connection to intercept, whose first bytes wait in
+// reader: it reads the first message of the handshake and decides to
+// intercept the program's calls, to relay them untouched, or to refuse,
+// recording what it did not hand on as calls.
+func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, start time.Time) {
+	inner := &bufferedConn{Conn: conn, r: reader}
+	first, err := readHello(reader)
+	if err != nil {
+		h.own.tlsFailed(err, src.ingressAttr())
+		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("not_tls"))
+		_ = conn.Close()
+		return
+	}
 	host := first.name
 	switch {
-	case first.ech && ic.Relays(host):
-		h.relay(inner, start, id, host, port, "ech")
+	case first.ech && src.relays(host):
+		h.relay(src, inner, start, host, "ech")
 		return
 	case first.ech:
 		// The real name is encrypted: answer as the outer name, offering
 		// no ECH keys. The program sees ECH rejected and retries without.
-		secure := tls.Server(inner, h.redirected.tlsConfig(host))
+		secure := tls.Server(inner, src.certificate.tlsConfig(host))
 		_, _ = timeHandshake(h.tunnels.ctx, secure, h.clock)
-		h.interceptRecord(conn, start, id, host, semconv.ErrorTypeKey.String("ech_rejected"))
+		h.interceptRecord(src, conn, start, host, semconv.ErrorTypeKey.String("ech_rejected"))
 		_ = conn.Close()
 		return
-	case host == "" && destination.IsValid():
-		host = destination.Addr().Unmap().String()
+	case host == "" && src.fallback != "":
+		host = src.fallback
 	case host == "":
-		h.interceptRecord(conn, start, id, "", semconv.ErrorTypeKey.String("no_sni"))
+		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("no_sni"))
 		_ = conn.Close()
 		return
-	case ic.Passes(host):
-		h.relay(inner, start, id, host, port, "passthrough")
+	case src.passes(host):
+		h.relay(src, inner, start, host, "passthrough")
 		return
 	}
-	t := &tunnel{host: host, port: port, id: id, ingress: "intercept"}
-	secure := tls.Server(inner, h.redirected.tlsConfig(host))
+	t := &tunnel{host: host, port: src.port, id: src.id, ingress: src.ingress, extra: src.extra}
+	secure := tls.Server(inner, src.certificate.tlsConfig(host))
 	a := &appConn{Conn: secure, tunnel: t, secure: true}
 	a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
 	if err != nil {
-		h.logger.Debug("app TLS setup on the intercept listener failed", "reason", err.Error())
-		h.own.tlsFailed(err, attribute.String("hotline.ingress", "intercept"))
-		h.interceptRecord(conn, start, id, host, semconv.ErrorTypeKey.String(untrustedOr(err)))
+		h.logger.Debug("app TLS setup on an intercepting ingress failed", "ingress", src.ingress, "reason", err.Error())
+		h.own.tlsFailed(err, src.ingressAttr())
+		h.interceptRecord(src, conn, start, host, semconv.ErrorTypeKey.String(untrustedOr(err)))
 		_ = conn.Close()
 		return
 	}
@@ -210,7 +240,7 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 // relay passes a connection on untouched to host, which the proxy looks up
 // itself, never using the address the program chose. The record is made
 // when the relay ends.
-func (h *handler) relay(app *bufferedConn, start time.Time, id, host, port, reason string) {
+func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, reason string) {
 	ctx, cancel := context.WithTimeout(h.tunnels.ctx, handshakeTimeout)
 	// The dialer reports to a call's trace, which a relay has none of.
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
@@ -219,7 +249,7 @@ func (h *handler) relay(app *bufferedConn, start time.Time, id, host, port, reas
 		ConnectStart: func(string, string) {},
 		ConnectDone:  func(string, string, error) {},
 	})
-	vendor, err := h.relays.dial(ctx, "tcp", net.JoinHostPort(host, port))
+	vendor, err := h.relays.dial(ctx, "tcp", net.JoinHostPort(host, src.port))
 	cancel()
 	mode := []attribute.KeyValue{
 		attribute.String("hotline.intercept.mode", "passthrough"),
@@ -230,7 +260,7 @@ func (h *handler) relay(app *bufferedConn, start time.Time, id, host, port, reas
 		if errors.Is(err, errProhibited) {
 			errorType = "destination_ip_prohibited"
 		}
-		h.interceptRecord(app.Conn, start, id, host, append(mode, semconv.ErrorTypeKey.String(errorType))...)
+		h.interceptRecord(src, app.Conn, start, host, append(mode, semconv.ErrorTypeKey.String(errorType))...)
 		_ = app.Close()
 		return
 	}
@@ -249,7 +279,7 @@ func (h *handler) relay(app *bufferedConn, start time.Time, id, host, port, reas
 	<-done
 	_ = app.Close()
 	_ = vendor.Close()
-	h.interceptRecord(app.Conn, start, id, host, mode...)
+	h.interceptRecord(src, app.Conn, start, host, mode...)
 }
 
 // closeWrite tells the other side nothing more comes. A connection that
@@ -262,15 +292,16 @@ func closeWrite(c net.Conn) {
 	_ = c.Close()
 }
 
-// interceptRecord records a connection on the intercept listener that never
+// interceptRecord records a connection on an intercepting ingress that never
 // became a call: minimal, with the host when the proxy could read one.
-func (h *handler) interceptRecord(conn net.Conn, start time.Time, id, host string, extra ...attribute.KeyValue) {
+func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, host string, extra ...attribute.KeyValue) {
 	from, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	attrs := []attribute.KeyValue{
+	id := src.id
+	attrs := append([]attribute.KeyValue{
 		attribute.String("hotline.integration.id", orNotPassed(id)),
-		attribute.String("hotline.ingress", "intercept"),
+		src.ingressAttr(),
 		semconv.ClientAddress(from),
-	}
+	}, src.extra...)
 	if host != "" {
 		attrs = append(attrs, semconv.ServerAddress(host))
 	}

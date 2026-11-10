@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"hotline-proxy/internal/capture"
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 )
@@ -105,6 +106,22 @@ type Proxy struct {
 	// the config has it.
 	redirectedListener net.Listener
 	redirectedServed   chan struct{}
+	// captureFolder, captureListener and captureHub are the socket of
+	// listen.capture, when the config has it: its private folder, the
+	// listener and the extension's control connections.
+	captureFolder   *capture.Folder
+	captureListener net.Listener
+	captureHub      *captureHub
+	captureServed   chan struct{}
+}
+
+// CaptureSocket is the path of the socket the macOS extension connects to,
+// which the proxy makes when the config has listen.capture; empty without.
+func (p *Proxy) CaptureSocket() string {
+	if p.captureFolder == nil {
+		return ""
+	}
+	return p.captureFolder.Socket()
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -141,6 +158,21 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			return nil, err
 		}
 	}
+	var captureFolder *capture.Folder
+	var captureListener net.Listener
+	if cfg.Capture != nil {
+		captureFolder, captureListener, err = listenCapture(ctx)
+		if err != nil {
+			_ = listener.Close()
+			if adminListener != nil {
+				_ = adminListener.Close()
+			}
+			if redirectedListener != nil {
+				_ = redirectedListener.Close()
+			}
+			return nil, err
+		}
+	}
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
@@ -161,8 +193,13 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.Connect != nil {
 		h.intercept = newInterceptor(cfg.Connect, o.Clock, o.Logger)
 	}
+	if cfg.Capture != nil {
+		h.captureCerts = newInterceptor(cfg.Capture.Issuer, o.Clock, o.Logger)
+	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
+	}
+	if redirectedListener != nil || cfg.Capture != nil {
 		h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	}
 	// Calls that may reach internal IPs get their own connections, so a
@@ -221,6 +258,14 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			h.serveIntercept(redirectedListener, o.OriginalDestination)
 		}()
 	}
+	if captureListener != nil {
+		p.captureFolder, p.captureListener, p.captureServed = captureFolder, captureListener, make(chan struct{})
+		p.captureHub = newCaptureHub(cfg.Capture.Apps)
+		go func() {
+			defer close(p.captureServed)
+			h.serveCapture(captureListener, p.captureHub)
+		}()
+	}
 	if adminListener != nil {
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
@@ -229,6 +274,21 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	o.Logger.Info("hotline proxy started", "address", listener.Addr().String(), "config_version", cfg.Label())
 	return p, nil
+}
+
+// listenCapture makes the private folder of listen.capture and listens on a
+// socket in it.
+func listenCapture(ctx context.Context) (*capture.Folder, net.Listener, error) {
+	folder, err := capture.NewFolder()
+	if err != nil {
+		return nil, nil, err
+	}
+	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", folder.Socket())
+	if err != nil {
+		_ = folder.Close()
+		return nil, nil, err
+	}
+	return folder, l, nil
 }
 
 func newTransport(o Options, allowInternal bool) *http.Transport {
@@ -308,6 +368,12 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	if p.redirectedListener != nil {
 		_ = p.redirectedListener.Close()
 		<-p.redirectedServed
+	}
+	if p.captureListener != nil {
+		_ = p.captureListener.Close()
+		<-p.captureServed
+		p.captureHub.close()
+		_ = p.captureFolder.Close()
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()

@@ -38,6 +38,9 @@ type tunnel struct {
 	host, port, id string
 	// ingress is what the records of its calls say: connect when empty.
 	ingress string
+	// extra says more about the records of its calls, such as the program
+	// that made them.
+	extra []attribute.KeyValue
 }
 
 // connect opens a tunnel for an app. The proxy answers 200, then sets up

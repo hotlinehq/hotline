@@ -46,6 +46,9 @@ type Config struct {
 	// Intercept, when set, makes a port of its own an ingress for
 	// connections a firewall redirected to the proxy.
 	Intercept *Intercept
+	// Capture, when set, makes a socket the proxy makes itself an ingress
+	// for the calls of chosen apps, handed over by the macOS extension.
+	Capture *Capture
 	// Issuers are the named issuers of the issuers section, each checked
 	// to be an issuer, used or not.
 	Issuers   map[string]*TLS
@@ -196,6 +199,7 @@ type file struct {
 		TLS       *pairFile      `yaml:"tls"`
 		Connect   *connectFile   `yaml:"connect"`
 		Intercept *interceptFile `yaml:"intercept"`
+		Capture   *captureFile   `yaml:"capture"`
 	} `yaml:"listen"`
 	// Issuers are certificate authorities the proxy signs with, each
 	// written once under a name that the ingresses pick.
@@ -300,6 +304,17 @@ type interceptFile struct {
 	Address     string   `yaml:"address"`
 	Issuer      string   `yaml:"issuer"`
 	Integration string   `yaml:"integration"`
+	Passthrough []string `yaml:"passthrough"`
+	ECH         struct {
+		Relay []string `yaml:"relay"`
+	} `yaml:"ech"`
+}
+
+// captureFile is listen.capture.
+type captureFile struct {
+	Issuer      string   `yaml:"issuer"`
+	Integration string   `yaml:"integration"`
+	Apps        []string `yaml:"apps"`
 	Passthrough []string `yaml:"passthrough"`
 	ECH         struct {
 		Relay []string `yaml:"relay"`
@@ -422,6 +437,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	}
 	if t := f.Listen.Intercept; t != nil {
 		c.Intercept = l.intercept(t, c.Issuers, f.Issuers)
+	}
+	if t := f.Listen.Capture; t != nil {
+		c.Capture = l.capture(t, c.Issuers, f.Issuers)
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -734,29 +752,66 @@ func (l *loader) intercept(f *interceptFile, issuers map[string]*TLS, written ma
 	if f.Address == "" {
 		l.problem("listen.intercept needs an address")
 	}
-	switch _, known := written[f.Issuer]; {
-	case f.Issuer == "":
-		l.problem("listen.intercept must name an issuer, as issuer: name")
-	case !known:
-		l.problem("listen.intercept names the issuer %s, which is not in issuers", f.Issuer)
-	default:
-		i.Issuer = issuers[f.Issuer]
-	}
-	for _, name := range f.Passthrough {
-		if validPattern(name, true) {
-			i.Passthrough = append(i.Passthrough, strings.ToLower(name))
-		} else {
-			l.problem("listen.intercept: passthrough %q must be a host name or %q and a suffix", name, "*.")
-		}
-	}
-	for _, name := range f.ECH.Relay {
-		if validPattern(name, false) {
-			i.ECHRelay = append(i.ECHRelay, strings.ToLower(name))
-		} else {
-			l.problem("listen.intercept: ech.relay %q must be a host name", name)
-		}
-	}
+	i.Issuer = l.ingressIssuer("listen.intercept", f.Issuer, issuers, written)
+	i.Passthrough, i.ECHRelay = l.hostLists("listen.intercept", f.Passthrough, f.ECH.Relay)
 	return i
+}
+
+func (l *loader) capture(f *captureFile, issuers map[string]*TLS, written map[string]*pairFile) *Capture {
+	c := &Capture{Integration: f.Integration}
+	c.Issuer = l.ingressIssuer("listen.capture", f.Issuer, issuers, written)
+	c.Passthrough, c.ECHRelay = l.hostLists("listen.capture", f.Passthrough, f.ECH.Relay)
+	if len(f.Apps) == 0 {
+		l.problem("listen.capture needs apps, the programs to capture, by name or process number")
+	}
+	for _, app := range f.Apps {
+		if validApp(app) {
+			c.Apps = append(c.Apps, app)
+		} else {
+			l.problem("listen.capture: apps %q must be a program name or a process number, with an optional ! in front to skip it", app)
+		}
+	}
+	return c
+}
+
+// ingressIssuer finds the issuer an ingress picks by name.
+func (l *loader) ingressIssuer(section, name string, issuers map[string]*TLS, written map[string]*pairFile) *TLS {
+	switch _, known := written[name]; {
+	case name == "":
+		l.problem("%s must name an issuer, as issuer: name", section)
+	case !known:
+		l.problem("%s names the issuer %s, which is not in issuers", section, name)
+	default:
+		return issuers[name]
+	}
+	return nil
+}
+
+// hostLists checks the passthrough patterns and ech.relay names of an
+// ingress, and writes them in lower case.
+func (l *loader) hostLists(section string, passthrough, relay []string) (passes, relays []string) {
+	for _, name := range passthrough {
+		if validPattern(name, true) {
+			passes = append(passes, strings.ToLower(name))
+		} else {
+			l.problem("%s: passthrough %q must be a host name or %q and a suffix", section, name, "*.")
+		}
+	}
+	for _, name := range relay {
+		if validPattern(name, false) {
+			relays = append(relays, strings.ToLower(name))
+		} else {
+			l.problem("%s: ech.relay %q must be a host name", section, name)
+		}
+	}
+	return passes, relays
+}
+
+// validApp says whether an apps entry is a program name or a process
+// number, with an optional "!" in front.
+func validApp(entry string) bool {
+	name := strings.TrimPrefix(entry, "!")
+	return name != "" && !strings.ContainsFunc(name, func(r rune) bool { return r <= ' ' || r == 0x7f })
 }
 
 // validPattern says whether name is a host name, or with wild set also "*."
