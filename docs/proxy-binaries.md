@@ -22,6 +22,10 @@ Besides the Docker image, each release offers the proxy as one program file, cal
 
 The same workflows make the image (Peter, 2026-11-10). The Dockerfile compiles nothing: it copies the Linux programs from these same files onto the distroless base, the check compares the image's program with the download byte for byte, and publish pushes the image and the release files together, only when every check passed. The old `image-build.yml`, `image-pr.yml` and `image-release.yml` are gone; `make image` builds the image locally. Detail: [proxy-docker-image.md](proxy-docker-image.md).
 
+## Running it by hand
+
+On the Actions page, "binary release" has a Run workflow button (Peter, 2026-11-10). Pick `main` to publish `edge` again, or a release tag to publish that release again. On any other branch it builds and checks but publishes nothing.
+
 ## Check a download
 
 ```
