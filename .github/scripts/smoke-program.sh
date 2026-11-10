@@ -1,6 +1,6 @@
 #!/bin/sh
 # Checks a built hotline-proxy program: it prints the expected version and accepts
-# the sidecar example's config. Used by binary-build.yml on Linux and macOS.
+# the sidecar example's config. Used by binary-build.yml on Linux.
 #   usage: smoke-program.sh <program> <version>
 set -eu
 program=$1
