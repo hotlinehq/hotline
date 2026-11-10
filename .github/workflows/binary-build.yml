@@ -44,7 +44,7 @@ jobs:
           echo "label=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}" >> "$GITHUB_OUTPUT"
 
       # The same flags as the Dockerfile: one static file, no C code.
-      - name: build the four programs
+      - name: build for macOS and Linux, on amd64 and arm64
         env:
           VERSION: ${{ steps.version.outputs.version }}
           LABEL: ${{ steps.version.outputs.label }}
