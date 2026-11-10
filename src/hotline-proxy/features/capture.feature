@@ -26,18 +26,6 @@ Feature: The capture ingress
       Then the test vendor got the call over https with its Host, path, query, headers and body unchanged
       And the record says hotline.ingress capture and ID not-passed
       And the record says the program is process 4242 at "/usr/bin/curl"
-      And the record says the extension is HotlineCapture/0.1.4
-
-    Scenario: An extension that sends no User-Agent still works
-      When an extension that sends no User-Agent opens a captured tunnel to api.talon.one:443 for process 4242 and the app names api.talon.one in the handshake
-      And the app sends its call
-      Then the record says hotline.ingress capture and ID not-passed
-
-    Scenario: A User-Agent over 256 bytes is left out of the record
-      When the extension opens a captured tunnel to api.talon.one:443 with a User-Agent over 256 bytes and the app names api.talon.one in the handshake
-      And the app sends its call
-      Then the record says hotline.ingress capture and ID not-passed
-      And the record names no extension
 
     Scenario: The extension names the address, and the certificate names the site in the handshake
       When the extension opens a captured tunnel to the address of api.stripe.com:443 for process 4242 at "/usr/bin/curl" and the app names api.stripe.com in the handshake

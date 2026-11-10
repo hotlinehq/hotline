@@ -8,7 +8,7 @@ Full wording in [docs/proxy-capture.md](../proxy-capture.md). The macOS side liv
 4. The app list is not sent to the proxy. Hotline passes it to the helper at start; a new list means a new start. Nothing new in `proxy.Options`.
 5. The capture headers count only from a loopback address; from anywhere else they are ignored. `listen.proxy` may be any address.
 6. `listen.connect` gets a `passthrough` list, same meaning as for intercept, for captured and ordinary tunnels. Contract: `config.Passthrough` and `Config.ConnectPassthrough`.
-7. Records: `hotline.ingress=capture`, `process.pid`, `process.executable.path`, and `user_agent.original` with the extension's User-Agent.
+7. Records: `hotline.ingress=capture`, `process.pid`, `process.executable.path`. The extension's User-Agent is not recorded (Peter).
 8. The extension checks every 2 seconds that the proxy answers and captures nothing while it does not. An empty connection makes no record.
 9. One Hotline captures all chosen programs.
 10. Later: the `--capture` flag (unpacking and starting the signed helper app, embedded in the macOS binary), which needs a Mac.

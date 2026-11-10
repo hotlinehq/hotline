@@ -14,8 +14,8 @@ import (
 )
 
 // The headers the macOS capture extension adds to its CONNECT
-// (hotline-macos-capture, docs/protocol.md), with a User-Agent naming the
-// extension's release. captureVersion is the one version the proxy knows.
+// (hotline-macos-capture, docs/protocol.md). captureVersion is the one
+// version the proxy knows.
 const (
 	captureHeader        = "Hotline-Capture"
 	capturePIDHeader     = "Hotline-Capture-Pid"
@@ -24,9 +24,6 @@ const (
 	// extension sends none longer.
 	maxProgram     = 4096
 	captureVersion = "1"
-	// maxAgent is the longest User-Agent a capture record takes; a longer
-	// one is left out.
-	maxAgent = 256
 )
 
 var errBadCapture = errors.New("the capture headers are not usable")
@@ -62,9 +59,6 @@ func captureProcess(h http.Header) (process, error) {
 			return process{}, errBadCapture
 		}
 		p.path = programs[0]
-	}
-	if agent := h.Get("User-Agent"); len(agent) <= maxAgent {
-		p.agent = agent
 	}
 	return p, nil
 }

@@ -50,28 +50,6 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return w.lastHas("process.executable.path", path)
 	})
-	sc.Step(`^the record says the extension is (\S+)$`, func(agent string) error {
-		return w.lastHas("user_agent.original", agent)
-	})
-	sc.Step(`^an extension that sends no User-Agent opens a captured tunnel to (\S+):(\d+) for process (\d+) and the app names (\S+) in the handshake$`,
-		func(host, port, pid, site string) error {
-			return w.captureTunnel(host, port, []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: " + pid}, site, nil)
-		})
-	sc.Step(`^the extension opens a captured tunnel to (\S+):(\d+) with a User-Agent over 256 bytes and the app names (\S+) in the handshake$`,
-		func(host, port, site string) error {
-			headers := append(captureHeaders("4242", "/usr/bin/curl"), "User-Agent: "+strings.Repeat("a", 257))
-			return w.captureTunnel(host, port, headers[1:], site, nil)
-		})
-	sc.Step(`^the record names no extension$`, func() error {
-		record, err := w.lastRecord()
-		if err != nil {
-			return err
-		}
-		if _, ok := record["user_agent.original"]; ok {
-			return failf("the record has user_agent.original")
-		}
-		return nil
-	})
 	sc.Step(`^the record names no program$`, func() error {
 		if err := w.waitForRecords(1); err != nil {
 			return err
@@ -159,7 +137,7 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 
 // captureHeaders are the headers the extension adds to its CONNECT.
 func captureHeaders(pid, path string) []string {
-	return []string{"User-Agent: HotlineCapture/0.1.4", "Hotline-Capture: 1", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
+	return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
 }
 
 // oddCaptureHeaders are capture headers that are not usable, by what is

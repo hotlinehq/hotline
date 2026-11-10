@@ -48,9 +48,6 @@ type tunnel struct {
 type process struct {
 	pid  int
 	path string
-	// agent is the User-Agent of the helper that reported the program,
-	// such as HotlineCapture/0.1.4.
-	agent string
 }
 
 // attributes is what the record says about the program: nothing for the
@@ -62,9 +59,6 @@ func (p process) attributes() []attribute.KeyValue {
 	}
 	if p.path != "" {
 		attrs = append(attrs, semconv.ProcessExecutablePath(p.path))
-	}
-	if p.agent != "" {
-		attrs = append(attrs, semconv.UserAgentOriginal(p.agent))
 	}
 	return attrs
 }

@@ -15,7 +15,7 @@ Hotline-Capture-Pid: 4242
 Hotline-Capture-Program: /usr/bin/curl
 ```
 
-`Hotline-Capture` is the version, now 1. The User-Agent names the extension's release; an extension that sends none still works. The full contract is `docs/protocol.md` of `hotline-macos-capture`; change both together. The app list never reaches the proxy: Hotline gives it to the helper at start.
+`Hotline-Capture` is the version, now 1. The User-Agent names the extension's release; the proxy does not record it. The full contract is `docs/protocol.md` of `hotline-macos-capture`; change both together. The app list never reaches the proxy: Hotline gives it to the helper at start.
 
 ## How the proxy handles it
 
@@ -23,7 +23,7 @@ Hotline-Capture-Program: /usr/bin/curl
 - The capture headers count only on a CONNECT from a loopback address. From anywhere else they are ignored, and the CONNECT is an ordinary one, so no other machine can name a program.
 - An unknown version, a header given twice, a process number that is not a positive number, or a program path over 4096 bytes is refused with `400` and recorded with `hotline.ingress=capture`.
 - After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.connect` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
-- Records say `hotline.ingress=capture`, `process.pid`, `process.executable.path` and `user_agent.original` (the extension's User-Agent, left out when over 256 bytes): the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
+- Records say `hotline.ingress=capture`, `process.pid` and `process.executable.path`: the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
 - The extension checks every 2 seconds that the proxy is there by opening a connection and closing it, sending nothing. That makes no record.
 
 ## Passthrough on listen.connect
