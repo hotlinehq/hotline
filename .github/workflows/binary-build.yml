@@ -116,7 +116,9 @@ jobs:
           # The SBOM (software bill of materials: the list of libraries
           # inside), in CycloneDX form, from the module's own files. The tool
           # is pinned by version; Go checks it against its checksum database.
-          (cd src/hotline-proxy && GOWORK=off go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
+          # The build notes in it say CGO_ENABLED=0, as for the programs; it
+          # names linux/amd64, but the libraries are the same for all four.
+          (cd src/hotline-proxy && CGO_ENABLED=0 GOWORK=off go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
             app -json -licenses=false -main cmd \
             -output "$GITHUB_WORKSPACE/dist/hotline-proxy_${LABEL}_sbom.cdx.json" .)
           cd dist
