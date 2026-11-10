@@ -1,8 +1,10 @@
-# On main and on release tags: builds and checks the programs
-# (binary-build.yml), then publishes them on GitHub Releases with a checksum
-# file and a cosign signature (Peter, 2026-11-10). A tag v1.2.3 makes the
-# release v1.2.3; main replaces the one pre-release called edge. Detail:
-# docs/proxy-binaries.md.
+# On main and on release tags: builds and checks the programs and the image
+# (binary-build.yml), then publishes both: the programs on GitHub Releases
+# with a checksum file and a cosign signature, and the image to ghcr.io with
+# an SBOM, build provenance and a cosign signature (Peter, 2026-11-10). A tag
+# v1.2.3 makes the release v1.2.3 and the image tags 1.2.3, 1.2 and latest;
+# main replaces the one pre-release called edge and gives the image tag edge.
+# Detail: docs/proxy-binaries.md and docs/proxy-docker-image.md.
 name: binary release
 on:
   push:
@@ -17,6 +19,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  IMAGE: ghcr.io/petercipov/hotline-proxy
 
 # One publish at a time, so two main pushes cannot swap the edge files
 # halfway.
@@ -33,6 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # create the release
+      packages: write   # push to ghcr.io
       id-token: write   # cosign keyless signing
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -47,7 +53,34 @@ jobs:
         working-directory: dist
         run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
 
-      - name: publish
+      # The image, copied unchanged from the file that was checked, with all
+      # platforms, the SBOM and the provenance. Docker's login file is read
+      # by both skopeo and cosign.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy-image
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # --all keeps both platforms, the SBOM and the provenance;
+      # --preserve-digests fails rather than change the image.
+      - id: push
+        name: push the image to ghcr.io
+        env:
+          TAGS: ${{ needs.binaries.outputs.tags }}
+        run: |
+          set -eu
+          for tag in $TAGS; do
+            skopeo copy --all --preserve-digests --digestfile digest \
+              oci-archive:hotline-proxy.tar "docker://$tag"
+          done
+          echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
+      - name: sign the image
+        run: cosign sign --yes "${IMAGE}@${{ steps.push.outputs.digest }}"
+
+      - name: publish the programs
         working-directory: dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

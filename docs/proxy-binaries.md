@@ -18,6 +18,10 @@ Besides the Docker image, each release offers the proxy as one program file, cal
 8. **The program prints its own name, version and commit:** `hotline-proxy v1.2.3 (commit 0123456789ab)`; the edge build prints `hotline-proxy <commit>`. The build passes both in; a local `go build` in a git checkout uses the commit Go records.
 9. **Mac programs are not signed or notarized.** macOS shows an unidentified developer warning on a downloaded file. Clear it once with `xattr -d com.apple.quarantine hotline-proxy`, or build with `go build ./cmd` in `src/hotline-proxy`.
 
+## The Docker image
+
+The same workflows make the image (Peter, 2026-11-10). The Dockerfile compiles nothing: it copies the Linux programs from these same files onto the distroless base, the check compares the image's program with the download byte for byte, and publish pushes the image and the release files together, only when every check passed. The old `image-build.yml`, `image-pr.yml` and `image-release.yml` are gone; `make image` builds the image locally. Detail: [proxy-docker-image.md](proxy-docker-image.md).
+
 ## Check a download
 
 ```

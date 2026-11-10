@@ -30,10 +30,10 @@ go build -o hotline-proxy ./cmd
 ./hotline-proxy version
 ```
 
-Or build the Docker image for both platforms, also from the root of the repo:
+Or build the Docker image for both platforms, also from the root of the repo. It builds the Linux programs first and the image copies them:
 
 ```
-docker buildx build -f src/hotline-proxy/Dockerfile --platform linux/amd64,linux/arm64 -t hotline-proxy .
+make image
 ```
 
 ## Run

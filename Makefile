@@ -3,6 +3,15 @@
 gen_collector:
 	~/go/bin/ocb --verbose --config ./src/otelcol-dev/builder-config.yaml
 
+# image builds the Linux programs, then the Docker image from them, for both
+# platforms (the image compiles nothing itself).
+image:
+	for arch in amd64 arm64; do \
+		mkdir -p dist/image/linux_$$arch; \
+		(cd src/hotline-proxy && CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o ../../dist/image/linux_$$arch/hotline-proxy ./cmd); \
+	done
+	docker buildx build -f src/hotline-proxy/Dockerfile --platform linux/amd64,linux/arm64 -t hotline-proxy .
+
 test:
 	rm -f cover.out
 	go clean -testcache
