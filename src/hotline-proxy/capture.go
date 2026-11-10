@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"net"
-	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -14,29 +13,12 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"hotline-proxy/internal/capture"
+	"hotline-proxy/internal/config"
 )
 
 // captureWriteTimeout is how long a send of the app list to the extension may
 // take; an extension that does not read must not hold up a config reload.
 const captureWriteTimeout = 5 * time.Second
-
-// localApp is a connection from the extension, which comes from a program on
-// this machine: its address is the machine's own.
-type localApp struct {
-	net.Conn
-}
-
-func (localApp) RemoteAddr() net.Addr {
-	return net.TCPAddrFromAddrPort(netip.MustParseAddrPort("127.0.0.1:0"))
-}
-
-// CloseWrite says nothing more comes, when the connection can say that.
-func (c localApp) CloseWrite() error {
-	if w, ok := c.Conn.(interface{ CloseWrite() error }); ok {
-		return w.CloseWrite()
-	}
-	return c.Close()
-}
 
 // captureHub holds the extension's control connection and the app list it
 // was last sent.
@@ -105,45 +87,22 @@ func (h *captureHub) close() {
 	}
 }
 
-// serveCapture takes the connections the macOS extension opens on the capture
-// socket, until it is closed.
-func (h *handler) serveCapture(l net.Listener, hub *captureHub) {
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		h.calls.Add(1)
-		go func() {
-			defer h.calls.Done()
-			h.captured(localApp{Conn: conn}, hub)
-		}()
-	}
-}
-
-// captured handles one connection from the extension: its first message
-// says whether it is the control connection, which gets the app list, or a
-// captured flow, which is handled like a connection on the intercept
-// listener, with the destination and program from the hello.
-func (h *handler) captured(conn localApp, hub *captureHub) {
-	start := h.clock.Now()
-	cc := h.cfg.Load().Capture
-	if cc == nil {
-		_ = conn.Close()
-		return
-	}
-	src := &source{ingress: "capture", id: cc.Integration, passes: cc.Passes, relays: cc.Relays, certificate: h.captureCerts}
-	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	reader := bufio.NewReaderSize(conn, maxHello)
+// captured handles a connection on the intercept port that starts with the
+// extension's framed message, which says whether it is the control
+// connection, which gets the app list, or a captured flow, which is handled
+// like any intercepted connection, with the destination and program from the
+// hello. The first byte of the message is waiting in reader.
+func (h *handler) captured(conn net.Conn, reader *bufio.Reader, ic *config.Intercept, start time.Time) {
+	src := &source{ingress: "capture", id: ic.Integration, passes: ic.Passes, relays: ic.Relays, certificate: h.redirected}
 	hello, err := capture.ReadHello(reader)
 	if err != nil {
-		h.logger.Debug("a connection on the capture socket sent no usable hello", "reason", err.Error())
+		h.logger.Debug("a connection on the intercept port sent no usable hello", "reason", err.Error())
 		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("capture_bad_hello"))
 		_ = conn.Close()
 		return
 	}
 	if hello.Role == capture.RoleControl {
-		h.control(conn, reader, hub)
+		h.control(conn, reader)
 		return
 	}
 	src.port = strconv.Itoa(hello.Port)
@@ -159,13 +118,13 @@ func (h *handler) captured(conn localApp, hub *captureHub) {
 
 // control keeps the extension's control connection until either side ends
 // it. Nothing more is expected from the extension on it.
-func (h *handler) control(conn localApp, reader *bufio.Reader, hub *captureHub) {
+func (h *handler) control(conn net.Conn, reader *bufio.Reader) {
 	_ = conn.SetDeadline(time.Time{})
-	if !hub.join(conn) {
+	if !h.capture.join(conn) {
 		_ = conn.Close()
 		return
 	}
-	defer hub.leave(conn)
+	defer h.capture.leave(conn)
 	defer func() { _ = conn.Close() }()
 	buf := make([]byte, 512)
 	for {

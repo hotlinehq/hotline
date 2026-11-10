@@ -179,8 +179,10 @@ type world struct {
 	intercept *interceptConf
 	// capture is the listen.capture setting, when the scenario has one, and
 	// control the extension's control connection, once opened.
-	capture *captureConf
 	control *captureControl
+	// captureApps are the apps the proxy is asked to capture, as --capture
+	// does.
+	captureApps []string
 	// interceptHost is the site the app's last connection to the intercept
 	// listener named, and original what the connection was first sent to,
 	// when the scenario lets the proxy read that.
@@ -394,7 +396,6 @@ func (w *world) config() string {
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
 	b.WriteString(w.interceptSection())
-	b.WriteString(w.captureSection())
 	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
@@ -487,6 +488,7 @@ func (w *world) start() error {
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		ExportTimeout: w.exportTimeout,
 		CheckWorkers:  w.checkWorkers,
+		CaptureApps:   w.captureApps,
 		OriginalDestination: func(net.Conn) (netip.AddrPort, error) {
 			if !w.originalKnown {
 				return netip.AddrPort{}, errNoOriginal

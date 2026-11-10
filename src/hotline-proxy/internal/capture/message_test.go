@@ -97,6 +97,14 @@ var _ = Describe("The app list sent to the extension", func() {
 		Expect(capture.Spec([]string{"curl"}, 1).Version).To(Equal(capture.Version))
 	})
 
+	It("is told apart from a TLS handshake by its first byte", func() {
+		raw, err := capture.Frame(capture.Spec([]string{"curl"}, 7))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(raw[0]).To(BeZero()) // a TLS record starts with 0x16
+		Expect(capture.IsFrame(raw[0])).To(BeTrue())
+		Expect(capture.IsFrame(0x16)).To(BeFalse())
+	})
+
 	It("is written as a framed message the extension reads", func() {
 		raw, err := capture.Frame(capture.Spec([]string{"curl"}, 7))
 		Expect(err).NotTo(HaveOccurred())

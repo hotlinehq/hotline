@@ -53,9 +53,9 @@ type handler struct {
 	// redirected makes the certificates shown on the intercept listener;
 	// nil when there is none.
 	redirected *interceptor
-	// captureCerts makes the certificates shown to captured apps; nil
-	// when the config has no listen.capture.
-	captureCerts *interceptor
+	// capture holds the extension's control connections; nil when the
+	// proxy was not asked to capture apps.
+	capture *captureHub
 	// relays dials the sites the intercept listener relays untouched.
 	relays *dialer
 	// tunnels takes each tunnel once it is set up.

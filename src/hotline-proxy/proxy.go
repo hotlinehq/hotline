@@ -79,6 +79,11 @@ type Options struct {
 	// first sent, before the firewall redirected it. Without it, calls
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination
+	// CaptureApps are the programs to capture on a Mac, by name or process
+	// number, a leading "!" skipping the match: the --capture flag. With
+	// them, listen.intercept also takes the macOS extension's messages,
+	// and needs a loopback address. Empty means no capture.
+	CaptureApps []string
 }
 
 // Proxy is a running proxy.
@@ -106,22 +111,9 @@ type Proxy struct {
 	// the config has it.
 	redirectedListener net.Listener
 	redirectedServed   chan struct{}
-	// captureFolder, captureListener and captureHub are the socket of
-	// listen.capture, when the config has it: its private folder, the
-	// listener and the extension's control connections.
-	captureFolder   *capture.Folder
-	captureListener net.Listener
-	captureHub      *captureHub
-	captureServed   chan struct{}
-}
-
-// CaptureSocket is the path of the socket the macOS extension connects to,
-// which the proxy makes when the config has listen.capture; empty without.
-func (p *Proxy) CaptureSocket() string {
-	if p.captureFolder == nil {
-		return ""
-	}
-	return p.captureFolder.Socket()
+	// captureHub holds the extension's control connections, when the proxy
+	// captures apps.
+	captureHub *captureHub
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -131,6 +123,9 @@ func (p *Proxy) CaptureSocket() string {
 func Start(ctx context.Context, o Options) (*Proxy, error) {
 	cfg, err := config.Load(o.ConfigPath, o.Clock.Now(), o.LookupEnv)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkCapture(o.CaptureApps, cfg.Intercept); err != nil {
 		return nil, err
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
@@ -158,21 +153,6 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			return nil, err
 		}
 	}
-	var captureFolder *capture.Folder
-	var captureListener net.Listener
-	if cfg.Capture != nil {
-		captureFolder, captureListener, err = listenCapture(ctx)
-		if err != nil {
-			_ = listener.Close()
-			if adminListener != nil {
-				_ = adminListener.Close()
-			}
-			if redirectedListener != nil {
-				_ = redirectedListener.Close()
-			}
-			return nil, err
-		}
-	}
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
@@ -185,6 +165,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
+	if len(o.CaptureApps) > 0 {
+		h.capture = newCaptureHub(o.CaptureApps)
+	}
 	workers := o.CheckWorkers
 	if workers == 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -193,13 +176,8 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.Connect != nil {
 		h.intercept = newInterceptor(cfg.Connect, o.Clock, o.Logger)
 	}
-	if cfg.Capture != nil {
-		h.captureCerts = newInterceptor(cfg.Capture.Issuer, o.Clock, o.Logger)
-	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
-	}
-	if redirectedListener != nil || cfg.Capture != nil {
 		h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	}
 	// Calls that may reach internal IPs get their own connections, so a
@@ -253,17 +231,10 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}()
 	if redirectedListener != nil {
 		p.redirectedListener, p.redirectedServed = redirectedListener, make(chan struct{})
+		p.captureHub = h.capture
 		go func() {
 			defer close(p.redirectedServed)
 			h.serveIntercept(redirectedListener, o.OriginalDestination)
-		}()
-	}
-	if captureListener != nil {
-		p.captureFolder, p.captureListener, p.captureServed = captureFolder, captureListener, make(chan struct{})
-		p.captureHub = newCaptureHub(cfg.Capture.Apps)
-		go func() {
-			defer close(p.captureServed)
-			h.serveCapture(captureListener, p.captureHub)
 		}()
 	}
 	if adminListener != nil {
@@ -274,21 +245,6 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	o.Logger.Info("hotline proxy started", "address", listener.Addr().String(), "config_version", cfg.Label())
 	return p, nil
-}
-
-// listenCapture makes the private folder of listen.capture and listens on a
-// socket in it.
-func listenCapture(ctx context.Context) (*capture.Folder, net.Listener, error) {
-	folder, err := capture.NewFolder()
-	if err != nil {
-		return nil, nil, err
-	}
-	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", folder.Socket())
-	if err != nil {
-		_ = folder.Close()
-		return nil, nil, err
-	}
-	return folder, l, nil
 }
 
 func newTransport(o Options, allowInternal bool) *http.Transport {
@@ -302,6 +258,26 @@ func newTransport(o Options, allowInternal bool) *http.Transport {
 		IdleConnTimeout:     90 * time.Second,
 	}
 }
+
+// checkCapture refuses a request to capture apps that cannot work: a bad app
+// list, no listen.intercept to take the extension's connections, or an address
+// that other machines could reach.
+func checkCapture(apps []string, ic *config.Intercept) error {
+	if len(apps) == 0 {
+		return nil
+	}
+	if err := capture.CheckApps(apps); err != nil {
+		return err
+	}
+	if ic == nil {
+		return errCaptureNeedsIntercept
+	}
+	return capture.CheckAddress(ic.Address)
+}
+
+// errCaptureNeedsIntercept is a request to capture apps without
+// listen.intercept, the port the extension connects to.
+var errCaptureNeedsIntercept = errors.New("capturing apps needs listen.intercept in the config, the port the extension connects to")
 
 // Validate checks a config and every spec and certificate it points to,
 // without starting anything. A config with problems is refused with all of
@@ -369,11 +345,9 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		_ = p.redirectedListener.Close()
 		<-p.redirectedServed
 	}
-	if p.captureListener != nil {
-		_ = p.captureListener.Close()
-		<-p.captureServed
+	if p.captureHub != nil {
+		// The extension's control connections stay open until closed.
 		p.captureHub.close()
-		_ = p.captureFolder.Close()
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()

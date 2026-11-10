@@ -6,11 +6,10 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,52 +18,11 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// captureConf is the listen.capture setting of the config a scenario
-// writes.
-type captureConf struct {
-	issuer      string
-	integration string
-	apps        []string
-	passthrough []string
-	relay       []string
-	// without names a field to leave out.
-	without string
-	// socket is the path of the capture socket, kept once it is known, as
-	// the proxy forgets it when it stops.
-	socket string
-}
-
 // captureControl is the extension's control connection, and the app lists
 // the proxy sent on it.
 type captureControl struct {
 	conn   net.Conn
 	reader *bufio.Reader
-}
-
-// captureSection is the listen.capture lines of the config.
-func (w *world) captureSection() string {
-	c := w.capture
-	if c == nil {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("  capture:\n")
-	if c.without != "issuer" {
-		fmt.Fprintf(&b, "    issuer: %s\n", c.issuer)
-	}
-	if c.integration != "" {
-		fmt.Fprintf(&b, "    integration: %s\n", c.integration)
-	}
-	if len(c.apps) > 0 {
-		fmt.Fprintf(&b, "    apps: [%s]\n", yamlList(c.apps))
-	}
-	if len(c.passthrough) > 0 {
-		fmt.Fprintf(&b, "    passthrough: [%s]\n", yamlList(c.passthrough))
-	}
-	if len(c.relay) > 0 {
-		fmt.Fprintf(&b, "    ech: { relay: [%s] }\n", yamlList(c.relay))
-	}
-	return b.String()
 }
 
 // words splits "a, b and c" into its names.
@@ -73,24 +31,14 @@ func words(list string) []string {
 }
 
 func captureSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^listen.capture picks it for the apps (.+?)(?: with integration "([^"]*)")?$`, func(apps, id string) error {
-		w.capture = &captureConf{issuer: "customer", integration: id, apps: words(apps)}
+	sc.Step(`^the proxy captures the apps (.+)$`, func(apps string) error {
+		w.captureApps = words(apps)
 		return nil
 	})
-	sc.Step(`^listen.capture lists (\S+) in (passthrough|ech.relay)$`, func(name, list string) error {
-		if list == "passthrough" {
-			w.capture.passthrough = append(w.capture.passthrough, name)
-		} else {
-			w.capture.relay = append(w.capture.relay, name)
-		}
+	sc.Step(`^the proxy captures no apps$`, func() error {
+		w.captureApps = nil
 		return nil
 	})
-	sc.Step(`^the config file changes listen.capture to the apps (.+)$`, func(apps string) error {
-		w.capture.apps = words(apps)
-		w.writeFile("hotline-proxy.yaml", w.config())
-		return nil
-	})
-
 	sc.Step(`^the extension opens a flow to (the address of )?(\S+):(\d+) for process (\d+) at "([^"]*)" and the app names (no site|\S+) in the handshake$`,
 		func(address, host, port, pid, path, name string) error {
 			dest := host
@@ -141,7 +89,7 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		if _, err := conn.Write(oddCaptureHello(kind)); err != nil {
 			return err
 		}
-		if unix, ok := conn.(*net.UnixConn); ok {
+		if unix, ok := conn.(*net.TCPConn); ok {
 			_ = unix.CloseWrite()
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -149,86 +97,54 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the capture socket is in a folder with a random name, mode 0700 and owned by the current user$`, func() error {
-		if err := w.start(); err != nil {
-			return err
+	sc.Step(`^the extension's control connection is closed$`, func() error {
+		if w.control == nil {
+			return failf("the extension has no control connection")
 		}
-		socket := w.proxy.CaptureSocket()
-		w.capture.socket = socket
-		dir := filepath.Dir(socket)
-		info, err := os.Stat(dir)
-		if err != nil {
-			return err
-		}
-		if info.Mode().Perm() != 0o700 {
-			return failf("the folder %s has mode %o", dir, info.Mode().Perm())
-		}
-		if !strings.HasPrefix(filepath.Base(dir), "hotline-capture-") || len(filepath.Base(dir)) <= len("hotline-capture-") {
-			return failf("the folder %s has no random name", dir)
-		}
-		if _, err := os.Stat(socket); err != nil {
-			return failf("there is no socket: %v", err)
-		}
-		return nil
-	})
-	sc.Step(`^the capture socket folder is gone$`, func() error {
-		if _, err := os.Stat(filepath.Dir(w.capture.socket)); err == nil {
-			return failf("the folder %s is still there", filepath.Dir(w.capture.socket))
+		_ = w.control.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if n, err := w.control.reader.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {
+			return failf("the control connection gave %d bytes and %v, want it closed", n, err)
 		}
 		return nil
 	})
 
-	sc.Step(`^listen.capture names an issuer that is not in issuers$`, func() error {
-		w.problem = "listen.capture names the issuer gone, which is not in issuers"
-		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "gone", apps: []string{"curl"}}
+	sc.Step(`^the proxy is asked to capture but the config has no listen.intercept$`, func() error {
+		w.problem = "capturing apps needs listen.intercept"
+		w.captureApps = []string{"curl"}
+		w.intercept = nil
 		return nil
 	})
-	sc.Step(`^listen.capture names no issuer$`, func() error {
-		w.problem = "listen.capture must name an issuer"
+	sc.Step(`^the proxy is asked to capture while listen.intercept listens on all interfaces$`, func() error {
+		w.problem = "capturing apps needs listen.intercept on a loopback address"
+		w.captureApps = []string{"curl"}
 		w.useIssuer(newIssuer())
-		w.capture = &captureConf{apps: []string{"curl"}, issuer: "customer", without: "issuer"}
+		_, port, _ := net.SplitHostPort(freePort())
+		w.intercept = &interceptConf{address: "0.0.0.0:" + port, issuer: "customer"}
 		return nil
 	})
-	sc.Step(`^listen.capture lists no apps$`, func() error {
-		w.problem = "listen.capture needs apps"
+	sc.Step(`^the proxy is asked to capture an app that is just a skip mark$`, func() error {
+		w.problem = "an app must be a program name or a process number"
+		w.captureApps = []string{"!"}
 		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "customer"}
+		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
 		return nil
 	})
-	sc.Step(`^listen.capture lists an app that is just a skip mark$`, func() error {
-		w.problem = `listen.capture: apps "!" must be a program name or a process number`
+	sc.Step(`^the proxy is asked to capture an app with a space in it$`, func() error {
+		w.problem = "an app must be a program name or a process number"
+		w.captureApps = []string{"my app"}
 		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "customer", apps: []string{"!"}}
-		return nil
-	})
-	sc.Step(`^listen.capture lists an app with a space in it$`, func() error {
-		w.problem = `listen.capture: apps "my app" must be a program name or a process number`
-		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "customer", apps: []string{"my app"}}
-		return nil
-	})
-	sc.Step(`^listen.capture lists an ech.relay name that is not a host name$`, func() error {
-		w.problem = `ech.relay "a/b" must be a host name`
-		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "customer", apps: []string{"curl"}, relay: []string{"a/b"}}
-		return nil
-	})
-	sc.Step(`^listen.capture lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
-		w.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
-		w.useIssuer(newIssuer())
-		w.capture = &captureConf{issuer: "customer", apps: []string{"curl"}, passthrough: []string{"api.*.com"}}
+		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
 		return nil
 	})
 }
 
-// dialCapture connects to the capture socket, as the extension does, and
+// dialCapture connects to the intercept port, as the extension does, and
 // keeps the connection to close with the world.
 func (w *world) dialCapture() (net.Conn, error) {
-	if w.proxy == nil || w.proxy.CaptureSocket() == "" {
-		return nil, failf("the scenario has no listen.capture")
+	if w.interceptAddr == "" {
+		return nil, failf("the scenario has no listen.intercept")
 	}
-	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "unix", w.proxy.CaptureSocket())
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", w.interceptAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +189,7 @@ func (w *world) captureFlow(host, port, pid, path, site string, raw []byte) erro
 		if err != nil {
 			return err
 		}
-		if unix, ok := conn.(*net.UnixConn); ok {
+		if unix, ok := conn.(*net.TCPConn); ok {
 			_ = unix.CloseWrite()
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
