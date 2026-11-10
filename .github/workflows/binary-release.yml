@@ -16,6 +16,9 @@ on:
       - 'src/hotline-proxy/**'
     tags:
       - 'v*'
+  # By hand, from the Actions page: pick main to publish edge again, or a
+  # release tag to publish that release again (Peter, 2026-11-10).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -35,6 +38,9 @@ jobs:
 
   publish:
     needs: binaries
+    # A by-hand run on any other branch builds and checks, but publishes
+    # nothing.
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # create the release
