@@ -62,7 +62,7 @@ func (c *call) record(end time.Time) {
 		semconv.HTTPRequestMethodKey.String(c.in.Method),
 		semconv.HTTPResponseStatusCode(c.status),
 	)
-	attrs = append(attrs, c.extra...)
+	attrs = append(attrs, c.process.attributes()...)
 	if c.respBody != nil {
 		if _, err := c.respBody.counts(); err != nil {
 			c.errorType, c.failedStep = "http_response_incomplete", "receive reply"

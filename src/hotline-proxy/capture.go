@@ -33,12 +33,7 @@ func (h *handler) captured(conn net.Conn, reader *bufio.Reader, ic *config.Inter
 	}
 	src.port = strconv.Itoa(hello.Port)
 	src.fallback = strings.ToLower(hello.Host)
-	if hello.PID > 0 {
-		src.extra = append(src.extra, semconv.ProcessPID(hello.PID))
-	}
-	if hello.ProcessName != "" {
-		src.extra = append(src.extra, semconv.ProcessExecutablePath(hello.ProcessName))
-	}
+	src.process = process{pid: hello.PID, path: hello.ProcessName}
 	h.serveSource(conn, reader, src, start)
 }
 

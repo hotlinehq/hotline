@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/capture"
@@ -128,7 +127,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cfg:        cfg,
 		start:      start,
 		ingress:    ingress,
-		extra:      tunnelExtra(a),
+		process:    tunnelProcess(a),
 		target:     target,
 		id:         id,
 		api:        api,
@@ -375,9 +374,8 @@ type call struct {
 	cfg     *config.Config
 	start   time.Time
 	ingress string
-	// extra says more about the call's record, such as the program that
-	// made it, when the ingress knows.
-	extra []attribute.KeyValue
+	// process is the program that made the call, when the ingress knows.
+	process process
 	// trace is the call's trace context, which its record carries; its
 	// span id is the call span's. parent is the app's span, the call
 	// span's parent, and vendorSpan the id of the vendor call's span.
@@ -841,11 +839,11 @@ func (t *tap) finish() {
 	}
 }
 
-// tunnelExtra is what the tunnel an app connection came through says about
-// its calls' records; nothing for a connection that came by no tunnel.
-func tunnelExtra(a *appConn) []attribute.KeyValue {
+// tunnelProcess is the program the tunnel an app connection came through
+// says made it; unknown for a connection that came by no tunnel.
+func tunnelProcess(a *appConn) process {
 	if a == nil || a.tunnel == nil {
-		return nil
+		return process{}
 	}
-	return a.tunnel.extra
+	return a.tunnel.process
 }

@@ -152,8 +152,8 @@ type source struct {
 	// when the handshake names no site: the address the program called.
 	port     string
 	fallback string
-	// extra says more about the connection's records, such as the program.
-	extra []attribute.KeyValue
+	// process is the program that made the connection.
+	process process
 }
 
 // ingressAttr is the hotline.ingress attribute of the source's records.
@@ -232,7 +232,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		h.relay(src, inner, start, host, "passthrough")
 		return
 	}
-	t := &tunnel{host: host, port: src.port, id: src.id, ingress: src.ingress, extra: src.extra}
+	t := &tunnel{host: host, port: src.port, id: src.id, ingress: src.ingress, process: src.process}
 	secure := tls.Server(inner, src.certificate.tlsConfig(host))
 	a := &appConn{Conn: secure, tunnel: t, secure: true}
 	a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
@@ -311,7 +311,7 @@ func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, h
 		attribute.String("hotline.integration.id", orNotPassed(id)),
 		src.ingressAttr(),
 		semconv.ClientAddress(from),
-	}, src.extra...)
+	}, src.process.attributes()...)
 	if host != "" {
 		attrs = append(attrs, semconv.ServerAddress(host))
 	}
