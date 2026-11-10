@@ -32,7 +32,7 @@ const (
 	exitUsage = 2
 )
 
-const usage = `usage: hotline <command> [flags]
+const usage = `usage: hotline-proxy <command> [flags]
 
 commands:
   run       start the proxy
@@ -40,7 +40,7 @@ commands:
   overlay   write an overlay that turns one spec into another
   version   print the version
 
-Run "hotline <command> --help" for the flags of a command.
+Run "hotline-proxy <command> --help" for the flags of a command.
 `
 
 var (
@@ -78,7 +78,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		return exitUsage
 	}
 
-	flags := flag.NewFlagSet("hotline "+command, flag.ContinueOnError)
+	flags := flag.NewFlagSet("hotline-proxy "+command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "the hotline-proxy.yaml file (required)")
 	trustFile := flags.String("trust-file", "", "a PEM file of extra trusted issuers for vendor certificates, on top of the system's own")
@@ -140,7 +140,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 // makeOverlay writes to stdout an overlay that turns the --from spec into
 // the --to spec.
 func makeOverlay(args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("hotline overlay", flag.ContinueOnError)
+	flags := flag.NewFlagSet("hotline-proxy overlay", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	from := flags.String("from", "", "the spec as it is (required)")
 	to := flags.String("to", "", "the spec as it should be (required)")
@@ -290,7 +290,7 @@ const commitLength = 12
 // version and, when known, the commit it was built from. A version that
 // already is the commit (the edge build) is not followed by it again.
 func versionLine() string {
-	line := "hotline " + version()
+	line := "hotline-proxy " + version()
 	commit := buildCommit
 	if commit == "" {
 		if info, ok := debug.ReadBuildInfo(); ok {

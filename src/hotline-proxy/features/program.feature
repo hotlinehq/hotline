@@ -12,18 +12,17 @@ Feature: The hotline-proxy program
   Scenario: The version command prints the version
     When hotline-proxy is run with "version"
     Then it exits with code 0
-    And standard output starts with "hotline "
+    And standard output starts with "hotline-proxy "
 
   Scenario: The version given when the program is built is printed
     The image build passes the release's git tag, such as v0.1.0, so the
-    program in the image prints it (Peter, 2026-11-01). The program prints
-    and uses the name hotline, which is also the name of the downloadable
-    program file (Peter, 2026-11-10).
+    program in the image prints it (Peter, 2026-11-01). The downloadable
+    program file has the same name, hotline-proxy (Peter, 2026-11-10).
 
     Given hotline-proxy is built with version "v0.1.0"
     When hotline-proxy is run with "version"
     Then it exits with code 0
-    And standard output is "hotline v0.1.0"
+    And standard output is "hotline-proxy v0.1.0"
 
   Scenario: The git commit is printed with the version
     The build passes the commit it was built from, so a downloaded program
@@ -33,7 +32,7 @@ Feature: The hotline-proxy program
     Given hotline-proxy is built with version "v0.1.0" and commit "0123456789abcdef0123456789abcdef01234567"
     When hotline-proxy is run with "version"
     Then it exits with code 0
-    And standard output is "hotline v0.1.0 (commit 0123456789ab)"
+    And standard output is "hotline-proxy v0.1.0 (commit 0123456789ab)"
 
   Scenario: A version that already is the commit is printed once
     The edge build uses the commit as its version.
@@ -41,7 +40,7 @@ Feature: The hotline-proxy program
     Given hotline-proxy is built with version "0123456789abcdef0123456789abcdef01234567" and commit "0123456789abcdef0123456789abcdef01234567"
     When hotline-proxy is run with "version"
     Then it exits with code 0
-    And standard output is "hotline 0123456789abcdef0123456789abcdef01234567"
+    And standard output is "hotline-proxy 0123456789abcdef0123456789abcdef01234567"
 
   Scenario: Help is printed on request
     When hotline-proxy is run with "run --help"
@@ -55,7 +54,7 @@ Feature: The hotline-proxy program
 
     Examples:
       | arguments                                  | message                         |
-      |                                            | usage: hotline <command>        |
+      |                                            | usage: hotline-proxy            |
       | start                                      | unknown command "start"         |
       | run                                        | --config is required            |
       | validate                                   | --config is required            |

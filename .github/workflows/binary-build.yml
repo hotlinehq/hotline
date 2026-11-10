@@ -1,4 +1,4 @@
-# Builds the hotline program for Linux and macOS, on amd64 and arm64, and
+# Builds the hotline-proxy program for Linux and macOS, on amd64 and arm64, and
 # checks it. Shared by binary-pr.yml (pull requests) and binary-release.yml
 # (main and release tags), so both run the very same build and smoke test.
 # Detail: docs/proxy-binaries.md.
@@ -57,12 +57,12 @@ jobs:
             os=${target%/*}; arch=${target#*/}
             dir=$(mktemp -d)
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
-              go build -trimpath -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${GITHUB_SHA}" -o "$dir/hotline" ./cmd
+              go build -trimpath -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${GITHUB_SHA}" -o "$dir/hotline-proxy" ./cmd
             cp "$GITHUB_WORKSPACE/LICENSE" "$dir/LICENSE"
-            tar -C "$dir" -czf "$out/hotline_${LABEL}_${os}_${arch}.tar.gz" hotline LICENSE
+            tar -C "$dir" -czf "$out/hotline-proxy_${LABEL}_${os}_${arch}.tar.gz" hotline-proxy LICENSE
           done
           cd "$out"
-          sha256sum hotline_*.tar.gz > SHA256SUMS
+          sha256sum hotline-proxy_*.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -86,8 +86,8 @@ jobs:
         run: |
           set -eu
           (cd dist && sha256sum -c SHA256SUMS)
-          tar -C dist -xzf "dist/hotline_${{ needs.build.outputs.label }}_linux_amd64.tar.gz"
-          .github/scripts/smoke-program.sh dist/hotline "${{ needs.build.outputs.version }}"
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.build.outputs.label }}_linux_amd64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.build.outputs.version }}"
 
   # Runs the macOS arm64 program on a Mac runner, on every build (Peter,
   # 2026-11-10).
@@ -104,5 +104,5 @@ jobs:
         run: |
           set -eu
           (cd dist && shasum -a 256 -c SHA256SUMS)
-          tar -C dist -xzf "dist/hotline_${{ needs.build.outputs.label }}_darwin_arm64.tar.gz"
-          .github/scripts/smoke-program.sh dist/hotline "${{ needs.build.outputs.version }}"
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.build.outputs.label }}_darwin_arm64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.build.outputs.version }}"

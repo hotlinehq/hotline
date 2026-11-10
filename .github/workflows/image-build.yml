@@ -99,9 +99,9 @@ jobs:
           config="$PWD/deploy/kubernetes/sidecar"
           mounts="-v $config:/etc/hotline/config:ro -v $keys:/etc/hotline/keys:ro"
 
-          # hotline <version>, then the commit in brackets when it differs
+          # hotline-proxy <version>, then the commit in brackets when it differs
           case "$(docker run --rm hotline-proxy:smoke version)" in
-            "hotline ${{ needs.build.outputs.version }}"*) ;;
+            "hotline-proxy ${{ needs.build.outputs.version }}"*) ;;
             *) echo "unexpected version line"; exit 1 ;;
           esac
           docker run --rm --read-only $mounts hotline-proxy:smoke validate --config /etc/hotline/config/hotline-proxy.yaml
