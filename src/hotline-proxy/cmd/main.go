@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -67,7 +68,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 	command := args[0]
 	switch command {
 	case "version":
-		_, _ = fmt.Fprintln(stdout, "hotline-proxy", version())
+		_, _ = fmt.Fprintln(stdout, versionLine())
 		return exitOK
 	case "overlay":
 		return makeOverlay(args[1:], stdout, stderr)
@@ -276,6 +277,35 @@ func logProblems(logger *slog.Logger, msg string, err error) {
 // buildVersion is the release's git tag, such as v0.1.0, set when the
 // program is built: go build -ldflags "-X main.buildVersion=v0.1.0".
 var buildVersion string //nolint:gochecknoglobals // go build -ldflags -X can only set a package variable
+
+// buildCommit is the git commit the program was built from, set the same
+// way: go build -ldflags "-X main.buildCommit=<hash>". Without it, the commit
+// Go itself recorded is used, when the build was made inside a git checkout.
+var buildCommit string //nolint:gochecknoglobals // go build -ldflags -X can only set a package variable
+
+// commitLength is how many characters of the commit the version line shows.
+const commitLength = 12
+
+// versionLine is what the version command prints: the program's name, its
+// version and, when known, the commit it was built from. A version that
+// already is the commit (the edge build) is not followed by it again.
+func versionLine() string {
+	line := "hotline-proxy " + version()
+	commit := buildCommit
+	if commit == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, setting := range info.Settings {
+				if setting.Key == "vcs.revision" {
+					commit = setting.Value
+				}
+			}
+		}
+	}
+	if commit == "" || strings.HasPrefix(version(), commit[:min(commitLength, len(commit))]) {
+		return line
+	}
+	return line + " (commit " + commit[:min(commitLength, len(commit))] + ")"
+}
 
 // version is buildVersion, or else the version Go recorded at build time.
 func version() string {

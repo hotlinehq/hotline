@@ -1,6 +1,3 @@
-# Only the proxy's source goes into the image build.
+# Only the finished programs go into the image build.
 *
-!src/hotline-proxy/
-src/hotline-proxy/testdata/
-src/hotline-proxy/**/*_test.go
-src/hotline-proxy/features/
+!dist/image/

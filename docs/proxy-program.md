@@ -4,7 +4,7 @@ The proxy from slice 1 runs as one program, `hotline-proxy`, in `src/hotline-pro
 
 ## What it does
 
-1. **Commands.** `hotline-proxy run --config hotline-proxy.yaml` starts the proxy. `hotline-proxy validate --config hotline-proxy.yaml` only checks the config and the specs it points to, then exits. `hotline-proxy version` prints the version that Go recorded when it built the program.
+1. **Commands.** `hotline-proxy run --config hotline-proxy.yaml` starts the proxy. `hotline-proxy validate --config hotline-proxy.yaml` only checks the config and the specs it points to, then exits. `hotline-proxy version` prints `hotline-proxy <version> (commit <first 12 characters of the git commit>)`, from what the build passed in, else what Go recorded (Peter, 2026-11-10). A version that already is the commit is shown once. The downloadable program file has the same name ([proxy-binaries.md](proxy-binaries.md)).
 2. **Config path.** Given only with `--config`. No default path and no environment variables. Without it the program stops with exit code 2 and says why.
 3. **Listen address.** Comes only from `listen.proxy` in the config.
 4. **Health checks.** `/livez` and `/readyz` on `listen.admin`, and the `--drain-delay` flag: built later, see [proxy-health-checks.md](proxy-health-checks.md).

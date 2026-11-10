@@ -1,6 +1,6 @@
 # The proxy's Docker image
 
-Agreed with Peter on 2026-11-01. Files: `src/hotline-proxy/Dockerfile`, `.github/workflows/image-build.yml`, `image-pr.yml`, `image-release.yml`, `.github/dependabot.yml` and the sidecar example in `deploy/kubernetes/sidecar/`. Test: the version scenario in `src/hotline-proxy/features/program.feature`, and the smoke test in the image workflow.
+Agreed with Peter on 2026-11-01. Files: `src/hotline-proxy/Dockerfile`, `.github/workflows/binary-build.yml`, `binary-pr.yml`, `binary-release.yml`, `image-cleanup.yml`, `.github/dependabot.yml` and the sidecar example in `deploy/kubernetes/sidecar/`. Test: the version scenario in `src/hotline-proxy/features/program.feature`, and the smoke test in the image workflow.
 
 ## What it is
 
@@ -14,7 +14,7 @@ One hardened image, `ghcr.io/petercipov/hotline-proxy`, for `linux/amd64` and `l
 4. **No vendor specs in the image** (Peter, 2026-11-02; they were in their own layer from 2026-11-01). Specs come with the config, in the same ConfigMap at `/etc/hotline/config/`, and the config points to them by a relative path.
 5. **Memory:** the proxy does not read the container's memory limit; like Envoy, HAProxy and Squid, it takes a fixed setting. Set `GOMEMLIMIT` (Go's soft memory cap) a little under the container's limit, for example `230MiB` for `256Mi`. Without it Go does not know the limit, can grow past it under load, and Kubernetes kills the proxy mid-call.
 6. **No health check command.** The image has no shell or curl, so no Docker `HEALTHCHECK`. Kubernetes probes `/livez` and `/readyz` on the admin port: [proxy-health-checks.md](proxy-health-checks.md). A `health` command comes only if a real user needs it, for example with Docker Compose.
-7. **Releases are git tags.** Pushing `v1.2.3` to the `hotline` repo publishes `1.2.3`, `1.2` and `latest`. Every push to `main` publishes `edge`. Every published build is also `sha-<short commit>`. `hotline-proxy version` prints the git tag (or the commit for `main`), passed in at build time. The first release is `v0.1.0`.
+7. **Releases are git tags.** Pushing `v1.2.3` to the `hotline` repo publishes `1.2.3`, `1.2` and `latest`. Every push to `main` publishes `edge`. Every published build is also `sha-<short commit>`. `hotline-proxy version` prints the git tag (or the commit for `main`), passed in at build time, then the commit in brackets. The first release is `v0.1.0`.
 8. **SBOM, provenance and signature on every published image.** The signature is cosign keyless: it is tied to the GitHub workflow that built the image, so there is no key to keep. Check it with:
    ```
    cosign verify ghcr.io/petercipov/hotline-proxy:0.1.0 \
@@ -65,14 +65,9 @@ To debug, `kubectl debug -it <pod> --image=busybox --target=hotline-proxy` attac
 
 ## Building it
 
-From the root of the repo:
+The image compiles nothing (Peter, 2026-11-10). It copies the finished Linux programs, the very files that are released as downloads ([proxy-binaries.md](proxy-binaries.md)), onto the distroless base. From the root of the repo, `make image` builds the Linux programs and then the image for both platforms.
 
-```
-docker buildx build -f src/hotline-proxy/Dockerfile --build-arg VERSION=v0.1.0 \
-  --platform linux/amd64,linux/arm64 -t hotline-proxy .
-```
-
-Pull requests run `image-pr.yml`, but only when they change `src/hotline-proxy/` (the Dockerfile is in it), so a change to the load test, docs or any workflow (the image workflows too) builds no image (Peter, 2026-11-02); main (again only for those changes) and release tags (always) run `image-release.yml`. Both use the same `build` and `smoke` jobs from `image-build.yml`. `build` builds both platforms once, with the SBOM and provenance, and saves the image as a file. `smoke` loads the `linux/amd64` image from that file and checks it (version, `validate` and `run` of the sidecar example's config on a read-only filesystem, `/readyz`, the user). Then `image-release.yml` alone runs `publish`, which copies the same file to ghcr.io with `skopeo`, which comes with the GitHub runner, and signs it, so the published image is the one that was checked. Pull requests run `build` and `smoke` and push nothing.
+On GitHub one build workflow, `binary-build.yml`, does it all, and pull requests (`binary-pr.yml`) and releases (`binary-release.yml`, main and tags) run the same one. Only when they change `src/hotline-proxy/` (the Dockerfile is in it) does main build; release tags always do. `build` makes each program in its own job, all four at the same time, and `package` gathers them with the SBOM and `SHA256SUMS`, `smoke-linux` checks the Linux amd64 program, `image` (at the same time as `package` and `smoke-linux`, since it needs only the built programs) unpacks the Linux programs into `dist/image/linux_<arch>/` and builds both platforms once, with the SBOM and provenance, saved as an OCI file, and `smoke-image` loads the `linux/amd64` image from that file and checks it (version line and program bytes equal to the download's, `validate` and `run` of the sidecar example's config on a read-only filesystem, `/readyz`, the user). Then `binary-release.yml` alone runs `publish`, which copies the same file to ghcr.io with `skopeo`, signs it, and creates the release files, so what is published is what was checked. Pull requests push nothing.
 
 ## Cleaning up old images
 

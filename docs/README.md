@@ -6,6 +6,7 @@
 - [Config reload without a restart](proxy-config-reload.md)
 - [Health checks on the admin port](proxy-health-checks.md)
 - [The Docker image](proxy-docker-image.md), with a Kubernetes sidecar example.
+- [The proxy as a program file](proxy-binaries.md), for Linux and macOS without Docker.
 - [TLS from apps to the proxy](proxy-tls-from-apps.md)
 
 ## Ingresses: how apps reach the proxy

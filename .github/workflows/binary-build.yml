@@ -1,0 +1,254 @@
+# Builds the hotline-proxy program for Linux and macOS, on amd64 and arm64,
+# and the Docker image, and checks them. Shared by binary-pr.yml (pull
+# requests) and binary-release.yml (main and release tags), so both run the
+# very same build and checks. Detail: docs/proxy-binaries.md and
+# docs/proxy-docker-image.md.
+#
+# build makes each program in its own job, all at the same time (Peter,
+# 2026-11-10); package gathers them with the SBOM and the checksums as the
+# artifact hotline-programs. The image is made by copying the Linux programs in: it
+# compiles nothing, so the image holds the very program that was checked
+# (Peter, 2026-11-10). Publishing is left to binary-release.yml, which uploads
+# the same files, so what is published is what was checked.
+name: binary build
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: what the program prints after its name
+        value: ${{ jobs.version.outputs.version }}
+      label:
+        description: the version part of the file names (the tag, or edge)
+        value: ${{ jobs.version.outputs.label }}
+      tags:
+        description: the image tags, one per line
+        value: ${{ jobs.image.outputs.tags }}
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/petercipov/hotline-proxy
+
+jobs:
+  # The version the program prints: the git tag on a release, else the
+  # commit (as for the image). The file names carry the tag, or edge, so the
+  # edge download address never changes.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      label: ${{ steps.version.outputs.label }}
+    steps:
+      - id: version
+        run: |
+          echo "version=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "label=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}" >> "$GITHUB_OUTPUT"
+
+  # One job per system and architecture, all running at the same time. The
+  # same flags as the image used: one static file, no C code.
+  build:
+    needs: version
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, arch: amd64 }
+          - { os: linux, arch: arm64 }
+          - { os: darwin, arch: amd64 }
+          - { os: darwin, arch: arm64 }
+    name: build for ${{ matrix.os == 'darwin' && 'macOS' || 'Linux' }} on ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.3'
+          check-latest: false
+          cache-dependency-path: src/hotline-proxy/go.sum
+      - name: build the program
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          LABEL: ${{ needs.version.outputs.label }}
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        working-directory: src/hotline-proxy
+        run: |
+          set -eu
+          dir=$(mktemp -d)
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X main.buildVersion=${VERSION} -X main.buildCommit=${GITHUB_SHA}" \
+            -o "$dir/hotline-proxy" ./cmd
+          cp "$GITHUB_WORKSPACE/LICENSE" "$dir/LICENSE"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          tar -C "$dir" -czf "$GITHUB_WORKSPACE/dist/hotline-proxy_${LABEL}_${GOOS}_${GOARCH}.tar.gz" hotline-proxy LICENSE
+      # One file, stored as it is, without a zip (archive: false); its own
+      # name is the artifact's name (Peter, 2026-11-10).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: dist/hotline-proxy_${{ needs.version.outputs.label }}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
+
+  # Gathers the four programs, adds the SBOM and the checksums, and saves
+  # them all as the artifact hotline-programs.
+  package:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.3'
+          check-latest: false
+          cache-dependency-path: src/hotline-proxy/go.sum
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: hotline-proxy_*.tar.gz
+          merge-multiple: true
+          path: dist
+      - name: write the SBOM and the checksums
+        env:
+          LABEL: ${{ needs.version.outputs.label }}
+        run: |
+          set -eu
+          # The SBOM (software bill of materials: the list of libraries
+          # inside), in CycloneDX form, from the module's own files. The tool
+          # is pinned by version; Go checks it against its checksum database.
+          (cd src/hotline-proxy && GOWORK=off go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
+            app -json -licenses=false -main cmd \
+            -output "$GITHUB_WORKSPACE/dist/hotline-proxy_${LABEL}_sbom.cdx.json" .)
+          cd dist
+          sha256sum hotline-proxy_* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hotline-programs
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Runs the Linux amd64 program, before anything is published. The Mac
+  # programs are not run: there is no Mac runner (Peter, 2026-11-10).
+  smoke-linux:
+    needs: [version, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-programs
+          path: dist
+      - name: check the files and run the program
+        run: |
+          set -eu
+          (cd dist && sha256sum -c SHA256SUMS)
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_linux_amd64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.version.outputs.version }}"
+
+  # Makes the image by copying the Linux programs onto the base image, for
+  # linux/amd64 and linux/arm64, and saves it as one OCI file. Nothing is
+  # compiled here.
+  # Runs at the same time as package and smoke-linux: it needs only the
+  # built programs, not the SBOM or the checksums (Peter, 2026-11-10).
+  image:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: hotline-proxy_*_linux_*.tar.gz
+          merge-multiple: true
+          path: dist
+      # The Dockerfile copies dist/image/linux_<arch>/hotline-proxy.
+      - name: unpack the Linux programs for the image
+        run: |
+          set -eu
+          for arch in amd64 arm64; do
+            mkdir -p "dist/image/linux_${arch}"
+            tar -C "dist/image/linux_${arch}" -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_linux_${arch}.tar.gz" hotline-proxy
+          done
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      # A release tag v1.2.3 gives 1.2.3, 1.2 and latest; main gives edge;
+      # every build gives sha-<short commit>.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=edge,branch=main
+            type=sha,prefix=sha-,format=short
+
+      # Both platforms, with the SBOM and provenance, saved as one OCI file.
+      - name: build both platforms
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: src/hotline-proxy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=hotline-proxy.tar
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: hotline-proxy.tar
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
+
+  # Checks the image the image job saved, on linux/amd64, before anything is
+  # published. Read permission only. skopeo comes with the GitHub runner.
+  smoke-image:
+    needs: [version, image]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy.tar
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy_${{ needs.version.outputs.label }}_linux_amd64.tar.gz
+          path: dist
+      - name: load the amd64 image
+        run: |
+          skopeo --version
+          skopeo copy --override-os linux --override-arch amd64 \
+            oci-archive:hotline-proxy.tar docker-daemon:hotline-proxy:smoke
+      - name: smoke test
+        run: |
+          set -eu
+          keys=$(mktemp -d)
+          head -c 32 /dev/urandom > "$keys/fingerprint.key"
+          chmod 755 "$keys" && chmod 644 "$keys/fingerprint.key"
+          config="$PWD/deploy/kubernetes/sidecar"
+          mounts="-v $config:/etc/hotline/config:ro -v $keys:/etc/hotline/keys:ro"
+
+          # The image holds the very program of the download: the same
+          # version line as the Linux amd64 program that was checked.
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_linux_amd64.tar.gz" hotline-proxy
+          test "$(docker run --rm hotline-proxy:smoke version)" = "$(dist/hotline-proxy version)"
+          docker create --name copy hotline-proxy:smoke >/dev/null
+          docker cp copy:/hotline-proxy image-program
+          docker rm copy >/dev/null
+          cmp dist/hotline-proxy image-program || { echo "the image program differs from the download"; exit 1; }
+          docker run --rm --read-only $mounts hotline-proxy:smoke validate --config /etc/hotline/config/hotline-proxy.yaml
+
+          # Runs as nonroot on a read-only filesystem, and says it is ready.
+          docker run -d --name proxy --read-only --cap-drop ALL -p 8081:8081 $mounts hotline-proxy:smoke
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:8081/readyz && break
+            sleep 1
+          done
+          curl -fs http://localhost:8081/readyz
+          test "$(docker inspect proxy --format '{{.Config.User}}')" = "65532:65532"
+          docker rm -f proxy
