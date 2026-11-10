@@ -57,12 +57,12 @@ jobs:
           if [ "${{ github.ref_type }}" = tag ]; then
             gh release create "${{ github.ref_name }}" --repo "$REPO" \
               --title "${{ github.ref_name }}" --generate-notes \
-              hotline-proxy_*.tar.gz SHA256SUMS SHA256SUMS.sigstore.json
+              hotline-proxy_* SHA256SUMS SHA256SUMS.sigstore.json
           else
             # edge is replaced in place, with its tag moved to this commit.
             gh release delete edge --repo "$REPO" --cleanup-tag --yes || true
             gh release create edge --repo "$REPO" --target "${{ github.sha }}" \
               --prerelease --title "edge" \
               --notes "The newest build of main, replaced on every change to the proxy. For a stable version use a numbered release. Commit ${{ github.sha }}." \
-              hotline-proxy_*.tar.gz SHA256SUMS SHA256SUMS.sigstore.json
+              hotline-proxy_* SHA256SUMS SHA256SUMS.sigstore.json
           fi

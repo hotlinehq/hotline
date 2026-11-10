@@ -61,8 +61,16 @@ jobs:
             cp "$GITHUB_WORKSPACE/LICENSE" "$dir/LICENSE"
             tar -C "$dir" -czf "$out/hotline-proxy_${LABEL}_${os}_${arch}.tar.gz" hotline-proxy LICENSE
           done
+
+          # The SBOM (software bill of materials: the list of libraries inside),
+          # in CycloneDX form, from the module's own files. The tool is
+          # pinned by version; Go checks it against its checksum database.
+          GOWORK=off go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
+            app -json -licenses=false -main cmd \
+            -output "$out/hotline-proxy_${LABEL}_sbom.cdx.json" .
+
           cd "$out"
-          sha256sum hotline-proxy_*.tar.gz > SHA256SUMS
+          sha256sum hotline-proxy_* > SHA256SUMS
           cat SHA256SUMS
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
