@@ -1,4 +1,4 @@
-# Builds the hotline-proxy program for Linux and macOS, on amd64 and arm64,
+# Builds the hotline-proxy program for Linux on amd64 and arm64, and for macOS on arm64,
 # and the Docker image, and checks them. Shared by binary-pr.yml (pull
 # requests) and binary-release.yml (main and release tags), so both run the
 # very same build and checks. Detail: docs/proxy-binaries.md and
@@ -56,7 +56,6 @@ jobs:
         include:
           - { os: linux, arch: amd64 }
           - { os: linux, arch: arm64 }
-          - { os: darwin, arch: amd64 }
           - { os: darwin, arch: arm64 }
     name: build for ${{ matrix.os == 'darwin' && 'macOS' || 'Linux' }} on ${{ matrix.arch }}
     steps:
@@ -91,7 +90,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Gathers the four programs, adds the SBOM and the checksums, and saves
+  # Gathers the three programs, adds the SBOM and the checksums, and saves
   # them all as the artifact hotline-programs.
   package:
     needs: [version, build]
@@ -117,7 +116,7 @@ jobs:
           # inside), in CycloneDX form, from the module's own files. The tool
           # is pinned by version; Go checks it against its checksum database.
           # The build notes in it say CGO_ENABLED=0, as for the programs; it
-          # names linux/amd64, but the libraries are the same for all four.
+          # names linux/amd64, but the libraries are the same for all three.
           (cd src/hotline-proxy && CGO_ENABLED=0 GOWORK=off go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
             app -json -licenses=false -main cmd \
             -output "$GITHUB_WORKSPACE/dist/hotline-proxy_${LABEL}_sbom.cdx.json" .)
@@ -132,7 +131,7 @@ jobs:
           if-no-files-found: error
 
   # Runs the Linux amd64 program, before anything is published. The Mac
-  # programs are not run: there is no Mac runner (Peter, 2026-11-10).
+  # program is not run: there is no Mac runner (Peter, 2026-11-10).
   smoke-linux:
     needs: [version, package]
     runs-on: ubuntu-24.04
