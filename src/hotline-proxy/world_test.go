@@ -177,12 +177,6 @@ type world struct {
 	tunnelCerts []*x509.Certificate
 	// intercept is the listen.intercept setting, when the scenario has one.
 	intercept *interceptConf
-	// capture is the listen.capture setting, when the scenario has one, and
-	// control the extension's control connection, once opened.
-	control *captureControl
-	// captureApps are the apps the proxy is asked to capture, as --capture
-	// does.
-	captureApps []string
 	// interceptHost is the site the app's last connection to the intercept
 	// listener named, and original what the connection was first sent to,
 	// when the scenario lets the proxy read that.
@@ -488,7 +482,6 @@ func (w *world) start() error {
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		ExportTimeout: w.exportTimeout,
 		CheckWorkers:  w.checkWorkers,
-		CaptureApps:   w.captureApps,
 		OriginalDestination: func(net.Conn) (netip.AddrPort, error) {
 			if !w.originalKnown {
 				return netip.AddrPort{}, errNoOriginal

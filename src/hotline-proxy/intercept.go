@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
-	"hotline-proxy/internal/capture"
 	"hotline-proxy/internal/export"
 )
 
@@ -185,14 +184,6 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	reader := bufio.NewReaderSize(conn, maxHello)
-	// The extension's messages start with a zero byte, a TLS handshake with
-	// 0x16. Without an app list to capture, they are bytes that are not TLS.
-	if h.capture != nil {
-		if first, err := reader.Peek(1); err == nil && capture.IsFrame(first[0]) {
-			h.captured(conn, reader, ic, start)
-			return
-		}
-	}
 	h.serveSource(conn, reader, src, start)
 }
 

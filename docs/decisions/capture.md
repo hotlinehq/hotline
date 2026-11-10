@@ -1,14 +1,14 @@
 # Capture ingress decisions (Peter, 2026-11-10)
 
-Full wording in [docs/proxy-capture.md](../proxy-capture.md). The macOS side lives in `petercipov/hotline-macos-capture`.
+Full wording in [docs/proxy-capture.md](../proxy-capture.md). The macOS side lives in `petercipov/hotline-macos-capture`; the plan is `mitmproxy-ideas/capture-connect-plan.md` in the project files.
 
 1. Hotline never runs the programs it captures; it only watches for the apps named by `--capture`.
-2. One listener: capture reuses `listen.intercept` (its port, issuer, integration, `passthrough`, `ech.relay`). No second listener, no socket of its own, no private folder.
-3. The app list is a parameter of `--capture`, not in the config file. In Go: `proxy.Options.CaptureApps []string`.
-4. The port tells the extension's messages from TLS by the first byte (0x00 or 0x16). Without `CaptureApps` the messages are refused as bytes that are not TLS.
-5. Safety: when capturing, `listen.intercept` must be a loopback address, or the proxy refuses to start. There is no check of who connects.
-6. Messages: our own small versioned JSON format with a 4 byte size in front (limit 16 KiB), kept in step with `docs/protocol.md` of `hotline-macos-capture`. Version 1.
-7. Contract: new `Options.CaptureApps`. No `config.Capture`, no `Proxy.CaptureSocket()`, nothing new in the config.
-8. Records: `hotline.ingress=capture`, `process.pid`, `process.executable.path`, and `error.type=capture_bad_hello` for a first message that cannot be used.
-9. One Hotline captures all chosen programs. Several Hotlines for several programs are not needed (Peter).
-10. Slice B (the `--capture` flag, unpacking and starting the signed helper app, embedding it in the macOS binary) is later and needs a Mac.
+2. Each captured connection is a standard CONNECT to the proxy port with the headers `Hotline-Capture` (version, now 1), `Hotline-Capture-Pid` and `Hotline-Capture-Program`, plus a standard `User-Agent: HotlineCapture/<version>`. This replaces the earlier framed JSON messages, the control connection and the use of `listen.intercept`.
+3. Captured tunnels are served by the existing CONNECT ingress (`listen.connect`) and handled like intercepted connections inside, with `hotline.ingress=capture`.
+4. The app list is not sent to the proxy. Hotline passes it to the helper at start; a new list means a new start. Nothing new in `proxy.Options`.
+5. The capture headers count only from a loopback address; from anywhere else they are ignored. `listen.proxy` may be any address.
+6. `listen.connect` gets a `passthrough` list, same meaning as for intercept, for captured and ordinary tunnels. Contract: `config.Passthrough` and `Config.ConnectPassthrough`.
+7. Records: `hotline.ingress=capture`, `process.pid`, `process.executable.path`, and `user_agent.original` with the extension's User-Agent.
+8. The extension checks every 2 seconds that the proxy answers and captures nothing while it does not. An empty connection makes no record.
+9. One Hotline captures all chosen programs.
+10. Later: the `--capture` flag (unpacking and starting the signed helper app, embedded in the macOS binary), which needs a Mac.

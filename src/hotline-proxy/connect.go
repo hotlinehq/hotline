@@ -48,6 +48,9 @@ type tunnel struct {
 type process struct {
 	pid  int
 	path string
+	// agent is the User-Agent of the helper that reported the program,
+	// such as HotlineCapture/0.1.4.
+	agent string
 }
 
 // attributes is what the record says about the program: nothing for the
@@ -59,6 +62,9 @@ func (p process) attributes() []attribute.KeyValue {
 	}
 	if p.path != "" {
 		attrs = append(attrs, semconv.ProcessExecutablePath(p.path))
+	}
+	if p.agent != "" {
+		attrs = append(attrs, semconv.UserAgentOriginal(p.agent))
 	}
 	return attrs
 }
@@ -79,7 +85,16 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 		return
 	}
 	t.host = strings.ToLower(t.host)
+	if isCaptured(r) {
+		h.captured(w, r, t, start)
+		return
+	}
 	conn, done := open(w, r)
+	if h.cfg.Load().ConnectPassthrough.Passes(t.host) {
+		h.passedThrough(conn, t, start)
+		<-done
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	reader := bufio.NewReader(conn)
 	inner := &bufferedConn{Conn: conn, r: reader}

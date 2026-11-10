@@ -43,6 +43,9 @@ type Config struct {
 	// Connect, when set, makes CONNECT an ingress: this issuer signs the
 	// certificate the proxy shows for each vendor host inside a tunnel.
 	Connect *TLS
+	// ConnectPassthrough lists the sites a tunnel relays untouched, from
+	// listen.connect.
+	ConnectPassthrough Passthrough
 	// Intercept, when set, makes a port of its own an ingress for
 	// connections a firewall redirected to the proxy.
 	Intercept *Intercept
@@ -289,7 +292,8 @@ type pairFile struct {
 
 // connectFile is listen.connect: the name of the issuer it signs with.
 type connectFile struct {
-	Issuer string `yaml:"issuer"`
+	Issuer      string   `yaml:"issuer"`
+	Passthrough []string `yaml:"passthrough"`
 	// Cert and Key are the removed inline form, read only to refuse it.
 	Cert string `yaml:"cert"`
 	Key  string `yaml:"key"`
@@ -417,6 +421,13 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 				c.Connect = c.Issuers[t.Issuer]
 			} else {
 				l.problem("listen.connect names the issuer %s, which is not in issuers", t.Issuer)
+			}
+		}
+		for _, name := range t.Passthrough {
+			if validPattern(name, true) {
+				c.ConnectPassthrough = append(c.ConnectPassthrough, strings.ToLower(name))
+			} else {
+				l.problem("listen.connect: passthrough %q must be a host name or %q and a suffix", name, "*.")
 			}
 		}
 	}

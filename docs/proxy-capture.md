@@ -1,26 +1,40 @@
 # The capture ingress
 
-For programs on a Mac that cannot be told about a proxy, and that you want to watch one by one. A small macOS helper (a system extension, built in its own project, `petercipov/hotline-macos-capture`) picks out the secure calls of the apps named by the `--capture` flag and hands them to the proxy's `listen.intercept` port. Other apps on the Mac are untouched. The proxy never starts the apps itself (Peter, 2026-11-10). This page is the Go side, slice A. The `--capture` flag that fills `Options.CaptureApps`, and unpacks and starts the helper, is slice B, later, and needs a Mac.
+For programs on a Mac that cannot be told about a proxy, and that you want to watch one by one. A small macOS helper (a system extension, built in its own project, `petercipov/hotline-macos-capture`) picks out the connections of the apps named by the `--capture` flag and hands each one to the proxy port as a CONNECT. Other apps on the Mac are untouched. The proxy never starts the apps itself (Peter, 2026-11-10). This page is the Go side. The `--capture` flag, which unpacks and starts the helper with the app list, comes later and needs a Mac.
 
-## No config of its own
+## What the extension sends
 
-Capture reuses the intercept ingress: the same port, issuer, integration, `passthrough` and `ech.relay` (see [proxy-intercept.md](proxy-intercept.md)). The only new input is `proxy.Options.CaptureApps`, the programs to capture, by name or process number, a leading `!` skipping the match (Peter, 2026-11-10: it is a parameter of `--capture`, not in the config file). With no apps the proxy behaves exactly as before, and the extension's messages are refused like any bytes that are not TLS.
+For each captured connection, a standard CONNECT to where the app really called (often an address), with a User-Agent and three headers of ours:
 
-The proxy refuses to start when it is asked to capture and:
+```
+CONNECT 93.184.215.14:443 HTTP/1.1
+Host: 93.184.215.14:443
+User-Agent: HotlineCapture/0.1.4
+Hotline-Capture: 1
+Hotline-Capture-Pid: 4242
+Hotline-Capture-Program: /usr/bin/curl
+```
 
-- an app is not a name or a process number (`!` alone, a space in a name);
-- the config has no `listen.intercept`;
-- `listen.intercept.address` is not a loopback address (`127.0.0.1`, `::1`, `localhost`), so no other machine can claim to be a program.
+`Hotline-Capture` is the version, now 1. The User-Agent names the extension's release; an extension that sends none still works. The full contract is `docs/protocol.md` of `hotline-macos-capture`; change both together. The app list never reaches the proxy: Hotline gives it to the helper at start.
 
-## Messages
+## How the proxy handles it
 
-A TLS handshake starts with the byte 0x16. The extension's messages start with a 4 byte size, at most 16 KiB, so with the byte 0x00. The port tells them apart by the first byte. Each message is that size, then JSON with a `version` (now 1). The exact messages are in `docs/protocol.md` of `hotline-macos-capture`; change both together. A message that is too large, not JSON, of another version or a flow with no usable destination closes the connection and is recorded with `error.type=capture_bad_hello`.
+- It needs `listen.connect`, the CONNECT ingress, and uses its issuer.
+- The capture headers count only on a CONNECT from a loopback address. From anywhere else they are ignored, and the CONNECT is an ordinary one, so no other machine can name a program.
+- An unknown version, a header given twice, a process number that is not a positive number, or a program path over 4096 bytes is refused with `400` and recorded with `hotline.ingress=capture`.
+- After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.connect` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
+- Records say `hotline.ingress=capture`, `process.pid`, `process.executable.path` and `user_agent.original` (the extension's User-Agent, left out when over 256 bytes): the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
+- The extension checks every 2 seconds that the proxy is there by opening a connection and closing it, sending nothing. That makes no record.
 
-- **Control** (`role: control`, one, kept open): the proxy answers at once with the app list, `{"version":1,"entries":[...]}`. The list always ends with a skip rule for the proxy's own process number, so its calls to vendors are never captured again. The list does not change while the proxy runs. With no control connection nothing is captured, and that is not an error.
-- **Flow** (`role: flow`, one per captured call): `host` and `port` are where the program really called, `pid` and `processName` which program. After the hello come the program's own bytes, which are the TLS handshake.
+## Passthrough on listen.connect
 
-## How a flow is handled
+```yaml
+listen:
+  connect:
+    issuer: customer
+    passthrough: [pinned.example.com, "*.internal.example.com"]   # relayed untouched, empty by default
+```
 
-The same as an intercepted connection, from step 2 of [proxy-intercept.md](proxy-intercept.md), with these differences: the port is the hello's port; with no site name in the handshake the host is the hello's host (a name or an address); and the records say `hotline.ingress=capture` plus `process.pid` and `process.executable.path` from the hello (the call's record and the minimal records of failed or relayed connections).
+Same meaning as for `listen.intercept`. A captured tunnel is matched by the site name in the handshake, an ordinary tunnel by the host in its CONNECT. Relayed tunnels are dialed by name and recorded with `hotline.intercept.mode=passthrough`.
 
 Decisions: [docs/decisions/capture.md](decisions/capture.md).

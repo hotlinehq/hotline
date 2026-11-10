@@ -12,9 +12,8 @@ type Intercept struct {
 	// Integration is the ID of every call on the port; empty means
 	// not-passed.
 	Integration string
-	// Passthrough lists sites relayed untouched, each a lower case host
-	// name or "*." and a suffix.
-	Passthrough []string
+	// Passthrough lists sites relayed untouched.
+	Passthrough Passthrough
 	// ECHRelay lists the ECH outer names relayed untouched.
 	ECHRelay []string
 }
@@ -22,8 +21,17 @@ type Intercept struct {
 // Passes says whether host is relayed untouched: it is listed in
 // passthrough, exactly or by a "*." suffix.
 func (i *Intercept) Passes(host string) bool {
+	return i.Passthrough.Passes(host)
+}
+
+// Passthrough lists sites relayed untouched, each a lower case host name or
+// "*." and a suffix.
+type Passthrough []string
+
+// Passes says whether host is listed, exactly or by a "*." suffix.
+func (pt Passthrough) Passes(host string) bool {
 	host = strings.ToLower(host)
-	for _, p := range i.Passthrough {
+	for _, p := range pt {
 		if suffix, wild := strings.CutPrefix(p, "*"); wild && strings.HasSuffix(host, suffix) && len(host) > len(suffix) || p == host {
 			return true
 		}

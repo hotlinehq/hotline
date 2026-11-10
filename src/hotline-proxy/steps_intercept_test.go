@@ -305,7 +305,7 @@ func (w *world) interceptRecordWith(fields string) error {
 	allowed := map[string]bool{
 		"hotline.integration.id": true, "hotline.ingress": true, "client.address": true, "server.address": true,
 		"error.type": true, "hotline.timing.total_us": true, "hotline.intercept.mode": true, "hotline.intercept.reason": true,
-		"process.pid": true, "process.executable.path": true,
+		"process.pid": true, "process.executable.path": true, "user_agent.original": true,
 	}
 	for key := range record {
 		if !allowed[key] {

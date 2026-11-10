@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hotline-proxy/internal/capture"
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 )
@@ -79,11 +78,6 @@ type Options struct {
 	// first sent, before the firewall redirected it. Without it, calls
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination
-	// CaptureApps are the programs to capture on a Mac, by name or process
-	// number, a leading "!" skipping the match: the --capture flag. With
-	// them, listen.intercept also takes the macOS extension's messages,
-	// and needs a loopback address. Empty means no capture.
-	CaptureApps []string
 }
 
 // Proxy is a running proxy.
@@ -111,9 +105,6 @@ type Proxy struct {
 	// the config has it.
 	redirectedListener net.Listener
 	redirectedServed   chan struct{}
-	// captureHub holds the extension's control connections, when the proxy
-	// captures apps.
-	captureHub *capture.Hub
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -123,9 +114,6 @@ type Proxy struct {
 func Start(ctx context.Context, o Options) (*Proxy, error) {
 	cfg, err := config.Load(o.ConfigPath, o.Clock.Now(), o.LookupEnv)
 	if err != nil {
-		return nil, err
-	}
-	if err := checkCapture(o.CaptureApps, cfg.Intercept); err != nil {
 		return nil, err
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
@@ -165,9 +153,6 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
-	if len(o.CaptureApps) > 0 {
-		h.capture = capture.NewHub(o.CaptureApps)
-	}
 	workers := o.CheckWorkers
 	if workers == 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -178,8 +163,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
-		h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	}
+	// Both listen.intercept and listen.connect relay passthrough sites.
+	h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	// Calls that may reach internal IPs get their own connections, so a
 	// connection opened for them is never reused for a call that may not.
 	h.transport = newTransport(o, false)
@@ -231,7 +217,6 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}()
 	if redirectedListener != nil {
 		p.redirectedListener, p.redirectedServed = redirectedListener, make(chan struct{})
-		p.captureHub = h.capture
 		go func() {
 			defer close(p.redirectedServed)
 			h.serveIntercept(redirectedListener, o.OriginalDestination)
@@ -258,26 +243,6 @@ func newTransport(o Options, allowInternal bool) *http.Transport {
 		IdleConnTimeout:     90 * time.Second,
 	}
 }
-
-// checkCapture refuses a request to capture apps that cannot work: a bad app
-// list, no listen.intercept to take the extension's connections, or an address
-// that other machines could reach.
-func checkCapture(apps []string, ic *config.Intercept) error {
-	if len(apps) == 0 {
-		return nil
-	}
-	if err := capture.CheckApps(apps); err != nil {
-		return err
-	}
-	if ic == nil {
-		return errCaptureNeedsIntercept
-	}
-	return capture.CheckAddress(ic.Address)
-}
-
-// errCaptureNeedsIntercept is a request to capture apps without
-// listen.intercept, the port the extension connects to.
-var errCaptureNeedsIntercept = errors.New("capturing apps needs listen.intercept in the config, the port the extension connects to")
 
 // Validate checks a config and every spec and certificate it points to,
 // without starting anything. A config with problems is refused with all of
@@ -344,10 +309,6 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	if p.redirectedListener != nil {
 		_ = p.redirectedListener.Close()
 		<-p.redirectedServed
-	}
-	if p.captureHub != nil {
-		// The extension's control connections stay open until closed.
-		p.captureHub.Close()
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()
