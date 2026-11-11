@@ -35,6 +35,11 @@ concurrency:
 jobs:
   binaries:
     uses: ./.github/workflows/binary-build.yml
+    with:
+      # Every build of main and every release tag signs the Mac program
+      # (Peter, 2026-11-11). A by-hand run on another branch does not.
+      sign: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
+    secrets: inherit
 
   publish:
     needs: binaries

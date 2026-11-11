@@ -13,6 +13,11 @@
 name: binary build
 on:
   workflow_call:
+    inputs:
+      sign:
+        description: sign and notarize the Mac program (only main and release tags; never pull requests)
+        type: boolean
+        default: false
     outputs:
       version:
         description: what the program prints after its name
@@ -90,10 +95,46 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Signs the Mac program with the Developer ID certificate and has Apple
+  # check it (notarization), on a macOS runner with Apple's own tools (Peter,
+  # 2026-11-11). Only when asked: main and release tags, never pull requests.
+  # The secrets sit in the release-signing environment, which only main and
+  # v* tags may use. The signed tarball keeps its name and is saved as the
+  # artifact hotline-mac-signed; package puts it in place of the unsigned one,
+  # so the checksums and the signature cover the signed program.
+  sign-mac:
+    if: ${{ inputs.sign }}
+    needs: [version, build]
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz
+          path: dist
+      - name: sign and notarize the Mac program
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: .github/scripts/sign-mac-program.sh "dist/hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hotline-mac-signed
+          path: dist/hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
   # Gathers the three programs, adds the SBOM and the checksums, and saves
   # them all as the artifact hotline-programs.
   package:
-    needs: [version, build]
+    needs: [version, build, sign-mac]
+    # sign-mac is skipped when not signing; that must not stop packaging.
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -106,6 +147,12 @@ jobs:
         with:
           pattern: hotline-proxy_*.tar.gz
           merge-multiple: true
+          path: dist
+      # The signed Mac tarball replaces the unsigned one of the same name.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ inputs.sign }}
+        with:
+          name: hotline-mac-signed
           path: dist
       - name: write the SBOM and the checksums
         env:
@@ -130,8 +177,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Runs the Linux amd64 program, before anything is published. The Mac
-  # program is not run: there is no Mac runner (Peter, 2026-11-10).
+  # Runs the Linux amd64 program, before anything is published.
   smoke-linux:
     needs: [version, package]
     runs-on: ubuntu-24.04
@@ -146,6 +192,24 @@ jobs:
           set -eu
           (cd dist && sha256sum -c SHA256SUMS)
           tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_linux_amd64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.version.outputs.version }}"
+
+  # Runs the Mac program on every build (Peter, 2026-11-10): the signed one
+  # when signing, else the unsigned one. Same checks as the Linux program.
+  smoke-mac:
+    needs: [version, package]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-programs
+          path: dist
+      - name: check the files and run the program
+        run: |
+          set -eu
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz"
           .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.version.outputs.version }}"
 
   # Makes the image by copying the Linux programs onto the base image, for

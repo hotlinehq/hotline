@@ -26,6 +26,8 @@ jobs:
             examples/aws-shop/go.sum
             tools/aws-openapi/go.sum
             go.work.sum
+      - name: check the Mac signing script
+        run: bash .github/scripts/sign-mac-program-test.sh
       - name: run tests
         run: |
           make clean-cache
