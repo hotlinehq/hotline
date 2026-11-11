@@ -26,6 +26,10 @@ The same workflows make the image (Peter, 2026-11-10). The Dockerfile compiles n
 
 On the Actions page, "binary release" has a Run workflow button (Peter, 2026-11-10). Pick `main` to publish `edge` again, or a release tag to publish that release again. On any other branch it builds and checks but publishes nothing.
 
+## Homebrew
+
+After edge is published, the job `tap` in `binary-release.yml` rewrites the edge recipe in the tap `hotlinehq/homebrew-hotline` with the new commit and the checksum of the Mac program, in one commit (Peter, 2026-11-11). Peter installs it with `brew tap hotlinehq/hotline` and `brew install hotline-proxy-edge`. It runs only on main, never for release tags. It is a job of its own: if it fails, edge stays published and only that job is red. It needs the repository secret `HOMEBREW_TAP_TOKEN`, a fine-grained token that can write to the tap repository only. The recipe text lives in the tap's `scripts/update-edge.sh`. The edge tag is made by the pipeline when it publishes, so run the workflow from main with Run workflow rather than creating the tag by hand. Requirements: `homebrew-edge/requirements.md` in the project files.
+
 ## Check a download
 
 ```
@@ -37,4 +41,4 @@ cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
 
 ## Not here
 
-A Homebrew tap, Windows, a Mac Intel build, `.pkg` or `.dmg` files for the Mac program, `.deb` and `.rpm` packages, and the macOS firewall setup for the intercept ingress.
+Numbered releases in the tap, Windows, a Mac Intel build, `.pkg` or `.dmg` files for the Mac program, `.deb` and `.rpm` packages, and the macOS firewall setup for the intercept ingress.
