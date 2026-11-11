@@ -57,16 +57,14 @@ func (l *loader) fileExporter(f fileExporterFile, before []FileExporter) FileExp
 // writable makes the folder if it is missing and checks that a file can be
 // made in it.
 func writable(dir string) error {
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
+	// A folder that cannot be made shows in the check below.
+	_ = os.MkdirAll(dir, 0o750)
 	f, err := os.CreateTemp(dir, ".hotline-check-*")
 	if err != nil {
 		return err
 	}
-	name := f.Name()
 	_ = f.Close()
-	return os.Remove(name)
+	return os.Remove(f.Name())
 }
 
 // content reads an integration's content and maxBodySize. Set says the

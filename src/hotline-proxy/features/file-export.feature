@@ -20,6 +20,12 @@ Feature: Writing every call to a local file
     Then the line's hotline.trace.spans has hotline call with no parent, and vendor call under it
     And the folder holds no other file than calls.jsonl
 
+  Scenario: Each span keeps its status
+    Given the shop spec
+    And the vendor answers 201
+    When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
+    Then each span in the line has the status the OTLP receiver got, and one is ok
+
   Scenario: The same record as the OTLP exporter
     When a call ends
     Then every attribute the OTLP receiver got is in the line with the same value
@@ -72,6 +78,12 @@ Feature: Writing every call to a local file
     Then the call succeeds
     And calls.jsonl is back in the folder with the new call's line
 
+  Scenario: A write that fails is counted
+    Given the proxy runs and a call ended
+    When the folder is replaced by a file and another call ends
+    Then the call succeeds
+    And the proxy warns that the export failed
+
   Scenario: The queue is limited by memory
     Given the integration has content full
     And the file exporter has queueMemory 1KiB
@@ -104,6 +116,13 @@ Feature: Writing every call to a local file
     And the line has hotline.http.response.body.truncated true and http.response.body.size 5120
     And the line has no hotline.http.request.body.truncated
 
+  Scenario: A long request body is cut and flagged
+    Given the integration has content full with maxBodySize 1KiB
+    When a call with a 4KiB request body ends
+    Then the call succeeds
+    And the line's hotline.http.request.body holds the first 1KiB of the body sent
+    And the line has hotline.http.request.body.truncated true
+
   Scenario: The OTLP exporter never gets the full content
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
@@ -122,6 +141,13 @@ Feature: Writing every call to a local file
     And the line has the request and reply headers and the reply body
     And the line has no hotline.signature
 
+  Scenario: A failed call under full content
+    Given the integration has content full
+    When a call with a JSON body to a vendor that cannot be reached ends
+    Then the line has http.response.status_code 502
+    And the line has http.request.header.content-type as sent
+    And the line has no hotline.http.response.body
+
   Scenario: Full content without a file exporter is skipped
     Given no file exporter
     And the integration has content full
@@ -137,3 +163,16 @@ Feature: Writing every call to a local file
       | setting             | problem                       |
       | content everything  | content must be records or full |
       | maxBodySize lots    | maxBodySize must be a size      |
+
+  Scenario Outline: Wrong file exporter settings
+    Given the file exporter is set with <setting>
+    When the proxy loads the config
+    Then the proxy refuses the config, saying <problem>
+
+    Examples:
+      | setting                 | problem                                   |
+      | maxFiles 0              | maxFiles must be at least 1               |
+      | compression zip         | compression must be gzip or none          |
+      | no path                 | a file exporter needs a path              |
+      | an otlp endpoint as well | an exporter is either otlp or file        |
+      | nothing in it           | an exporter must be otlp or file          |

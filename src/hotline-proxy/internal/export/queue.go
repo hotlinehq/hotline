@@ -264,8 +264,6 @@ func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeou
 // weigh is the bytes an item holds: a written item's length, nothing for
 // any other kind.
 func weigh[T any](item T) int64 {
-	if b, ok := any(item).([]byte); ok {
-		return int64(len(b))
-	}
-	return 0
+	b, _ := any(item).([]byte)
+	return int64(len(b))
 }

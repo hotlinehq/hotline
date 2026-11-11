@@ -9,7 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -29,6 +31,8 @@ import (
 type fileExporter struct {
 	path  string
 	extra string
+	// raw, when set, is the whole entry in place of the generated one.
+	raw string
 }
 
 func fileSteps(sc *godog.ScenarioContext, w *world) {
@@ -122,7 +126,10 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return w.defaultCall("Content-Type: application/json")
 	})
 	sc.Step(`^a second proxy starts with a file exporter on the same folder$`, func() error {
+		// Its first file exporter has a folder of its own, so the proxy
+		// must let go of that one when the second folder is taken.
 		config := strings.Replace(w.config(), w.addr, freePort(), 1)
+		config = strings.Replace(config, "exporters:\n", "exporters:\n  - file:\n      path: "+filepath.Join(w.dir, "calls-other")+"\n", 1)
 		second, err := proxy.Start(context.Background(), proxy.Options{
 			ConfigPath:    w.writeFile("second.yaml", config),
 			Resolver:      w.network,
@@ -144,12 +151,50 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
+	sc.Step(`^the file exporter is set with (.+)$`, func(setting string) error {
+		switch setting {
+		case "no path":
+			w.files[0].path = ""
+		case "an otlp endpoint as well":
+			w.files[0].extra = "    otlp:\n      endpoint: http://127.0.0.1:4318\n"
+		case "nothing in it":
+			w.files[0].raw = "  - {}\n"
+		default:
+			name, value, _ := strings.Cut(setting, " ")
+			w.files[0].extra = "      " + name + ": " + value + "\n"
+		}
+		return nil
+	})
+	sc.Step(`^the folder is replaced by a file and another call ends$`, func() error {
+		if err := os.RemoveAll(w.files[0].path); err != nil {
+			return err
+		}
+		if err := os.WriteFile(w.files[0].path, []byte("not a folder\n"), 0o600); err != nil {
+			return err
+		}
+		return w.defaultCall("Content-Type: application/json")
+	})
+	sc.Step(`^a call with a JSON body to a vendor that cannot be reached ends$`, func() error {
+		w.missing["api.talon.one"] = true
+		return w.callWithBody(`{"name":"Ana"}`, "Content-Type: application/json")
+	})
+	sc.Step(`^the proxy warns that the export failed$`, func() error {
+		w.settle()
+		if !strings.Contains(w.logs.String(), "export failed") {
+			return failf("the proxy did not warn: %s", w.logs.String())
+		}
+		return nil
+	})
 	sc.Step(`^calls.jsonl has one line$`, func() error {
 		_, err := w.fileLine(0)
 		return err
 	})
 	sc.Step(`^calls.jsonl has no line$`, func() error {
 		lines, err := w.fileLines(0)
+		if errors.Is(err, fs.ErrNotExist) {
+			// Nothing was ever written, so there is no file yet.
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -216,6 +261,37 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			return failf("vendor call's parent is %v, not %v", vendor["parent_span_id"], call["span_id"])
 		}
 		return has(vendor, "kind", "client")
+	})
+	sc.Step(`^each span in the line has the status the OTLP receiver got, and one is ok$`, func() error {
+		attrs, err := w.lineAttrs()
+		if err != nil {
+			return err
+		}
+		t, err := w.lastTrace()
+		if err != nil {
+			return err
+		}
+		statuses := map[string]string{}
+		for _, s := range t.spans {
+			statuses[s.spanID] = s.status
+		}
+		spans, _ := attrs["hotline.trace.spans"].([]any)
+		seen := map[string]bool{}
+		for _, s := range spans {
+			span, _ := s.(map[string]any)
+			id, status := sprint(span["span_id"]), sprint(span["status"])
+			if statuses[id] != status {
+				return failf("%v has the status %s in the line, %q in the trace", span["name"], status, statuses[id])
+			}
+			seen[status] = true
+		}
+		if !seen["ok"] {
+			return failf("no span is ok: %v", spans)
+		}
+		return nil
+	})
+	sc.Step(`^the line's hotline.http.request.body holds the first 1KiB of the body sent$`, func() error {
+		return w.lineBody("hotline.http.request.body", w.sentBody[:1024])
 	})
 	sc.Step(`^the folder holds no other file than calls.jsonl$`, func() error {
 		w.settle()

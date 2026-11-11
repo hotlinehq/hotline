@@ -414,6 +414,10 @@ func (w *world) config() string {
 		fmt.Fprintf(&b, "  - otlp:\n      endpoint: %s\n", e)
 	}
 	for _, f := range w.files {
+		if f.raw != "" {
+			b.WriteString(f.raw)
+			continue
+		}
 		fmt.Fprintf(&b, "  - file:\n      path: %s\n%s", f.path, f.extra)
 	}
 	if w.telemetry == nil && w.telemetryPprof {

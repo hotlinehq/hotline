@@ -281,8 +281,7 @@ func (s *Sink) Call(ctx context.Context, c Call) {
 	}
 	buf := s.lines.Get().(*bytes.Buffer)
 	buf.Reset()
-	// A call line holds only what can be written, so it cannot fail.
-	_ = appendLine(buf, s.lineResource, c, attrs)
+	appendLine(buf, s.lineResource, c, attrs)
 	line := slices.Clone(buf.Bytes())
 	s.lines.Put(buf)
 	for _, f := range s.files {
