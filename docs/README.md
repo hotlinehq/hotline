@@ -35,6 +35,7 @@
 - [Body fields and headers in the record](proxy-body-fields.md)
 - [Trace context on records](proxy-trace-context.md)
 - [OTLP over HTTP](proxy-otlp-protocols.md)
+- [Writing every call to a local file](proxy-file-export.md), with bodies and every header when asked
 - [The proxy's own telemetry](proxy-telemetry.md)
 
 ## Examples

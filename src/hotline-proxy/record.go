@@ -79,6 +79,8 @@ func (c *call) record(end time.Time) {
 	opened := c.opened()
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(opened).Microseconds()))
 	spans := c.spans(opened, end)
+	content := c.cfg.Content(c.id)
+	var full []attribute.KeyValue
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
 		requested := c.reqCheck.started.Load()
@@ -92,7 +94,15 @@ func (c *call) record(end time.Time) {
 			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
 		key := c.api.SigningKey
-		attrs = append(attrs, c.h.signers.traceSignature(key, c.trace, spans))
+		traced := c.h.signers.traceSignature(key, c.trace, spans)
+		if content.Full {
+			// The file's record is signed on its own, with every header
+			// in it; the bodies are signed already, whole, as they passed.
+			full = append(c.withContent(attrs), traced)
+			full = append(full, c.h.signers.signature(key, full, c.start, c.trace)...)
+			full = c.withBodies(full)
+		}
+		attrs = append(attrs, traced)
 		attrs = append(attrs, c.h.signers.signature(key, attrs, c.start, c.trace)...)
 	} else {
 		// A minimal record carries the sizes too, counted as the bodies
@@ -109,10 +119,69 @@ func (c *call) record(end time.Time) {
 		if c.cfg.URLFull(c.id) {
 			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
 		}
+		if content.Full {
+			// Unsigned, as minimal records are: there is no spec to sign
+			// against (Peter, 2026-11-11).
+			full = c.withBodies(c.withContent(attrs))
+		}
 	}
 	c.h.record(c.in, finished{
-		sc: c.trace, at: c.start, attrs: attrs, spans: spans,
+		sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full,
 	})
+}
+
+// withContent is a new record with every attribute of attrs but the
+// headers and url.full, and then url.full as sent and every header of the
+// call and its reply, as they were, for content: full (Peter, 2026-11-11).
+// Proxy-Authorization holds the integration's login, so its value is
+// REDACTED; other proxy headers are kept as sent. A body cut at
+// maxBodySize is flagged.
+func (c *call) withContent(attrs []attribute.KeyValue) []attribute.KeyValue {
+	var reply http.Header
+	if c.resp != nil {
+		reply = c.resp.Header
+	}
+	full := make([]attribute.KeyValue, 0, len(attrs)+len(c.in.Header)+len(reply)+8)
+	for _, kv := range attrs {
+		key := string(kv.Key)
+		if kv.Key == semconv.URLFullKey || strings.HasPrefix(key, "http.request.header.") || strings.HasPrefix(key, "http.response.header.") {
+			continue
+		}
+		full = append(full, kv)
+	}
+	full = append(full, semconv.URLFull(c.sentAddress()))
+	for name, values := range c.in.Header {
+		if strings.EqualFold(name, "Proxy-Authorization") {
+			values = []string{"REDACTED"}
+		}
+		full = append(full, attribute.StringSlice("http.request.header."+strings.ToLower(name), values))
+	}
+	for name, values := range reply {
+		full = append(full, attribute.StringSlice("http.response.header."+strings.ToLower(name), values))
+	}
+	if _, cut := c.reqBody.savedBody(); cut {
+		full = append(full, attribute.Bool("hotline.http.request.body.truncated", true))
+	}
+	if c.respBody != nil {
+		if _, cut := c.respBody.savedBody(); cut {
+			full = append(full, attribute.Bool("hotline.http.response.body.truncated", true))
+		}
+	}
+	return full
+}
+
+// withBodies adds the kept part of each body, as bytes, which the file
+// writes as base64.
+func (c *call) withBodies(full []attribute.KeyValue) []attribute.KeyValue {
+	if body, _ := c.reqBody.savedBody(); len(body) > 0 {
+		full = append(full, attribute.ByteSlice("hotline.http.request.body", body))
+	}
+	if c.respBody != nil {
+		if body, _ := c.respBody.savedBody(); len(body) > 0 {
+			full = append(full, attribute.ByteSlice("hotline.http.response.body", body))
+		}
+	}
+	return full
 }
 
 // sentAddress is the address the call went to, as the app sent it: the scheme
@@ -175,13 +244,14 @@ type finished struct {
 	at    time.Time
 	attrs []attribute.KeyValue
 	spans []export.Span
+	// full, when set, is the record file exporters get instead of attrs.
+	full []attribute.KeyValue
 }
 
 // record hands a record and its trace to the exporters, and measures the
 // call for the proxy's own numbers.
 func (h *handler) record(r *http.Request, f finished) {
-	h.sink.Record(recordContext(f.sc), f.at, f.attrs)
-	h.sink.Trace(f.sc, f.spans)
+	h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full})
 	h.own.ended(f.attrs)
 }
 

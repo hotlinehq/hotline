@@ -144,7 +144,16 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
-	sink := export.New(cfg.Exporters, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
+	sink, err := export.New(cfg.Exporters, cfg.FileExporters, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
+	if err != nil {
+		for _, l := range []net.Listener{listener, adminListener, redirectedListener} {
+			if l != nil {
+				_ = l.Close()
+			}
+		}
+		_ = telemetry.Shutdown(ctx)
+		return nil, err
+	}
 	h := &handler{
 		clock:  o.Clock,
 		logger: o.Logger,

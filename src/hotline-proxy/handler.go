@@ -134,7 +134,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		in:         r,
 		timeout:    settings.VendorTimeout,
 		transport:  transport,
-		reqBody:    &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: macFor(api), pool: &h.bodies, expect: r.ContentLength},
+		reqBody:    &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: macFor(api), save: saved(cfg, id), pool: &h.bodies, expect: r.ContentLength},
 		reqCheck:   newSpecCheck(),
 		replyCheck: newSpecCheck(),
 	}
@@ -462,7 +462,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: macFor(c.api), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: macFor(c.api), save: saved(c.cfg, c.id), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -659,6 +659,15 @@ func keepReply(api *config.API) int {
 	return keptBody
 }
 
+// saved is how much of each body to keep for the file exporters: up to
+// maxBodySize under content: full, none otherwise.
+func saved(cfg *config.Config, id string) int64 {
+	if content := cfg.Content(id); content.Full {
+		return content.MaxBody
+	}
+	return 0
+}
+
 // macFor signs a body with the integration's key as it passes: none for a
 // call without a full record.
 func macFor(api *config.API) hash.Hash {
@@ -682,6 +691,11 @@ type tap struct {
 
 	limit int
 	mac   hash.Hash
+	// save, when above zero, is how much of the body is kept for the file
+	// exporters, under content: full; saved holds it. Unlike the copy for
+	// the checks, it stays until the record is made.
+	save  int64
+	saved []byte
 	// pool lends the buffer the copy is kept in; expect is the body's
 	// Content-Length, or -1 when it was not sent.
 	pool   *bodyPool
@@ -709,6 +723,13 @@ func (t *tap) Read(p []byte) (int, error) {
 	if t.mac != nil {
 		t.mac.Write(p[:n])
 	}
+	if room := min(int64(n), t.save-int64(len(t.saved))); room > 0 {
+		if t.saved == nil && t.expect > 0 {
+			// The whole body's room at once, when its length is known.
+			t.saved = make([]byte, 0, min(t.expect, t.save))
+		}
+		t.saved = append(t.saved, p[:room]...)
+	}
 	if t.limit > 0 && !t.handed {
 		room := min(n, t.limit-len(t.kept))
 		t.keep(p[:room])
@@ -735,6 +756,14 @@ func (t *tap) counts() (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.size, t.err
+}
+
+// savedBody is the part of the body saved for the file exporters, and whether
+// the body was longer than that.
+func (t *tap) savedBody() ([]byte, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.saved, t.size > int64(len(t.saved))
 }
 
 // signed is the signature of the bytes that passed so far, empty when none
