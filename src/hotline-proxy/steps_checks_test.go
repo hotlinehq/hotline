@@ -59,7 +59,7 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		})
 		return nil
 	})
-	sc.Step(`^the app sends (GET|POST|PUT) (\S+)( without the login key)?(?: with "([^"]*)")?(?: and the (json|form|pdf) body (.*))?$`,
+	sc.Step(`^the app sends (GET|POST|PUT|DELETE) (\S+)( without the login key)?(?: with "([^"]*)")?(?: and the (json|form|pdf) body (.*))?$`,
 		func(method, path, noKey, headers, kind, body string) error {
 			return w.shopCall(method, path, noKey == "", headers, kind, body)
 		})

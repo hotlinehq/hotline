@@ -55,6 +55,8 @@ type Config struct {
 	Exporters []Exporter
 	// FileExporters are the exporters that write calls to a local folder.
 	FileExporters []FileExporter
+	// Console, when set, prints every call to standard output.
+	Console *ConsoleExporter
 	// Telemetry, when set, is where the proxy sends numbers about itself;
 	// nil means they are not sent.
 	Telemetry *Telemetry
@@ -259,8 +261,9 @@ type file struct {
 		Settings settingsFile `yaml:",inline"`
 	} `yaml:"apis"`
 	Exporters []struct {
-		OTLP *exporterFile     `yaml:"otlp"`
-		File *fileExporterFile `yaml:"file"`
+		OTLP    *exporterFile        `yaml:"otlp"`
+		File    *fileExporterFile    `yaml:"file"`
+		Console *consoleExporterFile `yaml:"console"`
 	} `yaml:"exporters"`
 	Integrations []struct {
 		ID             string       `yaml:"id"`
@@ -493,15 +496,17 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		l.problem("there are no exporters")
 	}
 	for _, e := range f.Exporters {
-		switch {
-		case e.OTLP != nil && e.File != nil:
-			l.problem("an exporter is either otlp or file, not both")
+		switch kinds := btoi(e.OTLP != nil) + btoi(e.File != nil) + btoi(e.Console != nil); {
+		case kinds > 1:
+			l.problem("an exporter is only one of otlp, file or console")
 		case e.OTLP != nil:
 			c.Exporters = append(c.Exporters, l.exporter(*e.OTLP, now))
 		case e.File != nil:
 			c.FileExporters = append(c.FileExporters, l.fileExporter(*e.File, c.FileExporters))
+		case e.Console != nil:
+			c.Console = l.console(*e.Console, c.Console)
 		default:
-			l.problem("an exporter must be otlp or file")
+			l.problem("an exporter must be otlp, file or console")
 		}
 	}
 	c.Telemetry = l.telemetry(f.Telemetry, now)

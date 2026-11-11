@@ -48,6 +48,8 @@ type Sink struct {
 	destinations []destination
 	// files are the folders every call is written to, one line per call.
 	files []fileDestination
+	// console, when set, prints every call to standard output.
+	console *consoleDestination
 	// lineResource is the resource every call line carries.
 	lineResource []attribute.KeyValue
 	// lines holds buffers to write a call line in.
@@ -90,6 +92,9 @@ type Call struct {
 	// Full, when set, is the record file exporters get instead: under
 	// content: full, with every header, the bodies and its own signature.
 	Full []attribute.KeyValue
+	// Address is the address the call went to, as the app sent it, for
+	// the console.
+	Address string
 }
 
 // fileInterval is how long a call line waits at most before it is
@@ -121,7 +126,7 @@ func counted(kv attribute.KeyValue) bool {
 //
 // Each file exporter takes its folder's lock, so New fails with
 // ErrFolderTaken when another proxy writes to the same folder.
-func New(exporters []config.Exporter, files []config.FileExporter, roots *x509.CertPool, service Service, timing Timing, logger *slog.Logger, meter metric.Meter) (*Sink, error) {
+func New(exporters []config.Exporter, files []config.FileExporter, console *config.ConsoleExporter, out Console, roots *x509.CertPool, service Service, timing Timing, logger *slog.Logger, meter metric.Meter) (*Sink, error) {
 	s := &Sink{}
 	s.scratch.New = func() any {
 		b := make([]byte, 0, 4096)
@@ -181,8 +186,25 @@ func New(exporters []config.Exporter, files []config.FileExporter, roots *x509.C
 		d.requests, _ = d.metrics.Meter("hotline-proxy").Int64Counter("hotline.requests", metric.WithUnit("{request}"))
 		s.destinations = append(s.destinations, d)
 	}
-	observeDestinations(meter, s.destinations, s.files)
+	if console != nil {
+		up := &atomic.Int64{}
+		up.Store(1)
+		label := attribute.String("hotline.exporter", "console")
+		s.console = newConsole(console, out, queueSetup{
+			endpoint: "console", size: consoleQueueSize, interval: fileInterval, eager: true, logger: logger, up: up,
+			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
+		})
+	}
+	observeDestinations(meter, s.destinations, s.local())
 	return s, nil
+}
+
+// local are the destinations on this machine: the files and the console.
+func (s *Sink) local() []fileDestination {
+	if s.console == nil {
+		return s.files
+	}
+	return append(slices.Clip(s.files), s.console.fileDestination)
 }
 
 // closeFiles lets go of the folders taken so far, when New fails.
@@ -265,12 +287,16 @@ func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
 }
 
 // Call queues one call for every destination: its record, its count and
-// its spans for each OTLP destination, and one line for each file. It never
+// its spans for each OTLP destination, one line for each file, and its
+// lines on the console. It never
 // blocks: a full queue refuses what is new.
 func (s *Sink) Call(ctx context.Context, c Call) {
 	if len(s.destinations) > 0 {
 		s.record(ctx, c.At, c.Attrs)
 		s.trace(c.Trace, c.Spans)
+	}
+	if s.console != nil {
+		s.console.queue.add(s.console.lines(c))
 	}
 	if len(s.files) == 0 {
 		return
@@ -340,7 +366,7 @@ func (s *Sink) Shutdown(ctx context.Context) error {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
 		d.transport.close()
 	}
-	for _, f := range s.files {
+	for _, f := range s.local() {
 		errs = append(errs, f.queue.Shutdown(ctx))
 	}
 	return errors.Join(errs...)
