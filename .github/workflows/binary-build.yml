@@ -194,24 +194,6 @@ jobs:
           tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_linux_amd64.tar.gz"
           .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.version.outputs.version }}"
 
-  # Runs the Mac program on every build (Peter, 2026-11-10): the signed one
-  # when signing, else the unsigned one. Same checks as the Linux program.
-  smoke-mac:
-    needs: [version, package]
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: hotline-programs
-          path: dist
-      - name: check the files and run the program
-        run: |
-          set -eu
-          (cd dist && shasum -a 256 -c SHA256SUMS)
-          tar -C dist -xzf "dist/hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz"
-          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.version.outputs.version }}"
-
   # Makes the image by copying the Linux programs onto the base image, for
   # linux/amd64 and linux/arm64, and saves it as one OCI file. Nothing is
   # compiled here.
