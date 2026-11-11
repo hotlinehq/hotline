@@ -40,6 +40,8 @@ type queue[T any] struct {
 	// hold, and held how many they hold now.
 	memory int64
 	held   int64
+	// eager sends every item as soon as it comes, not in batches.
+	eager bool
 
 	mu sync.Mutex
 	// ring holds the waiting items: count of them, from first on, wrapping
@@ -68,11 +70,13 @@ type queueSetup struct {
 	// memory, when above zero, limits the bytes the waiting items hold.
 	memory   int64
 	interval time.Duration
-	logger   *slog.Logger
-	sent     metric.Int64Counter
-	dropped  metric.Int64Counter
-	labels   attribute.Set
-	up       *atomic.Int64
+	// eager sends every item as soon as it comes.
+	eager   bool
+	logger  *slog.Logger
+	sent    metric.Int64Counter
+	dropped metric.Int64Counter
+	labels  attribute.Set
+	up      *atomic.Int64
 }
 
 func newQueue[T any](what string, export func(context.Context, []T) error, closeSender func(context.Context) error, s queueSetup) *queue[T] {
@@ -83,6 +87,7 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 		what:     what,
 		size:     s.size,
 		memory:   s.memory,
+		eager:    s.eager,
 		interval: s.interval,
 		logger:   s.logger,
 		sent:     s.sent,
@@ -120,7 +125,7 @@ func (q *queue[T]) add(items ...T) {
 	copy(q.ring, items[copied:])
 	q.count += len(items)
 	q.held += weight
-	if q.count >= batchSize {
+	if q.count >= batchSize || q.eager {
 		select {
 		case q.full <- struct{}{}:
 		default:

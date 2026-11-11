@@ -76,6 +76,12 @@ type world struct {
 	telemetryPprof bool
 	// telemetryExtra are more lines for the telemetry section's otlp.
 	telemetryExtra string
+	// console is what a console exporter printed, consoleExporter the
+	// config's console entries, and terminal what standard output is.
+	console         *syncBuffer
+	consoleExporter string
+	terminal        fakeTerminal
+	consoleClosed   bool
 	// env is the proxy's environment.
 	env map[string]string
 	// processEnv are variables set in the test process itself, unset with
@@ -212,6 +218,7 @@ func newWorld() (*world, error) {
 		vendors:   map[string]*vendor{},
 		receivers: []*receiver{newReceiver()},
 		logs:      &syncBuffer{},
+		console:   &syncBuffer{},
 		appID:     "talon-shop-a",
 		method:    "PUT",
 		target:    "https://api.talon.one/v2/customer_sessions/sess-8812?dry=true",
@@ -426,6 +433,7 @@ func (w *world) config() string {
 		}
 		fmt.Fprintf(&b, "  - file:\n      path: %s\n%s", f.path, f.extra)
 	}
+	b.WriteString(w.consoleExporter)
 	if w.telemetry == nil && w.telemetryPprof {
 		b.WriteString("telemetry:\n  pprof: true\n")
 	}
@@ -550,6 +558,7 @@ func (w *world) startOnce() error {
 			v, ok := w.env[name]
 			return v, ok
 		},
+		Console: proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size},
 	})
 	return w.startErr
 }

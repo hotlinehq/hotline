@@ -121,6 +121,9 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		logger.Info("config is valid", "config", *configPath)
 		return exitOK
 	}
+	// Standard output is a file whenever the program runs, so it can be
+	// asked whether it is a terminal.
+	out, _ := stdout.(*os.File)
 	return serve(logger, proxy.Options{
 		ConfigPath:    *configPath,
 		Resolver:      net.DefaultResolver,
@@ -134,6 +137,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		LookupEnv:     os.LookupEnv,
 
 		OriginalDestination: originalDestination,
+		Console:             proxy.Console{Out: stdout, Terminal: terminal(out)},
 	}, stopping{timeout: *shutdownTimeout, drainDelay: *drainDelay}, signals, reloads)
 }
 

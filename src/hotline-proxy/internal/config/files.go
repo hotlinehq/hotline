@@ -81,3 +81,40 @@ func (l *loader) content(label, content, maxBody string) (c Content, set bool) {
 	}
 	return c, content != "" || maxBody != ""
 }
+
+// ConsoleExporter prints every call to standard output.
+type ConsoleExporter struct {
+	// Color is auto, always or never: auto colours the lines only on a
+	// terminal, and never when NO_COLOR is set.
+	Color string
+}
+
+// consoleExporterFile is the console exporter as the config writes it.
+type consoleExporterFile struct {
+	Color string `yaml:"color"`
+}
+
+// console reads the console exporter. There is one at most, since two
+// would print the same lines (Peter, 2026-11-11).
+func (l *loader) console(f consoleExporterFile, before *ConsoleExporter) *ConsoleExporter {
+	if before != nil {
+		l.problem("there may be only one console exporter")
+	}
+	e := &ConsoleExporter{Color: f.Color}
+	switch f.Color {
+	case "":
+		e.Color = "auto"
+	case "auto", "always", "never":
+	default:
+		l.problem("console exporter: color must be auto, always or never")
+	}
+	return e
+}
+
+// btoi is 1 for true and 0 for false.
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

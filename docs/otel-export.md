@@ -28,7 +28,7 @@ A fourth kind, numbers about the proxy itself, goes only to the `telemetry` dest
 | Sampling | None. Every call is recorded, counted and traced. |
 | Counter temporality | Cumulative by default (the running total since start); `temporality: delta` sends only the change since the last send. |
 
-A `file` exporter writes the same records and traces to a local folder instead, one line per call, with no counts: [proxy-file-export.md](proxy-file-export.md).
+A `file` exporter writes the same records and traces to a local folder instead, one line per call, with no counts: [proxy-file-export.md](proxy-file-export.md). A `console` exporter prints two short lines per call to standard output: [proxy-console-export.md](proxy-console-export.md).
 
 Config example:
 

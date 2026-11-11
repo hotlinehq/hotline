@@ -36,6 +36,7 @@
 - [Trace context on records](proxy-trace-context.md)
 - [OTLP over HTTP](proxy-otlp-protocols.md)
 - [Writing every call to a local file](proxy-file-export.md), with bodies and every header when asked
+- [Printing every call to the console](proxy-console-export.md), coloured, like mitmdump
 - [The proxy's own telemetry](proxy-telemetry.md)
 
 ## Examples

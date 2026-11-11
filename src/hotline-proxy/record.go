@@ -126,7 +126,7 @@ func (c *call) record(end time.Time) {
 		}
 	}
 	c.h.record(c.in, finished{
-		sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full,
+		sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full, address: c.sentAddress(),
 	})
 }
 
@@ -246,12 +246,14 @@ type finished struct {
 	spans []export.Span
 	// full, when set, is the record file exporters get instead of attrs.
 	full []attribute.KeyValue
+	// address is the address as the app sent it, for the console.
+	address string
 }
 
 // record hands a record and its trace to the exporters, and measures the
 // call for the proxy's own numbers.
 func (h *handler) record(r *http.Request, f finished) {
-	h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full})
+	h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full, Address: f.address})
 	h.own.ended(f.attrs)
 }
 

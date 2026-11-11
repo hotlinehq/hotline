@@ -174,5 +174,5 @@ Feature: Writing every call to a local file
       | maxFiles 0              | maxFiles must be at least 1               |
       | compression zip         | compression must be gzip or none          |
       | no path                 | a file exporter needs a path              |
-      | an otlp endpoint as well | an exporter is either otlp or file        |
-      | nothing in it           | an exporter must be otlp or file          |
+      | an otlp endpoint as well | an exporter is only one of otlp, file or console |
+      | nothing in it           | an exporter must be otlp, file or console |

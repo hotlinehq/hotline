@@ -92,6 +92,10 @@ type program struct {
 	interception *issuer
 	redirect     bool
 	interceptAt  string
+	// console adds a console exporter, and terminal, when set, is the
+	// terminal the program prints to instead of standard output.
+	console  bool
+	terminal *terminal
 	// cleanups undo what the scenario changed outside the program.
 	cleanups []func()
 
@@ -132,6 +136,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	})
 
 	overlayCommandSteps(sc, p)
+	consoleProgramSteps(sc, p)
 
 	// Running the program.
 	sc.Step(`^hotline-proxy is run with "([^"]*)"$`, func(args string) error {
@@ -717,8 +722,11 @@ func (p *program) config(validateOnly bool) string {
 		listenTLS += "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}
 	telemetry := ""
+	if p.console {
+		telemetry = "  - console: {}\n"
+	}
 	if p.pprof {
-		telemetry = "telemetry:\n  pprof: true\n"
+		telemetry += "telemetry:\n  pprof: true\n"
 	}
 	// The test vendor runs on this computer, an internal address, so the
 	// config allows internal IPs.
@@ -777,6 +785,9 @@ func (p *program) startProcess(args ...string) error {
 	p.process = exec.CommandContext(context.Background(), p.binary, args...) //nolint:gosec // the program under test
 	p.process.Dir = p.dir
 	p.process.Stdout = &p.stdout
+	if p.terminal != nil {
+		p.process.Stdout = p.terminal.program
+	}
 	p.process.Stderr = &p.stderr
 	if err := p.process.Start(); err != nil {
 		return err

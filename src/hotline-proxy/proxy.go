@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"expvar"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -78,6 +79,16 @@ type Options struct {
 	// first sent, before the firewall redirected it. Without it, calls
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination
+	// Console is where a console exporter prints: standard output, and
+	// whether it is a terminal.
+	Console Console
+}
+
+// Console is standard output, for a console exporter, and the width of
+// the terminal it is, or false when it is not a terminal.
+type Console struct {
+	Out      io.Writer
+	Terminal func() (int, bool)
 }
 
 // Proxy is a running proxy.
@@ -144,7 +155,8 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
-	sink, err := export.New(cfg.Exporters, cfg.FileExporters, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
+	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
+		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
 		for _, l := range []net.Listener{listener, adminListener, redirectedListener} {
 			if l != nil {
