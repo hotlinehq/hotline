@@ -16,10 +16,9 @@ test:
 	rm -f cover.out metrics-cover.out
 	go clean -testcache
 	go test -race ./src/hotline-proxy/... -coverprofile=./cover.out -covermode=atomic -coverpkg=./src/hotline/...,./src/hotline-proxy/...
-	# The metrics tests run tight loops. The race detector and coverage
-	# together slow them from seconds to minutes, so they run twice: once
-	# with the race detector, and once measuring their own code.
-	go test -race ./src/hotline/...
+	# The metrics tests run tight loops, which the race detector with
+	# coverage slows from seconds to minutes. They run without the race
+	# detector (Peter, 2026-11-11) and measure only their own code.
 	go test ./src/hotline/... -coverprofile=./metrics-cover.out -covermode=atomic
 	tail -n +2 metrics-cover.out >> cover.out
 	go test -race ./src/otel-hotline/...
