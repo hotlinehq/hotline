@@ -372,3 +372,12 @@ func (n *network) triedToDial(ip string) bool {
 	}
 	return false
 }
+
+// listenLocalOn listens on addr, to stand for another program that took it.
+func listenLocalOn(addr string) net.Listener {
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
+	if err != nil {
+		panic(err)
+	}
+	return l
+}

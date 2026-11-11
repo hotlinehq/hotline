@@ -685,7 +685,8 @@ func macFor(api *config.API) hash.Hash {
 // reading when the record is made, so the counts are behind a lock.
 type tap struct {
 	io.ReadCloser
-	done func()
+	done     func()
+	finished sync.Once
 	// wait, if set, runs before each read and limits how long it may take.
 	wait func() func() bool
 
@@ -858,11 +859,14 @@ func (p *bodyPool) get(n int) *bodyBuffer {
 // put gives a buffer back to the pool of its size.
 func (p *bodyPool) put(b *bodyBuffer) { p.sizes[b.size].Put(b) }
 
+// finish runs done once. The body can end on two goroutines at once: a
+// WebSocket's copy reads it to its end while the call ending closes it.
 func (t *tap) finish() {
-	if t.done != nil {
-		t.done()
-		t.done = nil
-	}
+	t.finished.Do(func() {
+		if t.done != nil {
+			t.done()
+		}
+	})
 }
 
 // tunnelProcess is the program the tunnel an app connection came through

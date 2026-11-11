@@ -68,3 +68,4 @@ Open only the file for the topic at hand.
 - Trace context: [docs/decisions/trace-context.md](docs/decisions/trace-context.md)
 - Own OTLP encoder for records and spans, `h2c`, and no more gRPC: [docs/decisions/otlp-encoder.md](docs/decisions/otlp-encoder.md)
 - Own forwarder, `internal/forward`, instead of Go's reverse proxy; one request copy: [docs/decisions/forwarder.md](docs/decisions/forwarder.md)
+- Tests in CI (no race detector; ports picked again when taken): [docs/decisions/tests-in-ci.md](docs/decisions/tests-in-ci.md)
