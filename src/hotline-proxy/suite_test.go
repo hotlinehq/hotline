@@ -7,9 +7,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// TestWorld runs the small tests of the test world itself, the helper the
-// feature files run against.
-func TestWorld(t *testing.T) {
+// TestProxy runs the small tests: of the test world, the helper the feature
+// files run against, and of parts of the proxy too small for a scenario.
+func TestProxy(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Test world Suite")
+	RunSpecs(t, "Proxy Suite")
 }

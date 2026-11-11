@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"io"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -36,4 +37,10 @@ func Signature(attrs []attribute.KeyValue, at time.Time, sc trace.SpanContext, k
 // TraceSignature signs a trace with a signer that is new.
 func TraceSignature(sc trace.SpanContext, spans []export.Span, key []byte) attribute.KeyValue {
 	return (&signPool{}).traceSignature(key, sc, spans)
+}
+
+// NewTap is a tap on body that runs done when the body ends, to test that
+// done runs once when the end and a close come at the same time.
+func NewTap(body io.ReadCloser, done func()) io.ReadCloser {
+	return &tap{ReadCloser: body, done: done}
 }
