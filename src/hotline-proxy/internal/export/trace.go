@@ -25,11 +25,11 @@ type Span struct {
 	Attrs []attribute.KeyValue
 }
 
-// Trace queues the spans of one call, in the trace sc names, for every
-// destination. It never blocks: a queue without room for all of the call's
+// trace queues the spans of one call, in the trace sc names, for every
+// OTLP destination. It never blocks: a queue without room for all of the call's
 // spans refuses them all, so a trace is never split. The spans are written
 // once, into one block that every destination shares.
-func (s *Sink) Trace(sc trace.SpanContext, spans []Span) {
+func (s *Sink) trace(sc trace.SpanContext, spans []Span) {
 	scratch := s.scratch.Get().(*[]byte)
 	b := (*scratch)[:0]
 	items := make([][]byte, len(spans))

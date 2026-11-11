@@ -53,6 +53,8 @@ type Config struct {
 	// to be an issuer, used or not.
 	Issuers   map[string]*TLS
 	Exporters []Exporter
+	// FileExporters are the exporters that write calls to a local folder.
+	FileExporters []FileExporter
 	// Telemetry, when set, is where the proxy sends numbers about itself;
 	// nil means they are not sent.
 	Telemetry *Telemetry
@@ -84,6 +86,44 @@ type Config struct {
 	// urlFull is, for each integration, whether its minimal records carry
 	// url.full; the not-passed entry's value is the default.
 	urlFull map[string]bool
+	// content is, for each integration, whether its calls are kept in full
+	// for the file exporters; the not-passed entry's value is the default.
+	content map[string]Content
+}
+
+// Content says whether an integration's calls are kept in full, with every
+// header and their bodies, for the file exporters, and how much of each
+// body is kept.
+type Content struct {
+	Full    bool
+	MaxBody int64
+}
+
+// Content is an integration's content setting, or the not-passed entry's
+// for those that say nothing. It is never full without a file exporter,
+// since the copy would be kept for nothing (Peter, 2026-11-11).
+func (c *Config) Content(integrationID string) Content {
+	if on, ok := c.content[integrationID]; ok {
+		return on
+	}
+	return c.content[notPassed]
+}
+
+// FileExporter is a folder the proxy writes every call to, one line per
+// call (Peter, 2026-11-11).
+type FileExporter struct {
+	// Path is the folder, with a relative path joined to the config's
+	// folder.
+	Path string
+	// MaxFileSize is the size past which the file is rotated, MaxFiles how
+	// many rotated files are kept.
+	MaxFileSize int64
+	MaxFiles    int
+	// Gzip compresses rotated files.
+	Gzip bool
+	// QueueMemory is how much memory the calls waiting to be written may
+	// hold.
+	QueueMemory int64
 }
 
 // URLFull says whether a minimal record of this integration's call carries
@@ -219,7 +259,8 @@ type file struct {
 		Settings settingsFile `yaml:",inline"`
 	} `yaml:"apis"`
 	Exporters []struct {
-		OTLP exporterFile `yaml:"otlp"`
+		OTLP *exporterFile     `yaml:"otlp"`
+		File *fileExporterFile `yaml:"file"`
 	} `yaml:"exporters"`
 	Integrations []struct {
 		ID             string       `yaml:"id"`
@@ -232,7 +273,20 @@ type file struct {
 		TraceForward bool    `yaml:"traceForward"`
 		// URLFull puts url.full on this integration's minimal records.
 		URLFull *bool `yaml:"urlFull"`
+		// Content is records or full; MaxBodySize is how much of each body
+		// full keeps.
+		Content     string `yaml:"content"`
+		MaxBodySize string `yaml:"maxBodySize"`
 	} `yaml:"integrations"`
+}
+
+// fileExporterFile is one file exporter as the config writes it.
+type fileExporterFile struct {
+	Path        string `yaml:"path"`
+	MaxFileSize string `yaml:"maxFileSize"`
+	MaxFiles    *int   `yaml:"maxFiles"`
+	Compression string `yaml:"compression"`
+	QueueMemory string `yaml:"queueMemory"`
 }
 
 // exporterFile is one OTLP destination as the config writes it.
@@ -392,6 +446,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		integrations: map[string]map[string]*API{},
 		traces:       map[string]Trace{},
 		urlFull:      map[string]bool{},
+		content:      map[string]Content{},
 	}
 	if f.Listen.Proxy == "" {
 		l.problem("there is no listen.proxy address")
@@ -438,7 +493,16 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		l.problem("there are no exporters")
 	}
 	for _, e := range f.Exporters {
-		c.Exporters = append(c.Exporters, l.exporter(e.OTLP, now))
+		switch {
+		case e.OTLP != nil && e.File != nil:
+			l.problem("an exporter is either otlp or file, not both")
+		case e.OTLP != nil:
+			c.Exporters = append(c.Exporters, l.exporter(*e.OTLP, now))
+		case e.File != nil:
+			c.FileExporters = append(c.FileExporters, l.fileExporter(*e.File, c.FileExporters))
+		default:
+			l.problem("an exporter must be otlp or file")
+		}
 	}
 	c.Telemetry = l.telemetry(f.Telemetry, now)
 	if f.Telemetry != nil && f.Telemetry.Pprof {
@@ -484,6 +548,16 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		c.traces[in.ID] = t
 		if in.URLFull != nil {
 			c.urlFull[in.ID] = *in.URLFull
+		}
+		if content, set := l.content("integration "+in.ID, in.Content, in.MaxBodySize); set {
+			if content.Full && len(c.FileExporters) == 0 {
+				c.Warnings = append(c.Warnings, "integration "+in.ID+" has content: full but there is no file exporter, so its calls are not kept in full")
+				content.Full = false
+			}
+			if content.Full {
+				c.Warnings = append(c.Warnings, "integration "+in.ID+" has content: full, so file exporters get its calls with every header and whole bodies, passwords and personal data included")
+			}
+			c.content[in.ID] = content
 		}
 		if in.ID == notPassed {
 			c.NotPassed = l.settings("integration "+in.ID, in.Settings, c.NotPassed)

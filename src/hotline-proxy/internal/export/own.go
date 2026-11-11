@@ -98,7 +98,7 @@ func newSendStats(meter metric.Meter) sendStats {
 
 // observeDestinations sends, for every exporter, how many items wait in
 // its queues and whether its last send worked.
-func observeDestinations(meter metric.Meter, destinations []destination) {
+func observeDestinations(meter metric.Meter, destinations []destination, files []fileDestination) {
 	size, _ := meter.Int64ObservableUpDownCounter("hotline.exporter.queue.size", metric.WithUnit("{item}"),
 		metric.WithDescription("Records or spans waiting to be sent to this exporter. "+
 			"A queue that keeps growing will soon drop items."))
@@ -111,6 +111,11 @@ func observeDestinations(meter metric.Meter, destinations []destination) {
 			waiting, _ = d.spans.fill()
 			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(d.spans.labels))
 			o.ObserveInt64(up, d.up.Load(), metric.WithAttributeSet(d.place))
+		}
+		for _, f := range files {
+			waiting, _ := f.queue.fill()
+			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(f.queue.labels))
+			o.ObserveInt64(up, f.up.Load(), metric.WithAttributeSet(f.place))
 		}
 		return nil
 	}, size, up)

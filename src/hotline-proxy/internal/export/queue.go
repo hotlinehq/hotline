@@ -36,6 +36,11 @@ type queue[T any] struct {
 	labels  attribute.Set
 	up      *atomic.Int64
 
+	// memory, when above zero, is how many bytes the waiting items may
+	// hold, and held how many they hold now.
+	memory int64
+	held   int64
+
 	mu sync.Mutex
 	// ring holds the waiting items: count of them, from first on, wrapping
 	// around the end.
@@ -60,6 +65,8 @@ type queue[T any] struct {
 type queueSetup struct {
 	endpoint string
 	size     int
+	// memory, when above zero, limits the bytes the waiting items hold.
+	memory   int64
 	interval time.Duration
 	logger   *slog.Logger
 	sent     metric.Int64Counter
@@ -75,6 +82,7 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 		endpoint: s.endpoint,
 		what:     what,
 		size:     s.size,
+		memory:   s.memory,
 		interval: s.interval,
 		logger:   s.logger,
 		sent:     s.sent,
@@ -95,7 +103,13 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 func (q *queue[T]) add(items ...T) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if len(items) > len(q.ring)-q.count {
+	weight := int64(0)
+	if q.memory > 0 {
+		for _, item := range items {
+			weight += weigh(item)
+		}
+	}
+	if len(items) > len(q.ring)-q.count || q.memory > 0 && q.held+weight > q.memory {
 		q.crowded.count += len(items)
 		q.crowded.groups++
 		q.dropped.Add(context.Background(), int64(len(items)), dropReason(q.labels, "queue_full"))
@@ -105,6 +119,7 @@ func (q *queue[T]) add(items ...T) {
 	copied := copy(q.ring[end:], items)
 	copy(q.ring, items[copied:])
 	q.count += len(items)
+	q.held += weight
 	if q.count >= batchSize {
 		select {
 		case q.full <- struct{}{}:
@@ -124,6 +139,11 @@ func (q *queue[T]) take() []T {
 	for n > 0 {
 		part := q.ring[q.first:min(q.first+n, len(q.ring))]
 		q.batch = append(q.batch, part...)
+		if q.memory > 0 {
+			for _, item := range part {
+				q.held -= weigh(item)
+			}
+		}
 		clear(part)
 		q.first = (q.first + len(part)) % len(q.ring)
 		q.count -= len(part)
@@ -239,4 +259,11 @@ func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeou
 	}
 	// The destination closes the transport once both queues are done.
 	return newQueue(what, send, func(context.Context) error { return nil }, s)
+}
+
+// weigh is the bytes an item holds: a written item's length, nothing for
+// any other kind.
+func weigh[T any](item T) int64 {
+	b, _ := any(item).([]byte)
+	return int64(len(b))
 }

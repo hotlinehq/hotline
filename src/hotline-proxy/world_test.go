@@ -63,6 +63,10 @@ type world struct {
 	downEndpoints []string
 	// exporterExtra are more lines for the exporter of each receiver.
 	exporterExtra []string
+	// files are the file exporters: each one's folder and more lines.
+	files []fileExporter
+	// sentBody is the body of the app's last call, when it sent one.
+	sentBody string
 	// unsetIntervals leaves the intervals out of the exporters, and
 	// unsetOwnInterval out of the telemetry section, so the defaults apply.
 	// Otherwise everything is sent every 20ms, to keep tests quick.
@@ -408,6 +412,13 @@ func (w *world) config() string {
 	}
 	for _, e := range w.downEndpoints {
 		fmt.Fprintf(&b, "  - otlp:\n      endpoint: %s\n", e)
+	}
+	for _, f := range w.files {
+		if f.raw != "" {
+			b.WriteString(f.raw)
+			continue
+		}
+		fmt.Fprintf(&b, "  - file:\n      path: %s\n%s", f.path, f.extra)
 	}
 	if w.telemetry == nil && w.telemetryPprof {
 		b.WriteString("telemetry:\n  pprof: true\n")

@@ -56,6 +56,7 @@ Open only the file for the topic at hand.
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
+- File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Capture ingress (macOS, chosen apps, as a CONNECT with capture headers; `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)
 - AWS and SQS: [docs/decisions/aws-sqs.md](docs/decisions/aws-sqs.md)
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)

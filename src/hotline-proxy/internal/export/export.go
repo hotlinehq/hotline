@@ -5,6 +5,7 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -42,9 +43,15 @@ type Service struct {
 	InstanceID string
 }
 
-// Sink takes finished records and sends them to every destination.
+// Sink takes finished calls and sends them to every destination.
 type Sink struct {
 	destinations []destination
+	// files are the folders every call is written to, one line per call.
+	files []fileDestination
+	// lineResource is the resource every call line carries.
+	lineResource []attribute.KeyValue
+	// lines holds buffers to write a call line in.
+	lines sync.Pool
 	// scratch holds buffers to write a record or a call's spans in,
 	// before they are copied to their own exact size.
 	scratch sync.Pool
@@ -65,6 +72,34 @@ type destination struct {
 	place attribute.Set
 }
 
+// fileDestination is one file exporter's queue of written lines and its
+// writer.
+type fileDestination struct {
+	queue *queue[[]byte]
+	up    *atomic.Int64
+	place attribute.Set
+}
+
+// Call is one finished call: its record and its spans.
+type Call struct {
+	Trace trace.SpanContext
+	At    time.Time
+	// Attrs is the record every exporter gets.
+	Attrs []attribute.KeyValue
+	Spans []Span
+	// Full, when set, is the record file exporters get instead: under
+	// content: full, with every header, the bodies and its own signature.
+	Full []attribute.KeyValue
+}
+
+// fileInterval is how long a call line waits at most before it is
+// written: short, so a line shows up at once, yet long enough to write
+// many lines in one go under load (Peter, 2026-11-11).
+const fileInterval = 100 * time.Millisecond
+
+// fileQueueSize is how many calls wait for a file exporter at most.
+const fileQueueSize = 10_000
+
 // counted are the record attributes the hotline.requests counter carries.
 func counted(kv attribute.KeyValue) bool {
 	switch kv.Key {
@@ -83,13 +118,38 @@ func counted(kv attribute.KeyValue) bool {
 // Only the config says how to send: every option is set here, so the
 // library never falls back to the OTEL_EXPORTER_OTLP_* environment
 // variables.
-func New(exporters []config.Exporter, roots *x509.CertPool, service Service, timing Timing, logger *slog.Logger, meter metric.Meter) *Sink {
+//
+// Each file exporter takes its folder's lock, so New fails with
+// ErrFolderTaken when another proxy writes to the same folder.
+func New(exporters []config.Exporter, files []config.FileExporter, roots *x509.CertPool, service Service, timing Timing, logger *slog.Logger, meter metric.Meter) (*Sink, error) {
 	s := &Sink{}
 	s.scratch.New = func() any {
 		b := make([]byte, 0, 4096)
 		return &b
 	}
+	s.lines.New = func() any { return &bytes.Buffer{} }
 	stats := newSendStats(meter)
+	s.lineResource = describe(service, nil).Attributes()
+	for _, e := range files {
+		writer, err := openFileWriter(e)
+		if err != nil {
+			s.closeFiles()
+			return nil, err
+		}
+		up := &atomic.Int64{}
+		up.Store(1)
+		label := attribute.String("hotline.exporter", e.Path)
+		setup := queueSetup{
+			endpoint: e.Path, size: fileQueueSize, memory: e.QueueMemory, interval: fileInterval, logger: logger, up: up,
+			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
+		}
+		write := func(_ context.Context, lines [][]byte) error { return writer.write(lines) }
+		s.files = append(s.files, fileDestination{
+			queue: newQueue("records", write, func(context.Context) error { return writer.close() }, setup),
+			up:    up,
+			place: attribute.NewSet(label),
+		})
+	}
 	for _, e := range exporters {
 		t := newHTTPTransport(e, tlsFor(e, roots), service.Version)
 		metrics := metricSender(e, roots, timing)
@@ -121,8 +181,15 @@ func New(exporters []config.Exporter, roots *x509.CertPool, service Service, tim
 		d.requests, _ = d.metrics.Meter("hotline-proxy").Int64Counter("hotline.requests", metric.WithUnit("{request}"))
 		s.destinations = append(s.destinations, d)
 	}
-	observeDestinations(meter, s.destinations)
-	return s
+	observeDestinations(meter, s.destinations, s.files)
+	return s, nil
+}
+
+// closeFiles lets go of the folders taken so far, when New fails.
+func (s *Sink) closeFiles() {
+	for _, f := range s.files {
+		_ = f.queue.Shutdown(context.Background())
+	}
 }
 
 // describe is the resource one destination gets: the proxy's own labels,
@@ -197,10 +264,35 @@ func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
 	return metricdata.DeltaTemporality
 }
 
-// Record queues one hotline.request log record and counts the call. It never
-// blocks: a full queue refuses the new record.
+// Call queues one call for every destination: its record, its count and
+// its spans for each OTLP destination, and one line for each file. It never
+// blocks: a full queue refuses what is new.
+func (s *Sink) Call(ctx context.Context, c Call) {
+	if len(s.destinations) > 0 {
+		s.record(ctx, c.At, c.Attrs)
+		s.trace(c.Trace, c.Spans)
+	}
+	if len(s.files) == 0 {
+		return
+	}
+	attrs := c.Attrs
+	if c.Full != nil {
+		attrs = c.Full
+	}
+	buf := s.lines.Get().(*bytes.Buffer)
+	buf.Reset()
+	appendLine(buf, s.lineResource, c, attrs)
+	line := slices.Clone(buf.Bytes())
+	s.lines.Put(buf)
+	for _, f := range s.files {
+		f.queue.add(line)
+	}
+}
+
+// record queues one hotline.request log record and counts the call. It
+// never blocks: a full queue refuses the new record.
 // The record is written once, for every destination.
-func (s *Sink) Record(ctx context.Context, at time.Time, attrs []attribute.KeyValue) {
+func (s *Sink) record(ctx context.Context, at time.Time, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)
 	b := appendRecord((*scratch)[:0], at, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
 	written := slices.Clone(b)
@@ -247,6 +339,9 @@ func (s *Sink) Shutdown(ctx context.Context) error {
 	for _, d := range s.destinations {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
 		d.transport.close()
+	}
+	for _, f := range s.files {
+		errs = append(errs, f.queue.Shutdown(ctx))
 	}
 	return errors.Join(errs...)
 }
