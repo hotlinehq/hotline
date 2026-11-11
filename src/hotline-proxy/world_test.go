@@ -186,8 +186,14 @@ type world struct {
 	// when the scenario lets the proxy read that.
 	interceptHost string
 	interceptAddr string
-	original      netip.AddrPort
-	originalKnown bool
+	// pickedAddr and pickedIntercept say start picked the proxy port and the
+	// intercept port itself, and wroteConfig that it wrote the config from
+	// the world, so it may pick them again when they are taken.
+	pickedAddr      bool
+	pickedIntercept bool
+	wroteConfig     bool
+	original        netip.AddrPort
+	originalKnown   bool
 	// sentRecords are the records that arrived while the proxy runs.
 	sentRecords []receivedRecord
 }
@@ -448,17 +454,55 @@ func (w *world) config() string {
 }
 
 // start writes the config and starts the proxy, if not done yet.
+//
+// A port found free a moment ago can be taken by another program on a busy
+// computer before the proxy binds it, and so can a port the proxy let go of
+// when a step stopped it to start it again. When that happens to a port the
+// world picked itself, start picks new ports and tries again, up to three
+// times. A port a scenario took on purpose is left alone, so the proxy still
+// refuses it.
 func (w *world) start() error {
 	if w.proxy != nil || w.startErr != nil {
 		return w.startErr
 	}
+	for try := 1; ; try++ {
+		if err := w.startOnce(); err == nil || try == 3 || !w.mayPickAgain(err) {
+			return err
+		}
+		w.pickAgain()
+	}
+}
+
+// mayPickAgain says the proxy could not bind a port the world picked itself,
+// in a config the world wrote, so new ports may be picked.
+func (w *world) mayPickAgain(err error) bool {
+	return strings.Contains(err.Error(), "address already in use") &&
+		w.busy == "" && w.wroteConfig && (w.pickedAddr || w.pickedIntercept)
+}
+
+// pickAgain forgets the ports the world picked and the config it wrote, so
+// the next start picks new ones.
+func (w *world) pickAgain() {
+	if w.pickedAddr {
+		w.addr = ""
+	}
+	if w.pickedIntercept {
+		w.intercept.address = ""
+	}
+	w.configPath = ""
+	w.startErr = nil
+}
+
+func (w *world) startOnce() error {
 	if w.addr == "" {
 		w.addr = freePort()
+		w.pickedAddr = true
 	}
 	if w.intercept != nil && w.intercept.address == "" && w.intercept.without != "address" {
 		// Picked as late as possible, so no other scenario takes it first.
 		w.intercept.address = freePort()
 		w.interceptAddr = w.intercept.address
+		w.pickedIntercept = true
 	}
 	if len(w.integrations) == 0 && !w.noIntegrations {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")))
@@ -470,6 +514,7 @@ func (w *world) start() error {
 		content := w.rawConfig
 		if content == "" {
 			content = w.config()
+			w.wroteConfig = true
 		}
 		name := w.configName
 		if name == "" {
