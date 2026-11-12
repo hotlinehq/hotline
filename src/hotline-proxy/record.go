@@ -19,34 +19,27 @@ import (
 )
 
 // finish ends the call once the reply has gone back to the app. A side not
-// yet checked, such as a request never sent, is checked now. The record and
-// trace are made once the checks end, apart from the call, so the app never
-// waits for them; Shutdown does.
+// yet checked, such as a request never sent, is checked now, when the call
+// has a spec. The record and trace are made once the checks end, in the
+// background, as for every call.
 func (c *call) finish() {
 	end := c.h.clock.Now()
-	if c.api == nil {
-		c.record(end)
-		return
+	if c.api != nil {
+		c.checkRequest(end)
+		c.mu.Lock()
+		resp := c.resp
+		c.mu.Unlock()
+		c.checkReply(end, resp)
 	}
-	c.checkRequest(end)
-	c.mu.Lock()
-	resp := c.resp
-	c.mu.Unlock()
-	c.checkReply(end, resp)
-	c.h.calls.Add(1)
-	go func() {
-		defer c.h.calls.Done()
-		c.record(end)
-	}()
+	c.h.recordLater(func() finished { return c.record(end) })
 }
 
-// record builds the call's record and trace, and hands them to the
-// exporters without waiting for them.
 // recordRoom is the room made for a full record's attributes: the call's own,
 // what the spec check found, and the two signatures.
 const recordRoom = 40
 
-func (c *call) record(end time.Time) {
+// record builds the call's record and trace, once its checks have ended.
+func (c *call) record(end time.Time) finished {
 	c.reqCheck.wait()
 	replied := c.replyCheck.wait()
 	c.mu.Lock()
@@ -125,9 +118,9 @@ func (c *call) record(end time.Time) {
 			full = c.withBodies(c.withContent(attrs))
 		}
 	}
-	c.h.record(c.in, finished{
+	return finished{
 		sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full, address: c.sentAddress(),
-	})
+	}
 }
 
 // withContent is a new record with every attribute of attrs but the
@@ -235,7 +228,7 @@ func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, 
 	)
 	traced, parent, _ := h.traced(id, r.Header, start)
 	spans := []export.Span{callSpan(traced, parent, start, end, true)}
-	h.record(r, finished{sc: traced, at: start, attrs: attrs, spans: spans})
+	h.recordLater(recorded(finished{sc: traced, at: start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.
@@ -250,12 +243,24 @@ type finished struct {
 	address string
 }
 
-// record hands a record and its trace to the exporters, and measures the
-// call for the proxy's own numbers.
-func (h *handler) record(r *http.Request, f finished) {
-	h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full, Address: f.address})
-	h.own.ended(f.attrs)
+// recordLater is the one way every call is recorded: in the background,
+// apart from the call, so the app's connection is free as soon as its reply
+// is sent (Peter, 2026-11-12). build makes the record and trace, which are
+// then handed to the exporters and measured for the proxy's own numbers.
+// Shutdown waits for it, as for a call in flight. It is only called while
+// the call itself is still counted in flight.
+func (h *handler) recordLater(build func() finished) {
+	h.calls.Add(1)
+	go func() {
+		defer h.calls.Done()
+		f := build()
+		h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full, Address: f.address})
+		h.own.ended(f.attrs)
+	}()
 }
+
+// recorded is a record already made, for recordLater.
+func recorded(f finished) func() finished { return func() finished { return f } }
 
 // clientAddress is the IP address the app's connection came from, never a
 // header the app could set (Peter, 2026-10-31).
