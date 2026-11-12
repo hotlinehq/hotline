@@ -315,5 +315,5 @@ func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, h
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()))
 	traced, parent, _ := h.traced(id, nil, start)
 	spans := []export.Span{callSpan(traced, parent, start, end, failed)}
-	h.record(nil, finished{sc: traced, at: start, attrs: attrs, spans: spans})
+	h.recordLater(recorded(finished{sc: traced, at: start, attrs: attrs, spans: spans}))
 }
