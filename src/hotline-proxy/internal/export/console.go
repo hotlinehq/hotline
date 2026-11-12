@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -42,15 +43,13 @@ type consoleDestination struct {
 	fileDestination
 	out   Console
 	color bool
-	// resource is the resource of a JSON line.
-	resource []attribute.KeyValue
 }
 
 // newConsole starts the console's queue. Colour is used when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
-func newConsole(e *config.ConsoleExporter, out Console, resource []attribute.KeyValue, setup queueSetup) *consoleDestination {
-	c := &consoleDestination{out: out, color: coloured(e, out), resource: resource}
+func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleDestination {
+	c := &consoleDestination{out: out, color: coloured(e, out)}
 	write := func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
 		return err
@@ -102,7 +101,7 @@ type consoleLines struct {
 
 // style writes text in the styles, when colour is on.
 func (l *consoleLines) style(text string, codes ...string) {
-	if !l.color || strings.Join(codes, "") == "" {
+	if !l.color || !slices.ContainsFunc(codes, func(c string) bool { return c != "" }) {
 		l.b.WriteString(text)
 		return
 	}
@@ -122,12 +121,6 @@ func (l *consoleLines) word(text string, codes ...string) {
 // lines writes the call. Every value that came with the call is escaped,
 // so it cannot change the terminal.
 func (c *consoleDestination) lines(call Call) []byte {
-	if c.out.JSON {
-		// The record every exporter gets, never content: full.
-		var b bytes.Buffer
-		appendLine(&b, c.resource, call, call.Attrs)
-		return b.Bytes()
-	}
 	l := &consoleLines{color: c.color}
 	var (
 		id, method, failure, checked, host string
@@ -203,6 +196,42 @@ func (c *consoleDestination) lines(call Call) []byte {
 	}
 	return l.b.Bytes()
 }
+
+// terminalSafe is a JSON line with every character that could change the
+// terminal escaped as \uXXXX. JSON itself escapes only the characters
+// below 0x20, a quote and a backslash, and those characters can only sit
+// inside a JSON string, where the escape means the same. The line is
+// returned as it is when nothing needs escaping.
+func terminalSafe(line []byte) []byte {
+	safe := true
+	for _, r := range string(line) {
+		if unsafeInLine(r) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return line
+	}
+	out := make([]byte, 0, len(line)+16)
+	for _, r := range string(line) {
+		if !unsafeInLine(r) {
+			out = utf8.AppendRune(out, r)
+			continue
+		}
+		if r > 0xffff {
+			hi, lo := utf16.EncodeRune(r)
+			out = fmt.Appendf(out, `\u%04x\u%04x`, hi, lo)
+			continue
+		}
+		out = fmt.Appendf(out, `\u%04x`, r)
+	}
+	return out
+}
+
+// unsafeInLine is a character that could change the terminal, other than
+// the line break that ends a JSON line.
+func unsafeInLine(r rune) bool { return r != '\n' && unsafe(r) }
 
 // side is what the checks found on one side, written "part place rule
 // expected" and joined by "; ", never a value from the call.
@@ -294,14 +323,14 @@ func cut(address string, width int) string {
 }
 
 // printable escapes every character that could change the terminal: the
-// control characters, and bytes that are not UTF-8.
+// control and format characters, and bytes that are not UTF-8.
 func printable(s string) string {
 	var b strings.Builder
 	for i, r := range s {
 		switch {
 		case r == utf8.RuneError && !strings.HasPrefix(s[i:], "�"):
 			fmt.Fprintf(&b, `\x%02x`, s[i])
-		case unicode.IsControl(r):
+		case unsafe(r):
 			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
 			b.WriteRune(r)

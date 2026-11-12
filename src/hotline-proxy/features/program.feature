@@ -44,6 +44,14 @@ Feature: The hotline-proxy program
     Then it exits with code 0
     And standard output is "hotline-proxy 0123456789abcdef0123456789abcdef01234567"
 
+  Scenario: The version command ignores extra arguments
+    A script that probes the version with an extra word still gets it, as
+    before --format was added.
+
+    When hotline-proxy is run with "version x"
+    Then it exits with code 0
+    And standard output starts with "hotline-proxy "
+
   Scenario: With --format json, the version is a JSON object
     Given hotline-proxy is built with version "v0.1.0" and commit "0123456789abcdef0123456789abcdef01234567"
     When hotline-proxy is run with "version --format json"

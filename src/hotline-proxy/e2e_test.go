@@ -120,6 +120,10 @@ type program struct {
 	answered chan struct{}
 }
 
+// plainLogLine is how a plain log line starts: the time, then the level
+// in a column five characters wide.
+var plainLogLine = regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `)
+
 func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	p := &program{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -248,7 +252,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	})
 	sc.Step(`^every line on standard error is a plain line with time, level and message$`, func() error {
 		for _, line := range strings.Split(strings.TrimSuffix(p.stderr.String(), "\n"), "\n") {
-			if !regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `).MatchString(line) {
+			if !plainLogLine.MatchString(line) {
 				return failf("the line %q on standard error is not plain", line)
 			}
 		}

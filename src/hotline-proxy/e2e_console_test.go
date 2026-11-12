@@ -61,9 +61,8 @@ func consoleProgramSteps(sc *godog.ScenarioContext, p *program) {
 	})
 	sc.Step(`^standard error has plain lines, from the start to the stop$`, func() error {
 		lines := strings.Split(strings.TrimSuffix(p.stderr.String(), "\n"), "\n")
-		plain := regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `)
 		for _, line := range lines {
-			if !plain.MatchString(line) {
+			if !plainLogLine.MatchString(line) {
 				return failf("the line %q on standard error is not plain", line)
 			}
 		}
