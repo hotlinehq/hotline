@@ -1,0 +1,153 @@
+# Hotline config for the shop example run against Floci (floci/run.sh).
+# It is the proxy's test config (src/hotline-proxy/testdata/aws), with these
+# changes: plain http to the vendor and loopback allowed (Floci is a local
+# copy of AWS over plain http), every integration's full traffic written to
+# floci/out/calls/calls.jsonl, and, when run.sh finds Grafana Cloud settings,
+# a second exporter that sends the usual records to Grafana Cloud.
+
+listen:
+  proxy: ":8080"
+  admin: ":8081"
+
+exporters:
+  - file:
+      path: ./out/calls          # calls.jsonl: one line per call, with bodies and headers
+      compression: none          # keep the file plain, so it opens as is as an artifact
+
+apis:
+  aws-sqs-invoices:                # the invoices queue: the order-paid topic puts jobs on it, the worker takes them
+    hosts: [sqs.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sqs/2012-11-05.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoices.overlay.yaml]
+    vendorTimeout: 25s             # above SQS's 20 second long polling
+
+  aws-sqs-mail:                    # the mail queue, fed by the shop bus
+    hosts: [sqs.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sqs/2012-11-05.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/mail-queue.overlay.yaml]
+    vendorTimeout: 25s
+
+  aws-s3-invoices:                 # the invoices bucket
+    hosts: [shop-invoices-192325781350.s3.eu-west-1.amazonaws.com]   # the bucket is in the host name
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/s3/2006-03-01.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoices-bucket.overlay.yaml]
+
+  aws-dynamodb-orders:             # the orders table
+    hosts: [dynamodb.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/dynamodb/2012-08-10.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/orders-table.overlay.yaml]
+
+  aws-dynamodb-invoices:           # the invoices table
+    hosts: [dynamodb.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/dynamodb/2012-08-10.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoices-table.overlay.yaml]
+
+  aws-kinesis-shop-events:         # the shop-events stream
+    hosts: [kinesis.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/kinesis/2013-12-02.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/shop-events-stream.overlay.yaml]
+
+  aws-eventbridge-shop:            # the shop event bus
+    hosts: [events.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/eventbridge/2015-10-07.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/shop-bus.overlay.yaml]
+
+  aws-ssm-shop:                    # the shop's settings
+    hosts: [ssm.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/ssm/2014-11-06.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/shop-settings.overlay.yaml]
+
+  aws-secrets-payment:             # the payment key
+    hosts: [secretsmanager.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/secrets-manager/2017-10-17.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/payment-secret.overlay.yaml]
+
+  aws-kms-invoice-signing:         # the invoice signing key
+    hosts: [kms.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/kms/2014-11-01.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoice-signing-key.overlay.yaml]
+
+  aws-logs-shop:                   # the shop's log group
+    hosts: [logs.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/cloudwatch-logs/2014-03-28.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/shop-logs.overlay.yaml]
+
+  aws-sfn-credit-note:             # the credit note workflow
+    hosts: [states.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sfn/2016-11-23.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/credit-note-workflow.overlay.yaml]
+
+  aws-sns-order-paid:              # the order-paid topic: checkout publishes, the invoices queue is subscribed
+    hosts: [sns.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sns/2010-03-31.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/order-paid-topic.overlay.yaml]
+
+  aws-sts-invoice-worker:          # the role the invoices worker takes on when it starts
+    hosts: [sts.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sts/2011-06-15.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoice-worker-role.overlay.yaml]
+
+  aws-lambda-payment-qr:           # the function that writes the payment text for the invoice
+    hosts: [lambda.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/lambda/2015-03-31.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/payment-qr-function.overlay.yaml]
+
+  aws-ses-invoice-email:           # the invoice email, sent by the mailer
+    hosts: [email.eu-west-1.amazonaws.com]
+    tlsOrigination: false   # Floci speaks plain http
+    allowInternalIPs: true  # Floci runs on this machine
+    spec: ../../../specs/aws/sesv2/2019-09-27.openapi.yaml
+    overlays: [../../../src/hotline-proxy/testdata/aws/invoice-email.overlay.yaml]
+
+# Each app is one integration: its ID is the user name the app puts in the
+# proxy address, such as http://checkout:x@localhost:8080.
+integrations:
+  - id: checkout
+    apis: [aws-secrets-payment, aws-dynamodb-orders, aws-kinesis-shop-events, aws-sns-order-paid, aws-logs-shop]
+    fingerprintKey: { file: ../../../src/hotline-proxy/testdata/aws/shop.key }   # signs this integration's records
+    content: full           # bodies and all headers go to the file exporter
+
+  - id: invoices
+    apis: [aws-sts-invoice-worker, aws-sqs-invoices, aws-ssm-shop, aws-s3-invoices, aws-kms-invoice-signing, aws-dynamodb-invoices, aws-eventbridge-shop, aws-kinesis-shop-events, aws-lambda-payment-qr, aws-logs-shop]
+    fingerprintKey: { file: ../../../src/hotline-proxy/testdata/aws/shop.key }
+    content: full           # bodies and all headers go to the file exporter
+
+  - id: mailer
+    apis: [aws-sqs-mail, aws-s3-invoices, aws-ses-invoice-email, aws-logs-shop]
+    fingerprintKey: { file: ../../../src/hotline-proxy/testdata/aws/shop.key }
+    content: full           # bodies and all headers go to the file exporter
+
+  - id: refunds
+    apis: [aws-dynamodb-orders, aws-sfn-credit-note, aws-logs-shop]
+    fingerprintKey: { file: ../../../src/hotline-proxy/testdata/aws/shop.key }
+    content: full           # bodies and all headers go to the file exporter

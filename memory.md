@@ -61,6 +61,7 @@ Open only the file for the topic at hand.
 - Capture ingress (macOS, chosen apps, as a CONNECT with capture headers; `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)
 - AWS and SQS: [docs/decisions/aws-sqs.md](docs/decisions/aws-sqs.md)
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)
+- Shop example on Floci (a free local AWS, Terraform, a workflow, full traffic to a file, Grafana Cloud): [docs/decisions/floci-example.md](docs/decisions/floci-example.md)
 - Health check: [docs/decisions/health-checks.md](docs/decisions/health-checks.md)
 - Config reload: [docs/decisions/config-reload.md](docs/decisions/config-reload.md)
 - Load test runner: [docs/decisions/load-runner.md](docs/decisions/load-runner.md)
