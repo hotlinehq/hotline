@@ -4,7 +4,7 @@ Agreed with Peter on 2026-11-01. Files: `src/hotline-proxy/Dockerfile`, `.github
 
 ## What it is
 
-One hardened image, `ghcr.io/petercipov/hotline-proxy`, for `linux/amd64` and `linux/arm64`. It holds the `hotline-proxy` program, built as one static file, and nothing else of ours. It runs as a non-root user on a read-only filesystem, with no shell and no package manager. Each published image carries an SBOM (software bill of materials, the list of what is inside), build provenance (a signed note of where and how it was built) and a cosign signature.
+One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `linux/arm64`. It holds the `hotline-proxy` program, built as one static file, and nothing else of ours. It runs as a non-root user on a read-only filesystem, with no shell and no package manager. Each published image carries an SBOM (software bill of materials, the list of what is inside), build provenance (a signed note of where and how it was built) and a cosign signature.
 
 ## Decisions (Peter, 2026-11-01)
 
@@ -17,8 +17,8 @@ One hardened image, `ghcr.io/petercipov/hotline-proxy`, for `linux/amd64` and `l
 7. **Releases are git tags.** Pushing `v1.2.3` to the `hotline` repo publishes `1.2.3`, `1.2` and `latest`. Every push to `main` publishes `edge`. Every published build is also `sha-<short commit>`. `hotline-proxy version` prints the git tag (or the commit for `main`), passed in at build time, then the commit in brackets. The first release is `v0.1.0`.
 8. **SBOM, provenance and signature on every published image.** The signature is cosign keyless: it is tied to the GitHub workflow that built the image, so there is no key to keep. Check it with:
    ```
-   cosign verify ghcr.io/petercipov/hotline-proxy:0.1.0 \
-     --certificate-identity-regexp '^https://github.com/petercipov/hotline/' \
+   cosign verify ghcr.io/hotlinehq/hotline-proxy:0.1.0 \
+     --certificate-identity-regexp '^https://github.com/hotlinehq/hotline/' \
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
    ```
 
@@ -47,7 +47,7 @@ With Docker, to try it out:
 docker run --rm --read-only --stop-timeout 30 -p 8080:8080 -p 8081:8081 \
   -v "$PWD/config:/etc/hotline/config:ro" -v "$PWD/keys:/etc/hotline/keys:ro" \
   -e GOMEMLIMIT=230MiB --memory 256m \
-  ghcr.io/petercipov/hotline-proxy:0.1.0
+  ghcr.io/hotlinehq/hotline-proxy:0.1.0
 ```
 
 `--stop-timeout 30` gives the proxy its full 25 second stop; Docker's default of 10 seconds cuts it short.

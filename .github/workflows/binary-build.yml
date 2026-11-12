@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/petercipov/hotline-proxy
+  IMAGE: ghcr.io/hotlinehq/hotline-proxy
 
 jobs:
   # The version the program prints: the git tag on a release, else the

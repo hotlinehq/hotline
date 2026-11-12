@@ -16,7 +16,7 @@ At appleid.apple.com, Sign-In and Security, App-Specific Passwords, make one for
 
 ## 4. GitHub
 
-On `petercipov/hotline`: Settings, Environments, New environment `release-signing`. Limit its deployment branches and tags to `main` and `v*`. Add these five environment secrets (the same names as in `hotline-macos-capture`; `base64 -w0 FILE` on Linux, `base64 -i FILE` on a Mac):
+On `hotlinehq/hotline`: Settings, Environments, New environment `release-signing`. Limit its deployment branches and tags to `main` and `v*`. Add these five environment secrets (the same names as in `hotline-macos-capture`; `base64 -w0 FILE` on Linux, `base64 -i FILE` on a Mac):
 
 | Secret | Value |
 | --- | --- |
