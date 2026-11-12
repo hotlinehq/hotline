@@ -89,10 +89,18 @@ type Options struct {
 type Console struct {
 	Out      io.Writer
 	Terminal func() (int, bool)
+	// Logs is standard error, where the proxy's own logs go as plain lines
+	// when the config has a console exporter, and LogsTerminal says
+	// whether it is a terminal.
+	Logs         io.Writer
+	LogsTerminal func() (int, bool)
 }
 
 // Proxy is a running proxy.
 type Proxy struct {
+	// logger is the proxy's own logger: plain lines with a console
+	// exporter, else the one Options gave.
+	logger *slog.Logger
 	server *http.Server
 	// tunnelServer serves the calls inside tunnels opened by CONNECT.
 	tunnelServer *http.Server
@@ -118,6 +126,10 @@ type Proxy struct {
 	redirectedServed   chan struct{}
 }
 
+// Logger is the logger the proxy writes with, for the program's own lines
+// about stopping, so they look like the rest.
+func (p *Proxy) Logger() *slog.Logger { return p.logger }
+
 // Start loads the config, listens on its proxy address and serves calls
 // until Shutdown. A config with problems is refused with all of them listed.
 // With listen.tls set, the proxy port accepts only TLS. With listen.connect
@@ -126,6 +138,12 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	cfg, err := config.Load(o.ConfigPath, o.Clock.Now(), o.LookupEnv)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Console != nil {
+		// A person watches the console, so the proxy's own logs are plain
+		// lines too, from the first one on (Peter, 2026-11-12).
+		logs := export.Console{Out: o.Console.Logs, Terminal: o.Console.LogsTerminal, LookupEnv: o.LookupEnv}
+		o.Logger = slog.New(export.ConsoleLogs(cfg.Console, logs, o.Logger.Handler()))
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
 	if err != nil {
@@ -209,6 +227,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		}
 	}
 	p := &Proxy{
+		logger:       o.Logger,
 		handler:      h,
 		server:       newServer(),
 		tunnelServer: newServer(),

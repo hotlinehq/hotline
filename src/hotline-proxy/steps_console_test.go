@@ -205,6 +205,40 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^"(\S+)" is red$`, func(word string) error {
 		return w.consoleHas("\x1b[1;31m" + word + "\x1b[0m")
 	})
+	sc.Step(`^standard error is a terminal$`, func() error {
+		w.logTerminal = fakeTerminal{is: true, width: 100}
+		return nil
+	})
+	sc.Step(`^the logs have the line "([^"]*)", after the time$`, func(want string) error {
+		return w.logLine(regexp.QuoteMeta(want) + `$`)
+	})
+	sc.Step(`^the logs have the line "INFO  hotline proxy started  address=" with the proxy's address and config_version, after the time$`, func() error {
+		return w.logLine(`INFO  hotline proxy started  address=127\.0\.0\.1:\d+ config_version=hotline-proxy\.yaml\+[0-9a-f]{12}$`)
+	})
+	sc.Step(`^no log line is JSON or name=value from the start$`, func() error {
+		w.settle()
+		for _, line := range strings.Split(strings.TrimSuffix(w.logs.String(), "\n"), "\n") {
+			if !regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `).MatchString(line) {
+				return failf("the log line %q is not plain", line)
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the level WARN is yellow and the field names are dim$`, func() error {
+		w.settle()
+		logs := w.logs.String()
+		if !strings.Contains(logs, "\x1b[33mWARN \x1b[0m") || !strings.Contains(logs, "\x1b[2maddress=\x1b[0m") {
+			return failf("the logs are %q", logs)
+		}
+		return nil
+	})
+	sc.Step(`^the logs have no colour$`, func() error {
+		w.settle()
+		if logs := w.logs.String(); logs == "" || strings.Contains(logs, "\x1b[") {
+			return failf("the logs are %q", logs)
+		}
+		return nil
+	})
 	sc.Step(`^the time the call took is yellow$`, func() error {
 		w.settle()
 		if !regexp.MustCompile(`\x1b\[33m\d+\.\d ms\x1b\[0m`).MatchString(w.console.String()) {
@@ -238,6 +272,17 @@ func (w *world) consoleLine(i int, pattern string) error {
 	lines := w.consoleLines()
 	if len(lines) <= i || !regexp.MustCompile(pattern).MatchString(lines[i]) {
 		return failf("line %d of the console does not match %q: %q", i+1, pattern, w.console.String())
+	}
+	return nil
+}
+
+// logLine checks that a log line, without its colours, is the time and
+// then matches the pattern.
+func (w *world) logLine(pattern string) error {
+	w.settle()
+	logs := ansi.ReplaceAllString(w.logs.String(), "")
+	if !regexp.MustCompile(`(?m)^\d\d:\d\d:\d\d\.\d{3} ` + pattern).MatchString(logs) {
+		return failf("no log line matches %q: %s", pattern, logs)
 	}
 	return nil
 }

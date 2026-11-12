@@ -48,6 +48,17 @@ With `color: auto`, the lines are coloured when standard output is a terminal an
 | check status | valid green, invalid red, skipped dim |
 | findings | dim, with the side in red |
 
+## The proxy's own logs
+
+With a console exporter in the config, the proxy's own logs are plain lines too, not JSON (Peter, 2026-11-12). They stay on standard error, so `2>/dev/null` hides them, and they are coloured by the same `color` setting, judged on standard error:
+
+```
+07:48:03.662 WARN  config warning: there is no listen.admin address, so the proxy has no health checks
+07:48:03.662 INFO  hotline proxy started  address=127.0.0.1:8080 config_version=hotline-proxy.yaml+5692399ece3d
+```
+
+Each line has the time, the level (WARN yellow, ERROR red, DEBUG dim), the message, a reason after a colon, and the other fields as `name=value` with dim names. The config is read before the first line, so its warnings are plain too; a config the proxy cannot load is still logged as JSON, as is `hotline-proxy validate`. Without a console exporter the logs stay JSON, for Kubernetes and log collectors.
+
 ## Safety and speed
 
 - Every value that came with a call is escaped before it is printed: control characters as `\u009b`, bytes that are not UTF-8 as `\xff`. A crafted address cannot move the cursor or change the terminal's colours.

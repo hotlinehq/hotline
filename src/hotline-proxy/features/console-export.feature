@@ -149,3 +149,27 @@ Feature: Printing every call to the console
       | color loud              | color must be auto, always or never           |
       | a second one            | there may be only one console exporter        |
       | a file path as well     | an exporter is only one of otlp, file or console |
+
+  Rule: With a console exporter, the proxy's own logs are plain lines
+
+    The logs stay on standard error, so they can be hidden or sent to a
+    file on their own (Peter, 2026-11-12).
+
+    Scenario: A config warning is a plain line
+      When the proxy loads the config
+      Then the logs have the line "WARN  config warning: integration talon-shop-a has no fingerprintKey, so its records are signed with its ID, which is not secret", after the time
+
+    Scenario: Other fields follow as name=value
+      When the app sends GET /orders
+      Then the logs have the line "INFO  hotline proxy started  address=" with the proxy's address and config_version, after the time
+      And no log line is JSON or name=value from the start
+
+    Scenario: Logs are coloured on a terminal
+      Given standard error is a terminal
+      When the app sends GET /orders
+      Then the level WARN is yellow and the field names are dim
+
+    Scenario: Logs are plain text when standard error is not a terminal
+      Given standard output is a terminal 100 columns wide
+      When the app sends GET /orders
+      Then the logs have no colour

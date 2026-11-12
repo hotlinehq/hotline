@@ -82,6 +82,8 @@ type world struct {
 	consoleExporter string
 	terminal        fakeTerminal
 	consoleClosed   bool
+	// logTerminal is what standard error is, where the logs go.
+	logTerminal fakeTerminal
 	// env is the proxy's environment.
 	env map[string]string
 	// processEnv are variables set in the test process itself, unset with
@@ -558,7 +560,10 @@ func (w *world) startOnce() error {
 			v, ok := w.env[name]
 			return v, ok
 		},
-		Console: proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size},
+		Console: proxy.Console{
+			Out: w.consoleOut(), Terminal: w.terminal.size,
+			Logs: w.logs, LogsTerminal: w.logTerminal.size,
+		},
 	})
 	return w.startErr
 }

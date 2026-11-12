@@ -45,12 +45,7 @@ type consoleDestination struct {
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
 func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleDestination {
-	_, terminal := out.Terminal()
-	noColor, _ := out.LookupEnv("NO_COLOR")
-	c := &consoleDestination{
-		out:   out,
-		color: e.Color == "always" || e.Color == "auto" && terminal && noColor == "",
-	}
+	c := &consoleDestination{out: out, color: coloured(e, out)}
 	write := func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
 		return err
@@ -58,6 +53,15 @@ func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *conso
 	c.queue = newQueue("calls", write, func(context.Context) error { return nil }, setup)
 	c.up, c.place = setup.up, attribute.NewSet(attribute.String("hotline.exporter", "console"))
 	return c
+}
+
+// coloured says whether the console's lines are coloured: when the config
+// says always, or says auto and the output is a terminal and NO_COLOR is
+// not set.
+func coloured(e *config.ConsoleExporter, out Console) bool {
+	_, terminal := out.Terminal()
+	noColor, _ := out.LookupEnv("NO_COLOR")
+	return e.Color == "always" || e.Color == "auto" && terminal && noColor == ""
 }
 
 // width is the terminal's width, else COLUMNS, else 80, as mitmdump
@@ -93,7 +97,7 @@ type consoleLines struct {
 
 // style writes text in the styles, when colour is on.
 func (l *consoleLines) style(text string, codes ...string) {
-	if !l.color || len(codes) == 0 {
+	if !l.color || strings.Join(codes, "") == "" {
 		l.b.WriteString(text)
 		return
 	}

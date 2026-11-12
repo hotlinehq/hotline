@@ -121,9 +121,10 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		logger.Info("config is valid", "config", *configPath)
 		return exitOK
 	}
-	// Standard output is a file whenever the program runs, so it can be
-	// asked whether it is a terminal.
+	// Standard output and error are files whenever the program runs, so
+	// each can be asked whether it is a terminal.
 	out, _ := stdout.(*os.File)
+	errOut, _ := stderr.(*os.File)
 	return serve(logger, proxy.Options{
 		ConfigPath:    *configPath,
 		Resolver:      net.DefaultResolver,
@@ -137,7 +138,10 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		LookupEnv:     os.LookupEnv,
 
 		OriginalDestination: originalDestination,
-		Console:             proxy.Console{Out: stdout, Terminal: terminal(out)},
+		Console: proxy.Console{
+			Out: stdout, Terminal: terminal(out),
+			Logs: stderr, LogsTerminal: terminal(errOut),
+		},
 	}, stopping{timeout: *shutdownTimeout, drainDelay: *drainDelay}, signals, reloads)
 }
 
@@ -202,6 +206,7 @@ func serve(logger *slog.Logger, o proxy.Options, stop stopping, signals, reloads
 		logProblems(logger, "hotline proxy did not start", err)
 		return exitFail
 	}
+	logger = p.Logger()
 	sig := watch(p, signals, reloads)
 	p.Drain()
 	logger.Info("hotline proxy stopping", "signal", sig.String(), "timeout", stop.timeout.String(), "drain_delay", stop.drainDelay.String())
