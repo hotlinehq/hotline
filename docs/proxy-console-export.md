@@ -48,9 +48,24 @@ With `color: auto`, the lines are coloured when standard output is a terminal an
 | check status | valid green, invalid red, skipped dim |
 | findings | dim, with the side in red |
 
+## The proxy's own logs
+
+By default (`--format console`) the proxy's own logs are plain lines too, not JSON (Peter, 2026-11-12). They stay on standard error, so `2>/dev/null` hides them, and they are coloured when standard error is a terminal and `NO_COLOR` is not set:
+
+```
+07:48:03.662 WARN  config warning: there is no listen.admin address, so the proxy has no health checks
+07:48:03.662 INFO  hotline proxy started  address=127.0.0.1:8080 config_version=hotline-proxy.yaml+5692399ece3d
+```
+
+Each line has the time, the level (WARN yellow, ERROR red, DEBUG dim), the message, a reason or problem after a colon, and the other fields as `name=value` with dim names. `run`, `validate` and `overlay` all write this way.
+
+## --format json
+
+With `--format json` everything is JSON (Peter, 2026-11-12): the proxy's own logs are one JSON object per line, and the console exporter prints each call as one line of JSON on standard output, the same line the file exporter writes (the record with OpenTelemetry names, and its spans), never `content: full`. The `color` setting has no effect then. The Docker image and the Kubernetes sidecar run with `--format json`, so log collectors keep getting JSON.
+
 ## Safety and speed
 
 - Every value that came with a call is escaped before it is printed: control characters as `\u009b`, bytes that are not UTF-8 as `\xff`. A crafted address cannot move the cursor or change the terminal's colours.
-- The proxy's own JSON logs stay on standard error, so the two never mix.
+- The proxy's own logs stay on standard error, so the two never mix.
 - A call's lines are printed together, at once, from a queue of at most 1,000 calls. When the terminal cannot keep up, the newest calls are dropped and counted, as with the other exporters, and a failed write is warned about. A call never waits for the console.
 - The program reads the terminal's width with `golang.org/x/sys`, which the proxy already used; no new module.

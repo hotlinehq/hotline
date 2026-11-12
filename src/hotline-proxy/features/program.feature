@@ -4,7 +4,9 @@ Feature: The hotline-proxy program
   starts the proxy, validate only checks a config, and version prints the
   version. The config file is given only with --config. --trust-file adds
   trusted certificate issuers on top of the system's own. The program's own
-  log lines go to standard error, one JSON object per line. Exit codes: 0
+  log lines go to standard error. Every command takes --format: console,
+  the default, writes plain lines for a person, and json writes one JSON
+  object per line, for log collectors (Peter, 2026-11-12). Exit codes: 0
   after a clean stop, 1 for any failure, 2 for a wrong command line. These
   scenarios start the built program and look only at its output, its exit
   code and the network (Peter, 2026-10-28).
@@ -42,6 +44,23 @@ Feature: The hotline-proxy program
     Then it exits with code 0
     And standard output is "hotline-proxy 0123456789abcdef0123456789abcdef01234567"
 
+  Scenario: With --format json, the version is a JSON object
+    Given hotline-proxy is built with version "v0.1.0" and commit "0123456789abcdef0123456789abcdef01234567"
+    When hotline-proxy is run with "version --format json"
+    Then it exits with code 0
+    And standard output is the JSON {"version":"v0.1.0","commit":"0123456789ab"}
+
+  Scenario Outline: A format other than console or json is refused with exit code 2
+    When hotline-proxy is run with "<command> --format yaml"
+    Then it exits with code 2
+    And standard error says "for flag -format: must be console or json"
+
+    Examples:
+      | command                                  |
+      | version                                  |
+      | validate --config hotline-proxy.yaml     |
+      | overlay --from from.yaml --to to.yaml    |
+
   Scenario: Help is printed on request
     When hotline-proxy is run with "run --help"
     Then it exits with code 0
@@ -66,9 +85,16 @@ Feature: The hotline-proxy program
     Given a valid config file
     When hotline-proxy is run with "validate --config hotline-proxy.yaml"
     Then it exits with code 0
+    And every line on standard error is a plain line with time, level and message
+    And standard error says "INFO  config is valid  config=hotline-proxy.yaml"
+    And nothing listens on the config's proxy address
+
+  Scenario: validate --format json writes JSON
+    Given a valid config file
+    When hotline-proxy is run with "validate --format json --config hotline-proxy.yaml"
+    Then it exits with code 0
     And every line on standard error is a JSON object with time, level and msg
     And standard error says "config is valid"
-    And nothing listens on the config's proxy address
 
   Scenario: validate refuses a config whose TLS key file is missing
     Given a config file whose listen.tls key file does not exist
@@ -80,8 +106,8 @@ Feature: The hotline-proxy program
     Given a config file with no proxy listen address and no exporters
     When hotline-proxy is run with "validate --config hotline-proxy.yaml"
     Then it exits with code 1
-    And standard error says "there is no listen.proxy address"
-    And standard error says "there are no exporters"
+    And standard error says "ERROR config refused: config: invalid: there is no listen.proxy address"
+    And standard error says "ERROR config refused: config: invalid: there are no exporters"
 
   Scenario Outline: A trust file the program cannot use is refused
     Given a valid config file
@@ -108,9 +134,20 @@ Feature: The hotline-proxy program
     Then it exits with code 1
     And standard error says "address already in use"
 
-  Scenario: run logs to standard error as JSON
+  Scenario: run logs plain lines to standard error
     Given a fake OTLP receiver
     And the hotline-proxy program runs with integration test-shop for the test vendor
+    When the program gets SIGTERM
+    Then it exits with code 0
+    And every line on standard error is a plain line with time, level and message
+    And standard error says "INFO  hotline proxy started  address="
+
+  Scenario: run --format json logs to standard error as JSON
+    The image and the Kubernetes sidecar run with --format json, for log
+    collectors (Peter, 2026-11-12).
+
+    Given a fake OTLP receiver
+    And the hotline-proxy program runs with "--format json" and integration test-shop for the test vendor
     When the program gets SIGTERM
     Then it exits with code 0
     And every line on standard error is a JSON object with time, level and msg

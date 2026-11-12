@@ -2,9 +2,10 @@ Feature: Printing every call to the console
   A console exporter prints each call to standard output as two short
   lines, like mitmdump: the request, then the reply under it. An invalid
   call gets a third line with what the checks found. The lines are
-  coloured on a terminal. The proxy's own logs stay on standard error
-  (Peter, 2026-11-11). Requirements: console-exporter/requirements.md in
-  the project files.
+  coloured on a terminal. With --format json, each call is one line of
+  JSON instead, the line a file exporter writes (Peter, 2026-11-12). The
+  proxy's own logs stay on standard error (Peter, 2026-11-11).
+  Requirements: console-exporter/requirements.md in the project files.
 
   Background:
     Given the shop spec
@@ -41,6 +42,14 @@ Feature: Printing every call to the console
     Given no OTLP exporter
     When the app sends GET /orders
     Then the console has 3 lines
+
+  Scenario: With --format json, a call is one line of JSON
+    Given the program writes JSON
+    And the console exporter has color always
+    And the vendor answers 200 and the json body {"orders":[]}
+    When the app sends GET /orders
+    Then the console has 1 lines
+    And the first line is the record as JSON, with the method GET and no colour
 
   Scenario: Plain text when standard output is not a terminal
     Given standard output is not a terminal

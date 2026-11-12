@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -204,6 +205,22 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^"(\S+)" is red$`, func(word string) error {
 		return w.consoleHas("\x1b[1;31m" + word + "\x1b[0m")
+	})
+	sc.Step(`^the program writes JSON$`, func() error {
+		w.consoleJSON = true
+		return nil
+	})
+	sc.Step(`^the first line is the record as JSON, with the method (\w+) and no colour$`, func(method string) error {
+		lines := w.consoleLines()
+		var record struct {
+			Event      string         `json:"event"`
+			Attributes map[string]any `json:"attributes"`
+		}
+		if strings.Contains(w.console.String(), "\x1b[") || json.Unmarshal([]byte(lines[0]), &record) != nil ||
+			record.Event != "hotline.request" || record.Attributes["http.request.method"] != method {
+			return failf("the console is %q", w.console.String())
+		}
+		return nil
 	})
 	sc.Step(`^the time the call took is yellow$`, func() error {
 		w.settle()

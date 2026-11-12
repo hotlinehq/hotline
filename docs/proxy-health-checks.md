@@ -28,7 +28,7 @@ Yes is `200`, no is `503`. `HEAD` works too. Any other path gets `404`, any othe
 ```yaml
 containers:
   - name: hotline-proxy
-    args: ["run", "--config", "/etc/hotline/hotline-proxy.yaml"]
+    args: ["run", "--format", "json", "--config", "/etc/hotline/hotline-proxy.yaml"]
     ports:
       - { name: proxy, containerPort: 8080 }
     livenessProbe:

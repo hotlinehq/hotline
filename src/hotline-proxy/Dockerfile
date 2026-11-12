@@ -20,4 +20,4 @@ COPY --chmod=755 dist/image/linux_${TARGETARCH}/hotline-proxy /hotline-proxy
 USER 65532:65532
 EXPOSE 8080 8081
 ENTRYPOINT ["/hotline-proxy"]
-CMD ["run", "--config", "/etc/hotline/config/hotline-proxy.yaml"]
+CMD ["run", "--format", "json", "--config", "/etc/hotline/config/hotline-proxy.yaml"]

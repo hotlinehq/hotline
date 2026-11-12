@@ -36,6 +36,13 @@ func consoleProgramSteps(sc *godog.ScenarioContext, p *program) {
 		p.console = true
 		return p.run()
 	})
+	sc.Step(`^the hotline-proxy program runs with "([^"]*)", a console exporter and integration test-shop for the test vendor$`, func(flags string) error {
+		p.console = true
+		return p.run(strings.Fields(flags)...)
+	})
+	sc.Step(`^standard output shows the call as one line of JSON$`, func() error {
+		return waitFor(func() string { return p.stdout.String() }, `^\{"time":.*"event":"hotline\.request",.*"hotline\.integration\.id":"test-shop".*\}\n$`)
+	})
 	sc.Step(`^the hotline-proxy program runs on a terminal (\d+) columns wide, with a console exporter and integration test-shop for the test vendor$`, func(columns int) error {
 		t, err := openTerminal(columns)
 		if err != nil {
@@ -51,6 +58,19 @@ func consoleProgramSteps(sc *godog.ScenarioContext, p *program) {
 	})
 	sc.Step(`^standard output shows the call as two plain lines$`, func() error {
 		return waitFor(func() string { return p.stdout.String() }, `^\d\d:\d\d:\d\d\.\d\d\d test-shop: POST https://localhost:\d+/v1/payment_intents\S*\n +<< 200 OK `)
+	})
+	sc.Step(`^standard error has plain lines, from the start to the stop$`, func() error {
+		lines := strings.Split(strings.TrimSuffix(p.stderr.String(), "\n"), "\n")
+		plain := regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `)
+		for _, line := range lines {
+			if !plain.MatchString(line) {
+				return failf("the line %q on standard error is not plain", line)
+			}
+		}
+		if !strings.Contains(lines[len(lines)-1], "hotline proxy stopped") {
+			return failf("standard error ends with %q", lines[len(lines)-1])
+		}
+		return nil
 	})
 	sc.Step(`^the terminal shows the call in colour$`, func() error {
 		return waitFor(p.terminal.text, `\x1b\[36mtest-shop\x1b\[0m: \x1b\[1;35mPOST\x1b\[0m `)

@@ -89,6 +89,9 @@ type Options struct {
 type Console struct {
 	Out      io.Writer
 	Terminal func() (int, bool)
+	// JSON makes the console exporter print each call as one line of
+	// JSON, as for --format json.
+	JSON bool
 }
 
 // Proxy is a running proxy.
@@ -156,7 +159,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
 	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
-		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
+		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv, JSON: o.Console.JSON}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
 		for _, l := range []net.Listener{listener, adminListener, redirectedListener} {
 			if l != nil {

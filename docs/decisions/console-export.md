@@ -8,3 +8,4 @@ Full wording in [docs/proxy-console-export.md](../proxy-console-export.md). Requ
 4. Long addresses are cut as mitmdump does: width less 25, at least 50; width from the terminal, then `COLUMNS`, then 80.
 5. Every value from a call is escaped before printing. The proxy's logs stay on standard error.
 6. One console exporter at most; lines wait in a bounded queue and are printed at once.
+7. Every command takes `--format console|json` (Peter, 2026-11-12). `console`, the default, writes the program's own lines as plain coloured lines on standard error. `json` makes everything JSON: the logs, `version`, and the console exporter's calls (the file exporter's line, without `content: full`). The Docker image and the Kubernetes sidecar add `--format json`.
