@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/petercipov/hotline-proxy
+  IMAGE: ghcr.io/hotlinehq/hotline-proxy
 
 # One publish at a time, so two main pushes cannot swap the edge files
 # halfway.

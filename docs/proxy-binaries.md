@@ -31,7 +31,7 @@ On the Actions page, "binary release" has a Run workflow button (Peter, 2026-11-
 ```
 sha256sum -c SHA256SUMS --ignore-missing     # on a Mac: shasum -a 256 -c SHA256SUMS --ignore-missing
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/petercipov/hotline/' \
+  --certificate-identity-regexp '^https://github.com/hotlinehq/hotline/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

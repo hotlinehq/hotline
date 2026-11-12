@@ -19,7 +19,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       initContainers:
         - name: hotline-proxy
-          image: ghcr.io/petercipov/hotline-proxy:0.1.0
+          image: ghcr.io/hotlinehq/hotline-proxy:0.1.0
           restartPolicy: Always           # a native sidecar
           args: ["run", "--format", "json", "--config", "/etc/hotline/config/hotline-proxy.yaml"]
           env:
