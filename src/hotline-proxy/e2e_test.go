@@ -228,6 +228,12 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		}
 		return nil
 	})
+	sc.Step(`^standard output is the JSON (.+)$`, func(text string) error {
+		if strings.TrimSuffix(p.stdout.String(), "\n") != text {
+			return failf("standard output is %q", p.stdout.String())
+		}
+		return nil
+	})
 	sc.Step(`^standard error says "(.*)"$`, func(text string) error {
 		if !strings.Contains(p.stderr.String(), text) {
 			return failf("standard error does not say %q; it is:\n%s", text, p.stderr.String())
@@ -237,6 +243,14 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	sc.Step(`^standard error does not say "(.*)"$`, func(text string) error {
 		if strings.Contains(p.stderr.String(), text) {
 			return failf("standard error says %q; it is:\n%s", text, p.stderr.String())
+		}
+		return nil
+	})
+	sc.Step(`^every line on standard error is a plain line with time, level and message$`, func() error {
+		for _, line := range strings.Split(strings.TrimSuffix(p.stderr.String(), "\n"), "\n") {
+			if !regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `).MatchString(line) {
+				return failf("the line %q on standard error is not plain", line)
+			}
 		}
 		return nil
 	})

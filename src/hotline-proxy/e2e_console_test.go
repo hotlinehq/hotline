@@ -36,6 +36,13 @@ func consoleProgramSteps(sc *godog.ScenarioContext, p *program) {
 		p.console = true
 		return p.run()
 	})
+	sc.Step(`^the hotline-proxy program runs with "([^"]*)", a console exporter and integration test-shop for the test vendor$`, func(flags string) error {
+		p.console = true
+		return p.run(strings.Fields(flags)...)
+	})
+	sc.Step(`^standard output shows the call as one line of JSON$`, func() error {
+		return waitFor(func() string { return p.stdout.String() }, `^\{"time":.*"event":"hotline\.request",.*"hotline\.integration\.id":"test-shop".*\}\n$`)
+	})
 	sc.Step(`^the hotline-proxy program runs on a terminal (\d+) columns wide, with a console exporter and integration test-shop for the test vendor$`, func(columns int) error {
 		t, err := openTerminal(columns)
 		if err != nil {

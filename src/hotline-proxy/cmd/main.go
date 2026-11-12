@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"time"
 
 	proxy "hotline-proxy"
+	"hotline-proxy/internal/config"
+	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/overlay"
 )
 
@@ -40,6 +43,9 @@ commands:
   overlay   write an overlay that turns one spec into another
   version   print the version
 
+Every command takes --format console (the default: plain lines for a
+person) or --format json (one JSON object per line).
+
 Run "hotline-proxy <command> --help" for the flags of a command.
 `
 
@@ -47,7 +53,59 @@ var (
 	errOutOfTime = errors.New("stop ran out of time")
 	errCutShort  = errors.New("stop cut short by a second signal")
 	errTrustFile = errors.New("trust file")
+	errFormat    = errors.New("must be console or json")
 )
+
+// format is how the program writes its own lines, and the console
+// exporter its calls: console, plain lines for a person, or json, one JSON
+// object per line, for log collectors (Peter, 2026-11-12).
+type format string
+
+func (f *format) String() string { return string(*f) }
+
+func (f *format) Set(s string) error {
+	if s != "console" && s != "json" {
+		return errFormat
+	}
+	*f = format(s)
+	return nil
+}
+
+// formatFlag adds --format to a command's flags.
+func formatFlag(flags *flag.FlagSet) *format {
+	f := format("console")
+	flags.Var(&f, "format", "console, plain lines for a person, or json, one JSON object per line")
+	return &f
+}
+
+// parse reads a command's flags. It gives false, and the exit code, when
+// the program should stop: after --help, or for a wrong command line,
+// which is then written with the usage.
+func parse(flags *flag.FlagSet, args []string, stderr io.Writer) (int, bool) {
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK, false
+		}
+		return exitUsage, false
+	}
+	if flags.NArg() > 0 {
+		_, _ = fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
+		flags.Usage()
+		return exitUsage, false
+	}
+	return exitOK, true
+}
+
+// newLogger writes the program's own lines to stderr: plain lines,
+// coloured when stderr is a terminal and NO_COLOR is not set, or JSON.
+func newLogger(f format, stderr io.Writer, level slog.Leveler) *slog.Logger {
+	handler := slog.Handler(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level}))
+	if f == "console" {
+		plain := export.Console{Out: stderr, Terminal: terminal(asFile(stderr)), LookupEnv: os.LookupEnv}
+		handler = export.ConsoleLogs(&config.ConsoleExporter{Color: "auto"}, plain, handler)
+	}
+	return slog.New(handler)
+}
 
 // checkEvery is how often the proxy looks at its files for a change.
 const checkEvery = 5 * time.Second
@@ -68,8 +126,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 	command := args[0]
 	switch command {
 	case "version":
-		_, _ = fmt.Fprintln(stdout, versionLine())
-		return exitOK
+		return printVersion(args[1:], stdout, stderr)
 	case "overlay":
 		return makeOverlay(args[1:], stdout, stderr)
 	case "run", "validate":
@@ -86,24 +143,17 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 	flags.TextVar(&level, "log-level", slog.LevelInfo, "the lowest level logged: debug, info, warn or error")
 	shutdownTimeout := flags.Duration("shutdown-timeout", 25*time.Second, "how long a stop may take (run only)")
 	drainDelay := flags.Duration("drain-delay", 5*time.Second, "how long new calls are still taken after the stop signal, while Kubernetes stops sending them; part of the shutdown timeout (run only)")
-	if err := flags.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitUsage
+	f := formatFlag(flags)
+	if code, ok := parse(flags, args[1:], stderr); !ok {
+		return code
 	}
-	switch {
-	case flags.NArg() > 0:
-		_, _ = fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
-		flags.Usage()
-		return exitUsage
-	case *configPath == "":
+	if *configPath == "" {
 		_, _ = fmt.Fprintln(stderr, "--config is required")
 		flags.Usage()
 		return exitUsage
 	}
 
-	logger := slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level}))
+	logger := newLogger(*f, stderr, level)
 	roots, err := trustPool(*trustFile)
 	if err != nil {
 		logger.Error("trust file refused", "error", err.Error())
@@ -121,10 +171,6 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		logger.Info("config is valid", "config", *configPath)
 		return exitOK
 	}
-	// Standard output and error are files whenever the program runs, so
-	// each can be asked whether it is a terminal.
-	out, _ := stdout.(*os.File)
-	errOut, _ := stderr.(*os.File)
 	return serve(logger, proxy.Options{
 		ConfigPath:    *configPath,
 		Resolver:      net.DefaultResolver,
@@ -138,10 +184,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		LookupEnv:     os.LookupEnv,
 
 		OriginalDestination: originalDestination,
-		Console: proxy.Console{
-			Out: stdout, Terminal: terminal(out),
-			Logs: stderr, LogsTerminal: terminal(errOut),
-		},
+		Console:             proxy.Console{Out: stdout, Terminal: terminal(asFile(stdout)), JSON: *f == "json"},
 	}, stopping{timeout: *shutdownTimeout, drainDelay: *drainDelay}, signals, reloads)
 }
 
@@ -153,23 +196,16 @@ func makeOverlay(args []string, stdout, stderr io.Writer) int {
 	from := flags.String("from", "", "the spec as it is (required)")
 	to := flags.String("to", "", "the spec as it should be (required)")
 	title := flags.String("title", "Hotline overlay", "the overlay's title")
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return exitOK
-		}
-		return exitUsage
+	f := formatFlag(flags)
+	if code, ok := parse(flags, args, stderr); !ok {
+		return code
 	}
-	switch {
-	case flags.NArg() > 0:
-		_, _ = fmt.Fprintf(stderr, "unexpected argument %q\n", flags.Arg(0))
-		flags.Usage()
-		return exitUsage
-	case *from == "" || *to == "":
+	if *from == "" || *to == "" {
 		_, _ = fmt.Fprintln(stderr, "--from and --to are required")
 		flags.Usage()
 		return exitUsage
 	}
-	logger := slog.New(slog.NewJSONHandler(stderr, nil))
+	logger := newLogger(*f, stderr, slog.LevelInfo)
 	files := [2]overlay.File{{Name: *from}, {Name: *to}}
 	for i := range files {
 		var err error
@@ -186,6 +222,13 @@ func makeOverlay(args []string, stdout, stderr io.Writer) int {
 	}
 	_, _ = stdout.Write(out)
 	return exitOK
+}
+
+// asFile is standard output or error as a file, so it can be asked
+// whether it is a terminal, or nil when it is not a file.
+func asFile(w io.Writer) *os.File {
+	f, _ := w.(*os.File)
+	return f
 }
 
 // stopping is how the program stops: within timeout, still taking new
@@ -206,7 +249,6 @@ func serve(logger *slog.Logger, o proxy.Options, stop stopping, signals, reloads
 		logProblems(logger, "hotline proxy did not start", err)
 		return exitFail
 	}
-	logger = p.Logger()
 	sig := watch(p, signals, reloads)
 	p.Drain()
 	logger.Info("hotline proxy stopping", "signal", sig.String(), "timeout", stop.timeout.String(), "drain_delay", stop.drainDelay.String())
@@ -295,11 +337,41 @@ var buildCommit string //nolint:gochecknoglobals // go build -ldflags -X can onl
 // commitLength is how many characters of the commit the version line shows.
 const commitLength = 12
 
+// printVersion prints the version: as a line, or with --format json as
+// {"version": ..., "commit": ...}.
+func printVersion(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("hotline-proxy version", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	f := formatFlag(flags)
+	if code, ok := parse(flags, args, stderr); !ok {
+		return code
+	}
+	if *f == "json" {
+		_ = json.NewEncoder(stdout).Encode(struct { //nolint:errchkjson // two strings always encode, and a failed write to standard output is ignored, as for the line
+			Version string `json:"version"`
+			Commit  string `json:"commit,omitempty"`
+		}{version(), commit()})
+		return exitOK
+	}
+	_, _ = fmt.Fprintln(stdout, versionLine())
+	return exitOK
+}
+
 // versionLine is what the version command prints: the program's name, its
 // version and, when known, the commit it was built from. A version that
 // already is the commit (the edge build) is not followed by it again.
 func versionLine() string {
 	line := "hotline-proxy " + version()
+	commit := commit()
+	if commit == "" || strings.HasPrefix(version(), commit) {
+		return line
+	}
+	return line + " (commit " + commit + ")"
+}
+
+// commit is the first characters of the commit the program was built
+// from, or nothing when it is not known.
+func commit() string {
 	commit := buildCommit
 	if commit == "" {
 		if info, ok := debug.ReadBuildInfo(); ok {
@@ -310,10 +382,7 @@ func versionLine() string {
 			}
 		}
 	}
-	if commit == "" || strings.HasPrefix(version(), commit[:min(commitLength, len(commit))]) {
-		return line
-	}
-	return line + " (commit " + commit[:min(commitLength, len(commit))] + ")"
+	return commit[:min(commitLength, len(commit))]
 }
 
 // version is buildVersion, or else the version Go recorded at build time.

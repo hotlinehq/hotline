@@ -28,6 +28,9 @@ type Console struct {
 	// output is not a terminal.
 	Terminal  func() (int, bool)
 	LookupEnv func(string) (string, bool)
+	// JSON prints each call as one line of JSON, the line a file exporter
+	// writes, for --format json (Peter, 2026-11-12).
+	JSON bool
 }
 
 // consoleQueueSize is how many calls wait for the console at most.
@@ -39,13 +42,15 @@ type consoleDestination struct {
 	fileDestination
 	out   Console
 	color bool
+	// resource is the resource of a JSON line.
+	resource []attribute.KeyValue
 }
 
 // newConsole starts the console's queue. Colour is used when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
-func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleDestination {
-	c := &consoleDestination{out: out, color: coloured(e, out)}
+func newConsole(e *config.ConsoleExporter, out Console, resource []attribute.KeyValue, setup queueSetup) *consoleDestination {
+	c := &consoleDestination{out: out, color: coloured(e, out), resource: resource}
 	write := func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
 		return err
@@ -117,6 +122,12 @@ func (l *consoleLines) word(text string, codes ...string) {
 // lines writes the call. Every value that came with the call is escaped,
 // so it cannot change the terminal.
 func (c *consoleDestination) lines(call Call) []byte {
+	if c.out.JSON {
+		// The record every exporter gets, never content: full.
+		var b bytes.Buffer
+		appendLine(&b, c.resource, call, call.Attrs)
+		return b.Bytes()
+	}
 	l := &consoleLines{color: c.color}
 	var (
 		id, method, failure, checked, host string

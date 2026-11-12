@@ -190,7 +190,7 @@ func New(exporters []config.Exporter, files []config.FileExporter, console *conf
 		up := &atomic.Int64{}
 		up.Store(1)
 		label := attribute.String("hotline.exporter", "console")
-		s.console = newConsole(console, out, queueSetup{
+		s.console = newConsole(console, out, s.lineResource, queueSetup{
 			endpoint: "console", size: consoleQueueSize, interval: fileInterval, eager: true, logger: logger, up: up,
 			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
 		})

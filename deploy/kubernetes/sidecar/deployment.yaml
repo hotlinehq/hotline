@@ -21,7 +21,7 @@ spec:
         - name: hotline-proxy
           image: ghcr.io/petercipov/hotline-proxy:0.1.0
           restartPolicy: Always           # a native sidecar
-          args: ["run", "--config", "/etc/hotline/config/hotline-proxy.yaml"]
+          args: ["run", "--format", "json", "--config", "/etc/hotline/config/hotline-proxy.yaml"]
           env:
             # Go does not see the container's memory limit by itself. Set
             # this a little under it, so Go cleans up harder before

@@ -2,9 +2,10 @@ Feature: Printing every call to the console
   A console exporter prints each call to standard output as two short
   lines, like mitmdump: the request, then the reply under it. An invalid
   call gets a third line with what the checks found. The lines are
-  coloured on a terminal. The proxy's own logs stay on standard error
-  (Peter, 2026-11-11). Requirements: console-exporter/requirements.md in
-  the project files.
+  coloured on a terminal. With --format json, each call is one line of
+  JSON instead, the line a file exporter writes (Peter, 2026-11-12). The
+  proxy's own logs stay on standard error (Peter, 2026-11-11).
+  Requirements: console-exporter/requirements.md in the project files.
 
   Background:
     Given the shop spec
@@ -41,6 +42,14 @@ Feature: Printing every call to the console
     Given no OTLP exporter
     When the app sends GET /orders
     Then the console has 3 lines
+
+  Scenario: With --format json, a call is one line of JSON
+    Given the program writes JSON
+    And the console exporter has color always
+    And the vendor answers 200 and the json body {"orders":[]}
+    When the app sends GET /orders
+    Then the console has 1 lines
+    And the first line is the record as JSON, with the method GET and no colour
 
   Scenario: Plain text when standard output is not a terminal
     Given standard output is not a terminal
@@ -149,27 +158,3 @@ Feature: Printing every call to the console
       | color loud              | color must be auto, always or never           |
       | a second one            | there may be only one console exporter        |
       | a file path as well     | an exporter is only one of otlp, file or console |
-
-  Rule: With a console exporter, the proxy's own logs are plain lines
-
-    The logs stay on standard error, so they can be hidden or sent to a
-    file on their own (Peter, 2026-11-12).
-
-    Scenario: A config warning is a plain line
-      When the proxy loads the config
-      Then the logs have the line "WARN  config warning: integration talon-shop-a has no fingerprintKey, so its records are signed with its ID, which is not secret", after the time
-
-    Scenario: Other fields follow as name=value
-      When the app sends GET /orders
-      Then the logs have the line "INFO  hotline proxy started  address=" with the proxy's address and config_version, after the time
-      And no log line is JSON or name=value from the start
-
-    Scenario: Logs are coloured on a terminal
-      Given standard error is a terminal
-      When the app sends GET /orders
-      Then the level WARN is yellow and the field names are dim
-
-    Scenario: Logs are plain text when standard error is not a terminal
-      Given standard output is a terminal 100 columns wide
-      When the app sends GET /orders
-      Then the logs have no colour

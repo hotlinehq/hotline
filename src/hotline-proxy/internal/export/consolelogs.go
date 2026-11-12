@@ -28,8 +28,8 @@ func ConsoleLogs(e *config.ConsoleExporter, out Console, next slog.Handler) slog
 	return consoleLogs{Handler: next, out: out, color: coloured(e, out)}
 }
 
-// Handle writes one line: the time, the level, the message, a reason
-// after a colon, then every other field as name=value. Every value is
+// Handle writes one line: the time, the level, the message, a reason or
+// problem after a colon, then every other field as name=value. Every value is
 // escaped, as on the console.
 func (h consoleLogs) Handle(_ context.Context, r slog.Record) error {
 	l := &consoleLines{color: h.color}
@@ -41,7 +41,7 @@ func (h consoleLogs) Handle(_ context.Context, r slog.Record) error {
 	var fields consoleLines
 	fields.color = h.color
 	r.Attrs(func(a slog.Attr) bool {
-		if a.Key == "reason" {
+		if a.Key == "reason" || a.Key == "problem" {
 			l.b.WriteString(": " + printable(a.Value.String()))
 			return true
 		}
