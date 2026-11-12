@@ -24,7 +24,7 @@ A missing address, a missing issuer or an issuer name that is not in `issuers` s
 2. Not a TLS handshake: closed, with a minimal record `error.type=not_tls`.
 3. ECH with an outer name in `ech.relay`: relayed untouched. Other ECH: the proxy answers as the outer name and offers no ECH keys, so a client that follows the ECH standard retries without it. The first try gets a minimal record `error.type=ech_rejected`.
 4. A site name in `passthrough`: relayed untouched, dialed by name (never by the address the program chose), through the internal address guard. The record is minimal with `hotline.intercept.mode=passthrough` and `hotline.intercept.reason` (`passthrough` or `ech`), written when the relay ends.
-5. No site name: the host is the original destination IP. If it cannot be read, closed with `error.type=no_sni`.
+5. No site name: the host is the original destination IP (on a CONNECT or captured tunnel, the address in the CONNECT). It is checked against `passthrough` like a site name, so a listed host is relayed even when the handshake names no site (Peter, 2026-11-12). If there is no such address, closed with `error.type=no_sni`.
 6. Otherwise the proxy shows a certificate for the host, signed by the named issuer, and hands the connection to the same server as a CONNECT tunnel. Each call is `hotline.ingress=intercept`; a `Host` for another host gets 421.
 
 The target port is the original port when the proxy can read it, else 443.

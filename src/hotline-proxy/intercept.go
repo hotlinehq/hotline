@@ -201,6 +201,11 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		return
 	}
 	host := first.name
+	if host == "" && !first.ech {
+		// The address the program called stands in for the site name, and
+		// is checked against passthrough like a name (Peter, 2026-11-12).
+		host = src.fallback
+	}
 	switch {
 	case first.ech && src.relays(host):
 		h.relay(src, inner, start, host, "ech")
@@ -213,8 +218,6 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		h.interceptRecord(src, conn, start, host, semconv.ErrorTypeKey.String("ech_rejected"))
 		_ = conn.Close()
 		return
-	case host == "" && src.fallback != "":
-		host = src.fallback
 	case host == "":
 		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("no_sni"))
 		_ = conn.Close()
