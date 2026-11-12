@@ -2,8 +2,10 @@ package proxy_test
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -22,7 +24,13 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 				dest = w.vendor(host).ip.String()
 			}
 			site := name
-			if name == "no site" {
+			switch {
+			case name == "no site" && address == "":
+				// An app that names no site but called by name pins the
+				// vendor's certificate: it checks the issuer, not the name.
+				site = ""
+				w.vendor(host)
+			case name == "no site":
 				site = w.vendor(host).ip.String()
 			}
 			return w.captureTunnel(dest, port, captureHeaders(pid, path), site, nil)
@@ -212,14 +220,24 @@ func (w *world) captureTunnel(host, port string, headers []string, site string, 
 		w.tunnelErr = errProxyClosed
 		return w.waitForRecords(1)
 	}
-	w.interceptHost = site
-	if net.ParseIP(site) == nil {
+	w.interceptHost = cmp.Or(site, host)
+	if net.ParseIP(site) == nil && site != "" {
 		w.vendor(site)
 	}
 	roots := w.tunnelRoots.Clone()
 	// A relayed connection shows the vendor's own certificate.
 	roots.AddCert(w.issuer.cert)
-	client := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: site, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12})
+	config := &tls.Config{RootCAs: roots, ServerName: site, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12}
+	if site == "" {
+		// No site name is sent, and the certificate is checked by its
+		// issuer alone, as an app that pins it does.
+		config.InsecureSkipVerify = true
+		config.VerifyConnection = func(cs tls.ConnectionState) error {
+			_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: roots})
+			return err
+		}
+	}
+	client := tls.Client(conn, config)
 	_ = client.SetDeadline(time.Now().Add(10 * time.Second))
 	w.tunnelErr = client.HandshakeContext(context.Background())
 	_ = client.SetDeadline(time.Time{})

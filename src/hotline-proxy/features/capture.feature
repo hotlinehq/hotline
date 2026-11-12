@@ -53,6 +53,16 @@ Feature: The capture ingress
       When the app closes its connections
       Then the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason passthrough, process.pid 4242 and process.executable.path /usr/bin/curl
 
+    Scenario: A listed host is relayed even when the handshake names no site
+      The address in the CONNECT stands in for the site name, and it is
+      checked against the list too, so a pinned app is never intercepted.
+      Given listen.connect lists pinned.example.com in passthrough
+      When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names no site in the handshake
+      Then the proxy dialed pinned.example.com by its name, never the address the app chose
+      And the vendor's own certificate reaches the app, not one from the interception issuer
+      When the app closes its connections
+      Then the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
+
     Scenario: An ordinary tunnel to a listed host is relayed too
       Given listen.connect lists *.example.com in passthrough
       And the app also trusts the vendors' own issuer
