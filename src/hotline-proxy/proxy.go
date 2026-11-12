@@ -134,9 +134,14 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
-	if err != nil {
-		return nil, err
+	// Without listen.proxy, as on a Mac that takes only captured
+	// connections, the proxy opens no port of its own.
+	var listener net.Listener
+	if cfg.ProxyAddr != "" {
+		listener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// The admin port listens only once the config is loaded and the proxy
 	// port listens, so until then Kubernetes finds the proxy not ready.
@@ -144,7 +149,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.AdminAddr != "" {
 		adminListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.AdminAddr)
 		if err != nil {
-			_ = listener.Close()
+			closeAll(listener)
 			return nil, err
 		}
 	}
@@ -152,16 +157,13 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.Intercept != nil {
 		redirectedListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Intercept.Address)
 		if err != nil {
-			_ = listener.Close()
-			if adminListener != nil {
-				_ = adminListener.Close()
-			}
+			closeAll(listener, adminListener)
 			return nil, err
 		}
 	}
 	var captureListener net.Listener
-	if cfg.CapturePath != "" {
-		captureListener, err = listenCapture(ctx, cfg.CapturePath)
+	if cfg.Capture != nil {
+		captureListener, err = listenCapture(ctx, cfg.Capture.Path)
 		if err != nil {
 			closeAll(listener, adminListener, redirectedListener)
 			return nil, err
@@ -195,6 +197,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
+	}
+	if captureListener != nil {
+		h.capture = newInterceptor(cfg.Capture.Issuer, o.Clock, o.Logger)
 	}
 	// Both listen.intercept and listen.connect relay passthrough sites.
 	h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
@@ -239,10 +244,16 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	p.reload = &reloader{path: o.ConfigPath, clock: o.Clock, lookupEnv: o.LookupEnv, logger: o.Logger, own: h.own, started: cfg}
 	h.own.observe(p)
 	p.reload.seen = stat(cfg.Files)
+	address := "none"
 	go func() {
 		defer close(p.served)
-		_ = p.server.Serve(port)
+		if port != nil {
+			_ = p.server.Serve(port)
+		}
 	}()
+	if listener != nil {
+		address = listener.Addr().String()
+	}
 	go func() {
 		defer close(p.tunnelServed)
 		_ = p.tunnelServer.Serve(h.tunnels)
@@ -272,7 +283,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	for _, w := range cfg.Warnings {
 		o.Logger.Warn("config warning", "reason", w)
 	}
-	o.Logger.Info("hotline proxy started", "address", listener.Addr().String(), "config_version", cfg.Label())
+	o.Logger.Info("hotline proxy started", "address", address, "config_version", cfg.Label())
 	return p, nil
 }
 

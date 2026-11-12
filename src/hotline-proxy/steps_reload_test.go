@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -161,7 +160,7 @@ func (w *world) changeConfig(change string) error {
 		w.useInterceptionIssuer(newIssuer())
 	case "listen.capture is added":
 		w.useInterceptionIssuer(newIssuer())
-		w.listenCapture = fmt.Sprintf("  capture: %q\n", filepath.Join(w.dir, "capture.sock"))
+		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	default:
 		return godog.ErrPending
 	}

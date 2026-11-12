@@ -52,6 +52,9 @@ type handler struct {
 	// redirected makes the certificates shown on the intercept listener;
 	// nil when there is none.
 	redirected *interceptor
+	// capture makes the certificates shown in captured tunnels, from the
+	// issuer of listen.capture.
+	capture *interceptor
 	// relays dials the sites relayed untouched, from listen.intercept or
 	// listen.connect passthrough.
 	relays *dialer

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -19,9 +18,8 @@ import (
 // captureSocketSteps are the steps about listen.capture, the socket file
 // the capture extension sends its CONNECT to (Peter, 2026-11-12).
 func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^listen.capture is a socket file$`, func() error {
+	sc.Step(`^listen.capture is a socket file, whose issuer is customer too$`, func() error {
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
-		w.listenCapture = fmt.Sprintf("  capture: %q\n", w.captureFile)
 		return nil
 	})
 	sc.Step(`^a program sends GET http://api.talon.one/ on the capture socket$`, func() error {
@@ -80,7 +78,6 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a plain file is where the capture path's folder should be$`, func() error {
 		folder := filepath.Join(w.dir, "folder")
 		w.captureFile = filepath.Join(folder, "capture.sock")
-		w.listenCapture = fmt.Sprintf("  capture: %q\n", w.captureFile)
 		return os.WriteFile(folder, []byte("notes"), 0o600)
 	})
 	sc.Step(`^the plain file at the capture path is unchanged$`, func() error {
@@ -96,25 +93,50 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^listen.capture is (set without listen.connect|a path of 120 bytes|a relative path|~/hotline/capture.sock)$`, func(setting string) error {
+	sc.Step(`^listen.capture (names no issuer|names an issuer that is not in issuers|lists a passthrough pattern that is not a name|is a path of 120 bytes|is a relative path|is ~/hotline/capture.sock)$`, func(setting string) error {
 		switch setting {
-		case "set without listen.connect":
-			w.listenConnect = ""
-			w.issuersSection = ""
-		case "a path of 120 bytes":
-			w.captureFile = "/" + strings.Repeat("a", 119)
-		case "a relative path":
-			w.captureFile = "capture.sock"
+		case "names no issuer":
+			w.captureIssuer = " "
+		case "names an issuer that is not in issuers":
+			w.captureIssuer = "issuer: gone, "
+		case "lists a passthrough pattern that is not a name":
+			w.capturePassthrough = []string{"api.*.com"}
+		case "is a path of 120 bytes":
+			w.capturePath = "/" + strings.Repeat("a", 119)
+		case "is a relative path":
+			w.capturePath = "capture.sock"
 		default:
 			if w.env == nil {
 				w.env = map[string]string{}
 			}
 			w.env["HOME"] = w.dir
-			w.listenCapture = "  capture: \"~/hotline/capture.sock\"\n"
+			w.capturePath = "~/hotline/capture.sock"
 			w.captureFile = filepath.Join(w.dir, "hotline", "capture.sock")
-			return nil
 		}
-		w.listenCapture = fmt.Sprintf("  capture: %q\n", w.captureFile)
+		return nil
+	})
+	sc.Step(`^listen.capture lists (\S+) in passthrough$`, func(name string) error {
+		w.capturePassthrough = []string{name}
+		return nil
+	})
+	sc.Step(`^the config has no listen.proxy and no listen.connect$`, func() error {
+		w.noProxyPort, w.listenConnect = true, ""
+		return nil
+	})
+	sc.Step(`^the config has listen.connect but no listen.proxy$`, func() error {
+		w.noProxyPort = true
+		return nil
+	})
+	sc.Step(`^nothing listens on the proxy port$`, func() error {
+		if conn, err := w.dialProxy(); err == nil {
+			_ = conn.Close()
+			return failf("something listens on the proxy port %s", w.addr)
+		}
+		return nil
+	})
+	sc.Step(`^the config file drops listen.capture$`, func() error {
+		w.captureDropped = true
+		w.writeFile("hotline-proxy.yaml", w.config())
 		return nil
 	})
 	sc.Step(`^the capture socket is at hotline/capture.sock in the home folder$`, func() error {

@@ -17,7 +17,7 @@ import (
 )
 
 func captureSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the extension opens a captured tunnel to (the address of )?(\S+):(\d+) for process (\d+) at "([^"]*)" and the app names (no site|\S+) in the handshake$`,
+	sc.Step(`^the extension (?:opens|has opened) a captured tunnel to (the address of )?(\S+):(\d+) for process (\d+) at "([^"]*)" and the app names (no site|\S+) in the handshake$`,
 		func(address, host, port, pid, path, name string) error {
 			dest := host
 			if address != "" {

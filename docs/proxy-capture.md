@@ -19,11 +19,11 @@ Hotline-Capture-Program: /usr/bin/curl
 
 ## How the proxy handles it
 
-- It needs `listen.connect`, the CONNECT ingress, and uses its issuer.
+- `listen.capture` has its own issuer and passthrough list, so it does not need `listen.connect`. Without `listen.proxy`, Hotline opens no port at all and takes captured connections only (Peter, 2026-11-12).
 - The capture headers count only on `listen.capture`. On the proxy port they are ignored, and the CONNECT is an ordinary one, so no other program and no other machine can name a program (Peter, 2026-11-12).
 - Only the proxy's own user and root can open the socket file, and the extension runs as root, so the headers there are believed as they come (Peter, 2026-11-12). A request other than CONNECT gets `405`.
 - An unknown version, a header given twice, a process number that is not a positive number, or a program path over 4096 bytes is refused with `400` and recorded with `hotline.ingress=capture`.
-- After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.connect` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
+- After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.capture` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
 - Records say `hotline.ingress=capture`, `process.pid` and `process.executable.path`: the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
 - The extension checks every 2 seconds that the proxy is there by opening a connection and closing it, sending nothing. That makes no record.
 
@@ -31,9 +31,17 @@ Hotline-Capture-Program: /usr/bin/curl
 
 ```yaml
 listen:
-  connect: { issuer: customer }
-  capture: "~/Library/Application Support/Hotline/capture.sock"   # the default Hotline uses on a Mac
+  capture:
+    path: "~/Library/Application Support/Hotline/capture.sock"   # the default Hotline uses on a Mac
+    issuer: capture                                                # signs the certificates for the sites
+    passthrough: [pinned.example.com]                              # relayed untouched, empty by default
+issuers:
+  capture: { cert: ./ca/cert.pem, key: ./ca/key.pem }
+exporters:
+  - console: {}
 ```
+
+`listen.proxy` may be left out when `listen.capture` or `listen.intercept` is set; `listen.tls` and `listen.connect` still need it. A reload that takes `listen.capture` out leaves the socket file open until a restart, answering `503`.
 
 - The path is absolute or starts with `~/` (the home folder, from `HOME`), and is at most 103 bytes, the longest a socket file may have on macOS.
 - The proxy makes the folder if it is missing (owner only), and gives the file to its owner only. That mode is what keeps other users' programs out; a mode that cannot be set stops the proxy from starting.
@@ -49,6 +57,6 @@ listen:
     passthrough: [pinned.example.com, "*.internal.example.com"]   # relayed untouched, empty by default
 ```
 
-Same meaning as for `listen.intercept`. A captured tunnel is matched by the site name in the handshake, an ordinary tunnel by the host in its CONNECT. Relayed tunnels are dialed by name and recorded with `hotline.intercept.mode=passthrough`.
+Same meaning as for `listen.intercept`, for ordinary tunnels, matched by the host in their CONNECT. Captured tunnels use the list of `listen.capture`, matched by the site name in the handshake. Relayed tunnels are dialed by name and recorded with `hotline.intercept.mode=passthrough`.
 
 Decisions: [docs/decisions/capture.md](decisions/capture.md).

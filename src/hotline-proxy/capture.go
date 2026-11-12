@@ -91,7 +91,15 @@ func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
 		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
-	h.captured(w, r, t, start)
+	// A reload that took listen.capture out of the config leaves the
+	// socket file open until a restart, taking no more tunnels.
+	c := h.cfg.Load().Capture
+	if c == nil {
+		refuse(w, http.StatusServiceUnavailable)
+		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusServiceUnavailable)
+		return
+	}
+	h.captured(w, r, t, c, start)
 }
 
 // captureProcess reads the program from the capture headers. An unknown
@@ -122,7 +130,7 @@ func captureProcess(h http.Header) (process, error) {
 // an app's connection as the app sent it, to the address the app called, so
 // it is served like an intercepted connection: the site name comes from the
 // TLS handshake, with the CONNECT's host when the handshake names none.
-func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, start time.Time) {
+func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, c *config.Capture, start time.Time) {
 	p, err := captureProcess(r.Header)
 	if err != nil {
 		refuse(w, http.StatusBadRequest)
@@ -132,8 +140,8 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, st
 	// A tunnel has no list of ECH outer names to relay: an empty list relays
 	// none, so a program offering ECH sees it rejected and retries without.
 	src := &source{
-		ingress: "capture", id: t.id, passes: h.cfg.Load().ConnectPassthrough.Passes, relays: config.Passthrough(nil).Passes,
-		certificate: h.intercept, port: t.port, fallback: t.host, process: p,
+		ingress: "capture", id: t.id, passes: c.Passthrough.Passes, relays: config.Passthrough(nil).Passes,
+		certificate: h.capture, port: t.port, fallback: t.host, process: p,
 	}
 	conn, done := open(w, r)
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))

@@ -3,10 +3,12 @@ package proxy_test
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -166,10 +168,19 @@ type world struct {
 
 	// listenConnect, when set, is the listen.connect line of the config.
 	listenConnect string
-	// listenCapture, when set, is the listen.capture line of the config,
-	// and captureFile the socket file it names, to dial.
-	listenCapture string
-	captureFile   string
+	// captureFile, when set, is the socket file of listen.capture, to
+	// dial. capturePath is the path the config names, when it is not
+	// captureFile itself; captureIssuer is the issuer it names, customer
+	// by default, and capturePassthrough its passthrough list.
+	captureFile        string
+	capturePath        string
+	captureIssuer      string
+	capturePassthrough []string
+	// captureDropped leaves listen.capture out of the config, after a start
+	// with it.
+	captureDropped bool
+	// noProxyPort leaves listen.proxy out of the config.
+	noProxyPort bool
 	// issuersSection is the config's issuers section, when it has one.
 	issuersSection string
 	// interception is the issuer in the listen.connect files, and second
@@ -403,16 +414,34 @@ func freePort() string {
 	return l.Addr().String()
 }
 
+// captureSection is the listen.capture line of the config, when the
+// scenario has one.
+func (w *world) captureSection() string {
+	if w.captureFile == "" || w.captureDropped {
+		return ""
+	}
+	issuer := "issuer: customer, "
+	if w.captureIssuer != "" {
+		issuer = w.captureIssuer
+	}
+	passthrough, _ := json.Marshal(w.capturePassthrough)
+	return fmt.Sprintf("  capture: { path: %q, %spassthrough: %s }\n", cmp.Or(w.capturePath, w.captureFile), issuer, passthrough)
+}
+
 func (w *world) config() string {
 	var b strings.Builder
 	admin := w.adminAddr
 	if admin == "" {
 		admin = "127.0.0.1:0"
 	}
-	fmt.Fprintf(&b, "listen:\n  proxy: %q\n  admin: %q\n", w.addr, admin)
+	b.WriteString("listen:\n")
+	if !w.noProxyPort {
+		fmt.Fprintf(&b, "  proxy: %q\n", w.addr)
+	}
+	fmt.Fprintf(&b, "  admin: %q\n", admin)
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
-	b.WriteString(w.listenCapture)
+	b.WriteString(w.captureSection())
 	b.WriteString(w.interceptSection())
 	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
