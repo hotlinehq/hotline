@@ -71,18 +71,6 @@ func listenCapture(ctx context.Context, path string) (net.Listener, error) {
 	return l, nil
 }
 
-// socketUserKey holds the user of the program on the other end of a
-// connection to listen.capture, or -1 when it cannot be told.
-type socketUserKey struct{}
-
-// captureContext notes, for each connection to listen.capture, which user
-// runs the program that opened it.
-func captureContext(socketUser func(net.Conn) int) func(context.Context, net.Conn) context.Context {
-	return func(ctx context.Context, c net.Conn) context.Context {
-		return context.WithValue(ctx, socketUserKey{}, socketUser(c))
-	}
-}
-
 // serveCapture serves a connection to listen.capture. Only a CONNECT is
 // taken; its capture headers name the program behind the tunnel. Only the
 // proxy's own user and root can open the socket file, so the headers are
