@@ -13,6 +13,8 @@ The `order-paid` topic passes each job, as is, to the `invoices` queue. A role i
 
 Every app also writes its log lines to CloudWatch Logs, in a log stream named after the app. Each app puts its own name in the proxy address as the user name (`http://checkout:x@localhost:8080`), so Hotline's records say which app made each call. This is its own Go module, so the proxy never depends on the AWS SDK.
 
+**No AWS account?** [floci/](floci/README.md) runs the same story on Floci, a free local copy of AWS, with Terraform making the resources, and keeps every call in full as a file.
+
 ## The whole story in one go
 
 [run-shop.sh](run-shop.sh) runs it all against the AWS resources that already exist, through Hotline: checkout pays a new order each run (such as A-20261101221714, from the date and time; any `A-` number is a sample order with A-1001's lines, and `ORDER` picks one), invoices makes the invoice (trying a few times, as the topic passes the job on a moment later), the mailer mails it (with SES when `MAIL_FROM` is set, to AWS's test inbox `success@simulator.amazonses.com`, which accepts the email and delivers nothing), refunds starts a credit note, and then two mistakes on purpose (a broken invoice job, and an order written to a table that is not checkout's own). It prints a summary, and stops at the first step that fails. It never creates or removes anything.

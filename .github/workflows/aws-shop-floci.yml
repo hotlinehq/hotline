@@ -1,0 +1,54 @@
+name: aws-shop-floci
+# Runs the shop example (examples/aws-shop) through the Hotline proxy against
+# Floci, a free local copy of AWS: Terraform makes the resources, the proxy
+# records every call in full to a file, and the file is kept as an artifact.
+# When the Grafana Cloud secrets are set, the proxy also sends its usual
+# records, counts and traces there. Started by hand only, so it uses no
+# quota unless somebody asks for a run.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  aws-shop-floci:
+    name: shop example on Floci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.3'
+          check-latest: false
+          cache-dependency-path: |
+            src/hotline-proxy/go.sum
+            examples/aws-shop/go.sum
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: '1.17.2'
+          terraform_wrapper: false
+      - name: run the shop story on Floci
+        working-directory: examples/aws-shop/floci
+        env:
+          # Both are optional. Without them nothing is sent to Grafana Cloud.
+          # GRAFANA_OTLP_ENDPOINT: the OTLP address from the Grafana Cloud
+          #   portal, such as https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
+          # GRAFANA_OTLP_AUTHORIZATION: "Basic " and the base64 of
+          #   "<instance id>:<token>"; the token needs the write scopes for
+          #   metrics, logs and traces.
+          GRAFANA_OTLP_ENDPOINT: ${{ secrets.GRAFANA_OTLP_ENDPOINT }}
+          GRAFANA_OTLP_AUTHORIZATION: ${{ secrets.GRAFANA_OTLP_AUTHORIZATION }}
+        run: ./run.sh
+      - name: keep every call, in full, as an artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aws-shop-floci-calls
+          path: |
+            examples/aws-shop/floci/out/calls/
+            examples/aws-shop/floci/out/run-shop.log
+            examples/aws-shop/floci/out/proxy.log
+          if-no-files-found: warn
+          retention-days: 14

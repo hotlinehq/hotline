@@ -1,0 +1,7 @@
+# Made by a run: the state of the local copy of AWS, the downloaded provider,
+# the zip of the function, and what the proxy recorded.
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/payment-qr.zip
+out/
+terraform/.terraform.lock.hcl
