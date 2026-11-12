@@ -92,6 +92,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	interceptSteps(sc, w)
 	captureSteps(sc, w)
 	captureSocketSteps(sc, w)
+	halfCloseSteps(sc, w)
 	overlaySteps(sc, w)
 	awsSteps(sc, w)
 	shopSteps(sc, w)

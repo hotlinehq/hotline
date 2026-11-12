@@ -80,7 +80,8 @@ type Options struct {
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination
 	// Console is where a console exporter prints: standard output, and
-	// whether it is a terminal.
+	// whether it is a terminal. Left empty, a console exporter prints
+	// nothing.
 	Console Console
 }
 
@@ -92,6 +93,21 @@ type Console struct {
 	// JSON makes the console exporter print each call as one line of
 	// JSON, as for --format json.
 	JSON bool
+}
+
+// export is the console as the console exporter takes it. A program that
+// starts the proxy without saying where the console is gets one that is no
+// terminal and prints nothing, so a console exporter in its config cannot
+// stop the proxy.
+func (c Console) export(lookupEnv func(string) (string, bool)) export.Console {
+	out := export.Console{Out: c.Out, Terminal: c.Terminal, LookupEnv: lookupEnv, JSON: c.JSON}
+	if out.Out == nil {
+		out.Out = io.Discard
+	}
+	if out.Terminal == nil {
+		out.Terminal = func() (int, bool) { return 0, false }
+	}
+	return out
 }
 
 // Proxy is a running proxy.
@@ -173,7 +189,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
 	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
-		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv, JSON: o.Console.JSON}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
+		o.Console.export(o.LookupEnv), o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
 		closeAll(listener, adminListener, redirectedListener, captureListener)
 		_ = telemetry.Shutdown(ctx)

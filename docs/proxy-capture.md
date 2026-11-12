@@ -59,4 +59,6 @@ listen:
 
 Same meaning as for `listen.intercept`, for ordinary tunnels, matched by the host in their CONNECT. Captured tunnels use the list of `listen.capture`, matched by the site name in the handshake. Relayed tunnels are dialed by name and recorded with `hotline.intercept.mode=passthrough`.
 
+A relayed tunnel stops each direction on its own: when the app or the vendor stops sending, the proxy tells the other side that nothing more comes, and keeps the other direction open. This holds for ordinary tunnels over HTTP/1.1 and HTTP/2 and for captured tunnels (`features/half-close.feature`).
+
 Decisions: [docs/decisions/capture.md](decisions/capture.md).

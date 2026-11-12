@@ -50,6 +50,9 @@ type world struct {
 	issuer   *issuer
 	network  *network
 	vendors  map[string]*vendor
+	// talker is a vendor that speaks raw bytes over TLS, for relayed
+	// tunnels.
+	talker *talker
 	// receivers are the OTLP destinations, in the order of the config.
 	receivers []*receiver
 	// telemetry, when set, is the destination for the proxy's own health
@@ -86,6 +89,9 @@ type world struct {
 	consoleClosed   bool
 	// consoleJSON is --format json: each call is one line of JSON.
 	consoleJSON bool
+	// noConsole starts the proxy with no console option at all, as a Go
+	// program that leaves it out does.
+	noConsole bool
 	// env is the proxy's environment.
 	env map[string]string
 	// processEnv are variables set in the test process itself, unset with
@@ -597,7 +603,7 @@ func (w *world) startOnce() error {
 			v, ok := w.env[name]
 			return v, ok
 		},
-		Console: proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON},
+		Console: w.consoleOption(),
 	})
 	return w.startErr
 }

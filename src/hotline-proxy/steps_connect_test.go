@@ -534,6 +534,10 @@ func (c *streamConn) Write(p []byte) (int, error) { return c.body.Write(p) }
 func (c *streamConn) Close() error {
 	return errors.Join(c.body.Close(), c.reply.Close())
 }
+
+// CloseWrite ends the request body, which tells the proxy the app sends
+// nothing more, and keeps reading the reply.
+func (c *streamConn) CloseWrite() error             { return c.body.Close() }
 func (c *streamConn) LocalAddr() net.Addr           { return &net.TCPAddr{} }
 func (c *streamConn) RemoteAddr() net.Addr          { return &net.TCPAddr{} }
 func (c *streamConn) SetDeadline(t time.Time) error { return c.SetReadDeadline(t) }
