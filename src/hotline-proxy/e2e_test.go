@@ -92,9 +92,6 @@ type program struct {
 	interception *issuer
 	redirect     bool
 	interceptAt  string
-	// captureFile, when set, is listen.capture, the capture extension's
-	// socket file.
-	captureFile string
 	// console adds a console exporter, and terminal, when set, is the
 	// terminal the program prints to instead of standard output.
 	console  bool
@@ -167,48 +164,6 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		p.interception = newIssuer()
 		p.tls = withTLS != ""
 		return p.run()
-	})
-	sc.Step(`^the hotline-proxy program runs with listen.connect and listen.capture and integration test-shop for the test vendor$`, func() error {
-		// A short folder of its own, as a socket path holds at most 103
-		// bytes.
-		dir, err := os.MkdirTemp("", "capture")
-		if err != nil {
-			return err
-		}
-		p.cleanups = append(p.cleanups, func() { _ = os.RemoveAll(dir) })
-		p.interception, p.captureFile = newIssuer(), filepath.Join(dir, "capture.sock")
-		return p.run()
-	})
-	sc.Step(`^this test sends a CONNECT for the test vendor with the capture headers on the capture socket$`, func() error {
-		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "unix", p.captureFile)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = conn.Close() }()
-		host := strings.TrimPrefix(p.vendorURL, "https://")
-		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nHotline-Capture: 2\r\nHotline-Capture-Pid: 4242\r\n\r\n", host, host)
-		if err != nil {
-			return err
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		// Only the status is read: after a 200 the tunnel stays open.
-		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-		if err != nil {
-			return err
-		}
-		_ = resp.Body.Close()
-		p.resp = resp
-		return nil
-	})
-	sc.Step(`^the program takes the CONNECT when this test runs as root, and refuses it with 403 otherwise$`, func() error {
-		want := http.StatusForbidden
-		if os.Getuid() == 0 {
-			want = http.StatusOK
-		}
-		if p.resp.StatusCode != want {
-			return failf("the program answered %d, not %d, to user %d", p.resp.StatusCode, want, os.Getuid())
-		}
-		return nil
 	})
 	sc.Step(`^the hotline-proxy program runs with listen.intercept and integration test-shop for the test vendor$`, func() error {
 		if err := redirectAvailable(); err != nil {
@@ -781,9 +736,6 @@ func (p *program) config(validateOnly bool) string {
 			listenTLS += fmt.Sprintf("  intercept: { address: %q, issuer: customer, integration: test-shop }\n", p.interceptAt)
 		} else {
 			listenTLS += "  connect: { issuer: customer }\n"
-		}
-		if p.captureFile != "" {
-			listenTLS += fmt.Sprintf("  capture: %q\n", p.captureFile)
 		}
 		listenTLS += "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}

@@ -37,9 +37,6 @@ var (
 	// capture path that is not its own.
 	errCaptureInUse = errors.New("listen.capture is in use by another program")
 	errNotSocket    = errors.New("is not a socket file, so the proxy leaves it")
-	// errNoSocketUser stops listen.capture on a system that cannot tell
-	// who opens the socket file.
-	errNoSocketUser = errors.New("listen.capture cannot be used on this system, which does not tell the proxy who opens the socket file")
 )
 
 // listenCapture opens the socket file of listen.capture, which the
@@ -62,13 +59,15 @@ func listenCapture(ctx context.Context, path string) (net.Listener, error) {
 		_ = os.Remove(path)
 	}
 	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
+	if err == nil {
+		// The mode is what keeps other users out: only the proxy's own
+		// user, and root, as the capture extension runs, can open the file.
+		err = os.Chmod(path, 0o600)
+	}
 	if err != nil {
+		closeAll(l)
 		return nil, fmt.Errorf("listen.capture: %w", err)
 	}
-	// The root check in serveCapture is what keeps other programs out; the
-	// mode only keeps the file private, so a failure to set it is no reason
-	// to stop.
-	_ = os.Chmod(path, 0o600)
 	return l, nil
 }
 
@@ -84,9 +83,10 @@ func captureContext(socketUser func(net.Conn) int) func(context.Context, net.Con
 	}
 }
 
-// serveCapture serves a connection to listen.capture. Only a CONNECT from
-// a program run by root, as the capture extension is, is taken; its
-// capture headers name the program behind the tunnel.
+// serveCapture serves a connection to listen.capture. Only a CONNECT is
+// taken; its capture headers name the program behind the tunnel. Only the
+// proxy's own user and root can open the socket file, so the headers are
+// believed (Peter, 2026-11-12).
 func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
 	h.calls.Add(1)
 	defer h.calls.Done()
@@ -101,11 +101,6 @@ func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		refuse(w, http.StatusBadRequest)
 		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
-		return
-	}
-	if user, _ := r.Context().Value(socketUserKey{}).(int); user != 0 {
-		refuse(w, http.StatusForbidden)
-		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusForbidden)
 		return
 	}
 	h.captured(w, r, t, start)

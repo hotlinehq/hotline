@@ -21,8 +21,7 @@ Hotline-Capture-Program: /usr/bin/curl
 
 - It needs `listen.connect`, the CONNECT ingress, and uses its issuer.
 - The capture headers count only on `listen.capture`. On the proxy port they are ignored, and the CONNECT is an ordinary one, so no other program and no other machine can name a program (Peter, 2026-11-12).
-- On each connection to the socket file the proxy asks the system which user runs the program on the other end. Only root, user 0, as the extension runs, is believed; any other user gets `403`, recorded with `hotline.ingress=capture`. A request other than CONNECT gets `405`.
-- On a system that cannot tell the user (neither Linux nor macOS), `listen.capture` stops the proxy from starting.
+- Only the proxy's own user and root can open the socket file, and the extension runs as root, so the headers there are believed as they come (Peter, 2026-11-12). A request other than CONNECT gets `405`.
 - An unknown version, a header given twice, a process number that is not a positive number, or a program path over 4096 bytes is refused with `400` and recorded with `hotline.ingress=capture`.
 - After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.connect` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
 - Records say `hotline.ingress=capture`, `process.pid` and `process.executable.path`: the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
@@ -37,7 +36,7 @@ listen:
 ```
 
 - The path is absolute or starts with `~/` (the home folder, from `HOME`), and is at most 103 bytes, the longest a socket file may have on macOS.
-- The proxy makes the folder if it is missing (owner only), and gives the file to its owner only. The root check is what keeps other programs out; the file mode only keeps it private.
+- The proxy makes the folder if it is missing (owner only), and gives the file to its owner only. That mode is what keeps other users' programs out; a mode that cannot be set stops the proxy from starting.
 - A socket file left by an earlier run is replaced. A path another program listens on, or a plain file at the path, stops the proxy from starting; a plain file is never removed.
 - The file is removed when the proxy stops. A change of `listen.capture` needs a restart.
 

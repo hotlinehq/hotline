@@ -170,11 +170,6 @@ type world struct {
 	// and captureFile the socket file it names, to dial.
 	listenCapture string
 	captureFile   string
-	// socketUser is the user the program on the capture socket runs as: 0,
-	// root, unless a scenario says otherwise. With noSocketUser the system
-	// cannot tell.
-	socketUser   int
-	noSocketUser bool
 	// issuersSection is the config's issuers section, when it has one.
 	issuersSection string
 	// interception is the issuer in the listen.connect files, and second
@@ -549,10 +544,6 @@ func (w *world) startOnce() error {
 	if w.clock != nil {
 		clock = w.clock
 	}
-	socketUser := func(net.Conn) int { return w.socketUser }
-	if w.noSocketUser {
-		socketUser = nil
-	}
 	w.proxy, w.startErr = proxy.Start(context.Background(), proxy.Options{
 		ConfigPath:    w.configPath,
 		Resolver:      w.network,
@@ -574,8 +565,7 @@ func (w *world) startOnce() error {
 			v, ok := w.env[name]
 			return v, ok
 		},
-		Console:    proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON},
-		SocketUser: socketUser,
+		Console: proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON},
 	})
 	return w.startErr
 }

@@ -82,12 +82,6 @@ type Options struct {
 	// Console is where a console exporter prints: standard output, and
 	// whether it is a terminal.
 	Console Console
-	// SocketUser says which user runs the program on the other end of a
-	// connection to listen.capture. The capture headers are believed only
-	// from root, user 0, as the capture extension runs (Peter, 2026-11-12).
-	// It gives -1 when the user cannot be told. Without it, listen.capture
-	// is refused.
-	SocketUser func(net.Conn) int
 }
 
 // Console is standard output, for a console exporter, and the width of
@@ -167,11 +161,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	var captureListener net.Listener
 	if cfg.CapturePath != "" {
-		if o.SocketUser == nil {
-			err = errNoSocketUser
-		} else {
-			captureListener, err = listenCapture(ctx, cfg.CapturePath)
-		}
+		captureListener, err = listenCapture(ctx, cfg.CapturePath)
 		if err != nil {
 			closeAll(listener, adminListener, redirectedListener)
 			return nil, err
@@ -269,7 +259,6 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			Handler:           http.HandlerFunc(h.serveCapture),
 			ReadHeaderTimeout: 30 * time.Second,
 			ErrorLog:          log.New(serverLog{logger: o.Logger}, "", 0),
-			ConnContext:       captureContext(o.SocketUser),
 		}
 		p.captureServed = make(chan struct{})
 		go func() {

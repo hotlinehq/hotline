@@ -11,9 +11,9 @@ Feature: The capture ingress
   (Peter, 2026-11-10).
 
   The extension sends its CONNECT to a socket file of its own,
-  listen.capture, which only the proxy's user and root can open. The proxy
-  believes the capture headers only there, and only from a program that
-  runs as root, as the extension does. On the proxy port they are ignored
+  listen.capture, which only the proxy's user and root can open; the
+  extension runs as root. The proxy believes the capture headers only
+  there. On the proxy port they are ignored
   (Peter, 2026-11-12). The tests need no Mac: the test extension is a
   program that sends the same CONNECT to the socket file.
 
@@ -119,14 +119,6 @@ Feature: The capture ingress
       Then the record says hotline.ingress connect and ID not-passed
       And the record names no program
 
-    Scenario: A program that does not run as root is refused
-      Given the program on the capture socket runs as user 501
-      When the extension sends a CONNECT to api.talon.one:443 with good capture headers
-      Then the proxy answers 403 with a Proxy-Status header
-      And the record says hotline.ingress capture and ID not-passed
-      And the record names no program
-      And nothing is sent to any vendor
-
     Scenario: A CONNECT with a port that is not usable is refused
       When the extension sends a CONNECT to api.talon.one:0 with good capture headers
       Then the proxy answers 400 with a Proxy-Status header
@@ -165,11 +157,6 @@ Feature: The capture ingress
       Given a plain file is where the capture path's folder should be
       When the proxy loads the config
       Then the proxy refuses the config, saying listen.capture
-
-    Scenario: A system that cannot tell who opens the socket file cannot use listen.capture
-      Given the system cannot tell which user opens a socket file
-      When the proxy loads the config
-      Then the proxy refuses the config, saying listen.capture cannot be used on this system
 
     Scenario: The socket file is removed at stop
       When the proxy starts

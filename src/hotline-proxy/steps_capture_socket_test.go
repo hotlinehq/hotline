@@ -24,10 +24,6 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		w.listenCapture = fmt.Sprintf("  capture: %q\n", w.captureFile)
 		return nil
 	})
-	sc.Step(`^the program on the capture socket runs as user (\d+)$`, func(user int) error {
-		w.socketUser = user
-		return nil
-	})
 	sc.Step(`^a program sends GET http://api.talon.one/ on the capture socket$`, func() error {
 		if err := w.start(); err != nil {
 			return err
@@ -76,10 +72,6 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		w.listeners = append(w.listeners, l)
 		w.busy = w.captureFile
-		return nil
-	})
-	sc.Step(`^the system cannot tell which user opens a socket file$`, func() error {
-		w.noSocketUser = true
 		return nil
 	})
 	sc.Step(`^a plain file is at the capture path$`, func() error {
