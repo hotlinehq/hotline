@@ -105,9 +105,10 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the app sends GET /orders with a query (\d+) characters long$`, func(n int) error {
 		return w.shopCall("GET", "/orders?"+strings.Repeat("q", n), true, "", "", "")
 	})
-	sc.Step(`^the app sends GET /orders with (the control character 9B|the byte FF, not UTF-8|the right-to-left mark 202E) in the query$`, func(what string) error {
+	sc.Step(`^a call to a host without an api ends, with (the control character 9B|the byte FF, not UTF-8|the right-to-left mark 202E) in the query$`, func(what string) error {
 		raw := map[string]string{"the control character 9B": "\u009b", "the byte FF, not UTF-8": "\xff", "the right-to-left mark 202E": "\u202e"}[what]
-		return w.shopCall("GET", "/orders?note=a"+raw+"b", true, "", "", "")
+		w.target = "https://api.other.test/v1/things?note=a" + raw + "b"
+		return w.callWithBody(`{"thing":1}`, "Content-Type: application/json")
 	})
 
 	sc.Step(`^the vendor answers 200 with (the control character 9B|the right-to-left mark 202E|the language tag E0001) in the X-Request-Id header$`, func(what string) error {
@@ -121,6 +122,13 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
+	sc.Step(`^the console does not hold "([^"]*)"$`, func(text string) error {
+		w.settle()
+		if strings.Contains(w.console.String(), text) {
+			return failf("the console holds %q: %q", text, w.console.String())
+		}
+		return nil
+	})
 	sc.Step(`^the console has (\d+) lines$`, func(n int) error {
 		lines := w.consoleLines()
 		if len(lines) != n {
