@@ -82,6 +82,12 @@ type Options struct {
 	// Console is where a console exporter prints: standard output, and
 	// whether it is a terminal.
 	Console Console
+	// SocketUser says which user runs the program on the other end of a
+	// connection to listen.capture. The capture headers are believed only
+	// from root, user 0, as the capture extension runs (Peter, 2026-11-12).
+	// It gives -1 when the user cannot be told. Without it, listen.capture
+	// is refused.
+	SocketUser func(net.Conn) int
 }
 
 // Console is standard output, for a console exporter, and the width of
@@ -119,6 +125,10 @@ type Proxy struct {
 	// the config has it.
 	redirectedListener net.Listener
 	redirectedServed   chan struct{}
+	// capture serves listen.capture, the capture extension's socket file,
+	// when the config has it.
+	capture       *http.Server
+	captureServed chan struct{}
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -155,17 +165,25 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			return nil, err
 		}
 	}
+	var captureListener net.Listener
+	if cfg.CapturePath != "" {
+		if o.SocketUser == nil {
+			err = errors.New("listen.capture cannot be used on this system, which does not tell the proxy who opens the socket file")
+		} else {
+			captureListener, err = listenCapture(ctx, cfg.CapturePath)
+		}
+		if err != nil {
+			closeAll(listener, adminListener, redirectedListener)
+			return nil, err
+		}
+	}
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
 	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
 		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv, JSON: o.Console.JSON}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
-		for _, l := range []net.Listener{listener, adminListener, redirectedListener} {
-			if l != nil {
-				_ = l.Close()
-			}
-		}
+		closeAll(listener, adminListener, redirectedListener, captureListener)
 		_ = telemetry.Shutdown(ctx)
 		return nil, err
 	}
@@ -246,6 +264,19 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			h.serveIntercept(redirectedListener, o.OriginalDestination)
 		}()
 	}
+	if captureListener != nil {
+		p.capture = &http.Server{
+			Handler:           http.HandlerFunc(h.serveCapture),
+			ReadHeaderTimeout: 30 * time.Second,
+			ErrorLog:          log.New(serverLog{logger: o.Logger}, "", 0),
+			ConnContext:       captureContext(o.SocketUser),
+		}
+		p.captureServed = make(chan struct{})
+		go func() {
+			defer close(p.captureServed)
+			_ = p.capture.Serve(captureListener)
+		}()
+	}
 	if adminListener != nil {
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
@@ -254,6 +285,15 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	o.Logger.Info("hotline proxy started", "address", listener.Addr().String(), "config_version", cfg.Label())
 	return p, nil
+}
+
+// closeAll closes the listeners opened so far, when the proxy cannot start.
+func closeAll(listeners ...net.Listener) {
+	for _, l := range listeners {
+		if l != nil {
+			_ = l.Close()
+		}
+	}
 }
 
 func newTransport(o Options, allowInternal bool) *http.Transport {
@@ -336,9 +376,18 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()
-	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped)
+	captureStopped := make(chan error, 1)
+	if p.capture != nil {
+		go func() { captureStopped <- p.capture.Shutdown(ctx) }()
+	} else {
+		captureStopped <- nil
+	}
+	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped, <-captureStopped)
 	<-p.served
 	<-p.tunnelServed
+	if p.capture != nil {
+		<-p.captureServed
+	}
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()

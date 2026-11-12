@@ -184,6 +184,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		LookupEnv:     os.LookupEnv,
 
 		OriginalDestination: originalDestination,
+		SocketUser:          socketUser,
 		Console:             proxy.Console{Out: stdout, Terminal: terminal(asFile(stdout)), JSON: *f == "json"},
 	}, stopping{timeout: *shutdownTimeout, drainDelay: *drainDelay}, signals, reloads)
 }

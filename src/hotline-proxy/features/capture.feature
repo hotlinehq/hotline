@@ -10,12 +10,16 @@ Feature: The capture ingress
   each call inside like any other call, with hotline.ingress capture
   (Peter, 2026-11-10).
 
-  The proxy believes the capture headers only from this machine. From
-  anywhere else the CONNECT is an ordinary one. The tests need no Mac: the
-  test extension is a program that sends the same CONNECT.
+  The extension sends its CONNECT to a socket file of its own,
+  listen.capture, which only the proxy's user and root can open. The proxy
+  believes the capture headers only there, and only from a program that
+  runs as root, as the extension does. On the proxy port they are ignored
+  (Peter, 2026-11-12). The tests need no Mac: the test extension is a
+  program that sends the same CONNECT to the socket file.
 
   Background:
     Given an interception issuer named customer in issuers, which listen.connect picks
+    And listen.capture is a socket file
     And an app that trusts the interception issuer
 
   Rule: Captured calls are handled like any other call
@@ -105,15 +109,92 @@ Feature: The capture ingress
         | two process numbers                    |
         | a program path over 4096 bytes         |
 
-    Scenario: Capture headers from another machine are ignored
-      Given the proxy listens on all interfaces
-      When a program on another machine opens a tunnel to api.talon.one:443 with the capture headers for process 4242 at "/usr/bin/curl"
+    Scenario: Capture headers on the proxy port are ignored
+      Only the socket file is for captured connections, so no other program
+      on this machine, and nothing forwarded to the proxy port, can name a
+      program.
+      When a program on this machine opens a tunnel on the proxy port to api.talon.one:443 with the capture headers for process 4242 at "/usr/bin/curl"
       And the app sends its call
       Then the record says hotline.ingress connect and ID not-passed
       And the record names no program
 
+    Scenario: A program that does not run as root is refused
+      Given the program on the capture socket runs as user 501
+      When the extension sends a CONNECT to api.talon.one:443 with good capture headers
+      Then the proxy answers 403 with a Proxy-Status header
+      And the record says hotline.ingress capture and ID not-passed
+      And the record names no program
+      And nothing is sent to any vendor
+
+    Scenario: A CONNECT with a port that is not usable is refused
+      When the extension sends a CONNECT to api.talon.one:0 with good capture headers
+      Then the proxy answers 400 with a Proxy-Status header
+      And the record says hotline.ingress capture and ID not-passed
+      And nothing is sent to any vendor
+
+    Scenario: Only CONNECT is taken on the capture socket
+      When a program sends GET http://api.talon.one/ on the capture socket
+      Then the proxy answers 405 with a Proxy-Status header
+      And nothing is sent to any vendor
+
+  Rule: The socket file belongs to the proxy
+
+    Scenario: Only the proxy's own user can open the socket file
+      When the proxy starts
+      Then the capture socket file can be read and written by its owner only
+
+    Scenario: A socket file left by an earlier run is replaced
+      Given a socket file nobody listens on is left at the capture path
+      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
+      And the app sends its call
+      Then the record says hotline.ingress capture and ID not-passed
+
+    Scenario: A capture path another program listens on stops the proxy from starting
+      Given another program listens on the capture path
+      When the proxy loads the config
+      Then the proxy refuses the config, saying listen.capture is in use
+
+    Scenario: A plain file at the capture path is left alone
+      Given a plain file is at the capture path
+      When the proxy loads the config
+      Then the proxy refuses the config, saying is not a socket file, so the proxy leaves it
+      And the plain file at the capture path is unchanged
+
+    Scenario: A capture path whose folder cannot be made stops the proxy from starting
+      Given a plain file is where the capture path's folder should be
+      When the proxy loads the config
+      Then the proxy refuses the config, saying listen.capture
+
+    Scenario: A system that cannot tell who opens the socket file cannot use listen.capture
+      Given the system cannot tell which user opens a socket file
+      When the proxy loads the config
+      Then the proxy refuses the config, saying listen.capture cannot be used on this system
+
+    Scenario: The socket file is removed at stop
+      When the proxy starts
+      And the proxy stops
+      Then there is no file at the capture path
+
+  Rule: listen.capture is checked with the config
+
+    Scenario Outline: A wrong listen.capture is refused
+      Given listen.capture is <setting>
+      When the proxy loads the config
+      Then the proxy refuses the config, saying <problem>
+
+      Examples:
+        | setting                       | problem                                                          |
+        | set without listen.connect    | listen.capture needs listen.connect, whose issuer signs for the sites |
+        | a path of 120 bytes           | listen.capture: the path is longer than 103 bytes               |
+        | a relative path               | listen.capture must be an absolute path or start with ~/        |
+
+    Scenario: A path starting with ~/ is in the home folder
+      Given listen.capture is ~/hotline/capture.sock
+      When the proxy starts
+      Then the capture socket is at hotline/capture.sock in the home folder
+
   Rule: The extension's check that the proxy is there leaves no trace
 
     Scenario: A connection that sends nothing makes no record
-      When a program opens a connection to the proxy port and closes it without sending anything
+      When a program opens the capture socket and closes it without sending anything
       Then no record is sent

@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -28,15 +31,73 @@ const (
 
 var errBadCapture = errors.New("the capture headers are not usable")
 
-// isCaptured says whether a CONNECT came from the capture extension: it
-// carries the capture header and comes from this machine. From anywhere
-// else the header is ignored, so no other machine can name a program.
-func isCaptured(r *http.Request) bool {
-	if len(r.Header.Values(captureHeader)) == 0 {
-		return false
+// listenCapture opens the socket file of listen.capture, which the
+// capture extension sends its CONNECT to. A socket file left by an earlier
+// run is replaced; one another program still listens on, or a file that is
+// not a socket, stops the proxy. Only the proxy's own user, and root, can
+// open the file.
+func listenCapture(ctx context.Context, path string) (net.Listener, error) {
+	// A folder that cannot be made shows as the listen failing below.
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	if conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", path); err == nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("listen.capture is in use by another program: %s", path)
 	}
-	addr, err := netip.ParseAddrPort(r.RemoteAddr)
-	return err == nil && addr.Addr().Unmap().IsLoopback()
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("listen.capture: %s is not a socket file, so the proxy leaves it", path)
+		}
+		// A file that cannot be removed shows as the listen failing below.
+		_ = os.Remove(path)
+	}
+	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("listen.capture: %w", err)
+	}
+	// The root check in serveCapture is what keeps other programs out; the
+	// mode only keeps the file private, so a failure to set it is no reason
+	// to stop.
+	_ = os.Chmod(path, 0o600)
+	return l, nil
+}
+
+// socketUserKey holds the user of the program on the other end of a
+// connection to listen.capture, or -1 when it cannot be told.
+type socketUserKey struct{}
+
+// captureContext notes, for each connection to listen.capture, which user
+// runs the program that opened it.
+func captureContext(socketUser func(net.Conn) int) func(context.Context, net.Conn) context.Context {
+	return func(ctx context.Context, c net.Conn) context.Context {
+		return context.WithValue(ctx, socketUserKey{}, socketUser(c))
+	}
+}
+
+// serveCapture serves a connection to listen.capture. Only a CONNECT from
+// a program run by root, as the capture extension is, is taken; its
+// capture headers name the program behind the tunnel.
+func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
+	h.calls.Add(1)
+	defer h.calls.Done()
+	start := h.clock.Now()
+	id := integrationID(r.Header)
+	if r.Method != http.MethodConnect {
+		refuse(w, http.StatusMethodNotAllowed)
+		h.refused(r, start, "capture", id, nil, http.StatusMethodNotAllowed)
+		return
+	}
+	t, ok := parseTunnel(r)
+	if !ok {
+		refuse(w, http.StatusBadRequest)
+		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
+		return
+	}
+	if user, _ := r.Context().Value(socketUserKey{}).(int); user != 0 {
+		refuse(w, http.StatusForbidden)
+		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusForbidden)
+		return
+	}
+	h.captured(w, r, t, start)
 }
 
 // captureProcess reads the program from the capture headers. An unknown

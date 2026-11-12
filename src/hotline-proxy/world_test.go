@@ -166,6 +166,15 @@ type world struct {
 
 	// listenConnect, when set, is the listen.connect line of the config.
 	listenConnect string
+	// listenCapture, when set, is the listen.capture line of the config,
+	// and captureFile the socket file it names, to dial.
+	listenCapture string
+	captureFile   string
+	// socketUser is the user the program on the capture socket runs as: 0,
+	// root, unless a scenario says otherwise. With noSocketUser the system
+	// cannot tell.
+	socketUser   int
+	noSocketUser bool
 	// issuersSection is the config's issuers section, when it has one.
 	issuersSection string
 	// interception is the issuer in the listen.connect files, and second
@@ -408,6 +417,7 @@ func (w *world) config() string {
 	fmt.Fprintf(&b, "listen:\n  proxy: %q\n  admin: %q\n", w.addr, admin)
 	b.WriteString(w.listenTLS)
 	b.WriteString(w.listenConnect)
+	b.WriteString(w.listenCapture)
 	b.WriteString(w.interceptSection())
 	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
@@ -539,6 +549,10 @@ func (w *world) startOnce() error {
 	if w.clock != nil {
 		clock = w.clock
 	}
+	socketUser := func(net.Conn) int { return w.socketUser }
+	if w.noSocketUser {
+		socketUser = nil
+	}
 	w.proxy, w.startErr = proxy.Start(context.Background(), proxy.Options{
 		ConfigPath:    w.configPath,
 		Resolver:      w.network,
@@ -560,7 +574,8 @@ func (w *world) startOnce() error {
 			v, ok := w.env[name]
 			return v, ok
 		},
-		Console: proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON},
+		Console:    proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON},
+		SocketUser: socketUser,
 	})
 	return w.startErr
 }

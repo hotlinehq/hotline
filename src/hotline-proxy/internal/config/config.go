@@ -49,6 +49,10 @@ type Config struct {
 	// Intercept, when set, makes a port of its own an ingress for
 	// connections a firewall redirected to the proxy.
 	Intercept *Intercept
+	// CapturePath, when set, is the socket file the macOS capture
+	// extension sends its CONNECT to, with ~/ already read as the home
+	// folder.
+	CapturePath string
 	// Issuers are the named issuers of the issuers section, each checked
 	// to be an issuer, used or not.
 	Issuers   map[string]*TLS
@@ -245,6 +249,7 @@ type file struct {
 		TLS       *pairFile      `yaml:"tls"`
 		Connect   *connectFile   `yaml:"connect"`
 		Intercept *interceptFile `yaml:"intercept"`
+		Capture   string         `yaml:"capture"`
 	} `yaml:"listen"`
 	// Issuers are certificate authorities the proxy signs with, each
 	// written once under a name that the ingresses pick.
@@ -495,6 +500,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	}
 	if t := f.Listen.Intercept; t != nil {
 		c.Intercept = l.intercept(t, c.Issuers, f.Issuers)
+	}
+	if f.Listen.Capture != "" {
+		c.CapturePath = l.capture(f.Listen.Capture, f.Listen.Connect != nil)
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -1015,4 +1023,32 @@ func (l *loader) size(label, text string, def int64) int64 {
 		l.problem("%s must be at least 1 byte", label)
 	}
 	return n * unit
+}
+
+// maxSocketPath is the longest path a socket file may have: macOS keeps
+// at most 104 bytes, the last one ending the path.
+const maxSocketPath = 103
+
+// capture checks listen.capture: an absolute path, or one in the home
+// folder, short enough for a socket file. Its tunnels are intercepted, so
+// it needs the issuer of listen.connect.
+func (l *loader) capture(path string, connect bool) string {
+	if !connect {
+		l.problem("listen.capture needs listen.connect, whose issuer signs for the sites")
+	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		// Without HOME, or with a relative one, the path is relative and
+		// refused below.
+		home, _ := l.lookupEnv("HOME")
+		path = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(path) {
+		l.problem("listen.capture must be an absolute path or start with ~/")
+		return ""
+	}
+	if len(path) > maxSocketPath {
+		l.problem("listen.capture: the path is longer than %d bytes", maxSocketPath)
+		return ""
+	}
+	return path
 }

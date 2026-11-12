@@ -122,6 +122,9 @@ func needRestart(old, cfg *config.Config) []string {
 	if (old.Intercept == nil) != (cfg.Intercept == nil) || old.Intercept != nil && old.Intercept.Address != cfg.Intercept.Address {
 		changed = append(changed, "listen.intercept")
 	}
+	if old.CapturePath != cfg.CapturePath {
+		changed = append(changed, "listen.capture")
+	}
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) || !reflect.DeepEqual(old.FileExporters, cfg.FileExporters) || !reflect.DeepEqual(old.Console, cfg.Console) {
 		changed = append(changed, "exporters")
 	}
