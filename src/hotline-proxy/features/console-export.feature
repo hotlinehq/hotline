@@ -47,6 +47,13 @@ Feature: Printing every call to the console
     When a call to a host without an api ends
     Then the first line ends with "not-passed: PUT https://api.other.test/v1/things?q=1"
 
+  Scenario: A call with no spec shows its whole address under content full
+    Given a file exporter
+    And the not-passed entry has content full
+    And the app sends no integration ID
+    When a call to a host without an api ends
+    Then the first line ends with "not-passed: PUT https://api.other.test/v1/things?q=1"
+
   Scenario: A call with a spec shows the address as its record has it, with secrets hidden
     The console never shows more of the address than the record holds
     (Peter, 2026-11-12).

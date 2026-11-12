@@ -96,6 +96,20 @@ Feature: Building the request record
     When the app talon-shop-a calls https://user:pass@api.stripe.com:443/v1/charges, outside its apis
     Then url.full is "https://api.stripe.com:443/v1/charges"
 
+  Scenario: content full switches url.full on too
+    Full content already writes the whole address to the file, so the
+    record carries it everywhere else as well (Peter, 2026-11-12).
+    Given a file exporter
+    And integration talon-shop-a with an api for api.talon.one, with content full
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
+  Scenario: content full on the not-passed entry switches url.full on for a call with no ID
+    Given a file exporter
+    And the not-passed entry has content full
+    When a call with no integration ID goes to https://api.stripe.com/v1/charges?limit=3
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
   Scenario: Switching it on for one integration leaves the others alone
     Given integration talon-shop-a with an api for api.talon.one, with urlFull on
     And integration talon-shop-b with an api for api.talon.one

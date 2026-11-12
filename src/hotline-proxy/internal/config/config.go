@@ -131,8 +131,12 @@ type FileExporter struct {
 // URLFull says whether a minimal record of this integration's call carries
 // url.full, the address as sent. It is off unless the integration, or the
 // not-passed entry for those that say nothing, switches it on (Peter,
-// 2026-11-08).
+// 2026-11-08). Full content switches it on too: the file already gets the
+// whole address, so every record carries it (Peter, 2026-11-12).
 func (c *Config) URLFull(integrationID string) bool {
+	if c.Content(integrationID).Full {
+		return true
+	}
 	if on, ok := c.urlFull[integrationID]; ok {
 		return on
 	}

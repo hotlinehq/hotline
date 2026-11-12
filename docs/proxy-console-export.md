@@ -25,7 +25,7 @@ A console exporter may stand alone or next to `otlp` and `file` exporters. There
                     << 502 Bad Gateway connection_refused 1.1 ms
 ```
 
-- The request line: the call's time, the integration, the method and the address as the record has it (`url.full`), so a secret in the query is shown as `REDACTED`, as in the record. A call with no spec shows only its host, unless its integration has `urlFull` on (Peter, 2026-11-12).
+- The request line: the call's time, the integration, the method and the address as the record has it (`url.full`), so a secret in the query is shown as `REDACTED`, as in the record. A call with no spec shows only its host, unless its integration has `urlFull` or `content: full` on (Peter, 2026-11-12).
 - The reply line: `<<` ends just before the method. Then the status and its name, the proxy's failure when there is one (the record's `error.type`), the reply's size, the total time, and the check status when the call has a spec.
 - The findings line, for an invalid call: what the checks found on each side, written "part place rule expected", never a value from the call.
 - No headers, no bodies, no spans, no metrics. `content: full` never reaches the console.
