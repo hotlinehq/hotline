@@ -118,9 +118,7 @@ func (c *call) record(end time.Time) finished {
 			full = c.withBodies(c.withContent(attrs))
 		}
 	}
-	return finished{
-		sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full, address: c.sentAddress(),
-	}
+	return finished{sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full}
 }
 
 // withContent is a new record with every attribute of attrs but the
@@ -239,8 +237,6 @@ type finished struct {
 	spans []export.Span
 	// full, when set, is the record file exporters get instead of attrs.
 	full []attribute.KeyValue
-	// address is the address as the app sent it, for the console.
-	address string
 }
 
 // recordLater is the one way every call is recorded: in the background,
@@ -254,7 +250,7 @@ func (h *handler) recordLater(build func() finished) {
 	go func() {
 		defer h.calls.Done()
 		f := build()
-		h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full, Address: f.address})
+		h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full})
 		h.own.ended(f.attrs)
 	}()
 }

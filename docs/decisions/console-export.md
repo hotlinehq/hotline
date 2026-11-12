@@ -9,3 +9,4 @@ Full wording in [docs/proxy-console-export.md](../proxy-console-export.md). Requ
 5. Every value from a call is escaped before printing. The proxy's logs stay on standard error.
 6. One console exporter at most; lines wait in a bounded queue and are printed at once.
 7. Every command takes `--format console|json` (Peter, 2026-11-12). `console`, the default, writes the program's own lines as plain coloured lines on standard error. `json` makes everything JSON: the logs, `version`, and the console exporter's calls (the file exporter's line, without `content: full`). The Docker image and the Kubernetes sidecar add `--format json`.
+8. The console never shows more of a call's address than its record holds (Peter, 2026-11-12): the record's `url.full`, with secrets hidden, else only the host. A call with no spec shows its whole address only when `urlFull` is on; `content: full` switches `urlFull` on too, for every record.

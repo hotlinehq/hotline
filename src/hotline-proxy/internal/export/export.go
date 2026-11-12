@@ -92,9 +92,6 @@ type Call struct {
 	// Full, when set, is the record file exporters get instead: under
 	// content: full, with every header, the bodies and its own signature.
 	Full []attribute.KeyValue
-	// Address is the address the call went to, as the app sent it, for
-	// the console.
-	Address string
 }
 
 // fileInterval is how long a call line waits at most before it is

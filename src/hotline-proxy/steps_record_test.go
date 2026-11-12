@@ -138,6 +138,14 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		w.addIntegration("  - id: not-passed\n    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
 		return nil
 	})
+	sc.Step(`^integration (\S+) with an api for (\S+), with content full$`, func(id, host string) error {
+		w.addIntegration(integration(id, w.apiFor(host, "")) + "    content: full\n")
+		return nil
+	})
+	sc.Step(`^the not-passed entry has content full$`, func() error {
+		w.addIntegration("  - id: not-passed\n    content: full\n")
+		return nil
+	})
 	sc.Step(`^integration (\S+) with an api for (\S+), with urlFull (on|off)$`, func(id, host, state string) error {
 		w.addIntegration(integration(id, w.apiFor(host, "")) + "    urlFull: " + map[string]string{"on": "true", "off": "false"}[state] + "\n")
 		return nil

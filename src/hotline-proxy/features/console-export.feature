@@ -32,11 +32,37 @@ Feature: Printing every call to the console
     Then the console has 2 lines
     And the second line starts with "<< 502 Bad Gateway connection_refused"
 
-  Scenario: A call with no spec has no check status
+  Scenario: A call with no spec shows only its host, and no check status
+    Its record has no address, as there is no spec to say what to hide.
+
     When a call to a host without an api ends
     Then the console has 2 lines
-    And the first line ends with "talon-shop-a: PUT https://api.other.test/v1/things?q=1"
+    And the first line ends with "talon-shop-a: PUT api.other.test"
+    And the console does not hold "q=1"
     And the second line has no check status
+
+  Scenario: A call with no spec shows its whole address when urlFull is on
+    Given the not-passed entry has urlFull on
+    And the app sends no integration ID
+    When a call to a host without an api ends
+    Then the first line ends with "not-passed: PUT https://api.other.test/v1/things?q=1"
+
+  Scenario: A call with no spec shows its whole address under content full
+    Given a file exporter
+    And the not-passed entry has content full
+    And the app sends no integration ID
+    When a call to a host without an api ends
+    Then the first line ends with "not-passed: PUT https://api.other.test/v1/things?q=1"
+
+  Scenario: A call with a spec shows the address as its record has it, with secrets hidden
+    The console never shows more of the address than the record holds
+    (Peter, 2026-11-12).
+
+    Given standard output is not a terminal, with the environment variable COLUMNS 120
+    And the vendor answers 200 and the json body {"orders":[]}
+    When the app sends GET /orders?limit=5&api_key=sk_live_123
+    Then the first line ends with "talon-shop-a: GET https://api.shop.test/orders?limit=REDACTED&api_key=REDACTED"
+    And the console does not hold "sk_live_123"
 
   Scenario: A console exporter alone
     Given no OTLP exporter
@@ -133,7 +159,9 @@ Feature: Printing every call to the console
       | not a terminal                                            | 55     |
 
   Scenario Outline: Characters that could change the terminal are escaped
-    When the app sends GET /orders with <what> in the query
+    Given the not-passed entry has urlFull on
+    And the app sends no integration ID
+    When a call to a host without an api ends, with <what> in the query
     Then the first line shows it as <shown>
     And the console holds no character that could change the terminal
 

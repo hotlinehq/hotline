@@ -123,9 +123,9 @@ func (l *consoleLines) word(text string, codes ...string) {
 func (c *consoleDestination) lines(call Call) []byte {
 	l := &consoleLines{color: c.color}
 	var (
-		id, method, failure, checked, host string
-		status, size, took                 int64 = 0, -1, 0
-		found                              []string
+		id, method, failure, checked, host, address string
+		status, size, took                          int64 = 0, -1, 0
+		found                                       []string
 	)
 	for _, kv := range call.Attrs {
 		switch kv.Key {
@@ -133,6 +133,8 @@ func (c *consoleDestination) lines(call Call) []byte {
 			id = printable(kv.Value.AsString())
 		case semconv.ServerAddressKey:
 			host = kv.Value.AsString()
+		case semconv.URLFullKey:
+			address = kv.Value.AsString()
 		case semconv.HTTPRequestMethodKey:
 			method = printable(kv.Value.AsString())
 		case semconv.HTTPResponseStatusCodeKey:
@@ -158,8 +160,10 @@ func (c *consoleDestination) lines(call Call) []byte {
 	l.b.WriteString(": ")
 	l.style(method, bold, methodColour(method))
 	l.b.WriteString(" ")
-	// A connection that never became a call has only its host.
-	l.style(cut(printable(cmp.Or(call.Address, host)), c.width()), bold)
+	// The address as the record has it, with its secrets hidden, or else
+	// the host: the console never shows more than the record holds (Peter,
+	// 2026-11-12).
+	l.style(cut(printable(cmp.Or(address, host)), c.width()), bold)
 	l.b.WriteString("\n")
 
 	// "<< " ends just before the method, as in mitmdump.
