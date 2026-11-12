@@ -58,6 +58,27 @@ var _ = Describe("Plain log lines", func() {
 		Expect(out.String()).To(HaveSuffix(` path="a b\u009b\u202e"` + "\n"))
 	})
 
+	It("names a group's fields after the group, and an unnamed group's fields as they are", func() {
+		logger("never").Info("called", slog.Group("request", "method", "GET"), slog.Group("", "size", 3))
+		Expect(out.String()).To(HaveSuffix("  request.method=GET size=3\n"))
+	})
+
+	It("ignores a group with no name and a field with no name and no value", func() {
+		h := logger("never").Handler().WithGroup("").WithAttrs([]slog.Attr{{}})
+		slog.New(h).Info("started", "address", "x")
+		Expect(out.String()).To(HaveSuffix("started  address=x\n"))
+	})
+
+	It("writes a reason after the message and a colon", func() {
+		logger("never").Warn("config warning", "reason", "there is no listen.admin address")
+		Expect(out.String()).To(MatchRegexp(`^\d\d:\d\d:\d\d\.\d{3} WARN  config warning: there is no listen\.admin address\n$`))
+	})
+
+	It("quotes a value that holds a character that could change the terminal", func() {
+		logger("never").Info("called", "path", "a\u009bb")
+		Expect(out.String()).To(HaveSuffix(` path="a\u009bb"` + "\n"))
+	})
+
 	DescribeTable("colours a level by the range it falls in",
 		func(level slog.Level, want string) {
 			logger("always").Log(context.Background(), level, "x")

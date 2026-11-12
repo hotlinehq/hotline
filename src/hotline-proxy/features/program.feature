@@ -69,10 +69,15 @@ Feature: The hotline-proxy program
       | validate --config hotline-proxy.yaml     |
       | overlay --from from.yaml --to to.yaml    |
 
-  Scenario: Help is printed on request
-    When hotline-proxy is run with "run --help"
+  Scenario Outline: Help is printed on request
+    When hotline-proxy is run with "<command> --help"
     Then it exits with code 0
-    And standard error says "-shutdown-timeout"
+    And standard error says "<flag>"
+
+    Examples:
+      | command | flag              |
+      | run     | -shutdown-timeout |
+      | version | -format           |
 
   Scenario Outline: A wrong command line is refused with exit code 2
     When hotline-proxy is run with "<arguments>"

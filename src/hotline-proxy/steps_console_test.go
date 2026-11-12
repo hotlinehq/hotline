@@ -110,8 +110,8 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		return w.shopCall("GET", "/orders?note=a"+raw+"b", true, "", "", "")
 	})
 
-	sc.Step(`^the vendor answers 200 with (the control character 9B|the right-to-left mark 202E) in the X-Request-Id header$`, func(what string) error {
-		raw := map[string]string{"the control character 9B": "\u009b", "the right-to-left mark 202E": "\u202e"}[what]
+	sc.Step(`^the vendor answers 200 with (the control character 9B|the right-to-left mark 202E|the language tag E0001) in the X-Request-Id header$`, func(what string) error {
+		raw := map[string]string{"the control character 9B": "\u009b", "the right-to-left mark 202E": "\u202e", "the language tag E0001": "\U000e0001"}[what]
 		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("X-Request-Id", "a"+raw+"b")

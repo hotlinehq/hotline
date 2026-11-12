@@ -157,6 +157,7 @@ Feature: Printing every call to the console
       | what                        |
       | the control character 9B    |
       | the right-to-left mark 202E |
+      | the language tag E0001      |
 
   Scenario: A write that fails is counted
     Given standard output is closed
