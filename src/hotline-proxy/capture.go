@@ -25,8 +25,10 @@ const (
 	captureProgramHeader = "Hotline-Capture-Program"
 	// maxProgram is the longest program path a record takes; the
 	// extension sends none longer.
-	maxProgram     = 4096
-	captureVersion = "1"
+	maxProgram = 4096
+	// captureVersion 2 goes over listen.capture; 1 went to the proxy
+	// port and is refused (Peter, 2026-11-12).
+	captureVersion = "2"
 )
 
 var (

@@ -103,6 +103,7 @@ Feature: The capture ingress
       Examples:
         | headers                                |
         | an unknown capture version             |
+        | capture version 1, from before the socket file |
         | a process number that is not a number  |
         | process number 0                       |
         | the capture header twice               |

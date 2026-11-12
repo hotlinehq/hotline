@@ -186,7 +186,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		}
 		defer func() { _ = conn.Close() }()
 		host := strings.TrimPrefix(p.vendorURL, "https://")
-		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nHotline-Capture: 1\r\nHotline-Capture-Pid: 4242\r\n\r\n", host, host)
+		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nHotline-Capture: 2\r\nHotline-Capture-Pid: 4242\r\n\r\n", host, host)
 		if err != nil {
 			return err
 		}

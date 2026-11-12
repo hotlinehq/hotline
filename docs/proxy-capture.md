@@ -10,12 +10,12 @@ For each captured connection, a standard CONNECT, sent over the socket file, to 
 CONNECT 93.184.215.14:443 HTTP/1.1
 Host: 93.184.215.14:443
 User-Agent: HotlineCapture/0.1.4
-Hotline-Capture: 1
+Hotline-Capture: 2
 Hotline-Capture-Pid: 4242
 Hotline-Capture-Program: /usr/bin/curl
 ```
 
-`Hotline-Capture` is the version, now 1. The User-Agent names the extension's release; the proxy does not record it. The full contract is `docs/protocol.md` of `hotline-macos-capture`; change both together. The app list never reaches the proxy: Hotline gives it to the helper at start.
+`Hotline-Capture` is the version, now 2, which goes over the socket file. Version 1, sent to the proxy port by extension 0.1.x, is refused like any unknown version. The User-Agent names the extension's release; the proxy does not record it. The full contract is `docs/protocol.md` of `hotline-macos-capture`; change both together. The app list never reaches the proxy: Hotline gives it to the helper at start.
 
 ## How the proxy handles it
 

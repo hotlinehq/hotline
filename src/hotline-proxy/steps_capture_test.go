@@ -135,7 +135,7 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 
 // captureHeaders are the headers the extension adds to its CONNECT.
 func captureHeaders(pid, path string) []string {
-	return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
+	return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
 }
 
 // oddCaptureHeaders are capture headers that are not usable, by what is
@@ -145,17 +145,19 @@ func oddCaptureHeaders(kind string) []string {
 	case "good capture headers":
 		return captureHeaders("4242", "/usr/bin/curl")
 	case "an unknown capture version":
-		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 4242"}
+		return []string{"Hotline-Capture: 3", "Hotline-Capture-Pid: 4242"}
+	case "capture version 1, from before the socket file":
+		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 4242"}
 	case "a process number that is not a number":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: curl"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: curl"}
 	case "process number 0":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 0"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 0"}
 	case "the capture header twice":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture: 1"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture: 2"}
 	case "two process numbers":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 1", "Hotline-Capture-Pid: 2"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 1", "Hotline-Capture-Pid: 2"}
 	case "a program path over 4096 bytes":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Program: /" + strings.Repeat("a", 4096)}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Program: /" + strings.Repeat("a", 4096)}
 	}
 	return nil
 }
