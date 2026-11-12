@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -424,8 +424,11 @@ func (w *world) captureSection() string {
 	if w.captureIssuer != "" {
 		issuer = w.captureIssuer
 	}
-	passthrough, _ := json.Marshal(w.capturePassthrough)
-	return fmt.Sprintf("  capture: { path: %q, %spassthrough: %s }\n", cmp.Or(w.capturePath, w.captureFile), issuer, passthrough)
+	quoted := make([]string, len(w.capturePassthrough))
+	for i, name := range w.capturePassthrough {
+		quoted[i] = strconv.Quote(name)
+	}
+	return fmt.Sprintf("  capture: { path: %q, %spassthrough: [%s] }\n", cmp.Or(w.capturePath, w.captureFile), issuer, strings.Join(quoted, ", "))
 }
 
 func (w *world) config() string {
