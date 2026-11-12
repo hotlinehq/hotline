@@ -2,6 +2,7 @@ package export_test
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -59,7 +60,7 @@ var _ = Describe("Plain log lines", func() {
 
 	DescribeTable("colours a level by the range it falls in",
 		func(level slog.Level, want string) {
-			logger("always").Log(nil, level, "x")
+			logger("always").Log(context.Background(), level, "x")
 			Expect(out.String()).To(ContainSubstring(want))
 		},
 		Entry("below debug", slog.LevelDebug-4, "\x1b[2mDEBUG-4\x1b[0m"),
