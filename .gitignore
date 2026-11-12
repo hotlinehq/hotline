@@ -1,5 +1,6 @@
 .idea
 cover.out
+metrics-cover.out
 cover.func.txt
 .DS_Store
 /src/otelcol-dev/builder
