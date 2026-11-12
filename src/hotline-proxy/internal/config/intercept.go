@@ -18,6 +18,17 @@ type Intercept struct {
 	ECHRelay []string
 }
 
+// Capture is listen.capture, the ingress of the macOS capture extension.
+type Capture struct {
+	// Path is the socket file the extension sends its CONNECT to, with ~/
+	// already read as the home folder.
+	Path string
+	// Issuer signs the certificates shown for each site.
+	Issuer *TLS
+	// Passthrough lists sites relayed untouched.
+	Passthrough Passthrough
+}
+
 // Passes says whether host is relayed untouched: it is listed in
 // passthrough, exactly or by a "*." suffix.
 func (i *Intercept) Passes(host string) bool {

@@ -94,4 +94,5 @@ Feature: Reloading the config without a restart
       | listen.tls is added                   | listen.tls    |
       | listen.connect is added               | listen.connect |
       | listen.intercept is added             | listen.intercept |
+      | listen.capture is added               | listen.capture |
       | telemetry.pprof is turned on          | telemetry.pprof |

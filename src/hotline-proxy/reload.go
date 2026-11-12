@@ -97,6 +97,9 @@ func (p *Proxy) load() {
 	if p.handler.redirected != nil && cfg.Intercept != nil {
 		p.handler.redirected.issuer.set(cfg.Intercept.Issuer)
 	}
+	if p.handler.capture != nil && cfg.Capture != nil {
+		p.handler.capture.issuer.set(cfg.Capture.Issuer)
+	}
 	p.handler.cfg.Store(cfg)
 	p.handler.checks.resize(cfg.CheckQueueMemory)
 	r.own.reloaded(true, len(needRestart(r.started, cfg)) > 0)
@@ -121,6 +124,9 @@ func needRestart(old, cfg *config.Config) []string {
 	}
 	if (old.Intercept == nil) != (cfg.Intercept == nil) || old.Intercept != nil && old.Intercept.Address != cfg.Intercept.Address {
 		changed = append(changed, "listen.intercept")
+	}
+	if (old.Capture == nil) != (cfg.Capture == nil) || old.Capture != nil && old.Capture.Path != cfg.Capture.Path {
+		changed = append(changed, "listen.capture")
 	}
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) || !reflect.DeepEqual(old.FileExporters, cfg.FileExporters) || !reflect.DeepEqual(old.Console, cfg.Console) {
 		changed = append(changed, "exporters")

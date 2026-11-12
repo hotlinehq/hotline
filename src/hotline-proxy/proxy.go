@@ -119,6 +119,10 @@ type Proxy struct {
 	// the config has it.
 	redirectedListener net.Listener
 	redirectedServed   chan struct{}
+	// capture serves listen.capture, the capture extension's socket file,
+	// when the config has it.
+	capture       *http.Server
+	captureServed chan struct{}
 }
 
 // Start loads the config, listens on its proxy address and serves calls
@@ -130,9 +134,14 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
-	if err != nil {
-		return nil, err
+	// Without listen.proxy, as on a Mac that takes only captured
+	// connections, the proxy opens no port of its own.
+	var listener net.Listener
+	if cfg.ProxyAddr != "" {
+		listener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// The admin port listens only once the config is loaded and the proxy
 	// port listens, so until then Kubernetes finds the proxy not ready.
@@ -140,7 +149,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.AdminAddr != "" {
 		adminListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.AdminAddr)
 		if err != nil {
-			_ = listener.Close()
+			closeAll(listener)
 			return nil, err
 		}
 	}
@@ -148,10 +157,15 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	if cfg.Intercept != nil {
 		redirectedListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Intercept.Address)
 		if err != nil {
-			_ = listener.Close()
-			if adminListener != nil {
-				_ = adminListener.Close()
-			}
+			closeAll(listener, adminListener)
+			return nil, err
+		}
+	}
+	var captureListener net.Listener
+	if cfg.Capture != nil {
+		captureListener, err = listenCapture(ctx, cfg.Capture.Path)
+		if err != nil {
+			closeAll(listener, adminListener, redirectedListener)
 			return nil, err
 		}
 	}
@@ -161,11 +175,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
 		export.Console{Out: o.Console.Out, Terminal: o.Console.Terminal, LookupEnv: o.LookupEnv, JSON: o.Console.JSON}, o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
-		for _, l := range []net.Listener{listener, adminListener, redirectedListener} {
-			if l != nil {
-				_ = l.Close()
-			}
-		}
+		closeAll(listener, adminListener, redirectedListener, captureListener)
 		_ = telemetry.Shutdown(ctx)
 		return nil, err
 	}
@@ -187,6 +197,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	if redirectedListener != nil {
 		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
+	}
+	if captureListener != nil {
+		h.capture = newInterceptor(cfg.Capture.Issuer, o.Clock, o.Logger)
 	}
 	// Both listen.intercept and listen.connect relay passthrough sites.
 	h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
@@ -231,10 +244,16 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	p.reload = &reloader{path: o.ConfigPath, clock: o.Clock, lookupEnv: o.LookupEnv, logger: o.Logger, own: h.own, started: cfg}
 	h.own.observe(p)
 	p.reload.seen = stat(cfg.Files)
+	address := "none"
 	go func() {
 		defer close(p.served)
-		_ = p.server.Serve(port)
+		if port != nil {
+			_ = p.server.Serve(port)
+		}
 	}()
+	if listener != nil {
+		address = listener.Addr().String()
+	}
 	go func() {
 		defer close(p.tunnelServed)
 		_ = p.tunnelServer.Serve(h.tunnels)
@@ -246,14 +265,35 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 			h.serveIntercept(redirectedListener, o.OriginalDestination)
 		}()
 	}
+	if captureListener != nil {
+		p.capture = &http.Server{
+			Handler:           http.HandlerFunc(h.serveCapture),
+			ReadHeaderTimeout: 30 * time.Second,
+			ErrorLog:          log.New(serverLog{logger: o.Logger}, "", 0),
+		}
+		p.captureServed = make(chan struct{})
+		go func() {
+			defer close(p.captureServed)
+			_ = p.capture.Serve(captureListener)
+		}()
+	}
 	if adminListener != nil {
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
 	for _, w := range cfg.Warnings {
 		o.Logger.Warn("config warning", "reason", w)
 	}
-	o.Logger.Info("hotline proxy started", "address", listener.Addr().String(), "config_version", cfg.Label())
+	o.Logger.Info("hotline proxy started", "address", address, "config_version", cfg.Label())
 	return p, nil
+}
+
+// closeAll closes the listeners opened so far, when the proxy cannot start.
+func closeAll(listeners ...net.Listener) {
+	for _, l := range listeners {
+		if l != nil {
+			_ = l.Close()
+		}
+	}
 }
 
 func newTransport(o Options, allowInternal bool) *http.Transport {
@@ -336,9 +376,18 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	}
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.server.Shutdown(ctx) }()
-	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped)
+	captureStopped := make(chan error, 1)
+	if p.capture != nil {
+		go func() { captureStopped <- p.capture.Shutdown(ctx) }()
+	} else {
+		captureStopped <- nil
+	}
+	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped, <-captureStopped)
 	<-p.served
 	<-p.tunnelServed
+	if p.capture != nil {
+		<-p.captureServed
+	}
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()

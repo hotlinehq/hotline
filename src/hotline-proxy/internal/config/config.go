@@ -49,6 +49,9 @@ type Config struct {
 	// Intercept, when set, makes a port of its own an ingress for
 	// connections a firewall redirected to the proxy.
 	Intercept *Intercept
+	// Capture, when set, makes a socket file an ingress for the macOS
+	// capture extension.
+	Capture *Capture
 	// Issuers are the named issuers of the issuers section, each checked
 	// to be an issuer, used or not.
 	Issuers   map[string]*TLS
@@ -245,6 +248,7 @@ type file struct {
 		TLS       *pairFile      `yaml:"tls"`
 		Connect   *connectFile   `yaml:"connect"`
 		Intercept *interceptFile `yaml:"intercept"`
+		Capture   *captureFile   `yaml:"capture"`
 	} `yaml:"listen"`
 	// Issuers are certificate authorities the proxy signs with, each
 	// written once under a name that the ingresses pick.
@@ -351,6 +355,14 @@ type pairFile struct {
 	Key  string `yaml:"key"`
 }
 
+// captureFile is listen.capture: the socket file, the issuer it signs
+// with, and the sites it relays untouched.
+type captureFile struct {
+	Path        string   `yaml:"path"`
+	Issuer      string   `yaml:"issuer"`
+	Passthrough []string `yaml:"passthrough"`
+}
+
 // connectFile is listen.connect: the name of the issuer it signs with.
 type connectFile struct {
 	Issuer      string   `yaml:"issuer"`
@@ -455,9 +467,6 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		urlFull:      map[string]bool{},
 		content:      map[string]Content{},
 	}
-	if f.Listen.Proxy == "" {
-		l.problem("there is no listen.proxy address")
-	}
 	if f.Listen.Admin == "" {
 		c.Warnings = append(c.Warnings, "there is no listen.admin address, so the proxy has no health checks")
 	}
@@ -485,16 +494,20 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 				l.problem("listen.connect names the issuer %s, which is not in issuers", t.Issuer)
 			}
 		}
-		for _, name := range t.Passthrough {
-			if validPattern(name, true) {
-				c.ConnectPassthrough = append(c.ConnectPassthrough, strings.ToLower(name))
-			} else {
-				l.problem("listen.connect: passthrough %q must be a host name or %q and a suffix", name, "*.")
-			}
-		}
+		c.ConnectPassthrough = l.passthrough("listen.connect", t.Passthrough)
 	}
 	if t := f.Listen.Intercept; t != nil {
 		c.Intercept = l.intercept(t, c.Issuers, f.Issuers)
+	}
+	if t := f.Listen.Capture; t != nil {
+		c.Capture = l.capture(t, c.Issuers, f.Issuers)
+	}
+	switch {
+	case f.Listen.Proxy != "":
+	case f.Listen.TLS != nil || f.Listen.Connect != nil:
+		l.problem("listen.tls and listen.connect need a listen.proxy address")
+	case f.Listen.Intercept == nil && f.Listen.Capture == nil:
+		l.problem("there is no listen.proxy address, and no listen.intercept or listen.capture")
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -828,21 +841,8 @@ func (l *loader) intercept(f *interceptFile, issuers map[string]*TLS, written ma
 	if f.Address == "" {
 		l.problem("listen.intercept needs an address")
 	}
-	switch _, known := written[f.Issuer]; {
-	case f.Issuer == "":
-		l.problem("listen.intercept must name an issuer, as issuer: name")
-	case !known:
-		l.problem("listen.intercept names the issuer %s, which is not in issuers", f.Issuer)
-	default:
-		i.Issuer = issuers[f.Issuer]
-	}
-	for _, name := range f.Passthrough {
-		if validPattern(name, true) {
-			i.Passthrough = append(i.Passthrough, strings.ToLower(name))
-		} else {
-			l.problem("listen.intercept: passthrough %q must be a host name or %q and a suffix", name, "*.")
-		}
-	}
+	i.Issuer = l.issuer("listen.intercept", f.Issuer, issuers, written)
+	i.Passthrough = l.passthrough("listen.intercept", f.Passthrough)
 	for _, name := range f.ECH.Relay {
 		if validPattern(name, false) {
 			i.ECHRelay = append(i.ECHRelay, strings.ToLower(name))
@@ -851,6 +851,31 @@ func (l *loader) intercept(f *interceptFile, issuers map[string]*TLS, written ma
 		}
 	}
 	return i
+}
+
+// issuer finds the issuer an ingress names in the issuers section.
+func (l *loader) issuer(label, name string, issuers map[string]*TLS, written map[string]*pairFile) *TLS {
+	switch _, known := written[name]; {
+	case name == "":
+		l.problem("%s must name an issuer, as issuer: name", label)
+	case !known:
+		l.problem("%s names the issuer %s, which is not in issuers", label, name)
+	}
+	return issuers[name]
+}
+
+// passthrough reads the sites an ingress relays untouched: host names, or
+// "*." and a suffix.
+func (l *loader) passthrough(label string, names []string) Passthrough {
+	var p Passthrough
+	for _, name := range names {
+		if validPattern(name, true) {
+			p = append(p, strings.ToLower(name))
+		} else {
+			l.problem("%s: passthrough %q must be a host name or %q and a suffix", label, name, "*.")
+		}
+	}
+	return p
 }
 
 // validPattern says whether name is a host name, or with wild set also "*."
@@ -1015,4 +1040,37 @@ func (l *loader) size(label, text string, def int64) int64 {
 		l.problem("%s must be at least 1 byte", label)
 	}
 	return n * unit
+}
+
+// maxSocketPath is the longest path a socket file may have: macOS keeps
+// at most 104 bytes, the last one ending the path.
+const maxSocketPath = 103
+
+// capture checks listen.capture: an absolute path, or one in the home
+// folder, short enough for a socket file, and the issuer that signs for
+// the sites in its tunnels.
+func (l *loader) capture(f *captureFile, issuers map[string]*TLS, written map[string]*pairFile) *Capture {
+	return &Capture{
+		Path:        l.capturePath(f.Path),
+		Issuer:      l.issuer("listen.capture", f.Issuer, issuers, written),
+		Passthrough: l.passthrough("listen.capture", f.Passthrough),
+	}
+}
+
+func (l *loader) capturePath(path string) string {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		// Without HOME, or with a relative one, the path is relative and
+		// refused below.
+		home, _ := l.lookupEnv("HOME")
+		path = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(path) {
+		l.problem("listen.capture must be an absolute path or start with ~/")
+		return ""
+	}
+	if len(path) > maxSocketPath {
+		l.problem("listen.capture: the path is longer than %d bytes", maxSocketPath)
+		return ""
+	}
+	return path
 }

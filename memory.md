@@ -58,7 +58,7 @@ Open only the file for the topic at hand.
 - Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Console exporter (two coloured lines per call on standard output, like mitmdump): [docs/decisions/console-export.md](docs/decisions/console-export.md)
-- Capture ingress (macOS, chosen apps, as a CONNECT with capture headers; `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)
+- Capture ingress (macOS, chosen apps, as a CONNECT with capture headers on the socket file listen.capture; `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)
 - AWS and SQS: [docs/decisions/aws-sqs.md](docs/decisions/aws-sqs.md)
 - SQS example: [docs/decisions/sqs-example.md](docs/decisions/sqs-example.md)
 - Shop example on Floci (a free local AWS, Terraform, a workflow, full traffic to a file, Grafana Cloud): [docs/decisions/floci-example.md](docs/decisions/floci-example.md)

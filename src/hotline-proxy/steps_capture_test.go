@@ -17,7 +17,7 @@ import (
 )
 
 func captureSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the extension opens a captured tunnel to (the address of )?(\S+):(\d+) for process (\d+) at "([^"]*)" and the app names (no site|\S+) in the handshake$`,
+	sc.Step(`^the extension (?:opens|has opened) a captured tunnel to (the address of )?(\S+):(\d+) for process (\d+) at "([^"]*)" and the app names (no site|\S+) in the handshake$`,
 		func(address, host, port, pid, path, name string) error {
 			dest := host
 			if address != "" {
@@ -40,17 +40,17 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 			w.vendor(host)
 			return w.captureTunnel(host, port, captureHeaders(pid, path), "", []byte("GET / HTTP/1.1\r\nHost: "+host+"\r\n\r\n"))
 		})
-	sc.Step(`^the extension sends a CONNECT to api.talon.one:443 with (.+)$`, func(headers string) error {
+	sc.Step(`^the extension sends a CONNECT to (api.talon.one:443|api.talon.one:0) with (.+)$`, func(target, headers string) error {
 		if err := w.start(); err != nil {
 			return err
 		}
 		w.vendor("api.talon.one")
-		conn, err := w.dialProxy()
+		conn, err := w.dialCapture()
 		if err != nil {
 			return err
 		}
 		w.tunnels = append(w.tunnels, conn)
-		return w.sendConnect(conn, "api.talon.one:443", oddCaptureHeaders(headers))
+		return w.sendConnect(conn, target, oddCaptureHeaders(headers))
 	})
 	sc.Step(`^the record says the program is process (\d+) at "([^"]*)"$`, func(pid, path string) error {
 		if err := w.lastHas("process.pid", pid); err != nil {
@@ -97,23 +97,13 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the proxy listens on all interfaces$`, func() error {
-		_, port, _ := net.SplitHostPort(freePort())
-		w.addr = "0.0.0.0:" + port
-		return nil
-	})
-	sc.Step(`^a program on another machine opens a tunnel to (\S+):(\d+) with the capture headers for process (\d+) at "([^"]*)"$`,
+	sc.Step(`^a program on this machine opens a tunnel on the proxy port to (\S+):(\d+) with the capture headers for process (\d+) at "([^"]*)"$`,
 		func(host, port, pid, path string) error {
 			if err := w.start(); err != nil {
 				return err
 			}
 			w.vendor(host)
-			outside, err := machineAddress()
-			if err != nil {
-				return err
-			}
-			_, proxyPort, _ := net.SplitHostPort(w.addr)
-			conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", net.JoinHostPort(outside, proxyPort))
+			conn, err := w.dialProxy()
 			if err != nil {
 				return err
 			}
@@ -128,11 +118,11 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 			return nil
 		})
 
-	sc.Step(`^a program opens a connection to the proxy port and closes it without sending anything$`, func() error {
+	sc.Step(`^a program opens the capture socket and closes it without sending anything$`, func() error {
 		if err := w.start(); err != nil {
 			return err
 		}
-		conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", w.addr)
+		conn, err := w.dialCapture()
 		if err != nil {
 			return err
 		}
@@ -145,25 +135,29 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 
 // captureHeaders are the headers the extension adds to its CONNECT.
 func captureHeaders(pid, path string) []string {
-	return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
+	return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: " + pid, "Hotline-Capture-Program: " + path}
 }
 
 // oddCaptureHeaders are capture headers that are not usable, by what is
 // wrong with them.
 func oddCaptureHeaders(kind string) []string {
 	switch kind {
+	case "good capture headers":
+		return captureHeaders("4242", "/usr/bin/curl")
 	case "an unknown capture version":
-		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 4242"}
+		return []string{"Hotline-Capture: 3", "Hotline-Capture-Pid: 4242"}
+	case "capture version 1, from before the socket file":
+		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 4242"}
 	case "a process number that is not a number":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: curl"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: curl"}
 	case "process number 0":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 0"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 0"}
 	case "the capture header twice":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture: 1"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture: 2"}
 	case "two process numbers":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Pid: 1", "Hotline-Capture-Pid: 2"}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Pid: 1", "Hotline-Capture-Pid: 2"}
 	case "a program path over 4096 bytes":
-		return []string{"Hotline-Capture: 1", "Hotline-Capture-Program: /" + strings.Repeat("a", 4096)}
+		return []string{"Hotline-Capture: 2", "Hotline-Capture-Program: /" + strings.Repeat("a", 4096)}
 	}
 	return nil
 }
@@ -200,7 +194,7 @@ func (w *world) captureTunnel(host, port string, headers []string, site string, 
 	if err := w.start(); err != nil {
 		return err
 	}
-	conn, err := w.dialProxy()
+	conn, err := w.dialCapture()
 	if err != nil {
 		return err
 	}
@@ -246,19 +240,4 @@ func (w *world) captureTunnel(host, port string, headers []string, site string, 
 		w.tunnel = client
 	}
 	return nil
-}
-
-// machineAddress is an address of this machine that is not loopback, for a
-// connection that comes from outside as far as the proxy can tell.
-func machineAddress() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-	for _, a := range addrs {
-		if ip, ok := a.(*net.IPNet); ok && !ip.IP.IsLoopback() && ip.IP.To4() != nil {
-			return ip.IP.String(), nil
-		}
-	}
-	return "", failf("this machine has no address other than loopback")
 }

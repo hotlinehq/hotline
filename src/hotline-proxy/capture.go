@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -22,21 +25,81 @@ const (
 	captureProgramHeader = "Hotline-Capture-Program"
 	// maxProgram is the longest program path a record takes; the
 	// extension sends none longer.
-	maxProgram     = 4096
-	captureVersion = "1"
+	maxProgram = 4096
+	// captureVersion 2 goes over listen.capture; 1 went to the proxy
+	// port and is refused (Peter, 2026-11-12).
+	captureVersion = "2"
 )
 
-var errBadCapture = errors.New("the capture headers are not usable")
+var (
+	errBadCapture = errors.New("the capture headers are not usable")
+	// errCaptureInUse and errNotSocket stop the proxy from starting on a
+	// capture path that is not its own.
+	errCaptureInUse = errors.New("listen.capture is in use by another program")
+	errNotSocket    = errors.New("is not a socket file, so the proxy leaves it")
+)
 
-// isCaptured says whether a CONNECT came from the capture extension: it
-// carries the capture header and comes from this machine. From anywhere
-// else the header is ignored, so no other machine can name a program.
-func isCaptured(r *http.Request) bool {
-	if len(r.Header.Values(captureHeader)) == 0 {
-		return false
+// listenCapture opens the socket file of listen.capture, which the
+// capture extension sends its CONNECT to. A socket file left by an earlier
+// run is replaced; one another program still listens on, or a file that is
+// not a socket, stops the proxy. Only the proxy's own user, and root, can
+// open the file.
+func listenCapture(ctx context.Context, path string) (net.Listener, error) {
+	// A folder that cannot be made shows as the listen failing below.
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	if conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", path); err == nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: %s", errCaptureInUse, path)
 	}
-	addr, err := netip.ParseAddrPort(r.RemoteAddr)
-	return err == nil && addr.Addr().Unmap().IsLoopback()
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("listen.capture: %s %w", path, errNotSocket)
+		}
+		// A file that cannot be removed shows as the listen failing below.
+		_ = os.Remove(path)
+	}
+	l, err := (&net.ListenConfig{}).Listen(ctx, "unix", path)
+	if err == nil {
+		// The mode is what keeps other users out: only the proxy's own
+		// user, and root, as the capture extension runs, can open the file.
+		err = os.Chmod(path, 0o600)
+	}
+	if err != nil {
+		closeAll(l)
+		return nil, fmt.Errorf("listen.capture: %w", err)
+	}
+	return l, nil
+}
+
+// serveCapture serves a connection to listen.capture. Only a CONNECT is
+// taken; its capture headers name the program behind the tunnel. Only the
+// proxy's own user and root can open the socket file, so the headers are
+// believed (Peter, 2026-11-12).
+func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
+	h.calls.Add(1)
+	defer h.calls.Done()
+	start := h.clock.Now()
+	id := integrationID(r.Header)
+	if r.Method != http.MethodConnect {
+		refuse(w, http.StatusMethodNotAllowed)
+		h.refused(r, start, "capture", id, nil, http.StatusMethodNotAllowed)
+		return
+	}
+	t, ok := parseTunnel(r)
+	if !ok {
+		refuse(w, http.StatusBadRequest)
+		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
+		return
+	}
+	// A reload that took listen.capture out of the config leaves the
+	// socket file open until a restart, taking no more tunnels.
+	c := h.cfg.Load().Capture
+	if c == nil {
+		refuse(w, http.StatusServiceUnavailable)
+		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusServiceUnavailable)
+		return
+	}
+	h.captured(w, r, t, c, start)
 }
 
 // captureProcess reads the program from the capture headers. An unknown
@@ -67,7 +130,7 @@ func captureProcess(h http.Header) (process, error) {
 // an app's connection as the app sent it, to the address the app called, so
 // it is served like an intercepted connection: the site name comes from the
 // TLS handshake, with the CONNECT's host when the handshake names none.
-func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, start time.Time) {
+func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, c *config.Capture, start time.Time) {
 	p, err := captureProcess(r.Header)
 	if err != nil {
 		refuse(w, http.StatusBadRequest)
@@ -77,8 +140,8 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, st
 	// A tunnel has no list of ECH outer names to relay: an empty list relays
 	// none, so a program offering ECH sees it rejected and retries without.
 	src := &source{
-		ingress: "capture", id: t.id, passes: h.cfg.Load().ConnectPassthrough.Passes, relays: config.Passthrough(nil).Passes,
-		certificate: h.intercept, port: t.port, fallback: t.host, process: p,
+		ingress: "capture", id: t.id, passes: c.Passthrough.Passes, relays: config.Passthrough(nil).Passes,
+		certificate: h.capture, port: t.port, fallback: t.host, process: p,
 	}
 	conn, done := open(w, r)
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))

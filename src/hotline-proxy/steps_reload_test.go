@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -157,6 +158,9 @@ func (w *world) changeConfig(change string) error {
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
 	case "listen.connect is added":
 		w.useInterceptionIssuer(newIssuer())
+	case "listen.capture is added":
+		w.useInterceptionIssuer(newIssuer())
+		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	default:
 		return godog.ErrPending
 	}

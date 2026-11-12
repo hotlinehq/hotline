@@ -70,19 +70,13 @@ func (p process) attributes() []attribute.KeyValue {
 // to the HTTP server like any other app connection, and each call in it is
 // a call on the CONNECT ingress.
 func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time) {
-	t := &tunnel{id: integrationID(r.Header)}
-	var err error
-	t.host, t.port, err = net.SplitHostPort(r.Host)
-	if port, _ := strconv.Atoi(t.port); err != nil || t.host == "" || port < 1 || port > 65535 {
+	t, ok := parseTunnel(r)
+	if !ok {
 		refuse(w, http.StatusBadRequest)
 		h.refused(r, start, "connect", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
-	t.host = strings.ToLower(t.host)
-	if isCaptured(r) {
-		h.captured(w, r, t, start)
-		return
-	}
+	var err error
 	conn, done := open(w, r)
 	if h.cfg.Load().ConnectPassthrough.Passes(t.host) {
 		h.passedThrough(conn, t, start)
@@ -113,6 +107,19 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 		h.tunnels.hand(a)
 	}
 	<-done
+}
+
+// parseTunnel reads the host and port a CONNECT names, and its integration
+// ID. A host or port that is not usable is refused.
+func parseTunnel(r *http.Request) (*tunnel, bool) {
+	t := &tunnel{id: integrationID(r.Header)}
+	var err error
+	t.host, t.port, err = net.SplitHostPort(r.Host)
+	if port, _ := strconv.Atoi(t.port); err != nil || t.host == "" || port < 1 || port > 65535 {
+		return t, false
+	}
+	t.host = strings.ToLower(t.host)
+	return t, true
 }
 
 // open answers 200 to a CONNECT and gives the tunnel as a connection.
