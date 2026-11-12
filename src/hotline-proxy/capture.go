@@ -29,7 +29,16 @@ const (
 	captureVersion = "1"
 )
 
-var errBadCapture = errors.New("the capture headers are not usable")
+var (
+	errBadCapture = errors.New("the capture headers are not usable")
+	// errCaptureInUse and errNotSocket stop the proxy from starting on a
+	// capture path that is not its own.
+	errCaptureInUse = errors.New("listen.capture is in use by another program")
+	errNotSocket    = errors.New("is not a socket file, so the proxy leaves it")
+	// errNoSocketUser stops listen.capture on a system that cannot tell
+	// who opens the socket file.
+	errNoSocketUser = errors.New("listen.capture cannot be used on this system, which does not tell the proxy who opens the socket file")
+)
 
 // listenCapture opens the socket file of listen.capture, which the
 // capture extension sends its CONNECT to. A socket file left by an earlier
@@ -41,11 +50,11 @@ func listenCapture(ctx context.Context, path string) (net.Listener, error) {
 	_ = os.MkdirAll(filepath.Dir(path), 0o700)
 	if conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", path); err == nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("listen.capture is in use by another program: %s", path)
+		return nil, fmt.Errorf("%w: %s", errCaptureInUse, path)
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("listen.capture: %s is not a socket file, so the proxy leaves it", path)
+			return nil, fmt.Errorf("listen.capture: %s %w", path, errNotSocket)
 		}
 		// A file that cannot be removed shows as the listen failing below.
 		_ = os.Remove(path)

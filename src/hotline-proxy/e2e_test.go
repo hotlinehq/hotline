@@ -192,8 +192,13 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		// Only the status is read: after a 200 the tunnel stays open.
-		p.resp, err = http.ReadResponse(bufio.NewReader(conn), nil)
-		return err
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			return err
+		}
+		_ = resp.Body.Close()
+		p.resp = resp
+		return nil
 	})
 	sc.Step(`^the program takes the CONNECT when this test runs as root, and refuses it with 403 otherwise$`, func() error {
 		want := http.StatusForbidden
@@ -201,7 +206,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 			want = http.StatusOK
 		}
 		if p.resp.StatusCode != want {
-			return fmt.Errorf("the program answered %d, not %d, to user %d", p.resp.StatusCode, want, os.Getuid())
+			return failf("the program answered %d, not %d, to user %d", p.resp.StatusCode, want, os.Getuid())
 		}
 		return nil
 	})

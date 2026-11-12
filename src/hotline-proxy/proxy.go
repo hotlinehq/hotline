@@ -168,7 +168,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	var captureListener net.Listener
 	if cfg.CapturePath != "" {
 		if o.SocketUser == nil {
-			err = errors.New("listen.capture cannot be used on this system, which does not tell the proxy who opens the socket file")
+			err = errNoSocketUser
 		} else {
 			captureListener, err = listenCapture(ctx, cfg.CapturePath)
 		}
