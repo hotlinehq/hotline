@@ -343,8 +343,12 @@ func printVersion(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("hotline-proxy version", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	f := formatFlag(flags)
-	if code, ok := parse(flags, args, stderr); !ok {
-		return code
+	// Words after the flags are ignored, as before --format was added.
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		return exitUsage
 	}
 	if *f == "json" {
 		_ = json.NewEncoder(stdout).Encode(struct { //nolint:errchkjson // two strings always encode, and a failed write to standard output is ignored, as for the line

@@ -44,6 +44,14 @@ Feature: The hotline-proxy program
     Then it exits with code 0
     And standard output is "hotline-proxy 0123456789abcdef0123456789abcdef01234567"
 
+  Scenario: The version command ignores extra arguments
+    A script that probes the version with an extra word still gets it, as
+    before --format was added.
+
+    When hotline-proxy is run with "version x"
+    Then it exits with code 0
+    And standard output starts with "hotline-proxy "
+
   Scenario: With --format json, the version is a JSON object
     Given hotline-proxy is built with version "v0.1.0" and commit "0123456789abcdef0123456789abcdef01234567"
     When hotline-proxy is run with "version --format json"
@@ -61,10 +69,15 @@ Feature: The hotline-proxy program
       | validate --config hotline-proxy.yaml     |
       | overlay --from from.yaml --to to.yaml    |
 
-  Scenario: Help is printed on request
-    When hotline-proxy is run with "run --help"
+  Scenario Outline: Help is printed on request
+    When hotline-proxy is run with "<command> --help"
     Then it exits with code 0
-    And standard error says "-shutdown-timeout"
+    And standard error says "<flag>"
+
+    Examples:
+      | command | flag              |
+      | run     | -shutdown-timeout |
+      | version | -format           |
 
   Scenario Outline: A wrong command line is refused with exit code 2
     When hotline-proxy is run with "<arguments>"

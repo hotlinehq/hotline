@@ -190,7 +190,7 @@ func New(exporters []config.Exporter, files []config.FileExporter, console *conf
 		up := &atomic.Int64{}
 		up.Store(1)
 		label := attribute.String("hotline.exporter", "console")
-		s.console = newConsole(console, out, s.lineResource, queueSetup{
+		s.console = newConsole(console, out, queueSetup{
 			endpoint: "console", size: consoleQueueSize, interval: fileInterval, eager: true, logger: logger, up: up,
 			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
 		})
@@ -295,24 +295,40 @@ func (s *Sink) Call(ctx context.Context, c Call) {
 		s.record(ctx, c.At, c.Attrs)
 		s.trace(c.Trace, c.Spans)
 	}
-	if s.console != nil {
+	// The file exporters' line, with every header when content is full.
+	var line []byte
+	if len(s.files) > 0 {
+		attrs := c.Attrs
+		if c.Full != nil {
+			attrs = c.Full
+		}
+		line = s.line(c, attrs)
+		for _, f := range s.files {
+			f.queue.add(line)
+		}
+	}
+	switch {
+	case s.console == nil:
+	case s.console.out.JSON:
+		// The record every exporter gets, never content: full. It is the
+		// file exporters' line when that has no more.
+		if line == nil || c.Full != nil {
+			line = s.line(c, c.Attrs)
+		}
+		s.console.queue.add(terminalSafe(line))
+	default:
 		s.console.queue.add(s.console.lines(c))
 	}
-	if len(s.files) == 0 {
-		return
-	}
-	attrs := c.Attrs
-	if c.Full != nil {
-		attrs = c.Full
-	}
+}
+
+// line is the call as one line of JSON.
+func (s *Sink) line(c Call, attrs []attribute.KeyValue) []byte {
 	buf := s.lines.Get().(*bytes.Buffer)
 	buf.Reset()
 	appendLine(buf, s.lineResource, c, attrs)
 	line := slices.Clone(buf.Bytes())
 	s.lines.Put(buf)
-	for _, f := range s.files {
-		f.queue.add(line)
-	}
+	return line
 }
 
 // record queues one hotline.request log record and counts the call. It

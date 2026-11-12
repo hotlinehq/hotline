@@ -57,7 +57,7 @@ By default (`--format console`) the proxy's own logs are plain lines too, not JS
 07:48:03.662 INFO  hotline proxy started  address=127.0.0.1:8080 config_version=hotline-proxy.yaml+5692399ece3d
 ```
 
-Each line has the time, the level (WARN yellow, ERROR red, DEBUG dim), the message, a reason or problem after a colon, and the other fields as `name=value` with dim names. `run`, `validate` and `overlay` all write this way.
+Each line has the time, the level (WARN yellow, ERROR red, DEBUG dim), the message, a reason or problem after a colon, and the other fields as `name=value` with dim names. A value that is empty or holds a space, an equals sign or a quote is put in quotes, `error="open /x y: no such file"`, so it cannot be read as more fields. The console exporter's `color` setting is for the calls on standard output only; the logs follow standard error and `NO_COLOR`. `run`, `validate` and `overlay` all write this way.
 
 ## --format json
 
@@ -65,7 +65,7 @@ With `--format json` everything is JSON (Peter, 2026-11-12): the proxy's own log
 
 ## Safety and speed
 
-- Every value that came with a call is escaped before it is printed: control characters as `\u009b`, bytes that are not UTF-8 as `\xff`. A crafted address cannot move the cursor or change the terminal's colours.
+- Every value that came with a call is escaped before it is printed: control characters as `\u009b`, direction marks such as the right-to-left mark as `\u202e`, bytes that are not UTF-8 as `\xff`. A crafted address cannot move the cursor, change the terminal's colours or reorder the line. With `--format json` the same characters are escaped inside the JSON strings.
 - The proxy's own logs stay on standard error, so the two never mix.
 - A call's lines are printed together, at once, from a queue of at most 1,000 calls. When the terminal cannot keep up, the newest calls are dropped and counted, as with the other exporters, and a failed write is warned about. A call never waits for the console.
 - The program reads the terminal's width with `golang.org/x/sys`, which the proxy already used; no new module.

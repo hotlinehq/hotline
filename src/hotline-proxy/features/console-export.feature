@@ -141,6 +141,23 @@ Feature: Printing every call to the console
       | what                       | shown  |
       | the control character 9B   | \u009b |
       | the byte FF, not UTF-8     | \xff   |
+      | the right-to-left mark 202E | \u202e |
+
+  Scenario Outline: With --format json, characters that could change the terminal are escaped
+    JSON itself only escapes the characters below 20, so the console
+    escapes the rest of the control and direction characters too.
+
+    Given the program writes JSON
+    And the vendor answers 200 with <what> in the X-Request-Id header
+    When the app sends GET /orders
+    Then the console has 1 lines
+    And the console holds no character that could change the terminal
+
+    Examples:
+      | what                        |
+      | the control character 9B    |
+      | the right-to-left mark 202E |
+      | the language tag E0001      |
 
   Scenario: A write that fails is counted
     Given standard output is closed
