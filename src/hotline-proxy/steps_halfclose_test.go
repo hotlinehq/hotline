@@ -111,31 +111,22 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 }
 
 // startTalker makes host a talker on port 443, which runs talk on the one
-// connection it takes, over TLS.
+// connection it takes.
 func (w *world) startTalker(host string, talk func(c *tls.Conn, got chan<- string)) {
-	cert := w.issuer.leaf(host, time.Now().Add(24*time.Hour), false)
-	w.startPlainTalker(host, "443", func(raw net.Conn, got chan<- string) {
-		c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
-		defer func() { _ = c.Close() }()
-		talk(c, got)
-	})
-}
-
-// startPlainTalker makes host a server on port, which runs talk on the one
-// connection it takes, as plain bytes, and then closes it.
-func (w *world) startPlainTalker(host, port string, talk func(c net.Conn, got chan<- string)) {
 	ip := netip.MustParseAddr("192.0.2.250")
 	listener := listenLocal()
 	w.listeners = append(w.listeners, listener)
 	w.network.name(host, ip)
-	w.network.route(net.JoinHostPort(ip.String(), port), listener.Addr().String())
+	w.network.route(net.JoinHostPort(ip.String(), "443"), listener.Addr().String())
+	cert := w.issuer.leaf(host, time.Now().Add(24*time.Hour), false)
 	w.talker = &talker{got: make(chan string, 1)}
 	got := w.talker.got
 	go func() {
-		c, err := listener.Accept()
+		raw, err := listener.Accept()
 		if err != nil {
 			return
 		}
+		c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		defer func() { _ = c.Close() }()
 		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 		talk(c, got)
