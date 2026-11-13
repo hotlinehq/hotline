@@ -26,7 +26,7 @@ import (
 )
 
 func connectSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^an interception issuer named customer in issuers, which listen.connect picks$`, func() error {
+	sc.Step(`^an interception issuer named customer in certs, which the connect part picks$`, func() error {
 		w.useInterceptionIssuer(newIssuer())
 		return nil
 	})
@@ -290,55 +290,48 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the listen.connect cert is not an issuer certificate$`, func() error {
-		w.problem = "not an issuer"
+	sc.Step(`^the connect part cert is not an issuer certificate$`, func() error {
+		w.problem = "is not a certificate authority, so it cannot sign"
 		leaf := w.issuer.leaf("not-an-issuer", time.Now().Add(24*time.Hour), false)
 		w.writeFile("ca/cert.pem", certPEM(leaf))
 		w.writeFile("ca/key.pem", keyPEM(leaf))
 		return nil
 	})
-	sc.Step(`^the listen.connect key does not belong to its certificate$`, func() error {
+	sc.Step(`^the connect part key does not belong to its certificate$`, func() error {
 		w.problem = "not a matching certificate and key"
 		w.writeFile("ca/key.pem", issuerKeyPEM(newIssuer()))
 		return nil
 	})
-	sc.Step(`^the listen.connect issuer has already expired$`, func() error {
+	sc.Step(`^the connect part issuer has already expired$`, func() error {
 		w.problem = "expired"
 		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour)))
 		return nil
 	})
-	sc.Step(`^listen.connect has a cert file but no key file$`, func() error {
-		w.problem = "issuer customer needs both cert and key"
-		w.listenConnect = "  connect: { issuer: customer }\n"
-		w.issuersSection = "issuers:\n  customer: { cert: ./ca/cert.pem }\n"
+	sc.Step(`^the connect part has a cert file but no key file$`, func() error {
+		w.problem = "cert customer needs both cert and key"
+		w.listenConnect = "  connect: { cert: customer }\n"
+		w.issuersSection = "certs:\n  customer: { cert: ./ca/cert.pem }\n"
 		return nil
 	})
-	sc.Step(`^listen.connect names the issuer "([^"]*)", which is not in issuers$`, func(name string) error {
-		w.problem = "issuer " + name + ", which is not in issuers"
+	sc.Step(`^the connect part names the cert "([^"]*)", which is not in certs$`, func(name string) error {
+		w.problem = "names the cert " + name + ", which is not in certs"
 		w.useInterceptionIssuer(newIssuer())
-		w.listenConnect = "  connect: { issuer: " + name + " }\n"
-		return nil
-	})
-	sc.Step(`^listen.connect has the files of an issuer and no issuer name$`, func() error {
-		w.problem = "listen.connect must name an issuer"
-		w.useInterceptionIssuer(newIssuer())
-		w.listenConnect = "  connect: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+		w.listenConnect = "  connect: { cert: " + name + " }\n"
 		return nil
 	})
 	sc.Step(`^an issuer is written with no files$`, func() error {
-		w.problem = "issuer customer needs both cert and key"
+		w.problem = "cert customer needs both cert and key"
 		w.useInterceptionIssuer(newIssuer())
-		w.issuersSection = "issuers:\n  customer:\n"
+		w.issuersSection = "certs:\n  customer:\n"
 		return nil
 	})
-	sc.Step(`^listen.connect names no issuer$`, func() error {
-		w.problem = "listen.connect must name an issuer"
+	sc.Step(`^the connect part names no cert$`, func() error {
+		w.problem = "connect needs a cert, as cert: name, on it or on the listener"
 		w.useInterceptionIssuer(newIssuer())
 		w.listenConnect = "  connect: {}\n"
 		return nil
 	})
-	sc.Step(`^an issuer that listen.connect does not use is not an issuer certificate$`, func() error {
-		w.problem = "not an issuer"
+	sc.Step(`^a cert that nothing signs with is not a certificate authority$`, func() error {
 		w.useInterceptionIssuer(newIssuer())
 		leaf := w.issuer.leaf("not-an-issuer", time.Now().Add(24*time.Hour), false)
 		w.writeFile("ca/other-cert.pem", certPEM(leaf))
@@ -375,10 +368,10 @@ func signedHeaders() []string {
 	}
 }
 
-// useInterceptionIssuer writes an issuer to the listen.connect files.
+// useInterceptionIssuer writes an issuer to the connect part files.
 func (w *world) useInterceptionIssuer(i *issuer) {
 	w.useIssuer(i)
-	w.listenConnect = "  connect: { issuer: customer }\n"
+	w.listenConnect = "  connect: { cert: customer }\n"
 }
 
 // useIssuer writes an issuer to the files of the issuer named customer.
@@ -386,7 +379,7 @@ func (w *world) useIssuer(i *issuer) {
 	w.interception = i
 	w.writeFile("ca/cert.pem", issuerCertPEM(i))
 	w.writeFile("ca/key.pem", issuerKeyPEM(i))
-	w.issuersSection = "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+	w.issuersSection = "certs:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 }
 
 // callThroughProxy makes the app's call the way an app with HTTPS_PROXY

@@ -117,7 +117,7 @@ func ingressSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the proxy port uses TLS with a certificate the app trusts$`, func() error {
 		w.proxyCert = w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
-		w.listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		w.appTLS = w.appTLSConfig()
 		return nil
 	})

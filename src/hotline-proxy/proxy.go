@@ -112,7 +112,8 @@ func (c Console) export(lookupEnv func(string) (string, bool)) export.Console {
 
 // Proxy is a running proxy.
 type Proxy struct {
-	server *http.Server
+	// listeners are the config's listeners, open and served, by name.
+	listeners []*listening
 	// tunnelServer serves the calls inside tunnels opened by CONNECT.
 	tunnelServer *http.Server
 	handler      *handler
@@ -120,68 +121,40 @@ type Proxy struct {
 	sink         *export.Sink
 	// telemetry sends the proxy's own numbers.
 	telemetry    *export.Own
-	served       chan struct{}
 	tunnelServed chan struct{}
 	// admin serves the health checks, when the config names an admin
-	// address.
+	// address, and adminTLS is its certificate when it takes TLS.
 	admin       *http.Server
 	adminServed chan struct{}
+	adminTLS    *tlsHolder
 	// stopping is set from the first stop signal on, so /readyz says no.
 	stopping atomic.Bool
-	// appCert is the certificate of the proxy port, when it takes TLS.
-	appCert *certHolder
-	reload  *reloader
-	// redirectedListener takes the connections of listen.intercept, when
-	// the config has it.
-	redirectedListener net.Listener
-	redirectedServed   chan struct{}
-	// capture serves listen.capture, the capture extension's socket file,
-	// when the config has it.
-	capture       *http.Server
-	captureServed chan struct{}
+	reload   *reloader
 }
 
-// Start loads the config, listens on its proxy address and serves calls
-// until Shutdown. A config with problems is refused with all of them listed.
-// With listen.tls set, the proxy port accepts only TLS. With listen.connect
-// set, CONNECT is an ingress.
+// Start loads the config, opens its listeners and serves calls until
+// Shutdown. A config with problems is refused with all of them listed.
 func Start(ctx context.Context, o Options) (*Proxy, error) {
 	cfg, err := config.Load(o.ConfigPath, o.Clock.Now(), o.LookupEnv)
 	if err != nil {
 		return nil, err
 	}
-	// Without listen.proxy, as on a Mac that takes only captured
-	// connections, the proxy opens no port of its own.
-	var listener net.Listener
-	if cfg.ProxyAddr != "" {
-		listener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.ProxyAddr)
+	opened := make([]net.Listener, 0, len(cfg.Listeners))
+	for _, c := range cfg.Listeners {
+		l, err := openListener(ctx, c)
 		if err != nil {
+			closeAll(opened...)
 			return nil, err
 		}
+		opened = append(opened, l)
 	}
-	// The admin port listens only once the config is loaded and the proxy
-	// port listens, so until then Kubernetes finds the proxy not ready.
+	// The admin port listens only once the config is loaded and the
+	// listeners listen, so until then Kubernetes finds the proxy not ready.
 	var adminListener net.Listener
-	if cfg.AdminAddr != "" {
-		adminListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.AdminAddr)
+	if cfg.Admin != nil {
+		adminListener, err = openListener(ctx, &config.Listener{Name: "admin", Network: cfg.Admin.Network, Address: cfg.Admin.Address})
 		if err != nil {
-			closeAll(listener)
-			return nil, err
-		}
-	}
-	var redirectedListener net.Listener
-	if cfg.Intercept != nil {
-		redirectedListener, err = (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Intercept.Address)
-		if err != nil {
-			closeAll(listener, adminListener)
-			return nil, err
-		}
-	}
-	var captureListener net.Listener
-	if cfg.Capture != nil {
-		captureListener, err = listenCapture(ctx, cfg.Capture.Path)
-		if err != nil {
-			closeAll(listener, adminListener, redirectedListener)
+			closeAll(opened...)
 			return nil, err
 		}
 	}
@@ -191,7 +164,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	sink, err := export.New(cfg.Exporters, cfg.FileExporters, cfg.Console,
 		o.Console.export(o.LookupEnv), o.RootCAs, service, timing, o.Logger, telemetry.Meter())
 	if err != nil {
-		closeAll(listener, adminListener, redirectedListener, captureListener)
+		closeAll(append(opened, adminListener)...)
 		_ = telemetry.Shutdown(ctx)
 		return nil, err
 	}
@@ -208,98 +181,48 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		workers = runtime.GOMAXPROCS(0)
 	}
 	h.checks = newCheckLine(workers, cfg.CheckQueueMemory, o.Clock, h.own.checkDropped)
-	if cfg.Connect != nil {
-		h.intercept = newInterceptor(cfg.Connect, o.Clock, o.Logger)
-	}
-	if redirectedListener != nil {
-		h.redirected = newInterceptor(cfg.Intercept.Issuer, o.Clock, o.Logger)
-	}
-	if captureListener != nil {
-		h.capture = newInterceptor(cfg.Capture.Issuer, o.Clock, o.Logger)
-	}
-	// Both listen.intercept and listen.connect relay passthrough sites.
+	// Transparent and connect listeners relay passthrough sites.
 	h.relays = &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}
 	// Calls that may reach internal IPs get their own connections, so a
 	// connection opened for them is never reused for a call that may not.
 	h.transport = newTransport(o, false)
 	h.internal = newTransport(o, true)
-	// HTTP/1.1, and HTTP/2 from the first byte (prior knowledge), also
-	// after TLS, which the proxy sets up itself. The older Upgrade: h2c
-	// handshake is not offered.
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
-	protocols.SetHTTP2(true)
-	protocols.SetUnencryptedHTTP2(true)
-	h.tunnels = newTunnels(listener)
-	newServer := func() *http.Server {
-		return &http.Server{
-			Handler:           h,
-			Protocols:         protocols,
-			ReadHeaderTimeout: 30 * time.Second,
-			ErrorLog:          log.New(serverLog{logger: o.Logger}, "", 0),
-			ConnContext:       connContext,
-		}
-	}
+	h.tunnels = newTunnels()
+	newServer := func(handler http.Handler) *http.Server { return newHTTPServer(handler, o.Logger) }
 	p := &Proxy{
 		handler:      h,
-		server:       newServer(),
-		tunnelServer: newServer(),
+		tunnelServer: newServer(h),
 		transports:   []*http.Transport{h.transport, h.internal},
 		sink:         sink,
 		telemetry:    telemetry,
-		served:       make(chan struct{}),
 		tunnelServed: make(chan struct{}),
 	}
-	port := listener
-	if cfg.TLS != nil {
-		// The proxy sets up TLS itself, so the server sees plain
-		// connections.
-		p.appCert = newAppCert(cfg.TLS, o.Logger)
-		port = tlsOnlyListener{Listener: listener, config: p.appCert.tlsConfig(), clock: o.Clock, logger: o.Logger, own: h.own}
+	for i, c := range cfg.Listeners {
+		p.listeners = append(p.listeners, h.newListening(c, opened[i], newServer))
 	}
 	p.reload = &reloader{path: o.ConfigPath, clock: o.Clock, lookupEnv: o.LookupEnv, logger: o.Logger, own: h.own, started: cfg}
 	h.own.observe(p)
 	p.reload.seen = stat(cfg.Files)
-	address := "none"
-	go func() {
-		defer close(p.served)
-		if port != nil {
-			_ = p.server.Serve(port)
-		}
-	}()
-	if listener != nil {
-		address = listener.Addr().String()
-	}
 	go func() {
 		defer close(p.tunnelServed)
 		_ = p.tunnelServer.Serve(h.tunnels)
 	}()
-	if redirectedListener != nil {
-		p.redirectedListener, p.redirectedServed = redirectedListener, make(chan struct{})
-		go func() {
-			defer close(p.redirectedServed)
-			h.serveIntercept(redirectedListener, o.OriginalDestination)
-		}()
-	}
-	if captureListener != nil {
-		p.capture = &http.Server{
-			Handler:           http.HandlerFunc(h.serveCapture),
-			ReadHeaderTimeout: 30 * time.Second,
-			ErrorLog:          log.New(serverLog{logger: o.Logger}, "", 0),
-		}
-		p.captureServed = make(chan struct{})
-		go func() {
-			defer close(p.captureServed)
-			_ = p.capture.Serve(captureListener)
-		}()
+	addresses := make([]any, 0, 2*len(cfg.Listeners))
+	for _, li := range p.listeners {
+		li.serve(h, o.OriginalDestination, o)
+		addresses = append(addresses, "listener."+li.name, li.listener.Addr().String())
 	}
 	if adminListener != nil {
+		if cfg.Admin.TLS != nil {
+			p.adminTLS = newTLSHolder(cfg.Admin.TLS, o.Clock, o.Logger)
+			adminListener = tls.NewListener(adminListener, p.adminTLS.config())
+		}
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)
 	}
 	for _, w := range cfg.Warnings {
 		o.Logger.Warn("config warning", "reason", w)
 	}
-	o.Logger.Info("hotline proxy started", "address", address, "config_version", cfg.Label())
+	o.Logger.Info("hotline proxy started", append(addresses, "config_version", cfg.Label())...)
 	return p, nil
 }
 
@@ -383,27 +306,18 @@ func (p *Proxy) Drain() {
 // until the end, /readyz with no.
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.Drain()
-	// Both servers stop at once: a tunnel opened over HTTP/2 is a call on
-	// the proxy port that lasts until the tunnels' server closes the
-	// tunnel. Tunnels still being set up are cut short.
-	if p.redirectedListener != nil {
-		_ = p.redirectedListener.Close()
-		<-p.redirectedServed
+	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
+	// a listener that lasts until the tunnels' server closes the tunnel.
+	// Tunnels still being set up are cut short.
+	stopped := make(chan error, len(p.listeners))
+	for _, li := range p.listeners {
+		go func() { stopped <- li.shutdown(ctx) }()
 	}
-	stopped := make(chan error, 1)
-	go func() { stopped <- p.server.Shutdown(ctx) }()
-	captureStopped := make(chan error, 1)
-	if p.capture != nil {
-		go func() { captureStopped <- p.capture.Shutdown(ctx) }()
-	} else {
-		captureStopped <- nil
+	err := p.tunnelServer.Shutdown(ctx)
+	for range p.listeners {
+		err = errors.Join(err, <-stopped)
 	}
-	err := errors.Join(p.tunnelServer.Shutdown(ctx), <-stopped, <-captureStopped)
-	<-p.served
 	<-p.tunnelServed
-	if p.capture != nil {
-		<-p.captureServed
-	}
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()

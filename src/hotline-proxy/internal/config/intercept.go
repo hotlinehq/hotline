@@ -2,11 +2,9 @@ package config
 
 import "strings"
 
-// Intercept is listen.intercept: a port of its own for connections a
-// firewall redirected to the proxy, which carry no CONNECT.
+// Intercept is the transparent part of a listener: connections a firewall
+// sent to the proxy, which carry no CONNECT.
 type Intercept struct {
-	// Address is where the listener takes connections.
-	Address string
 	// Issuer signs the certificates shown for each site.
 	Issuer *TLS
 	// Integration is the ID of every call on the port; empty means
@@ -18,16 +16,21 @@ type Intercept struct {
 	ECHRelay []string
 }
 
-// Capture is listen.capture, the ingress of the macOS capture extension.
+// Capture is the capture part of a listener, the ingress of the macOS
+// capture extension.
 type Capture struct {
-	// Path is the socket file the extension sends its CONNECT to, with ~/
-	// already read as the home folder.
-	Path string
 	// Issuer signs the certificates shown for each site.
 	Issuer *TLS
 	// Passthrough lists sites relayed untouched.
 	Passthrough Passthrough
+	// ports are the ports, written as text, whose connections are read as
+	// calls. Every other port is relayed untouched (Peter, 2026-11-13).
+	ports map[string]bool
 }
+
+// HTTP says whether a captured connection to port is read as calls: TLS,
+// or else plain HTTP. Every other port is relayed untouched.
+func (c *Capture) HTTP(port string) bool { return c.ports[port] }
 
 // Passes says whether host is relayed untouched: it is listed in
 // passthrough, exactly or by a "*." suffix.

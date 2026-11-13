@@ -22,7 +22,7 @@ Feature: Finding the ingress
     When an app sends "PUT https://api.talon.one/v2/x" with the header "Host: other.example"
     Then the vendor is api.talon.one
 
-  Scenario: Without listen.connect, CONNECT is not an ingress
+  Scenario: Without the connect part, CONNECT is not an ingress
     The CONNECT ingress needs an issuer to sign the certificates it shows
     apps (see connect.feature).
     Given the proxy is running

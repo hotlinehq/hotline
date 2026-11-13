@@ -1,9 +1,11 @@
 # Full example config for the Hotline proxy (first version).
 # It points to the two specs in ./specs. See README.md here for a sample call.
 
-listen:
-  proxy: ":8080"                  # forward proxy, Host header, vendor URL in path
-  admin: ":8081"                  # health checks and admin endpoints only
+admin:
+  address: tcp://:8081              # health checks and admin endpoints only
+listeners:
+  apps:
+    address: tcp://:8080            # forward proxy, Host header, vendor URL in path
 
 exporters:                        # one or more; each gets the same data
   - otlp:

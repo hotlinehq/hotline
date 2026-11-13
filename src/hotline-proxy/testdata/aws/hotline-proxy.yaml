@@ -4,9 +4,11 @@
 # The end-to-end test runs the proxy with this file, changing only the
 # addresses, so what you read here is what the test checks.
 
-listen:
-  proxy: ":8080"                   # the app sets HOTLINE_PROXY=http://localhost:8080
-  admin: ":8081"
+admin:
+  address: tcp://:8081
+listeners:
+  apps:
+    address: tcp://:8080            # the app sets HOTLINE_PROXY=http://localhost:8080
 
 exporters:
   - otlp:

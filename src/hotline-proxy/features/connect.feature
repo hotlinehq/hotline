@@ -4,12 +4,12 @@ Feature: The CONNECT ingress, with interception
   ID in Proxy-Authorization, and the proxy answers 200. The app then sets up
   TLS inside the tunnel, and the proxy answers it itself, posing as the
   vendor: it shows a certificate for that host, made on the fly and signed
-  by the customer's own issuer. The issuer is written once in the issuers section, under a name, with two PEM files; listen.connect picks it with issuer: <name> (Peter, 2026-11-08). Every
+  by the customer's own issuer. The issuer is written once in the certs section, under a name, with two PEM files; the connect part picks it with cert: <name> (Peter, 2026-11-08). Every
   call inside the tunnel is then handled like a call on any other ingress,
   with hotline.ingress connect (Peter, 2026-10-29).
 
   Background:
-    Given an interception issuer named customer in issuers, which listen.connect picks
+    Given an interception issuer named customer in certs, which the connect part picks
     And an app that trusts the interception issuer
 
   Scenario: A call through a tunnel reaches the vendor unchanged
@@ -101,7 +101,7 @@ Feature: The CONNECT ingress, with interception
     The app reaches the proxy with an https proxy address, so the CONNECT
     request and the integration ID travel encrypted too.
     Given a proxy certificate for the name hotline-proxy from the test issuer
-    And a config file whose listen.tls points to its cert and key files
+    And a config file whose tls part points to its cert and key files
     When the app calls https://api.talon.one through an https proxy address as integration talon-shop-a
     Then the app gets the vendor's status, headers and body unchanged
     And the record says hotline.ingress connect and ID talon-shop-a
@@ -176,18 +176,22 @@ Feature: The CONNECT ingress, with interception
 
     Examples:
       | problem                                                  |
-      | the listen.connect cert is not an issuer certificate     |
-      | the listen.connect key does not belong to its certificate |
-      | the listen.connect issuer has already expired            |
-      | listen.connect has a cert file but no key file           |
-      | listen.connect names the issuer "missing", which is not in issuers |
-      | listen.connect has the files of an issuer and no issuer name |
+      | the connect part cert is not an issuer certificate     |
+      | the connect part key does not belong to its certificate |
+      | the connect part issuer has already expired            |
+      | the connect part has a cert file but no key file           |
+      | the connect part names the cert "missing", which is not in certs |
       | an issuer is written with no files                       |
-      | listen.connect names no issuer                           |
-      | an issuer that listen.connect does not use is not an issuer certificate |
+      | the connect part names no cert                           |
+
+  Scenario: A cert nothing signs with need not be a certificate authority
+    Whether a cert may sign is checked where it is used (Peter, 2026-11-13).
+    Given a cert that nothing signs with is not a certificate authority
+    When the proxy loads the config
+    Then it is accepted
 
   Scenario: An issuer is written once and used by name
-    Given an interception issuer named customer in issuers, which listen.connect picks
+    Given an interception issuer named customer in certs, which the connect part picks
     When the proxy starts
     Then the proxy is running
 

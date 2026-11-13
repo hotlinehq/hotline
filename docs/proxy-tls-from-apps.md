@@ -27,7 +27,7 @@ This feature encrypts the first connection. The app opens a TLS connection (an e
 
 ## Requirements
 
-1. **One port or two** (Peter, 2026-10-28). When `listen.tls` is set, the `proxy` port speaks only TLS. A plain request sent to it fails. A customer who wants both runs two proxies, or we add a second address later. Mixing both on one port means guessing from the first bytes, which is fragile.
+1. **One port or two** (Peter, 2026-10-28). When the `tls` part is set, that listener speaks only TLS. A plain request sent to it fails. A customer who wants both writes two listeners (since 2026-11-13). Mixing both on one port means guessing from the first bytes, which is fragile.
 2. **Where the certificate comes from** (Peter, 2026-10-28). Two files in PEM (the usual text format for certificates and keys), `cert` and `key`, the same way the vendor fingerprint keys are files. On Kubernetes they are a mounted Secret, typically written by cert-manager (the common Kubernetes tool that issues and renews certificates). Hotline never issues certificates itself. The `cert` file may hold the full chain (the proxy's certificate followed by the issuers in between).
 3. **How apps trust the proxy** (Peter, 2026-10-28). Hotline builds nothing for this and never makes its own (self-signed) certificate. The certificate comes from the customer's own internal issuer (certificate authority), and each app trusts that issuer the usual way for its language. The certificate's name must match the address the app uses. We document this with an example per client (Go, Node, Java, Rust) but build nothing for it. The proxy has one certificate and serves it whatever name the app asks for.
 4. **Renewing the certificate without a restart** (Peter, 2026-10-28). The proxy watches both files. When they change, it loads the new pair; new connections get the new certificate and open ones keep the old. A broken or mismatched pair is ignored: the old one stays and the proxy logs why. This matches how the fingerprint key files already work. cert-manager usually renews every 60 days or so, so a restart for each renewal would be a nuisance.
@@ -48,7 +48,7 @@ This feature encrypts the first connection. The app opens a TLS connection (an e
 
 ## How it is built
 
-- `listen.tls` is read in `internal/config`, which also checks the pair and its expiry. The same check runs at every renewal.
+- The `tls` part is read in `internal/config`, which also checks the pair and its expiry. The same check runs at every renewal.
 - The proxy shows its certificate through `GetCertificate`. On each new app connection it looks at the two files (two quick file lookups) and loads them again only when either is a new file or was written since. A Kubernetes Secret update swaps both files at once, which this sees.
 - A small wrapper on each new connection reads the first byte: TLS always starts with `0x16`. Anything else is answered `400` with `Proxy-Status: hotline; error=http_request_error` and closed. Go's own check only catches requests whose line starts with `GET /` and the like, not the full addresses of the forward proxy ingress.
 - An app gets 30 seconds to set up TLS, so a connection that never finishes the setup cannot stay open forever. Not asked for in the requirements; added because Go's server has no such limit on its own.

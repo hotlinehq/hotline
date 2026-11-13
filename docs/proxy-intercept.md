@@ -1,22 +1,25 @@
-# The intercept ingress
+# The transparent ingress
 
-For programs that cannot be told about a proxy. A firewall on the same machine sends their secure connections to the proxy's `listen.intercept` port, and the program never knows. The spec is `proxy-spec.md` in `hotline-strategic` (Peter, 2026-11-08).
+Since 2026-11-13 the config names each port in `listeners`; see [proxy-listeners.md](proxy-listeners.md).
+
+For programs that cannot be told about a proxy. A firewall on the same machine sends their secure connections to a proxy listener with the `transparent` part (once called `listen.intercept`), and the program never knows. The spec is `proxy-spec.md` in `hotline-strategic` (Peter, 2026-11-08).
 
 ## Config
 
 ```yaml
-listen:
-  intercept:
-    address: 127.0.0.1:8444        # a port of its own: raw TLS cannot share the proxy port
-    issuer: customer               # a name from the issuers section
-    integration: ci-lint           # the ID of every call on this port; not-passed if left out
-    passthrough: [pinned.example.com, "*.internal.example.com"]   # relayed untouched, empty by default
-    ech: { relay: [outer.example.net] }                            # ECH outer names relayed untouched, empty by default
-issuers:
+certs:
   customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }
+listeners:
+  sidecar:
+    address: tcp://127.0.0.1:8444    # a port of its own: raw TLS cannot share the proxy port
+    transparent:
+      cert: customer                 # a name from the certs section
+      integration: ci-lint           # the ID of every call on this port; not-passed if left out
+      passthrough: [pinned.example.com, "*.internal.example.com"]   # relayed untouched, empty by default
+      ech: { relay: [outer.example.net] }                            # ECH outer names relayed untouched, empty by default
 ```
 
-A missing address, a missing issuer or an issuer name that is not in `issuers` stops the start. Adding or moving the listener needs a restart; a renewed issuer is picked up by the config reload.
+A missing address, a missing cert or a cert name that is not in `certs` stops the start. Calls here say `hotline.ingress=transparent`. Adding or moving the listener needs a restart; a renewed issuer is picked up by the config reload.
 
 ## How a connection is handled
 

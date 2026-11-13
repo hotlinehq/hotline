@@ -1,9 +1,12 @@
 package proxy
 
 import (
+	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -88,17 +91,11 @@ func (p *Proxy) load() {
 	for _, w := range cfg.Warnings {
 		r.logger.Warn("config warning", "reason", w)
 	}
-	if p.appCert != nil && cfg.TLS != nil {
-		p.appCert.set(cfg.TLS)
+	if p.adminTLS != nil && cfg.Admin != nil && cfg.Admin.TLS != nil && cfg.Admin.TLS.Sign == r.started.Admin.TLS.Sign {
+		p.adminTLS.set(cfg.Admin.TLS)
 	}
-	if p.handler.intercept != nil && cfg.Connect != nil {
-		p.handler.intercept.issuer.set(cfg.Connect)
-	}
-	if p.handler.redirected != nil && cfg.Intercept != nil {
-		p.handler.redirected.issuer.set(cfg.Intercept.Issuer)
-	}
-	if p.handler.capture != nil && cfg.Capture != nil {
-		p.handler.capture.issuer.set(cfg.Capture.Issuer)
+	for _, li := range p.listeners {
+		li.reload(cfg.Listener(li.name))
 	}
 	p.handler.cfg.Store(cfg)
 	p.handler.checks.resize(cfg.CheckQueueMemory)
@@ -107,26 +104,25 @@ func (p *Proxy) load() {
 }
 
 // needRestart names the settings that changed but take effect only on a
-// restart: the addresses the proxy listens on, and where it sends records.
+// restart: the listeners added, removed or changed in shape, the admin
+// port, and where the proxy sends records.
 func needRestart(old, cfg *config.Config) []string {
 	var changed []string
-	if old.ProxyAddr != cfg.ProxyAddr {
-		changed = append(changed, "listen.proxy")
+	if adminShape(old.Admin) != adminShape(cfg.Admin) {
+		changed = append(changed, "admin")
 	}
-	if old.AdminAddr != cfg.AdminAddr {
-		changed = append(changed, "listen.admin")
+	shapes := map[string]string{}
+	for _, l := range old.Listeners {
+		shapes[l.Name] = l.Shape()
 	}
-	if (old.TLS == nil) != (cfg.TLS == nil) {
-		changed = append(changed, "listen.tls")
+	for _, l := range cfg.Listeners {
+		if before, kept := shapes[l.Name]; !kept || before != l.Shape() {
+			changed = append(changed, "listener "+l.Name)
+		}
+		delete(shapes, l.Name)
 	}
-	if (old.Connect == nil) != (cfg.Connect == nil) {
-		changed = append(changed, "listen.connect")
-	}
-	if (old.Intercept == nil) != (cfg.Intercept == nil) || old.Intercept != nil && old.Intercept.Address != cfg.Intercept.Address {
-		changed = append(changed, "listen.intercept")
-	}
-	if (old.Capture == nil) != (cfg.Capture == nil) || old.Capture != nil && old.Capture.Path != cfg.Capture.Path {
-		changed = append(changed, "listen.capture")
+	for _, name := range slices.Sorted(maps.Keys(shapes)) {
+		changed = append(changed, "listener "+name)
 	}
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) || !reflect.DeepEqual(old.FileExporters, cfg.FileExporters) || !reflect.DeepEqual(old.Console, cfg.Console) {
 		changed = append(changed, "exporters")
@@ -155,4 +151,12 @@ func stat(paths []string) map[string]os.FileInfo {
 func same(a, b os.FileInfo) bool {
 	return a == nil && b == nil ||
 		a != nil && b != nil && os.SameFile(a, b) && a.ModTime().Equal(b.ModTime()) && a.Size() == b.Size()
+}
+
+// adminShape is what a reload cannot change on the admin port.
+func adminShape(a *config.Admin) string {
+	if a == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s tls=%t sign=%t", a.URL(), a.TLS != nil, a.TLS != nil && a.TLS.Sign)
 }

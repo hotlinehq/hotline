@@ -110,16 +110,16 @@ Feature: The hotline-proxy program
     And standard error says "config is valid"
 
   Scenario: validate refuses a config whose TLS key file is missing
-    Given a config file whose listen.tls key file does not exist
+    Given a config file whose tls key file does not exist
     When hotline-proxy is run with "validate --config hotline-proxy.yaml"
     Then it exits with code 1
-    And standard error says "listen.tls: the cert or key file cannot be read"
+    And standard error says "cert app: the cert or key file cannot be read"
 
   Scenario: validate lists every problem of a config
-    Given a config file with no proxy listen address and no exporters
+    Given a config file with no listeners and no exporters
     When hotline-proxy is run with "validate --config hotline-proxy.yaml"
     Then it exits with code 1
-    And standard error says "ERROR config refused: config: invalid: there is no listen.proxy address"
+    And standard error says "ERROR config refused: config: invalid: there are no listeners, so the proxy would take no calls"
     And standard error says "ERROR config refused: config: invalid: there are no exporters"
 
   Scenario Outline: A trust file the program cannot use is refused
@@ -135,10 +135,10 @@ Feature: The hotline-proxy program
       | run      | a file trust.pem that holds no certificate | holds no certificate        |
 
   Scenario: run refuses a config with problems
-    Given a config file with no proxy listen address and no exporters
+    Given a config file with no listeners and no exporters
     When hotline-proxy is run with "run --config hotline-proxy.yaml"
     Then it exits with code 1
-    And standard error says "there is no listen.proxy address"
+    And standard error says "there are no listeners, so the proxy would take no calls"
 
   Scenario: run stops with exit code 1 when the proxy port is taken
     Given a valid config file
@@ -153,7 +153,7 @@ Feature: The hotline-proxy program
     When the program gets SIGTERM
     Then it exits with code 0
     And every line on standard error is a plain line with time, level and message
-    And standard error says "INFO  hotline proxy started  address="
+    And standard error says "INFO  hotline proxy started  listener.proxy="
 
   Scenario: run --format json logs to standard error as JSON
     The image and the Kubernetes sidecar run with --format json, for log

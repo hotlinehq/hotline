@@ -26,7 +26,7 @@ App calls `http://api.stripe.com/v1/payment_intents`; the proxy's Service is at 
 2. **The app adds the integration ID** in `Proxy-Authorization`, as a default header, as on the other ingresses (Peter, 2026-10-29). Without it the call is `not-passed`.
 3. **No separate ingress inside the proxy** (Peter, 2026-10-29). Redirected calls arrive on the normal proxy port and are Host header calls: same rules, same record, `hotline.ingress=host_header`. No new port, no new record value.
 4. **The port is always kept** (Peter, 2026-10-29; slice 1 decision 4 unchanged). `Host: api.stripe.com:80` goes to `https` on port 80; `api.stripe.com:9080` to `https` on 9080, or plain `http` there when the api sets `tlsOrigination: false`. With no port in `Host`, the call goes to 443. The setup guide warns that a client which writes `:80` out will reach the vendor on port 80.
-5. **Plain only.** A redirected call is plain `http` by nature. Redirecting `https` would need TLS interception, which is not offered. A proxy port with `listen.tls` set takes only TLS, so redirected calls need a plain proxy port.
+5. **Plain only.** A redirected call is plain `http` by nature. Redirecting `https` would need TLS interception, which is not offered. A listener with the `tls` part takes only TLS, so redirected calls need a plain proxy port.
 6. **Loops are stopped by the internal address guard.** If the name is made to point at the proxy for the proxy too (for example a rewrite rule for the whole cluster), the proxy's own lookup returns its own address, an internal IP, so the call gets `403` with `Proxy-Status: hotline; error=destination_ip_prohibited`. The setup guide says to point the name at the proxy only for app pods.
 
 ## Setup guide
@@ -37,7 +37,7 @@ App calls `http://api.stripe.com/v1/payment_intents`; the proxy's Service is at 
 1. The vendor's base address: `https://api.stripe.com` becomes `http://api.stripe.com`. Keep the port as it is: the proxy uses it to reach the vendor, over `https`.
 2. A default header with the integration ID: `Proxy-Authorization: Basic <base64 of "shop-a:x">`.
 
-The proxy port must be plain (no `listen.tls`), since a redirected call is plain.
+The proxy port must be plain (no `tls` part), since a redirected call is plain.
 
 ## Way 1: name lookup (recommended)
 

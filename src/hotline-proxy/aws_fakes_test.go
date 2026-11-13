@@ -300,7 +300,7 @@ func shopConfig(changes ...[2]string) (string, error) {
 	}
 	config := string(data)
 	changes = append(changes,
-		[2]string{`":8081"`, `"127.0.0.1:0"`},
+		[2]string{"tcp://:8081", "tcp://127.0.0.1:0"},
 	)
 	for _, change := range changes {
 		if strings.Count(config, change[0]) != 1 {

@@ -122,9 +122,9 @@ func serverName(b []byte) string {
 	return strings.ToLower(string(b[5 : 5+n]))
 }
 
-// serveIntercept takes the connections a firewall redirected to the
+// serveIntercept takes the connections a firewall sent to a transparent
 // listener, until it is closed.
-func (h *handler) serveIntercept(l net.Listener, where OriginalDestination) {
+func (h *handler) serveIntercept(l net.Listener, where OriginalDestination, li *listening) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -133,7 +133,7 @@ func (h *handler) serveIntercept(l net.Listener, where OriginalDestination) {
 		h.calls.Add(1)
 		go func() {
 			defer h.calls.Done()
-			h.intercepted(conn, where)
+			h.intercepted(conn, where, li)
 		}()
 	}
 }
@@ -160,17 +160,15 @@ func (s *source) ingressAttr() attribute.KeyValue {
 	return attribute.String("hotline.ingress", s.ingress)
 }
 
-// intercepted handles one redirected connection on listen.intercept.
-func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
+// intercepted handles one connection a firewall sent to a transparent
+// listener.
+func (h *handler) intercepted(conn net.Conn, where OriginalDestination, li *listening) {
 	start := h.clock.Now()
-	ic := h.cfg.Load().Intercept
-	if ic == nil {
-		_ = conn.Close()
-		return
-	}
+	c := li.cfg.Load()
+	ic := c.Transparent
 	src := &source{
-		ingress: "intercept", id: ic.Integration, passes: ic.Passes, relays: ic.Relays,
-		certificate: h.redirected, port: "443",
+		ingress: "transparent", id: ic.Integration, passes: ic.Passes, relays: ic.Relays,
+		certificate: li.signer, port: "443",
 	}
 	if where != nil {
 		if got, err := where(conn); err == nil {
@@ -181,6 +179,12 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination) {
 				src.fallback = got.Addr().Unmap().String()
 			}
 		}
+	}
+	if c.TCP {
+		// With protocol tcp nothing is read: the bytes go to the address
+		// the program called, untouched (Peter, 2026-11-13).
+		h.relay(src, &bufferedConn{Conn: conn, r: conn}, start, src.fallback, "tcp")
+		return
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	reader := bufio.NewReaderSize(conn, maxHello)

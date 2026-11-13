@@ -53,8 +53,8 @@ With `color: auto`, the lines are coloured when standard output is a terminal an
 By default (`--format console`) the proxy's own logs are plain lines too, not JSON (Peter, 2026-11-12). They stay on standard error, so `2>/dev/null` hides them, and they are coloured when standard error is a terminal and `NO_COLOR` is not set:
 
 ```
-07:48:03.662 WARN  config warning: there is no listen.admin address, so the proxy has no health checks
-07:48:03.662 INFO  hotline proxy started  address=127.0.0.1:8080 config_version=hotline-proxy.yaml+5692399ece3d
+07:48:03.662 WARN  config warning: there is no admin address, so the proxy has no health checks
+07:48:03.662 INFO  hotline proxy started  listener.apps=127.0.0.1:8080 config_version=hotline-proxy.yaml+5692399ece3d
 ```
 
 Each line has the time, the level (WARN yellow, ERROR red, DEBUG dim), the message, a reason or problem after a colon, and the other fields as `name=value` with dim names. A value that is empty or holds a space, an equals sign or a quote is put in quotes, `error="open /x y: no such file"`, so it cannot be read as more fields. The console exporter's `color` setting is for the calls on standard output only; the logs follow standard error and `NO_COLOR`. `run`, `validate` and `overlay` all write this way.

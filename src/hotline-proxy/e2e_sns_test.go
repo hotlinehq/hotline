@@ -173,7 +173,7 @@ func (p *program) records() ([]map[string]any, error) {
 // only the order-paid topic can be reached.
 func exampleConfig(proxyAddr, otlpEndpoint string) (string, error) {
 	config, err := shopConfig(
-		[2]string{`":8080"`, fmt.Sprintf("%q", proxyAddr)},
+		[2]string{"tcp://:8080", "tcp://" + proxyAddr},
 		[2]string{"http://localhost:4318", otlpEndpoint},
 	)
 	if err != nil {

@@ -53,7 +53,7 @@ Checked against `main` on 2026-10-31. Most of what slice 1 left for later is now
 
 Peter answered these on 2026-10-28. Answers 1, 12, 13 and 14 were overtaken by later slices; the note after each says what holds now. `proxy-spec.md` in `hotline-strategic` is the source of truth.
 
-1. **Other requests on the proxy port.** A path, a Host header request or `CONNECT` gets `501` with `Proxy-Status: hotline; error=http_request_error`. A full address the proxy can't use, such as `ftp://` or one with no host, gets `400`. *Now:* the Host header, vendor URL in path and CONNECT requests are ingresses of their own. `CONNECT` still gets `501` when `listen.connect` is not set. Every refused request gets a minimal record with `error.type=http_request_error`.
+1. **Other requests on the proxy port.** A path, a Host header request or `CONNECT` gets `501` with `Proxy-Status: hotline; error=http_request_error`. A full address the proxy can't use, such as `ftp://` or one with no host, gets `400`. *Now:* the Host header, vendor URL in path and CONNECT requests are ingresses of their own. `CONNECT` still gets `501` on a listener without the `connect` part. Every refused request gets a minimal record with `error.type=http_request_error`.
 2. **Broken `Proxy-Authorization`.** Every broken form counts as no ID, so the record says `not-passed`.
 3. **A path with no route in the spec.** `url.full` and `url.template` are left out.
 4. **Turning `http` into `https`.** The app's own port stays: `http://api.x.com:8080` goes out as `https` on 8080.

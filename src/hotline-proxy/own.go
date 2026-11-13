@@ -64,9 +64,9 @@ func (o *own) observe(p *Proxy) {
 		metric.WithDescription("1 while a changed setting, such as a listen address or an exporter, waits for "+
 			"a restart to take effect, else 0."))
 	notAfter, _ := o.meter.Int64ObservableGauge("hotline.certificate.not_after", metric.WithUnit("s"),
-		metric.WithDescription("When a certificate of the proxy's own expires, in seconds since 1970: listen.tls is "+
-			"the proxy port's certificate, listen.connect the issuer for CONNECT tunnels. "+
-			"Once it expires, apps stop trusting the proxy."))
+		metric.WithDescription("When a certificate of the proxy's own expires, in seconds since 1970, by where it is used: "+
+			"apps.tls is the tls certificate of the listener apps, apps.connect the issuer of its CONNECT tunnels, "+
+			"admin.tls the admin port's. Once it expires, apps stop trusting the proxy."))
 	memory, _ := o.meter.Int64ObservableUpDownCounter("hotline.spec_check.queue.memory.usage", metric.WithUnit("By"),
 		metric.WithDescription("Memory the bodies of spec checks waiting for a worker hold now. "+
 			"It stays at most specChecks.queueMemory: beyond it, the oldest waiting checks are skipped."))
@@ -76,13 +76,8 @@ func (o *own) observe(p *Proxy) {
 	_, _ = o.meter.RegisterCallback(func(_ context.Context, ob metric.Observer) error {
 		ob.ObserveInt64(failed, o.reloadFailed.Load())
 		ob.ObserveInt64(restart, o.restart.Load())
-		if p.appCert != nil {
-			ob.ObserveInt64(notAfter, p.appCert.get().Leaf.NotAfter.Unix(),
-				metric.WithAttributes(attribute.String("hotline.certificate.use", "listen.tls")))
-		}
-		if p.handler.intercept != nil {
-			ob.ObserveInt64(notAfter, p.handler.intercept.issuer.get().Leaf.NotAfter.Unix(),
-				metric.WithAttributes(attribute.String("hotline.certificate.use", "listen.connect")))
+		for use, at := range p.certificates() {
+			ob.ObserveInt64(notAfter, at.Unix(), metric.WithAttributes(attribute.String("hotline.certificate.use", use)))
 		}
 		held, size := p.handler.checks.held()
 		ob.ObserveInt64(memory, held)

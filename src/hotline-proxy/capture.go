@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"hotline-proxy/internal/config"
 )
@@ -33,27 +36,27 @@ const (
 
 var (
 	errBadCapture = errors.New("the capture headers are not usable")
-	// errCaptureInUse and errNotSocket stop the proxy from starting on a
-	// capture path that is not its own.
-	errCaptureInUse = errors.New("listen.capture is in use by another program")
-	errNotSocket    = errors.New("is not a socket file, so the proxy leaves it")
+	// errSocketInUse and errNotSocket stop the proxy from starting on a
+	// socket file that is not its own.
+	errSocketInUse = errors.New("is in use by another program")
+	errNotSocket   = errors.New("is not a socket file, so the proxy leaves it")
 )
 
-// listenCapture opens the socket file of listen.capture, which the
+// listenSocket opens the socket file of a listener, such as the one the
 // capture extension sends its CONNECT to. A socket file left by an earlier
 // run is replaced; one another program still listens on, or a file that is
 // not a socket, stops the proxy. Only the proxy's own user, and root, can
 // open the file.
-func listenCapture(ctx context.Context, path string) (net.Listener, error) {
+func listenSocket(ctx context.Context, label, path string) (net.Listener, error) {
 	// A folder that cannot be made shows as the listen failing below.
 	_ = os.MkdirAll(filepath.Dir(path), 0o700)
 	if conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", path); err == nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("%w: %s", errCaptureInUse, path)
+		return nil, fmt.Errorf("%s: %s %w", label, path, errSocketInUse)
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("listen.capture: %s %w", path, errNotSocket)
+			return nil, fmt.Errorf("%s: %s %w", label, path, errNotSocket)
 		}
 		// A file that cannot be removed shows as the listen failing below.
 		_ = os.Remove(path)
@@ -66,16 +69,16 @@ func listenCapture(ctx context.Context, path string) (net.Listener, error) {
 	}
 	if err != nil {
 		closeAll(l)
-		return nil, fmt.Errorf("listen.capture: %w", err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	return l, nil
 }
 
-// serveCapture serves a connection to listen.capture. Only a CONNECT is
+// serveCapture serves a connection to a capture listener. Only a CONNECT is
 // taken; its capture headers name the program behind the tunnel. Only the
 // proxy's own user and root can open the socket file, so the headers are
 // believed (Peter, 2026-11-12).
-func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
+func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request, li *listening) {
 	h.calls.Add(1)
 	defer h.calls.Done()
 	start := h.clock.Now()
@@ -91,15 +94,7 @@ func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request) {
 		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
-	// A reload that took listen.capture out of the config leaves the
-	// socket file open until a restart, taking no more tunnels.
-	c := h.cfg.Load().Capture
-	if c == nil {
-		refuse(w, http.StatusServiceUnavailable)
-		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusServiceUnavailable)
-		return
-	}
-	h.captured(w, r, t, c, start)
+	h.captured(w, r, t, li, start)
 }
 
 // captureProcess reads the program from the capture headers. An unknown
@@ -130,7 +125,8 @@ func captureProcess(h http.Header) (process, error) {
 // an app's connection as the app sent it, to the address the app called, so
 // it is served like an intercepted connection: the site name comes from the
 // TLS handshake, with the CONNECT's host when the handshake names none.
-func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, c *config.Capture, start time.Time) {
+func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li *listening, start time.Time) {
+	c := li.cfg.Load().Capture
 	p, err := captureProcess(r.Header)
 	if err != nil {
 		refuse(w, http.StatusBadRequest)
@@ -141,12 +137,57 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, c 
 	// none, so a program offering ECH sees it rejected and retries without.
 	src := &source{
 		ingress: "capture", id: t.id, passes: c.Passthrough.Passes, relays: config.Passthrough(nil).Passes,
-		certificate: h.capture, port: t.port, fallback: t.host, process: p,
+		certificate: li.signer, port: t.port, fallback: t.host, process: p,
 	}
 	conn, done := open(w, r)
+	defer func() { <-done }()
+	reader := bufio.NewReaderSize(conn, maxHello)
+	inner := &bufferedConn{Conn: conn, r: reader}
+	// The extension hands over every connection of a captured program, on
+	// any port. The config names the ports read as calls; every other port
+	// is relayed untouched at once, so a server that speaks first, such as
+	// SSH, just works (Peter, 2026-11-13).
+	if !c.HTTP(t.port) {
+		h.relay(src, inner, start, t.host, "tcp")
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	h.serveSource(conn, bufio.NewReaderSize(conn, maxHello), src, start)
-	<-done
+	stop := context.AfterFunc(h.tunnels.ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	first, err := reader.Peek(1)
+	stop()
+	switch {
+	case err != nil:
+		// The program left before sending anything, or the proxy is
+		// stopping. Like the extension's own check, that makes no record.
+		_ = conn.Close()
+	case first[0] == 0x16:
+		h.serveSource(conn, reader, src, start)
+	case !startsHTTP(reader):
+		// A wrong port list shows in the records instead of being hidden.
+		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("not_http"))
+		_ = conn.Close()
+	case c.Passthrough.Passes(t.host):
+		h.relay(src, inner, start, t.host, "passthrough")
+	default:
+		// Plain HTTP is served like any other call, as in an ordinary
+		// tunnel.
+		_ = conn.SetDeadline(time.Time{})
+		h.tunnels.hand(&appConn{Conn: inner, tunnel: &tunnel{host: t.host, port: t.port, id: t.id, ingress: "capture", process: p}})
+	}
+}
+
+// startsHTTP says whether the bytes that came with the program's first
+// write start an HTTP request: a method and a space. It never waits for
+// more; a request split before its first space is relayed untouched, so
+// the program still works.
+func startsHTTP(r *bufio.Reader) bool {
+	b, _ := r.Peek(r.Buffered())
+	for _, m := range [...]string{"GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "} {
+		if strings.HasPrefix(string(b), m) {
+			return true
+		}
+	}
+	return false
 }
 
 // passedThrough relays an ordinary tunnel to a site listed in

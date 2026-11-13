@@ -56,6 +56,7 @@ Open only the file for the topic at hand.
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
+- Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Console exporter (two coloured lines per call on standard output, like mitmdump): [docs/decisions/console-export.md](docs/decisions/console-export.md)
 - Capture ingress (macOS, chosen apps, as a CONNECT with capture headers on the socket file listen.capture; `--capture` flag still to come): [docs/decisions/capture.md](docs/decisions/capture.md)

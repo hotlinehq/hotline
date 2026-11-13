@@ -273,7 +273,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		n, _ := strconv.Atoi(days)
 		w.proxyCert = w.issuer.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
-		w.listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		w.appTLS = w.appTLSConfig()
 		return nil
 	})
@@ -283,18 +283,18 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.replaceKeyPair(renewed, renewed)
 		return nil
 	})
-	sc.Step(`^hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use listen.tls$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use listen.tls", expiry(w.proxyCert))
+	sc.Step(`^hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
+		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(w.proxyCert))
 	})
-	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use listen.tls$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use listen.tls", expiry(*w.renewed))
+	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
+		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*w.renewed))
 	})
 	sc.Step(`^CONNECT is an ingress with an issuer that expires in (\d+) days$`, func(days int) error {
 		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
 		return nil
 	})
-	sc.Step(`^hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use listen.connect$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use listen.connect", float64(w.interception.cert.NotAfter.Unix()))
+	sc.Step(`^hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect$`, func() error {
+		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(w.interception.cert.NotAfter.Unix()))
 	})
 
 	sc.Step(`^an app that does not trust the proxy opens TLS$`, func() error {

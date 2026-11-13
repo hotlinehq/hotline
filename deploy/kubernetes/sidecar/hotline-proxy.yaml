@@ -4,9 +4,11 @@
 # from a Secret at /etc/hotline/keys/. The image's smoke test in CI
 # validates and runs this file.
 
-listen:
-  proxy: ":8080"                   # the app sets HTTP_PROXY=http://checkout:x@localhost:8080
-  admin: ":8081"                   # health checks only; never in a Service
+admin:
+  address: tcp://:8081              # health checks only; never in a Service
+listeners:
+  apps:
+    address: tcp://:8080            # the app sets HTTP_PROXY=http://checkout:x@localhost:8080
 
 exporters:
   - otlp:

@@ -87,8 +87,8 @@ type program struct {
 	tls bool
 	// pprof turns on telemetry.pprof, the profile pages on the admin port.
 	pprof bool
-	// interception, when set, is the issuer in the issuers section, which
-	// listen.connect names, or listen.intercept when redirect is set.
+	// interception, when set, is the issuer in the certs section, which
+	// the connect part names, or the transparent listener when redirect is set.
 	interception *issuer
 	redirect     bool
 	interceptAt  string
@@ -160,12 +160,12 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		p.tls = true
 		return p.run()
 	})
-	sc.Step(`^the hotline-proxy program runs with listen.connect( and TLS on its port)? and integration test-shop for the test vendor$`, func(withTLS string) error {
+	sc.Step(`^the hotline-proxy program runs with the connect part( and TLS on its port)? and integration test-shop for the test vendor$`, func(withTLS string) error {
 		p.interception = newIssuer()
 		p.tls = withTLS != ""
 		return p.run()
 	})
-	sc.Step(`^the hotline-proxy program runs with listen.intercept and integration test-shop for the test vendor$`, func() error {
+	sc.Step(`^the hotline-proxy program runs with the transparent listener and integration test-shop for the test vendor$`, func() error {
 		if err := redirectAvailable(); err != nil {
 			return godog.ErrSkip
 		}
@@ -282,11 +282,11 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		p.writeConfig(p.config(true))
 		return nil
 	})
-	sc.Step(`^a config file with no proxy listen address and no exporters$`, func() error {
-		p.writeConfig(fmt.Sprintf("listen:\n  admin: %q\n", p.adminAddr))
+	sc.Step(`^a config file with no listeners and no exporters$`, func() error {
+		p.writeConfig(fmt.Sprintf("admin:\n  address: %q\n", "tcp://"+p.adminAddr))
 		return nil
 	})
-	sc.Step(`^a config file whose listen.tls key file does not exist$`, func() error {
+	sc.Step(`^a config file whose tls key file does not exist$`, func() error {
 		p.tls = true
 		p.writeConfig(p.config(true))
 		return os.Remove(filepath.Join(p.dir, "tls", "key.pem"))
@@ -538,7 +538,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		}
 		return nil
 	})
-	sc.Step(`^the receiver got one hotline.request record with hotline.ingress (forward_proxy|url_in_path|host_header|connect|intercept) and ID test-shop$`, func(ingress string) error {
+	sc.Step(`^the receiver got one hotline.request record with hotline.ingress (forward_proxy|url_in_path|host_header|connect|transparent) and ID test-shop$`, func(ingress string) error {
 		record, err := p.record()
 		if err != nil {
 			return err
@@ -720,24 +720,25 @@ func (p *program) config(validateOnly bool) string {
 	}
 	_ = os.MkdirAll(filepath.Join(p.dir, "specs"), 0o750)
 	_ = os.WriteFile(filepath.Join(p.dir, "specs", "test-vendor.yaml"), []byte(testVendorSpec), 0o600)
-	listenTLS := ""
+	listenTLS, certs := "", ""
 	if p.tls {
 		cert := p.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		_ = os.MkdirAll(filepath.Join(p.dir, "tls"), 0o750)
 		_ = os.WriteFile(filepath.Join(p.dir, "tls", "cert.pem"), []byte(certPEM(cert)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "tls", "key.pem"), []byte(keyPEM(cert)), 0o600)
-		listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+		listenTLS = "    tls: { cert: app }\n"
+		certs = "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 	}
 	if p.interception != nil {
 		_ = os.MkdirAll(filepath.Join(p.dir, "ca"), 0o750)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(issuerCertPEM(p.interception)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(issuerKeyPEM(p.interception)), 0o600)
 		if p.redirect {
-			listenTLS += fmt.Sprintf("  intercept: { address: %q, issuer: customer, integration: test-shop }\n", p.interceptAt)
+			listenTLS += fmt.Sprintf("  intercept:\n    address: %q\n    transparent: { cert: customer, integration: test-shop }\n", "tcp://"+p.interceptAt)
 		} else {
-			listenTLS += "  connect: { issuer: customer }\n"
+			listenTLS += "    connect: { cert: customer }\n"
 		}
-		listenTLS += "issuers:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+		certs += "  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 	}
 	telemetry := ""
 	if p.console {
@@ -748,9 +749,14 @@ func (p *program) config(validateOnly bool) string {
 	}
 	// The test vendor runs on this computer, an internal address, so the
 	// config allows internal IPs.
-	return fmt.Sprintf(`listen:
-  proxy: %q
-  admin: %q
+	if certs != "" {
+		certs = "certs:\n" + certs
+	}
+	return fmt.Sprintf(`admin:
+  address: %q
+%slisteners:
+  proxy:
+    address: %q
 %sexporters:
   - otlp:
       endpoint: %s
@@ -767,7 +773,7 @@ integrations:
     apis: [test-vendor]
   - id: not-passed
     allowInternalIPs: true
-`, p.proxyAddr, p.adminAddr, listenTLS, endpoint, telemetry)
+`, "tcp://"+p.adminAddr, certs, "tcp://"+p.proxyAddr, listenTLS, endpoint, telemetry)
 }
 
 // configLabels are the hotline.config.version of each record, each checked

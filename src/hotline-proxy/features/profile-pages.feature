@@ -7,7 +7,7 @@ Feature: Profile pages on the admin port
   the proxy's own telemetry settings, without a section of their own. They
   are /debug/pprof/ and, with the exact total of bytes the proxy has handed
   out, /debug/vars. Changing the setting needs a restart. It does nothing
-  without a listen.admin address, and that is a warning (Peter, 2026-11-07).
+  without a admin port address, and that is a warning (Peter, 2026-11-07).
 
   Scenario: Off by default, the admin port has no profile pages
     Given a fake OTLP receiver
