@@ -61,6 +61,17 @@ Feature: Forwarding a call to the vendor
     Then the app gets 101 Switching Protocols and "ping" back
     And the record says http.response.status_code 101
 
+  Scenario: A WebSocket that ends from both sides at once is recorded once
+    As a WebSocket ends, the proxy reads the vendor's side to its end
+    while the end of the call closes it, both at the same moment. Each
+    WebSocket must still give one record, with no unguarded access for the
+    race detector to find when the tests run with it. The shop's reply is checked, so the end also
+    starts the reply check.
+    Given the shop spec
+    And the shop vendor accepts a WebSocket upgrade, sends "bye" and closes at once
+    When an app opens a WebSocket to the shop through the proxy, reads "bye" and closes, 20 times
+    Then there are 20 records, each with http.response.status_code 101
+
   Scenario: A request trailer reaches the vendor
     A trailer is a header sent after the body, such as a checksum of an
     upload that is only known at its end. Go's own reverse proxy loses its

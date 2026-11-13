@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // The file exporter's defaults (Peter, 2026-11-11).
@@ -109,6 +111,23 @@ func (l *loader) console(f consoleExporterFile, before *ConsoleExporter) *Consol
 		l.problem("console exporter: color must be auto, always or never")
 	}
 	return e
+}
+
+// emptyConsoles fills in each exporter written "console:" with nothing
+// after it. YAML reads that as empty, which leaves the exporter looking
+// like none at all; it means the same as "console: {}", every option at
+// its default (Peter, 2026-11-13). The data is already known to be valid
+// YAML, so this second read cannot fail.
+func emptyConsoles(data []byte, f *file) {
+	var raw struct {
+		Exporters []map[string]yaml.Node `yaml:"exporters"`
+	}
+	_ = yaml.Unmarshal(data, &raw)
+	for i, e := range raw.Exporters {
+		if console, ok := e["console"]; ok && console.ShortTag() == "!!null" && i < len(f.Exporters) {
+			f.Exporters[i].Console = &consoleExporterFile{}
+		}
+	}
 }
 
 // btoi is 1 for true and 0 for false.

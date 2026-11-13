@@ -438,6 +438,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return tried, fmt.Errorf("%w: %s is not valid YAML: %w", ErrInvalid, path, err)
 	}
+	emptyConsoles(data, &f)
 	var warnings []string
 	strict := yaml.NewDecoder(bytes.NewReader(data))
 	strict.KnownFields(true)

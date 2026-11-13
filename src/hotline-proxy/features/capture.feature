@@ -97,9 +97,56 @@ Feature: The capture ingress
       And nothing is sent to any vendor
       And the capture record has hotline.integration.id not-passed, server.address api.talon.one, error.type tls_untrusted_by_app, process.pid 4242 and process.executable.path /usr/bin/curl
 
-    Scenario: Plain text in a captured tunnel
-      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and sends plain HTTP bytes
-      Then the capture record has hotline.ingress capture, error.type not_tls and process.pid 4242
+
+  Rule: Captured connections that are not TLS are served or passed on
+    The extension hands over every outgoing connection of a captured app,
+    on any port, not only secure calls. Plain HTTP is served like any other
+    call, as in an ordinary tunnel. Anything else, such as a database, is
+    passed on untouched, so the app keeps working (review, Peter 2026-11-13).
+
+    Scenario: A plain HTTP call in a captured tunnel is served like any other call
+      When the extension opens a captured tunnel to api.talon.one:80 for process 4242 at "/usr/bin/curl" and the app sends a plain HTTP call inside it
+      Then the test vendor got the call over https on port 443
+      And the record says hotline.ingress capture and ID not-passed
+      And the record says the program is process 4242 at "/usr/bin/curl"
+
+    Scenario: A plain HTTP call to a host in listen.capture passthrough is relayed untouched
+      Given listen.capture lists pinned.example.com in passthrough
+      And pinned.example.com on port 80 answers "HTTP/1.1 204 No Content" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:80 for process 4242 at "/usr/bin/curl" and the app sends "GET / HTTP/1.1"
+      Then the app gets "HTTP/1.1 204 No Content" back
+      And pinned.example.com got "GET / HTTP/1.1"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason passthrough and process.pid 4242
+
+    Scenario: A connection that is neither TLS nor HTTP is passed on untouched
+      Such as a Redis or database connection.
+      Given pinned.example.com on port 6379 answers "+PONG" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:6379 for process 4242 at "/usr/bin/redis-cli" and the app sends "PING"
+      Then the app gets "+PONG" back
+      And pinned.example.com got "PING"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason not_http and process.pid 4242
+
+    Scenario: A connection where the server speaks first is passed on untouched
+      SSH and mail servers send a greeting before the app sends anything.
+      The proxy waits one second for the app's first byte, then passes the
+      connection on.
+      Given pinned.example.com on port 22 greets with "SSH-2.0-test", then answers "ok" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:22 for process 4242 at "/usr/bin/ssh" and the app waits for "SSH-2.0-test", then sends "SSH-2.0-app"
+      Then the app gets "ok" back
+      And pinned.example.com got "SSH-2.0-app"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason app_silent and process.pid 4242
+
+    Scenario: A program that closes before sending anything makes no record
+      Like the extension's own check that the proxy is there, a connection
+      that carried nothing is no call.
+      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app closes it before sending anything
+      Then no record is sent
+
+    Scenario: Stopping the proxy does not wait for a silent program
+      Given pinned.example.com on port 22 greets with "SSH-2.0-test", then answers "ok" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:22 for process 4242 at "/usr/bin/ssh" and the app sends nothing yet
+      Then the proxy stops within half a second
+      And no record is sent
 
   Rule: The capture headers are not trusted
 

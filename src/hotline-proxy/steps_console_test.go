@@ -1,13 +1,16 @@
 package proxy_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -22,9 +25,19 @@ import (
 type fakeTerminal struct {
 	is    bool
 	width int
+	// slow is how long the terminal takes to say its width; asked counts
+	// how often it was asked.
+	slow  time.Duration
+	asked *atomic.Int32
 }
 
-func (t fakeTerminal) size() (int, bool) { return t.width, t.is }
+func (t fakeTerminal) size() (int, bool) {
+	if t.asked != nil {
+		t.asked.Add(1)
+	}
+	time.Sleep(t.slow)
+	return t.width, t.is
+}
 
 // errClosed is standard output that can no longer be written to.
 var errClosed = errors.New("standard output is closed")
@@ -70,6 +83,10 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		w.consoleExporter = "  - console:\n      color: " + color + "\n"
 		return nil
 	})
+	sc.Step(`^the console exporter is written as "console:" with nothing after it$`, func() error {
+		w.consoleExporter = "  - console:\n"
+		return nil
+	})
 	sc.Step(`^the console exporter is set with (.+)$`, func(setting string) error {
 		switch setting {
 		case "color loud":
@@ -95,6 +112,40 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 			}
 			return nil
 		})
+	sc.Step(`^standard output is a terminal (\d+) columns wide, which takes (\d+) milliseconds to say so$`, func(width, slow int) error {
+		w.terminal = fakeTerminal{is: true, width: width, slow: time.Duration(slow) * time.Millisecond, asked: &atomic.Int32{}}
+		return nil
+	})
+	sc.Step(`^the app sends GET /orders (\d+) times, one after another on one connection$`, func(n int) error {
+		w.vendor("api.shop.test")
+		if err := w.start(); err != nil {
+			return err
+		}
+		proxyURL := &url.URL{Scheme: "http", Host: w.addr, User: url.UserPassword("talon-shop-a", "x")}
+		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), MaxConnsPerHost: 1}}
+		defer client.CloseIdleConnections()
+		for range n {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://api.shop.test/orders", nil)
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Authorization", "Bearer t0k3n")
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+		return nil
+	})
+	sc.Step(`^standard output was asked its width fewer than (\d+) times$`, func(n int) error {
+		w.settle()
+		if asked := int(w.terminal.asked.Load()); asked >= n {
+			return failf("standard output was asked its width %d times", asked)
+		}
+		return nil
+	})
 	sc.Step(`^the environment variable (\w+) is "([^"]*)"$`, func(name, value string) error {
 		w.setEnv(name, value)
 		return nil
@@ -230,6 +281,9 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the status (\d+) is bold (\w+)$`, func(status, colour string) error {
 		return w.consoleHas("\x1b[1;" + colourCode(colour) + "m" + status + " ")
+	})
+	sc.Step(`^the status (\d+) is bold, with no colour$`, func(status string) error {
+		return w.consoleHas("\x1b[1m" + status + " ")
 	})
 	sc.Step(`^the check status (\w+) is (\w+)$`, func(status, colour string) error {
 		return w.consoleHas("\x1b[" + colourCode(colour) + "m" + status + "\x1b[0m")
