@@ -36,7 +36,8 @@ type consoleLogs struct {
 // ConsoleLogs is a handler that writes plain lines to out in place of
 // next, coloured as the console exporter's lines are.
 func ConsoleLogs(e *config.ConsoleExporter, out Console, next slog.Handler) slog.Handler {
-	return &consoleLogs{next: next, out: out, color: coloured(e, out), mu: &sync.Mutex{}}
+	_, terminal := out.Terminal()
+	return &consoleLogs{next: next, out: out, color: coloured(e, terminal, out.LookupEnv), mu: &sync.Mutex{}}
 }
 
 func (h *consoleLogs) Enabled(ctx context.Context, level slog.Level) bool {

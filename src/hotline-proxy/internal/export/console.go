@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -43,15 +44,22 @@ type consoleDestination struct {
 	fileDestination
 	out   Console
 	color bool
+	// columns is the width the lines are cut to. The terminal is asked
+	// once at start and again after each batch the console writes, not
+	// for every call (review, Peter 2026-11-13).
+	columns atomic.Int64
 }
 
 // newConsole starts the console's queue. Colour is used when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
 func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleDestination {
-	c := &consoleDestination{out: out, color: coloured(e, out)}
+	width, terminal := out.Terminal()
+	c := &consoleDestination{out: out, color: coloured(e, terminal, out.LookupEnv)}
+	c.columns.Store(int64(c.width(width, terminal)))
 	write := func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
+		c.columns.Store(int64(c.width(out.Terminal())))
 		return err
 	}
 	c.queue = newQueue("calls", write, func(context.Context) error { return nil }, setup)
@@ -62,16 +70,16 @@ func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *conso
 // coloured says whether the console's lines are coloured: when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
-func coloured(e *config.ConsoleExporter, out Console) bool {
-	_, terminal := out.Terminal()
-	noColor, _ := out.LookupEnv("NO_COLOR")
+func coloured(e *config.ConsoleExporter, terminal bool, lookupEnv func(string) (string, bool)) bool {
+	noColor, _ := lookupEnv("NO_COLOR")
 	return e.Color == "always" || e.Color == "auto" && terminal && noColor == ""
 }
 
 // width is the terminal's width, else COLUMNS, else 80, as mitmdump
-// reads it.
-func (c *consoleDestination) width() int {
-	if width, ok := c.out.Terminal(); ok {
+// reads it. Some terminals, often in containers and CI, say they are 0
+// columns wide: that counts as not knowing the width.
+func (c *consoleDestination) width(width int, terminal bool) int {
+	if terminal && width > 0 {
 		return width
 	}
 	columns, _ := c.out.LookupEnv("COLUMNS")
@@ -101,7 +109,8 @@ type consoleLines struct {
 
 // style writes text in the styles, when colour is on.
 func (l *consoleLines) style(text string, codes ...string) {
-	if !l.color || !slices.ContainsFunc(codes, func(c string) bool { return c != "" }) {
+	codes = slices.DeleteFunc(codes, func(c string) bool { return c == "" })
+	if !l.color || len(codes) == 0 {
 		l.b.WriteString(text)
 		return
 	}
@@ -163,7 +172,7 @@ func (c *consoleDestination) lines(call Call) []byte {
 	// The address as the record has it, with its secrets hidden, or else
 	// the host: the console never shows more than the record holds (Peter,
 	// 2026-11-12).
-	l.style(cut(printable(cmp.Or(address, host)), c.width()), bold)
+	l.style(cut(printable(cmp.Or(address, host)), int(c.columns.Load())), bold)
 	l.b.WriteString("\n")
 
 	// "<< " ends just before the method, as in mitmdump.
@@ -269,10 +278,13 @@ func methodColour(method string) string {
 	}
 }
 
-// statusColour is green for 2xx, magenta for 3xx, yellow for 4xx and red
-// for the rest: 5xx and the proxy's own failures.
+// statusColour is none for 1xx, such as a WebSocket upgrade, as mitmdump
+// does; green for 2xx, magenta for 3xx, yellow for 4xx and red for the
+// rest: 5xx and the proxy's own failures.
 func statusColour(status int64) string {
 	switch status / 100 {
+	case 1:
+		return ""
 	case 2:
 		return green
 	case 3:

@@ -6,7 +6,7 @@ A console exporter prints each call to the proxy's standard output as two short 
 
 ```yaml
 exporters:
-  - console: {}            # no settings needed
+  - console: {}            # no settings needed; "- console:" alone means the same
   # - console:
   #     color: auto        # auto (default), always or never
 ```
@@ -30,7 +30,7 @@ A console exporter may stand alone or next to `otlp` and `file` exporters. There
 - The findings line, for an invalid call: what the checks found on each side, written "part place rule expected", never a value from the call.
 - No headers, no bodies, no spans, no metrics. `content: full` never reaches the console.
 
-A long address is cut, as mitmdump does, to the terminal's width less 25 characters, and at least 50, ending in `…`. The width is read from the terminal, else from the `COLUMNS` variable, else it is 80.
+A long address is cut, as mitmdump does, to the terminal's width less 25 characters, and at least 50, ending in `…`. The width is read from the terminal, else from the `COLUMNS` variable, else it is 80. A terminal that says it is 0 columns wide, as some do in containers and CI, counts as not knowing its width. The terminal is asked at start and again after each batch of lines, not for every call.
 
 ## Colour
 
@@ -42,7 +42,7 @@ With `color: auto`, the lines are coloured when standard output is a terminal an
 | integration | cyan |
 | method | bold: GET green, DELETE red, others magenta |
 | address | bold |
-| status | bold: 2xx green, 3xx magenta, 4xx yellow, 5xx and failures red |
+| status | bold: 1xx (such as a WebSocket upgrade) no colour, 2xx green, 3xx magenta, 4xx yellow, 5xx and failures red |
 | failure | bold red |
 | total time | yellow past one second |
 | check status | valid green, invalid red, skipped dim |

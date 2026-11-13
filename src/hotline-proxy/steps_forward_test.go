@@ -223,6 +223,43 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		_, err = io.ReadFull(reader, w.respBody)
 		return err
 	})
+	sc.Step(`^the shop vendor accepts a WebSocket upgrade, sends "(\w+)" and closes at once$`, func(message string) error {
+		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+			rw.Header().Set("Connection", "Upgrade")
+			rw.Header().Set("Upgrade", "websocket")
+			rw.WriteHeader(http.StatusSwitchingProtocols)
+			conn, _, err := http.NewResponseController(rw).Hijack()
+			if err != nil {
+				return
+			}
+			_, _ = io.WriteString(conn, message)
+			_ = conn.Close()
+		})
+		return nil
+	})
+	sc.Step(`^an app opens a WebSocket to the shop through the proxy, reads "(\w+)" and closes, (\d+) times$`, func(message string, n int) error {
+		if err := w.start(); err != nil {
+			return err
+		}
+		for range n {
+			if err := w.websocketOnce("https://api.shop.test/orders", message); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^there are (\d+) records, each with http.response.status_code (\d+)$`, func(n, status int) error {
+		records := w.records()
+		if len(records) != n {
+			return failf("there are %d records, want %d", len(records), n)
+		}
+		for _, r := range records {
+			if err := has(r.attrs, "http.response.status_code", status); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	sc.Step(`^the app gets 101 Switching Protocols and "(\w+)" back$`, func(message string) error {
 		if w.resp.StatusCode != http.StatusSwitchingProtocols || string(w.respBody) != message {
 			return failf("the app got %d and %q", w.resp.StatusCode, w.respBody)
@@ -649,4 +686,35 @@ func (w *world) forwardWithHost(target, host string) error {
 		headers = append(headers, "Host: localhost:8080")
 	}
 	return w.send(request{method: "PUT", target: target, headers: headers, body: strings.NewReader(body), length: len(body)})
+}
+
+// websocketOnce opens a WebSocket to target through the proxy, reads
+// message and closes at once, as the vendor closes its side.
+func (w *world) websocketOnce(target, message string) error {
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.addr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	host := hostOf(target)
+	_, err = io.WriteString(conn, "GET "+target+" HTTP/1.1\r\nHost: "+host+"\r\n"+
+		basic("talon-shop-a:x")+"\r\nAuthorization: Bearer t0k3n\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+	if err != nil {
+		return err
+	}
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		return failf("the app got %d", resp.StatusCode)
+	}
+	got := make([]byte, len(message))
+	if _, err := io.ReadFull(reader, got); err != nil || string(got) != message {
+		return failf("the app got %q, %v", got, err)
+	}
+	return nil
 }

@@ -64,6 +64,30 @@ Feature: Printing every call to the console
     Then the first line ends with "talon-shop-a: GET https://api.shop.test/orders?limit=REDACTED&api_key=REDACTED"
     And the console does not hold "sk_live_123"
 
+  Scenario: A console exporter written with nothing after console:
+    The key alone switches it on, as in the OpenTelemetry Collector:
+    "console:" with nothing after it means the same as "console: {}",
+    every option at its default (Peter, 2026-11-13).
+    Given the console exporter is written as "console:" with nothing after it
+    When the app sends GET /orders
+    Then the console has 3 lines
+
+  Scenario: A console setting the proxy does not know is ignored, with a warning
+    Given the console exporter is set with colour always
+    When the app sends GET /orders
+    Then the console has 3 lines
+    And the proxy logged a warning with "colour" and "is not a setting and is ignored"
+
+  Scenario: The terminal is asked its width once for each batch of calls
+    Calls are recorded in the background, so an app never waits for the
+    console. The console still asked the terminal its width for every
+    call; now it asks once for each batch of lines it writes (review,
+    Peter 2026-11-13).
+    Given standard output is a terminal 100 columns wide, which takes 500 milliseconds to say so
+    When the app sends GET /orders 5 times, one after another on one connection
+    Then the console has 15 lines
+    And standard output was asked its width fewer than 5 times
+
   Scenario: A console exporter alone
     Given no OTLP exporter
     When the app sends GET /orders
@@ -99,6 +123,7 @@ Feature: Printing every call to the console
       | always | not a terminal                  | has    |
       | never  | a terminal 100 columns wide     | has no |
       | auto   | a terminal 100 columns wide     | has    |
+      | auto   | a terminal 0 columns wide       | has    |
 
   Scenario Outline: The method and status are coloured, as mitmdump does
     Given standard output is a terminal 100 columns wide
@@ -113,6 +138,13 @@ Feature: Printing every call to the console
       | DELETE | red           | 301    | magenta       |
       | POST   | magenta       | 404    | yellow        |
       | PUT    | magenta       | 503    | red           |
+
+  Scenario: A WebSocket upgrade is not a failure, so 101 has no colour
+    mitmdump, which the console follows, leaves 1xx without colour.
+    Given standard output is a terminal 100 columns wide
+    And a vendor that accepts a WebSocket upgrade and sends back what it gets
+    When an app opens a WebSocket through the proxy and sends "ping"
+    Then the status 101 is bold, with no colour
 
   Scenario Outline: The check status is coloured
     Given standard output is a terminal 100 columns wide
@@ -147,16 +179,20 @@ Feature: Printing every call to the console
 
   Scenario Outline: A long address is cut to the terminal's width, as mitmdump does
     The address may take the width less 25 characters, and at least 50.
+    Some terminals, often in containers and CI, say they are 0 columns
+    wide: that counts as not knowing the width.
     Given standard output is <where>
     When the app sends GET /orders with a query 200 characters long
     Then the address on the first line keeps its first <length> characters, then "…"
 
     Examples:
-      | where                                                     | length |
-      | a terminal 100 columns wide                               | 75     |
-      | a terminal 60 columns wide                                | 50     |
-      | not a terminal, with the environment variable COLUMNS 120 | 95     |
-      | not a terminal                                            | 55     |
+      | where                                                                | length |
+      | a terminal 100 columns wide                                          | 75     |
+      | a terminal 60 columns wide                                           | 50     |
+      | not a terminal, with the environment variable COLUMNS 120            | 95     |
+      | not a terminal                                                       | 55     |
+      | a terminal 0 columns wide, with the environment variable COLUMNS 120 | 95     |
+      | a terminal 0 columns wide                                            | 55     |
 
   Scenario Outline: Characters that could change the terminal are escaped
     Given the not-passed entry has urlFull on
@@ -208,7 +244,8 @@ Feature: Printing every call to the console
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting                 | problem                                       |
-      | color loud              | color must be auto, always or never           |
-      | a second one            | there may be only one console exporter        |
-      | a file path as well     | an exporter is only one of otlp, file or console |
+      | setting                    | problem                                                                          |
+      | color loud                 | color must be auto, always or never                                              |
+      | a second one               | there may be only one console exporter                                           |
+      | a word instead of settings | console exporter: write its settings as color: auto, or nothing for the defaults |
+      | a file path as well        | an exporter is only one of otlp, file or console                                 |
