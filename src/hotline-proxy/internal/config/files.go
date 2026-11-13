@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -97,10 +98,23 @@ type consoleExporterFile struct {
 }
 
 // console reads the console exporter. There is one at most, since two
-// would print the same lines (Peter, 2026-11-11).
-func (l *loader) console(f consoleExporterFile, before *ConsoleExporter) *ConsoleExporter {
+// would print the same lines (Peter, 2026-11-11). The key alone switches
+// it on: "console:" with nothing after it means every setting at its
+// default, as in the OpenTelemetry Collector (Peter, 2026-11-13). So the
+// config keeps it as a YAML node, which is set whenever the key is there,
+// even with nothing after it, and reads its settings here.
+func (l *loader) console(node yaml.Node, before *ConsoleExporter) *ConsoleExporter {
 	if before != nil {
 		l.problem("there may be only one console exporter")
+	}
+	var f consoleExporterFile
+	if err := node.Decode(&f); err != nil {
+		l.problem("console exporter: write its settings as color: auto, or nothing for the defaults")
+	}
+	for i := 0; node.Kind == yaml.MappingNode && i+1 < len(node.Content); i += 2 {
+		if key := node.Content[i]; key.Value != "color" {
+			l.warnings = append(l.warnings, fmt.Sprintf("line %d: field %s is not a setting and is ignored", key.Line, key.Value))
+		}
 	}
 	e := &ConsoleExporter{Color: f.Color}
 	switch f.Color {
@@ -111,23 +125,6 @@ func (l *loader) console(f consoleExporterFile, before *ConsoleExporter) *Consol
 		l.problem("console exporter: color must be auto, always or never")
 	}
 	return e
-}
-
-// emptyConsoles fills in each exporter written "console:" with nothing
-// after it. YAML reads that as empty, which leaves the exporter looking
-// like none at all; it means the same as "console: {}", every option at
-// its default (Peter, 2026-11-13). The data is already known to be valid
-// YAML, so this second read cannot fail.
-func emptyConsoles(data []byte, f *file) {
-	var raw struct {
-		Exporters []map[string]yaml.Node `yaml:"exporters"`
-	}
-	_ = yaml.Unmarshal(data, &raw)
-	for i, e := range raw.Exporters {
-		if console, ok := e["console"]; ok && console.ShortTag() == "!!null" && i < len(f.Exporters) {
-			f.Exporters[i].Console = &consoleExporterFile{}
-		}
-	}
 }
 
 // btoi is 1 for true and 0 for false.

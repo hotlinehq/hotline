@@ -269,9 +269,11 @@ type file struct {
 		Settings settingsFile `yaml:",inline"`
 	} `yaml:"apis"`
 	Exporters []struct {
-		OTLP    *exporterFile        `yaml:"otlp"`
-		File    *fileExporterFile    `yaml:"file"`
-		Console *consoleExporterFile `yaml:"console"`
+		OTLP *exporterFile     `yaml:"otlp"`
+		File *fileExporterFile `yaml:"file"`
+		// Console is a node so that "console:" with nothing after it
+		// still counts as a console exporter.
+		Console yaml.Node `yaml:"console"`
 	} `yaml:"exporters"`
 	Integrations []struct {
 		ID             string       `yaml:"id"`
@@ -438,7 +440,6 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	if err := yaml.Unmarshal(data, &f); err != nil {
 		return tried, fmt.Errorf("%w: %s is not valid YAML: %w", ErrInvalid, path, err)
 	}
-	emptyConsoles(data, &f)
 	var warnings []string
 	strict := yaml.NewDecoder(bytes.NewReader(data))
 	strict.KnownFields(true)
@@ -514,15 +515,16 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		l.problem("there are no exporters")
 	}
 	for _, e := range f.Exporters {
-		switch kinds := btoi(e.OTLP != nil) + btoi(e.File != nil) + btoi(e.Console != nil); {
+		console := e.Console.Kind != 0
+		switch kinds := btoi(e.OTLP != nil) + btoi(e.File != nil) + btoi(console); {
 		case kinds > 1:
 			l.problem("an exporter is only one of otlp, file or console")
 		case e.OTLP != nil:
 			c.Exporters = append(c.Exporters, l.exporter(*e.OTLP, now))
 		case e.File != nil:
 			c.FileExporters = append(c.FileExporters, l.fileExporter(*e.File, c.FileExporters))
-		case e.Console != nil:
-			c.Console = l.console(*e.Console, c.Console)
+		case console:
+			c.Console = l.console(e.Console, c.Console)
 		default:
 			l.problem("an exporter must be otlp, file or console")
 		}

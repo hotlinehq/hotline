@@ -65,11 +65,18 @@ Feature: Printing every call to the console
     And the console does not hold "sk_live_123"
 
   Scenario: A console exporter written with nothing after console:
-    YAML reads "console:" with nothing after it as empty. It means the
-    same as "console: {}": every option at its default (Peter, 2026-11-13).
+    The key alone switches it on, as in the OpenTelemetry Collector:
+    "console:" with nothing after it means the same as "console: {}",
+    every option at its default (Peter, 2026-11-13).
     Given the console exporter is written as "console:" with nothing after it
     When the app sends GET /orders
     Then the console has 3 lines
+
+  Scenario: A console setting the proxy does not know is ignored, with a warning
+    Given the console exporter is set with colour always
+    When the app sends GET /orders
+    Then the console has 3 lines
+    And the proxy logged a warning with "colour" and "is not a setting and is ignored"
 
   Scenario: The terminal is asked its width once for each batch of calls
     Calls are recorded in the background, so an app never waits for the
@@ -237,7 +244,8 @@ Feature: Printing every call to the console
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting                 | problem                                       |
-      | color loud              | color must be auto, always or never           |
-      | a second one            | there may be only one console exporter        |
-      | a file path as well     | an exporter is only one of otlp, file or console |
+      | setting                    | problem                                                                          |
+      | color loud                 | color must be auto, always or never                                              |
+      | a second one               | there may be only one console exporter                                           |
+      | a word instead of settings | console exporter: write its settings as color: auto, or nothing for the defaults |
+      | a file path as well        | an exporter is only one of otlp, file or console                                 |

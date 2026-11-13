@@ -91,7 +91,12 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		switch setting {
 		case "color loud":
 			w.consoleExporter = "  - console:\n      color: loud\n"
+		case "a word instead of settings":
+			w.consoleExporter = "  - console: loud\n"
+		case "colour always":
+			w.consoleExporter = "  - console:\n      colour: always\n"
 		case "a second one":
+
 			w.consoleExporter = "  - console: {}\n  - console: {}\n"
 		case "a file path as well":
 			w.consoleExporter = "  - console: {}\n    file:\n      path: ./calls\n"
