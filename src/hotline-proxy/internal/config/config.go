@@ -361,6 +361,8 @@ type captureFile struct {
 	Path        string   `yaml:"path"`
 	Issuer      string   `yaml:"issuer"`
 	Passthrough []string `yaml:"passthrough"`
+	// HTTP are the ports read as calls; 80 and 443 when left out.
+	HTTP *[]int `yaml:"http"`
 }
 
 // connectFile is listen.connect: the name of the issuer it signs with.
@@ -1050,10 +1052,22 @@ const maxSocketPath = 103
 // folder, short enough for a socket file, and the issuer that signs for
 // the sites in its tunnels.
 func (l *loader) capture(f *captureFile, issuers map[string]*TLS, written map[string]*pairFile) *Capture {
+	ports := []int{80, 443}
+	if f.HTTP != nil {
+		ports = *f.HTTP
+	}
+	http := map[string]bool{}
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			l.problem("listen.capture: http port %d must be from 1 to 65535", port)
+		}
+		http[strconv.Itoa(port)] = true
+	}
 	return &Capture{
 		Path:        l.capturePath(f.Path),
 		Issuer:      l.issuer("listen.capture", f.Issuer, issuers, written),
 		Passthrough: l.passthrough("listen.capture", f.Passthrough),
+		http:        http,
 	}
 }
 

@@ -27,7 +27,14 @@ type Capture struct {
 	Issuer *TLS
 	// Passthrough lists sites relayed untouched.
 	Passthrough Passthrough
+	// http are the ports, written as text, whose connections are read as
+	// calls. Every other port is tcp: relayed untouched (Peter, 2026-11-13).
+	http map[string]bool
 }
+
+// HTTP says whether a captured connection to port is read as calls: TLS,
+// or else plain HTTP. Every other port is relayed untouched.
+func (c *Capture) HTTP(port string) bool { return c.http[port] }
 
 // Passes says whether host is relayed untouched: it is listed in
 // passthrough, exactly or by a "*." suffix.

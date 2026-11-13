@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"hotline-proxy/internal/config"
 )
@@ -144,9 +147,54 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, c 
 		certificate: h.capture, port: t.port, fallback: t.host, process: p,
 	}
 	conn, done := open(w, r)
+	defer func() { <-done }()
+	reader := bufio.NewReaderSize(conn, maxHello)
+	inner := &bufferedConn{Conn: conn, r: reader}
+	// The extension hands over every connection of a captured program, on
+	// any port. The config names the ports read as calls; every other port
+	// is relayed untouched at once, so a server that speaks first, such as
+	// SSH, just works (Peter, 2026-11-13).
+	if !c.HTTP(t.port) {
+		h.relay(src, inner, start, t.host, "tcp")
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	h.serveSource(conn, bufio.NewReaderSize(conn, maxHello), src, start)
-	<-done
+	stop := context.AfterFunc(h.tunnels.ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	first, err := reader.Peek(1)
+	stop()
+	switch {
+	case err != nil:
+		// The program left before sending anything, or the proxy is
+		// stopping. Like the extension's own check, that makes no record.
+		_ = conn.Close()
+	case first[0] == 0x16:
+		h.serveSource(conn, reader, src, start)
+	case !startsHTTP(reader):
+		// A wrong port list shows in the records instead of being hidden.
+		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("not_http"))
+		_ = conn.Close()
+	case c.Passthrough.Passes(t.host):
+		h.relay(src, inner, start, t.host, "passthrough")
+	default:
+		// Plain HTTP is served like any other call, as in an ordinary
+		// tunnel.
+		_ = conn.SetDeadline(time.Time{})
+		h.tunnels.hand(&appConn{Conn: inner, tunnel: &tunnel{host: t.host, port: t.port, id: t.id, ingress: "capture", process: p}})
+	}
+}
+
+// startsHTTP says whether the bytes that came with the program's first
+// write start an HTTP request: a method and a space. It never waits for
+// more; a request split before its first space is relayed untouched, so
+// the program still works.
+func startsHTTP(r *bufio.Reader) bool {
+	b, _ := r.Peek(r.Buffered())
+	for _, m := range [...]string{"GET ", "HEAD ", "POST ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "} {
+		if strings.HasPrefix(string(b), m) {
+			return true
+		}
+	}
+	return false
 }
 
 // passedThrough relays an ordinary tunnel to a site listed in

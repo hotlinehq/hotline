@@ -115,6 +115,14 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^listen.capture has http ports ([\d, and]+)$`, func(ports string) error {
+		w.captureHTTP = "[" + strings.ReplaceAll(strings.ReplaceAll(ports, " and ", ", "), " ", "") + "]"
+		return nil
+	})
+	sc.Step(`^listen.capture has no http ports$`, func() error {
+		w.captureHTTP = "[]"
+		return nil
+	})
 	sc.Step(`^listen.capture lists (\S+) in passthrough$`, func(name string) error {
 		w.capturePassthrough = []string{name}
 		return nil

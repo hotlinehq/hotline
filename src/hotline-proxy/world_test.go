@@ -182,6 +182,9 @@ type world struct {
 	capturePath        string
 	captureIssuer      string
 	capturePassthrough []string
+	// captureHTTP, when set, is the http line of listen.capture: the ports
+	// read as calls.
+	captureHTTP string
 	// captureDropped leaves listen.capture out of the config, after a start
 	// with it.
 	captureDropped bool
@@ -434,7 +437,11 @@ func (w *world) captureSection() string {
 	for i, name := range w.capturePassthrough {
 		quoted[i] = strconv.Quote(name)
 	}
-	return fmt.Sprintf("  capture: { path: %q, %spassthrough: [%s] }\n", cmp.Or(w.capturePath, w.captureFile), issuer, strings.Join(quoted, ", "))
+	http := ""
+	if w.captureHTTP != "" {
+		http = ", http: " + w.captureHTTP
+	}
+	return fmt.Sprintf("  capture: { path: %q, %spassthrough: [%s]%s }\n", cmp.Or(w.capturePath, w.captureFile), issuer, strings.Join(quoted, ", "), http)
 }
 
 func (w *world) config() string {

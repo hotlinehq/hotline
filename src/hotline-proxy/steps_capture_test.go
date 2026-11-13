@@ -40,6 +40,77 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 			w.vendor(host)
 			return w.captureTunnel(host, port, captureHeaders(pid, path), "", []byte("GET / HTTP/1.1\r\nHost: "+host+"\r\n\r\n"))
 		})
+	sc.Step(`^the extension opens a captured tunnel to (\S+):(\d+) for process (\d+) at "([^"]*)" and the app sends a plain HTTP call inside it$`,
+		func(host, port, pid, path string) error {
+			w.vendor(host)
+			conn, err := w.openCaptured(host, port, captureHeaders(pid, path))
+			if err != nil {
+				return err
+			}
+			w.tunnel = conn
+			return w.callInTunnel("Host: " + host)
+		})
+	sc.Step(`^(\S+) on port (\d+) answers "([^"]*)" to what it gets$`, func(host, port, answer string) error {
+		w.startPlainTalker(host, port, func(c net.Conn, got chan<- string) {
+			b := make([]byte, 64)
+			n, _ := c.Read(b)
+			got <- string(b[:n])
+			_, _ = io.WriteString(c, answer)
+		})
+		return nil
+	})
+	sc.Step(`^(\S+) on port (\d+) greets with "([^"]*)", then answers "([^"]*)" to what it gets$`, func(host, port, greeting, answer string) error {
+		w.startPlainTalker(host, port, func(c net.Conn, got chan<- string) {
+			_, _ = io.WriteString(c, greeting)
+			b := make([]byte, 64)
+			n, _ := c.Read(b)
+			got <- string(b[:n])
+			_, _ = io.WriteString(c, answer)
+		})
+		return nil
+	})
+	sc.Step(`^the extension opens a captured tunnel to (\S+):(\d+) for process (\d+) at "([^"]*)" and the app (?:waits for "([^"]*)", then )?sends "([^"]*)"$`,
+		func(host, port, pid, path, greeting, message string) error {
+			conn, err := w.openCaptured(host, port, captureHeaders(pid, path))
+			if err != nil {
+				return err
+			}
+			_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+			if greeting != "" {
+				got := make([]byte, len(greeting))
+				if _, err := io.ReadFull(conn, got); err != nil || string(got) != greeting {
+					return failf("the app got %q before sending, %v", got, err)
+				}
+			}
+			if _, err := io.WriteString(conn, message); err != nil {
+				return err
+			}
+			w.respBody, w.respErr = io.ReadAll(conn)
+			_ = conn.Close()
+			return nil
+		})
+	sc.Step(`^the extension opens a captured tunnel to (\S+):(\d+) for process (\d+) at "([^"]*)" and the app (closes it before sending anything|sends nothing yet)$`,
+		func(host, port, pid, path, what string) error {
+			conn, err := w.openCaptured(host, port, captureHeaders(pid, path))
+			if err != nil || what == "sends nothing yet" {
+				return err
+			}
+			return conn.Close()
+		})
+	sc.Step(`^the proxy stops within half a second$`, func() error {
+		began := time.Now()
+		w.settle()
+		if took := time.Since(began); took > 500*time.Millisecond {
+			return failf("the proxy took %v to stop", took)
+		}
+		return nil
+	})
+	sc.Step(`^the app gets "([^"]*)" back$`, func(want string) error {
+		if string(w.respBody) != want {
+			return failf("the app got %q (%v)", w.respBody, w.respErr)
+		}
+		return nil
+	})
 	sc.Step(`^the extension sends a CONNECT to (api.talon.one:443|api.talon.one:0) with (.+)$`, func(target, headers string) error {
 		if err := w.start(); err != nil {
 			return err
@@ -183,6 +254,26 @@ func (w *world) sendConnect(conn net.Conn, authority string, headers []string) e
 	_ = conn.SetReadDeadline(time.Time{})
 	w.resp = resp
 	return nil
+}
+
+// openCaptured sends the extension's CONNECT for host:port on the capture
+// socket and gives the open tunnel, before the app sends anything.
+func (w *world) openCaptured(host, port string, headers []string) (net.Conn, error) {
+	if err := w.start(); err != nil {
+		return nil, err
+	}
+	conn, err := w.dialCapture()
+	if err != nil {
+		return nil, err
+	}
+	w.tunnels = append(w.tunnels, conn)
+	if err := w.sendConnect(conn, net.JoinHostPort(host, port), headers); err != nil {
+		return nil, err
+	}
+	if w.resp.StatusCode != http.StatusOK {
+		return nil, failf("the proxy answered CONNECT with %d", w.resp.StatusCode)
+	}
+	return conn, nil
 }
 
 // captureTunnel opens a tunnel as the extension does: a CONNECT to where the

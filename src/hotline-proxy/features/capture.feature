@@ -38,6 +38,7 @@ Feature: The capture ingress
       Then the app sees a certificate for api.stripe.com signed by the interception issuer
 
     Scenario: The port in the CONNECT decides where the proxy connects
+      Given listen.capture has http ports 443 and 8443
       When the extension opens a captured tunnel to api.talon.one:8443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
       And the app sends its call with the header "Host: api.talon.one:8443"
       Then the test vendor got the call over https on port 8443
@@ -97,9 +98,85 @@ Feature: The capture ingress
       And nothing is sent to any vendor
       And the capture record has hotline.integration.id not-passed, server.address api.talon.one, error.type tls_untrusted_by_app, process.pid 4242 and process.executable.path /usr/bin/curl
 
-    Scenario: Plain text in a captured tunnel
-      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and sends plain HTTP bytes
-      Then the capture record has hotline.ingress capture, error.type not_tls and process.pid 4242
+
+  Rule: listen.capture says which ports are http; every other port is tcp
+    The extension hands over every outgoing connection of a captured app,
+    on any port. Like a mode in HAProxy, the config says how each is
+    handled, by the port the app called, instead of the proxy guessing
+    (Peter, 2026-11-13). On an http port, the default 80 and 443, the
+    proxy reads calls: TLS, or else plain HTTP. On any other port it
+    relays the bytes untouched, at once, so a server that speaks first,
+    such as SSH, just works.
+
+    Scenario: A plain HTTP call to port 80 is served like any other call
+      When the extension opens a captured tunnel to api.talon.one:80 for process 4242 at "/usr/bin/curl" and the app sends a plain HTTP call inside it
+      Then the test vendor got the call over https on port 443
+      And the record says hotline.ingress capture and ID not-passed
+      And the record says the program is process 4242 at "/usr/bin/curl"
+
+    Scenario: A port listed in http is read as calls
+      Given listen.capture has http ports 80, 443 and 8080
+      When the extension opens a captured tunnel to api.talon.one:8080 for process 4242 at "/usr/bin/curl" and the app sends a plain HTTP call inside it
+      Then the record says hotline.ingress capture and ID not-passed
+
+    Scenario: A plain HTTP call to a host in listen.capture passthrough is relayed untouched
+      Given listen.capture lists pinned.example.com in passthrough
+      And pinned.example.com on port 80 answers "HTTP/1.1 204 No Content" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:80 for process 4242 at "/usr/bin/curl" and the app sends "GET / HTTP/1.1"
+      Then the app gets "HTTP/1.1 204 No Content" back
+      And pinned.example.com got "GET / HTTP/1.1"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason passthrough and process.pid 4242
+
+    Scenario: A connection to a tcp port is relayed untouched
+      Such as a Redis or database connection.
+      Given pinned.example.com on port 6379 answers "+PONG" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:6379 for process 4242 at "/usr/bin/redis-cli" and the app sends "PING"
+      Then the app gets "+PONG" back
+      And pinned.example.com got "PING"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason tcp and process.pid 4242
+
+    Scenario: A server that speaks first on a tcp port is reached at once
+      SSH and mail servers send a greeting before the app sends anything.
+      Given pinned.example.com on port 22 greets with "SSH-2.0-test", then answers "ok" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:22 for process 4242 at "/usr/bin/ssh" and the app waits for "SSH-2.0-test", then sends "SSH-2.0-app"
+      Then the app gets "ok" back
+      And pinned.example.com got "SSH-2.0-app"
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason tcp and process.pid 4242
+
+    Scenario: With no http ports, port 443 is relayed untouched too
+      Given listen.capture has no http ports
+      And pinned.example.com on port 443 answers "+PONG" to what it gets
+      When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/redis-cli" and the app sends "PING"
+      Then the app gets "+PONG" back
+      And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason tcp
+
+    Scenario: Bytes that are neither TLS nor HTTP on an http port are refused
+      A wrong port list then shows in the records instead of being hidden.
+      When the extension opens a captured tunnel to api.talon.one:80 for process 4242 at "/usr/bin/redis-cli" and the app sends "PING"
+      Then the app gets "" back
+      And the capture record has hotline.ingress capture, error.type not_http and process.pid 4242
+      And nothing is sent to any vendor
+
+    Scenario: A program that closes before sending anything makes no record
+      Like the extension's own check that the proxy is there, a connection
+      that carried nothing is no call.
+      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app closes it before sending anything
+      Then no record is sent
+
+    Scenario: Stopping the proxy does not wait for a program that has sent nothing
+      When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app sends nothing yet
+      Then the proxy stops within half a second
+      And no record is sent
+
+    Scenario Outline: An http port that is not a port is refused
+      Given listen.capture has http ports <ports>
+      When the proxy loads the config
+      Then the proxy refuses the config, saying <problem>
+
+      Examples:
+        | ports | problem                                                 |
+        | 0     | listen.capture: http port 0 must be from 1 to 65535     |
+        | 70000 | listen.capture: http port 70000 must be from 1 to 65535 |
 
   Rule: The capture headers are not trusted
 

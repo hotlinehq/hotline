@@ -24,6 +24,7 @@ Hotline-Capture-Program: /usr/bin/curl
 - Only the proxy's own user and root can open the socket file, and the extension runs as root, so the headers there are believed as they come (Peter, 2026-11-12). A request other than CONNECT gets `405`.
 - An unknown version, a header given twice, a process number that is not a positive number, or a program path over 4096 bytes is refused with `400` and recorded with `hotline.ingress=capture`.
 - After the `200`, the tunnel is served like an intercepted connection (from step 2 of [proxy-intercept.md](proxy-intercept.md)): the site comes from the TLS handshake, with the CONNECT's host when the handshake names none; the port is the CONNECT's port; a site in `listen.capture` `passthrough` is relayed untouched; ECH is rejected so the program retries without it.
+- The extension hands over every connection of a captured program, on any port, so `listen.capture` `http` names the ports read as calls, 80 and 443 when left out (Peter, 2026-11-13), like a mode in HAProxy. On an http port, a TLS handshake is served as above, and plain HTTP is served like any other call, as in an ordinary tunnel, unless the CONNECT's host is in `passthrough`; bytes that are neither are closed and recorded with `error.type=not_http`, so a wrong port list shows. Every other port is tcp: relayed untouched at once, with `hotline.intercept.reason=tcp`, so a server that speaks first, such as SSH, just works. A program that closes before sending anything makes no record, like the extension's own check.
 - Records say `hotline.ingress=capture`, `process.pid` and `process.executable.path`: the call's record and the minimal records of failed or relayed connections. The integration ID comes from `Proxy-Authorization`, as for any CONNECT; the extension sends none yet, so it is `not-passed`.
 - The extension checks every 2 seconds that the proxy is there by opening a connection and closing it, sending nothing. That makes no record.
 
@@ -35,6 +36,7 @@ listen:
     path: "~/Library/Application Support/Hotline/capture.sock"   # the default Hotline uses on a Mac
     issuer: capture                                                # signs the certificates for the sites
     passthrough: [pinned.example.com]                              # relayed untouched, empty by default
+    http: [80, 443]                                                # ports read as calls, the default; every other port is relayed untouched
 issuers:
   capture: { cert: ./ca/cert.pem, key: ./ca/key.pem }
 exporters:
