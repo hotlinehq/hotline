@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/cucumber/godog"
+
+	proxy "hotline-proxy"
 )
 
 // fakeTerminal is what standard output is in a scenario: a terminal so
@@ -37,6 +39,15 @@ func (w *world) consoleOut() io.Writer {
 		return closedOutput{}
 	}
 	return w.console
+}
+
+// consoleOption is the console the test gives the proxy: none at all when
+// the scenario starts the proxy the way a Go program that leaves it out does.
+func (w *world) consoleOption() proxy.Console {
+	if w.noConsole {
+		return proxy.Console{}
+	}
+	return proxy.Console{Out: w.consoleOut(), Terminal: w.terminal.size, JSON: w.consoleJSON}
 }
 
 // ansi is a colour code the console writes around a word.
@@ -86,6 +97,10 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		})
 	sc.Step(`^the environment variable (\w+) is "([^"]*)"$`, func(name, value string) error {
 		w.setEnv(name, value)
+		return nil
+	})
+	sc.Step(`^the program starting the proxy gives no console$`, func() error {
+		w.noConsole = true
 		return nil
 	})
 	sc.Step(`^standard output is closed$`, func() error {

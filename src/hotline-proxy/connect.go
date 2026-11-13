@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"hash/maphash"
 	"io"
 	"log/slog"
@@ -142,37 +143,52 @@ func open(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 }
 
 // stream carries a tunnel in a CONNECT's HTTP/2 stream: the app's bytes
-// come in the request body and the proxy's go out in the reply. The tunnel
-// is one end of a pipe; the bytes are copied between its other end and the
-// stream. The stream ends once the tunnel is closed, or the app ends its
-// side, which closes the tunnel.
+// come in the request body and the proxy's go out in the reply. Each
+// direction is a pipe of its own, so the app ending its body ends only what
+// the tunnel reads, and the reply goes on. The other way round is not
+// possible: the reply ends only when the whole stream does, after which
+// the body cannot be read. So the stream ends once the tunnel is closed.
 func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
 	_ = rc.Flush()
-	tunnel, end := net.Pipe()
+	in, fromApp := net.Pipe()
+	toApp, out := net.Pipe()
 	done := make(chan struct{})
 	go func() {
-		_, _ = io.Copy(end, r.Body)
-		_ = end.Close()
+		_, _ = io.Copy(fromApp, r.Body)
+		_ = fromApp.Close()
 	}()
 	go func() {
 		defer close(done)
-		_, _ = io.Copy(flushWriter{w: w, rc: rc}, end)
+		_, _ = io.Copy(flushWriter{w: w, rc: rc}, toApp)
+		// A reply the app no longer takes fails the tunnel's next write.
+		_ = toApp.Close()
 	}()
-	// The pipe has no address of its own: calls inside the tunnel come
+	// The pipes have no address of their own: calls inside the tunnel come
 	// from the app's.
 	from, _ := netip.ParseAddrPort(r.RemoteAddr)
-	return fromApp{Conn: tunnel, remote: net.TCPAddrFromAddrPort(from)}, done
+	return &streamTunnel{in: in, out: out, remote: net.TCPAddrFromAddrPort(from)}, done
 }
 
-// fromApp is a tunnel over an HTTP/2 stream, with the app's address.
-type fromApp struct {
-	net.Conn
-	remote net.Addr
+// streamTunnel is a tunnel over an HTTP/2 stream, with the app's address.
+// It reads from one pipe and writes to another, so the app can stop
+// sending while the reply goes on.
+type streamTunnel struct {
+	in, out net.Conn
+	remote  net.Addr
 }
 
-func (c fromApp) RemoteAddr() net.Addr { return c.remote }
+func (c *streamTunnel) Read(p []byte) (int, error)  { return c.in.Read(p) }
+func (c *streamTunnel) Write(p []byte) (int, error) { return c.out.Write(p) }
+func (c *streamTunnel) Close() error                { return errors.Join(c.in.Close(), c.out.Close()) }
+func (c *streamTunnel) LocalAddr() net.Addr         { return c.in.LocalAddr() }
+func (c *streamTunnel) RemoteAddr() net.Addr        { return c.remote }
+func (c *streamTunnel) SetDeadline(t time.Time) error {
+	return errors.Join(c.in.SetReadDeadline(t), c.out.SetWriteDeadline(t))
+}
+func (c *streamTunnel) SetReadDeadline(t time.Time) error  { return c.in.SetReadDeadline(t) }
+func (c *streamTunnel) SetWriteDeadline(t time.Time) error { return c.out.SetWriteDeadline(t) }
 
 // flushWriter sends each write to the app at once.
 type flushWriter struct {
@@ -241,6 +257,13 @@ type bufferedConn struct {
 }
 
 func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// CloseWrite tells the app nothing more comes and keeps reading, when the
+// connection under it can do that; otherwise it closes the connection.
+func (c *bufferedConn) CloseWrite() error {
+	closeWrite(c.Conn)
+	return nil
+}
 
 // leafLife is how long a certificate the proxy makes for a vendor host is
 // valid, and leafRenew how long before its end the proxy makes a new one.

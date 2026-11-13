@@ -331,6 +331,10 @@ type fakeConn struct {
 
 func (c *fakeConn) RemoteAddr() net.Addr { return c.remote }
 
+// CloseWrite stops sending and keeps reading, as a real TCP connection to
+// a vendor can.
+func (c *fakeConn) CloseWrite() error { return c.Conn.(closeWriter).CloseWrite() }
+
 func listenLocal() net.Listener {
 	l, _ := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	return l

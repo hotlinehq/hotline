@@ -193,6 +193,15 @@ Feature: Printing every call to the console
     Then the call succeeds
     And the proxy warns that the export failed
 
+  Scenario: A program that starts the proxy without saying where the console is
+    A Go program can start the proxy without filling in the console
+    option. A console exporter in the config then prints nothing, and
+    the proxy still runs and answers calls.
+    Given the program starting the proxy gives no console
+    When the app sends GET /orders
+    Then the call succeeds
+    And the console has 0 lines
+
   Scenario Outline: Wrong console exporter settings
     Given the console exporter is set with <setting>
     When the proxy loads the config
