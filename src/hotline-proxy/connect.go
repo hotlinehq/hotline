@@ -145,8 +145,9 @@ func open(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 // stream carries a tunnel in a CONNECT's HTTP/2 stream: the app's bytes
 // come in the request body and the proxy's go out in the reply. Each
 // direction is a pipe of its own, so the app ending its body ends only what
-// the tunnel reads, and the reply goes on until the tunnel stops writing.
-// The stream ends once the tunnel stops writing or is closed.
+// the tunnel reads, and the reply goes on. The other way round is not
+// possible: the reply ends only when the whole stream does, after which
+// the body cannot be read. So the stream ends once the tunnel is closed.
 func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
@@ -171,8 +172,8 @@ func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) 
 }
 
 // streamTunnel is a tunnel over an HTTP/2 stream, with the app's address.
-// It reads from one pipe and writes to another, so it can stop writing and
-// still read, as a TCP connection can.
+// It reads from one pipe and writes to another, so the app can stop
+// sending while the reply goes on.
 type streamTunnel struct {
 	in, out net.Conn
 	remote  net.Addr
@@ -181,12 +182,8 @@ type streamTunnel struct {
 func (c *streamTunnel) Read(p []byte) (int, error)  { return c.in.Read(p) }
 func (c *streamTunnel) Write(p []byte) (int, error) { return c.out.Write(p) }
 func (c *streamTunnel) Close() error                { return errors.Join(c.in.Close(), c.out.Close()) }
-
-// CloseWrite ends the reply, which tells the app nothing more comes, and
-// keeps reading what the app sends.
-func (c *streamTunnel) CloseWrite() error    { return c.out.Close() }
-func (c *streamTunnel) LocalAddr() net.Addr  { return c.in.LocalAddr() }
-func (c *streamTunnel) RemoteAddr() net.Addr { return c.remote }
+func (c *streamTunnel) LocalAddr() net.Addr         { return c.in.LocalAddr() }
+func (c *streamTunnel) RemoteAddr() net.Addr        { return c.remote }
 func (c *streamTunnel) SetDeadline(t time.Time) error {
 	return errors.Join(c.in.SetReadDeadline(t), c.out.SetWriteDeadline(t))
 }

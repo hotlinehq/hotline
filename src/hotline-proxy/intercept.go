@@ -287,14 +287,15 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 }
 
 // closeWrite tells the other side nothing more comes, and keeps reading
-// what it still sends. Every connection the proxy relays can do that: TCP,
-// a socket file, TLS and a tunnel over HTTP/2. One that cannot, from a
-// dialer a program passes in, stays open both ways until the relay ends,
-// so nothing still on its way is cut off.
+// what it still sends. A connection that cannot say that alone is closed,
+// or the relay would wait for both sides forever: a tunnel over HTTP/2,
+// whose reply ends only with the whole stream.
 func closeWrite(c net.Conn) {
 	if w, ok := c.(interface{ CloseWrite() error }); ok {
 		_ = w.CloseWrite()
+		return
 	}
+	_ = c.Close()
 }
 
 // interceptRecord records a connection on an intercepting ingress that never

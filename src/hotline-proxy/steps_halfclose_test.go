@@ -73,6 +73,30 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 		stopSending(app)
 		return nil
 	})
+	sc.Step(`^the app reads "([^"]*)" through (.+) from (\S+)$`, func(want, kind, host string) error {
+		app, err := w.relayedTunnel(kind, host)
+		if err != nil {
+			return err
+		}
+		_ = app.SetReadDeadline(time.Now().Add(5 * time.Second))
+		got, _ := io.ReadAll(app)
+		if string(got) != want {
+			return failf("the app got %q", got)
+		}
+		w.tunnel = app
+		return nil
+	})
+	sc.Step(`^the tunnel ends$`, func() error {
+		// Under TLS, the tunnel itself must end too, not only the vendor's
+		// TLS.
+		raw := w.tunnel.(*tls.Conn).NetConn()
+		_ = raw.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, err := io.Copy(io.Discard, raw)
+		if err != nil {
+			return failf("the tunnel did not end: %v", err)
+		}
+		return nil
+	})
 	sc.Step(`^pinned.example.com got "([^"]*)"$`, func(want string) error {
 		select {
 		case got := <-w.talker.got:
