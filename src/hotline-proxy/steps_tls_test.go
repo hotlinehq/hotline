@@ -22,8 +22,8 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
 		return nil
 	})
-	sc.Step(`^a config file whose listen.tls points to its cert and key files$`, func() error {
-		w.listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+	sc.Step(`^a config file whose tls part points to its cert and key files$`, func() error {
+		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		return nil
 	})
 	sc.Step(`^an app that trusts the test issuer$`, func() error {
@@ -148,9 +148,9 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		w.writeKeyPair(expired, expired)
 		return nil
 	})
-	sc.Step(`^listen.tls has a cert file but no key file$`, func() error {
-		w.problem = "listen.tls needs both cert and key"
-		w.listenTLS = "  tls: { cert: ./tls/cert.pem }\n"
+	sc.Step(`^the tls part has a cert file but no key file$`, func() error {
+		w.problem = "cert app needs both cert and key"
+		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem }\n"
 		return nil
 	})
 

@@ -117,7 +117,7 @@ func reloadSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the proxy logs a warning that the reload failed, naming (.+)$`, func(name string) error {
 		return w.warned("config reload failed", name)
 	})
-	sc.Step(`^the proxy logs a warning that (\S+) needs a restart$`, func(setting string) error {
+	sc.Step(`^the proxy logs a warning that (.+) needs a restart$`, func(setting string) error {
 		return w.warned(setting, "needs a restart")
 	})
 }
@@ -137,28 +137,30 @@ func (w *world) changeConfig(change string) error {
 		w.apis[0].yaml = strings.Replace(w.apis[0].yaml, "talon-one.openapi.yaml", "missing.yaml", 1)
 	case "Talon.One has the overlay no-paths.yaml":
 		w.apis[0].yaml += "    overlays: [./overlays/no-paths.yaml]\n"
-	case "listen.proxy moves to another port":
+	case "the proxy listener moves to another port":
 		addr := w.addr
 		w.addr = freePort()
 		defer func() { w.addr = addr }()
-	case "listen.admin moves to another port":
+	case "the admin section is removed":
+		w.noAdmin = true
+	case "the admin port moves to another port":
 		w.adminAddr = freePort()
 	case "there is one more exporter":
 		w.downEndpoints = append(w.downEndpoints, "http://"+freePort())
-	case "listen.tls is added":
+	case "the tls part is added":
 		cert := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(cert, cert)
-		w.listenTLS = "  tls: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 	case "the telemetry section turns off go.*":
 		w.telemetryDisable = append(w.telemetryDisable, "go.*")
 	case "telemetry.pprof is turned on":
 		w.telemetryPprof = true
-	case "listen.intercept is added":
+	case "the transparent listener is added":
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
-	case "listen.connect is added":
+	case "the connect part is added":
 		w.useInterceptionIssuer(newIssuer())
-	case "listen.capture is added":
+	case "the capture listener is added":
 		w.useInterceptionIssuer(newIssuer())
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	default:

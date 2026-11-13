@@ -126,13 +126,13 @@ Feature: The proxy's own telemetry
 
   Scenario: A change that needs a restart shows until the restart
     Given the proxy runs
-    When the config file changes so that listen.proxy moves to another port
+    When the config file changes so that the proxy listener moves to another port
     And the proxy checks its files
     Then hotline.config.restart_needed turns 1
 
   Scenario: A change put back no longer needs a restart
     Given the proxy runs
-    And the config file changes so that listen.proxy moves to another port
+    And the config file changes so that the proxy listener moves to another port
     And the proxy checks its files
     When the config file is put back as it was
     And the proxy checks its files
@@ -143,19 +143,43 @@ Feature: The proxy's own telemetry
     within 7 days" and the number does not change every day.
     Given the proxy port takes TLS with a certificate that expires in 90 days
     When the proxy starts
-    Then hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use listen.tls
+    Then hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use proxy.tls
 
   Scenario: A renewed certificate shows its new date
     Given the proxy port takes TLS with a certificate that expires in 90 days
     And the proxy runs
     When the cert and key files are replaced with a certificate that expires in 120 days
     And the proxy checks its files
-    Then hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use listen.tls
+    Then hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls
 
   Scenario: The CONNECT issuer
     Given CONNECT is an ingress with an issuer that expires in 200 days
     When the proxy starts
-    Then hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use listen.connect
+    Then hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect
+
+  Scenario: Each certificate is named by its listener and part
+    Given an issuer named customer in certs
+    And a proxy certificate for the name hotline-proxy from the test issuer
+    And the certs are:
+      """
+      shop: { cert: ./ca/cert.pem, key: ./ca/key.pem }
+      team: { cert: ./tls/cert.pem, key: ./tls/key.pem }
+      """
+    And the admin port has tls: { cert: team }
+    And the listeners are:
+      """
+      apps:
+        address: tcp://{apps}
+        tls: { cert: shop, mode: sign }
+      sidecar:
+        address: tcp://{sidecar}
+        transparent: { cert: shop }
+      mac:
+        address: unix://{dir}/mac.sock
+        capture: { cert: shop }
+      """
+    When the proxy starts
+    Then hotline.certificate.not_after is reported for apps.tls, sidecar.transparent, mac.capture and admin.tls
 
   Scenario Outline: Failed TLS setups with apps are counted
     Given the proxy port takes TLS

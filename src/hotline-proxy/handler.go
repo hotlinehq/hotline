@@ -46,17 +46,8 @@ type handler struct {
 	transport *http.Transport
 	// internal is the transport for calls that may reach internal IPs.
 	internal *http.Transport
-	// intercept makes the certificates shown inside tunnels; nil when
-	// CONNECT is not an ingress.
-	intercept *interceptor
-	// redirected makes the certificates shown on the intercept listener;
-	// nil when there is none.
-	redirected *interceptor
-	// capture makes the certificates shown in captured tunnels, from the
-	// issuer of listen.capture.
-	capture *interceptor
-	// relays dials the sites relayed untouched, from listen.intercept or
-	// listen.connect passthrough.
+	// relays dials the sites relayed untouched, from the passthrough of a
+	// transparent, connect or capture listener.
 	relays *dialer
 	// tunnels takes each tunnel once it is set up.
 	tunnels *tunnels
@@ -78,6 +69,11 @@ type handler struct {
 	calls sync.WaitGroup
 }
 
+// connects says whether CONNECT is an ingress on the listener.
+func connects(li *listening) bool {
+	return li != nil && li.cfg.Load().Connect != nil
+}
+
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.calls.Add(1)
 	defer h.calls.Done()
@@ -92,8 +88,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The CONNECT carried the ID for every call in its tunnel.
 		ingress, id = cmp.Or(a.tunnel.ingress, "connect"), a.tunnel.id
 		target, status = a.tunnel.find(r, a)
-	case r.Method == http.MethodConnect && h.intercept != nil:
-		h.connect(w, r, start)
+	case r.Method == http.MethodConnect && connects(listeningOf(r)):
+		h.connect(w, r, start, listeningOf(r))
 		return
 	default:
 		ingress, target, status = findIngress(r)

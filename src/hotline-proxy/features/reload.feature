@@ -79,7 +79,11 @@ Feature: Reloading the config without a restart
     And an app calls Talon.One as talon-shop-a
     Then record 1 and record 2 carry different hotline.signature_key_id
 
-  Scenario Outline: Listen addresses and exporters need a restart
+  Scenario Outline: Listener changes and exporters need a restart
+    A listener that moves, or gains or loses a part, keeps running as it
+    started until a restart; the rest of the new config is used at once
+    (Peter, 2026-11-13).
+
     When the config file changes so that <change>, and talon-shop-b also uses Talon.One
     And the proxy checks its files
     And an app calls Talon.One as talon-shop-b
@@ -87,12 +91,13 @@ Feature: Reloading the config without a restart
     And record 1 has url.template /v2/customer_sessions/{customerSessionId}
 
     Examples:
-      | change                                | setting       |
-      | listen.proxy moves to another port    | listen.proxy  |
-      | listen.admin moves to another port    | listen.admin  |
-      | there is one more exporter            | exporters     |
-      | listen.tls is added                   | listen.tls    |
-      | listen.connect is added               | listen.connect |
-      | listen.intercept is added             | listen.intercept |
-      | listen.capture is added               | listen.capture |
+      | change                                   | setting             |
+      | the proxy listener moves to another port | listener proxy      |
+      | the admin port moves to another port     | admin               |
+      | the admin section is removed             | admin               |
+      | there is one more exporter               | exporters           |
+      | the tls part is added                    | listener proxy      |
+      | the connect part is added                | listener proxy      |
+      | the transparent listener is added        | listener intercept  |
+      | the capture listener is added            | listener capture    |
       | telemetry.pprof is turned on          | telemetry.pprof |

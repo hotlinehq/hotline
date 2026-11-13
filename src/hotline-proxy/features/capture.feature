@@ -6,12 +6,12 @@ Feature: The capture ingress
   version, and the process number and program path of the app. The tunnel
   then carries the app's own bytes, so the proxy serves it like an
   intercepted connection: it reads the site name from the TLS handshake,
-  shows a certificate for it signed by the listen.capture issuer, and handles
+  shows a certificate for it signed by the capture issuer, and handles
   each call inside like any other call, with hotline.ingress capture
   (Peter, 2026-11-10).
 
   The extension sends its CONNECT to a socket file of its own,
-  listen.capture, which only the proxy's user and root can open; the
+  the capture listener, which only the proxy's user and root can open; the
   extension runs as root. The proxy believes the capture headers only
   there. On the proxy port they are ignored (Peter, 2026-11-12). The
   socket file has its own issuer and passthrough list, so Hotline on a Mac
@@ -20,8 +20,8 @@ Feature: The capture ingress
   socket file.
 
   Background:
-    Given an interception issuer named customer in issuers, which listen.connect picks
-    And listen.capture is a socket file, whose issuer is customer too
+    Given an interception issuer named customer in certs, which the connect part picks
+    And the capture listener is a socket file, whose issuer is customer too
     And an app that trusts the interception issuer
 
   Rule: Captured calls are handled like any other call
@@ -38,7 +38,7 @@ Feature: The capture ingress
       Then the app sees a certificate for api.stripe.com signed by the interception issuer
 
     Scenario: The port in the CONNECT decides where the proxy connects
-      Given listen.capture has http ports 443 and 8443
+      Given the capture listener has http ports 443 and 8443
       When the extension opens a captured tunnel to api.talon.one:8443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
       And the app sends its call with the header "Host: api.talon.one:8443"
       Then the test vendor got the call over https on port 8443
@@ -52,8 +52,8 @@ Feature: The capture ingress
 
   Rule: Hosts in passthrough are relayed untouched
 
-    Scenario: A captured call to a host in listen.capture passthrough is relayed by its name
-      Given listen.capture lists pinned.example.com in passthrough
+    Scenario: A captured call to a host in the capture listener passthrough is relayed by its name
+      Given the capture listener lists pinned.example.com in passthrough
       When the extension opens a captured tunnel to the address of pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names pinned.example.com in the handshake
       Then the proxy dialed pinned.example.com by its name, never the address the app chose
       And the vendor's own certificate reaches the app, not one from the interception issuer
@@ -63,21 +63,21 @@ Feature: The capture ingress
     Scenario: A listed host is relayed even when the handshake names no site
       The address in the CONNECT stands in for the site name, and it is
       checked against the list too, so a pinned app is never intercepted.
-      Given listen.capture lists pinned.example.com in passthrough
+      Given the capture listener lists pinned.example.com in passthrough
       When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names no site in the handshake
       Then the proxy dialed pinned.example.com by its name, never the address the app chose
       And the vendor's own certificate reaches the app, not one from the interception issuer
       When the app closes its connections
       Then the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
-    Scenario: A host in listen.connect passthrough only is intercepted when captured
-      Given listen.connect lists pinned.example.com in passthrough
+    Scenario: A host in the connect part passthrough only is intercepted when captured
+      Given the connect part lists pinned.example.com in passthrough
       When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names pinned.example.com in the handshake
       And the app sends its call
       Then the record says hotline.ingress capture and ID not-passed
 
-    Scenario: An ordinary tunnel to a host in listen.connect passthrough is relayed
-      Given listen.connect lists *.example.com in passthrough
+    Scenario: An ordinary tunnel to a host in the connect part passthrough is relayed
+      Given the connect part lists *.example.com in passthrough
       And the app also trusts the vendors' own issuer
       When the app opens a tunnel to pinned.example.com:443
       Then the vendor's own certificate reaches the app, not one from the interception issuer
@@ -85,7 +85,7 @@ Feature: The capture ingress
       Then the capture record has hotline.ingress connect, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
     Scenario: A passthrough pattern that is not a name is refused
-      Given listen.connect lists a passthrough pattern that is not a name or a *. suffix
+      Given the connect part lists a passthrough pattern that is not a name or a *. suffix
       When the proxy loads the config
       Then the config is refused with a message naming the problem
 
@@ -99,7 +99,7 @@ Feature: The capture ingress
       And the capture record has hotline.integration.id not-passed, server.address api.talon.one, error.type tls_untrusted_by_app, process.pid 4242 and process.executable.path /usr/bin/curl
 
 
-  Rule: listen.capture says which ports are http; every other port is tcp
+  Rule: The capture listener says which ports are read as calls; every other port is relayed as tcp
     The extension hands over every outgoing connection of a captured app,
     on any port. Like a mode in HAProxy, the config says how each is
     handled, by the port the app called, instead of the proxy guessing
@@ -115,12 +115,12 @@ Feature: The capture ingress
       And the record says the program is process 4242 at "/usr/bin/curl"
 
     Scenario: A port listed in http is read as calls
-      Given listen.capture has http ports 80, 443 and 8080
+      Given the capture listener has http ports 80, 443 and 8080
       When the extension opens a captured tunnel to api.talon.one:8080 for process 4242 at "/usr/bin/curl" and the app sends a plain HTTP call inside it
       Then the record says hotline.ingress capture and ID not-passed
 
-    Scenario: A plain HTTP call to a host in listen.capture passthrough is relayed untouched
-      Given listen.capture lists pinned.example.com in passthrough
+    Scenario: A plain HTTP call to a host in the capture listener passthrough is relayed untouched
+      Given the capture listener lists pinned.example.com in passthrough
       And pinned.example.com on port 80 answers "HTTP/1.1 204 No Content" to what it gets
       When the extension opens a captured tunnel to pinned.example.com:80 for process 4242 at "/usr/bin/curl" and the app sends "GET / HTTP/1.1"
       Then the app gets "HTTP/1.1 204 No Content" back
@@ -144,7 +144,7 @@ Feature: The capture ingress
       And the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason tcp and process.pid 4242
 
     Scenario: With no http ports, port 443 is relayed untouched too
-      Given listen.capture has no http ports
+      Given the capture listener has no http ports
       And pinned.example.com on port 443 answers "+PONG" to what it gets
       When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/redis-cli" and the app sends "PING"
       Then the app gets "+PONG" back
@@ -169,14 +169,14 @@ Feature: The capture ingress
       And no record is sent
 
     Scenario Outline: An http port that is not a port is refused
-      Given listen.capture has http ports <ports>
+      Given the capture listener has http ports <ports>
       When the proxy loads the config
       Then the proxy refuses the config, saying <problem>
 
       Examples:
         | ports | problem                                                 |
-        | 0     | listen.capture: http port 0 must be from 1 to 65535     |
-        | 70000 | listen.capture: http port 70000 must be from 1 to 65535 |
+        | 0     | listener capture: capture: port 0 must be from 1 to 65535     |
+        | 70000 | listener capture: capture: port 70000 must be from 1 to 65535 |
 
   Rule: The capture headers are not trusted
 
@@ -230,7 +230,7 @@ Feature: The capture ingress
     Scenario: A capture path another program listens on stops the proxy from starting
       Given another program listens on the capture path
       When the proxy loads the config
-      Then the proxy refuses the config, saying listen.capture is in use
+      Then the proxy refuses the config, saying listener capture
 
     Scenario: A plain file at the capture path is left alone
       Given a plain file is at the capture path
@@ -241,7 +241,7 @@ Feature: The capture ingress
     Scenario: A capture path whose folder cannot be made stops the proxy from starting
       Given a plain file is where the capture path's folder should be
       When the proxy loads the config
-      Then the proxy refuses the config, saying listen.capture
+      Then the proxy refuses the config, saying listener capture
 
     Scenario: A renewed issuer is used without a restart
       Given the extension has opened a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
@@ -250,53 +250,49 @@ Feature: The capture ingress
       And the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
       Then the app sees a certificate for api.talon.one signed by the second issuer
 
-    Scenario: A socket file the config no longer has takes no more tunnels
+    Scenario: A socket file the config no longer has keeps working until a restart
       Given the proxy starts
-      When the config file drops listen.capture
+      When the config file drops the capture listener
       And the proxy checks its files
-      And the extension sends a CONNECT to api.talon.one:443 with good capture headers
-      Then the proxy answers 503 with a Proxy-Status header
-      And nothing is sent to any vendor
+      And the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
+      And the app sends its call
+      Then the proxy logs a warning that listener capture needs a restart
+      And the record says hotline.ingress capture and ID not-passed
 
     Scenario: The socket file is removed at stop
       When the proxy starts
       And the proxy stops
       Then there is no file at the capture path
 
-  Rule: listen.capture is checked with the config
+  Rule: The capture listener is checked with the config
 
-    Scenario Outline: A wrong listen.capture is refused
-      Given listen.capture <setting>
+    Scenario Outline: A wrong capture listener is refused
+      Given the capture listener <setting>
       When the proxy loads the config
       Then the proxy refuses the config, saying <problem>
 
       Examples:
         | setting                                         | problem                                                                       |
-        | names no issuer                                 | listen.capture must name an issuer, as issuer: name                           |
-        | names an issuer that is not in issuers          | listen.capture names the issuer gone, which is not in issuers                 |
-        | lists a passthrough pattern that is not a name  | listen.capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
-        | is a path of 120 bytes                          | listen.capture: the path is longer than 103 bytes                             |
-        | is a relative path                              | listen.capture must be an absolute path or start with ~/                      |
+        | names no cert                                   | listener capture: capture needs a cert, as cert: name, on it or on the listener        |
+        | names a cert that is not in certs               | listener capture: capture names the cert gone, which is not in certs                   |
+        | lists a passthrough pattern that is not a name  | listener capture: capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
+        | is a path of 120 bytes                          | listener capture: the path is longer than 103 bytes                                    |
+        | is a relative path                              | listener capture: a socket file must be an absolute path or start with ~/              |
 
     Scenario: A path starting with ~/ is in the home folder
-      Given listen.capture is ~/hotline/capture.sock
+      Given the capture listener is ~/hotline/capture.sock
       When the proxy starts
       Then the capture socket is at hotline/capture.sock in the home folder
 
   Rule: Hotline can take captured connections only
 
-    Scenario: With listen.capture alone, the proxy opens no port
-      Given the config has no listen.proxy and no listen.connect
+    Scenario: With the capture listener alone, the proxy opens no port
+      Given the config has no proxy listener
       When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
       And the app sends its call
       Then the record says hotline.ingress capture and ID not-passed
       And the record says the program is process 4242 at "/usr/bin/curl"
       And nothing listens on the proxy port
-
-    Scenario: listen.connect still needs listen.proxy
-      Given the config has listen.connect but no listen.proxy
-      When the proxy loads the config
-      Then the proxy refuses the config, saying listen.tls and listen.connect need a listen.proxy address
 
   Rule: The extension's check that the proxy is there leaves no trace
 

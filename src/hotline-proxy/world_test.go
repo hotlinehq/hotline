@@ -157,7 +157,7 @@ type world struct {
 	respBody []byte
 	respErr  error
 
-	// listenTLS, when set, is the listen.tls line of the config.
+	// listenTLS, when set, is the tls part line of the config.
 	listenTLS string
 	// proxyCert is the certificate the proxy's cert and key files hold.
 	proxyCert tls.Certificate
@@ -172,9 +172,9 @@ type world struct {
 	// renewed is the certificate that replaced proxyCert in its files.
 	renewed *tls.Certificate
 
-	// listenConnect, when set, is the listen.connect line of the config.
+	// listenConnect, when set, is the connect part line of the config.
 	listenConnect string
-	// captureFile, when set, is the socket file of listen.capture, to
+	// captureFile, when set, is the socket file of the capture listener, to
 	// dial. capturePath is the path the config names, when it is not
 	// captureFile itself; captureIssuer is the issuer it names, customer
 	// by default, and capturePassthrough its passthrough list.
@@ -182,17 +182,31 @@ type world struct {
 	capturePath        string
 	captureIssuer      string
 	capturePassthrough []string
-	// captureHTTP, when set, is the http line of listen.capture: the ports
-	// read as calls.
-	captureHTTP string
-	// captureDropped leaves listen.capture out of the config, after a start
+	// captureHTTP, when set, is the ports list of the capture part: the
+	// ports read as calls. captureProtocol, when set, is the capture
+	// listener's protocol line.
+	captureHTTP     string
+	captureProtocol string
+	// tlsCert, when set, is the certs entry of the certificate apps are
+	// shown over TLS, and adminTLS the admin port's tls line.
+	tlsCert  string
+	adminTLS string
+	// listenersRaw, when set, is the listeners section the scenario wrote,
+	// and named the address each {name} in it stands for. adminRaw, when
+	// set, is the admin address as written, scheme and all.
+	listenersRaw string
+	named        map[string]string
+	adminRaw     string
+	// noAdmin leaves the admin section out.
+	noAdmin bool
+	// captureDropped leaves the capture listener out of the config, after a start
 	// with it.
 	captureDropped bool
-	// noProxyPort leaves listen.proxy out of the config.
+	// noProxyPort leaves the proxy listener out of the config.
 	noProxyPort bool
-	// issuersSection is the config's issuers section, when it has one.
+	// issuersSection is the config's certs section, when it has one.
 	issuersSection string
-	// interception is the issuer in the listen.connect files, and second
+	// interception is the issuer in the connect part files, and second
 	// the one that replaced it.
 	interception *issuer
 	second       *issuer
@@ -211,7 +225,7 @@ type world struct {
 	tunnelErr error
 	// tunnelCerts are the certificates the proxy showed in each tunnel.
 	tunnelCerts []*x509.Certificate
-	// intercept is the listen.intercept setting, when the scenario has one.
+	// intercept is the transparent listener setting, when the scenario has one.
 	intercept *interceptConf
 	// interceptHost is the site the app's last connection to the intercept
 	// listener named, and original what the connection was first sent to,
@@ -423,25 +437,36 @@ func freePort() string {
 	return l.Addr().String()
 }
 
-// captureSection is the listen.capture line of the config, when the
+// captureSection is the capture listener of the config, when the
 // scenario has one.
 func (w *world) captureSection() string {
 	if w.captureFile == "" || w.captureDropped {
 		return ""
 	}
-	issuer := "issuer: customer, "
+	cert := "cert: customer, "
 	if w.captureIssuer != "" {
-		issuer = w.captureIssuer
+		cert = w.captureIssuer
 	}
 	quoted := make([]string, len(w.capturePassthrough))
 	for i, name := range w.capturePassthrough {
 		quoted[i] = strconv.Quote(name)
 	}
-	http := ""
+	ports := ""
 	if w.captureHTTP != "" {
-		http = ", http: " + w.captureHTTP
+		ports = ", ports: " + w.captureHTTP
 	}
-	return fmt.Sprintf("  capture: { path: %q, %spassthrough: [%s]%s }\n", cmp.Or(w.capturePath, w.captureFile), issuer, strings.Join(quoted, ", "), http)
+	return fmt.Sprintf("  capture:\n    address: %q\n%s    capture: { %spassthrough: [%s]%s }\n",
+		"unix://"+cmp.Or(w.capturePath, w.captureFile), w.captureProtocol, cert, strings.Join(quoted, ", "), ports)
+}
+
+// certsSection is the certs section: the issuers the scenario wrote, and
+// the certificate apps are shown over TLS.
+func (w *world) certsSection() string {
+	entries := strings.TrimPrefix(w.issuersSection, "certs:\n") + w.tlsCert
+	if entries == "" && w.issuersSection == "" {
+		return ""
+	}
+	return "certs:\n" + entries
 }
 
 func (w *world) config() string {
@@ -450,16 +475,25 @@ func (w *world) config() string {
 	if admin == "" {
 		admin = "127.0.0.1:0"
 	}
-	b.WriteString("listen:\n")
-	if !w.noProxyPort {
-		fmt.Fprintf(&b, "  proxy: %q\n", w.addr)
+	listeners := ""
+	if w.listenersRaw != "" {
+		listeners = w.listenersSection()
 	}
-	fmt.Fprintf(&b, "  admin: %q\n", admin)
-	b.WriteString(w.listenTLS)
-	b.WriteString(w.listenConnect)
+	if !w.noAdmin {
+		fmt.Fprintf(&b, "admin:\n  address: %q\n%s", cmp.Or(w.adminRaw, "tcp://"+cmp.Or(w.adminAddr, admin)), w.adminTLS)
+	}
+	b.WriteString(w.certsSection())
+	b.WriteString("listeners:\n" + listeners)
+	if !w.noProxyPort && w.listenersRaw == "" {
+		fmt.Fprintf(&b, "  proxy:\n    address: %q\n", "tcp://"+w.addr)
+		for _, part := range []string{w.listenTLS, w.listenConnect} {
+			if part != "" {
+				b.WriteString("  " + part)
+			}
+		}
+	}
 	b.WriteString(w.captureSection())
 	b.WriteString(w.interceptSection())
-	b.WriteString(w.issuersSection)
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
 		b.WriteString("  - otlp:\n")

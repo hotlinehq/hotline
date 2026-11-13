@@ -158,13 +158,13 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		w.tunnelRoots.AddCert(w.issuer.cert)
 		return nil
 	})
-	sc.Step(`^listen.connect lists (\S+) in passthrough$`, func(name string) error {
-		w.listenConnect = fmt.Sprintf("  connect: { issuer: customer, passthrough: [%q] }\n", name)
+	sc.Step(`^the connect part lists (\S+) in passthrough$`, func(name string) error {
+		w.listenConnect = fmt.Sprintf("  connect: { cert: customer, passthrough: [%q] }\n", name)
 		return nil
 	})
-	sc.Step(`^listen.connect lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
-		w.problem = `listen.connect: passthrough "api.*.com" must be a host name or "*." and a suffix`
-		w.listenConnect = "  connect: { issuer: customer, passthrough: [\"api.*.com\"] }\n"
+	sc.Step(`^the connect part lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
+		w.problem = `listener proxy: connect: passthrough "api.*.com" must be a host name or "*." and a suffix`
+		w.listenConnect = "  connect: { cert: customer, passthrough: [\"api.*.com\"] }\n"
 		return nil
 	})
 

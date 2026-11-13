@@ -34,8 +34,8 @@ One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `li
 |---|---|---|
 | `/etc/hotline/config/` | ConfigMap | the config, its vendor specs and overlays, in one ConfigMap so they change in one step |
 | `/etc/hotline/keys/` | Secret | `fingerprintKey` files |
-| `/etc/hotline/tls/` | Secret, often from cert-manager | the `listen.tls` certificate and key |
-| `/etc/hotline/connect/` | Secret | the `listen.connect` issuer |
+| `/etc/hotline/tls/` | Secret, often from cert-manager | the certificate and key of a `tls` part |
+| `/etc/hotline/connect/` | Secret | the issuer of a `connect` part |
 
 Each is its own folder, side by side: Kubernetes and Docker can't mount a folder inside a read-only mounted folder. Changed files are picked up within 5 seconds with no restart ([proxy-config-reload.md](proxy-config-reload.md)); keys read from `env` change only on a restart.
 
@@ -79,4 +79,4 @@ For now every run only lists what it would delete. Once a listed run looks right
 
 ## Later
 
-A shared proxy example (a Deployment behind a Service, with `listen.tls` or `listen.connect`), and a Helm chart.
+A shared proxy example (a Deployment behind a Service, with a `tls` or `connect` part), and a Helm chart.

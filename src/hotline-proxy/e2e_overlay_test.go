@@ -60,8 +60,9 @@ openapi: 3.1.0
 	sc.Step(`^a config file whose api has the spec (\S+) and the overlay (\S+)$`, func(spec, overlay string) error {
 		p.stdout, p.stderr = syncBuffer{}, syncBuffer{}
 		p.writeConfig(fmt.Sprintf(`version: e2e-1
-listen:
-  proxy: %q
+listeners:
+  apps:
+    address: %q
 exporters:
   - otlp:
       endpoint: http://127.0.0.1:4318
@@ -73,7 +74,7 @@ apis:
 integrations:
   - id: shop
     apis: [shop]
-`, p.proxyAddr, spec, overlay))
+`, "tcp://"+p.proxyAddr, spec, overlay))
 		return nil
 	})
 }

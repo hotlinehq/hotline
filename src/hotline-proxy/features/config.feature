@@ -109,7 +109,7 @@ Feature: Loading the config file
       | problem                                              |
       | the file does not exist                              |
       | the file is not valid YAML                           |
-      | there is no proxy listen address                     |
+      | there are no listeners                               |
       | an integration has no id                             |
       | there are no exporters                               |
       | an exporter's temporality is neither cumulative nor delta |
@@ -166,8 +166,10 @@ Feature: Loading the config file
       | the not-passed entry has an apis list                 | apis          |
       | a field name has a typo, such as tlsOrigintion        | tlsOrigintion |
       | an integration changes tlsOrigination of an api it names | tlsOrigination |
-      | there is no admin listen address                      | listen.admin  |
-      | telemetry.pprof is on but there is no admin listen address | telemetry.pprof |
+      | there is no admin address                             | admin         |
+      | the config still has a listen section                 | listen        |
+      | the config still has an issuers section               | issuers       |
+      | telemetry.pprof is on but there is no admin address | telemetry.pprof |
       | the config still has a version field                  | version       |
       | an exporter still sets protocol                       | protocol      |
 

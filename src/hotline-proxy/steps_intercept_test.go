@@ -19,7 +19,7 @@ import (
 
 var errProxyClosed = errors.New("the proxy closed the connection")
 
-// interceptConf is the listen.intercept setting of the config a scenario
+// interceptConf is the transparent listener setting of the config a scenario
 // writes.
 type interceptConf struct {
 	address     string
@@ -27,11 +27,13 @@ type interceptConf struct {
 	integration string
 	passthrough []string
 	relay       []string
+	// protocol, when set, is the listener's protocol.
+	protocol string
 	// without names a field to leave out.
 	without string
 }
 
-// interceptSection is the listen.intercept lines of the config.
+// interceptSection is the transparent listener of the config.
 func (w *world) interceptSection() string {
 	c := w.intercept
 	if c == nil {
@@ -40,19 +42,23 @@ func (w *world) interceptSection() string {
 	var b strings.Builder
 	b.WriteString("  intercept:\n")
 	if c.without != "address" {
-		fmt.Fprintf(&b, "    address: %q\n", c.address)
+		fmt.Fprintf(&b, "    address: %q\n", "tcp://"+c.address)
 	}
+	if c.protocol != "" {
+		fmt.Fprintf(&b, "    protocol: %s\n", c.protocol)
+	}
+	b.WriteString("    transparent:\n")
 	if c.without != "issuer" {
-		fmt.Fprintf(&b, "    issuer: %s\n", c.issuer)
+		fmt.Fprintf(&b, "      cert: %s\n", c.issuer)
 	}
 	if c.integration != "" {
-		fmt.Fprintf(&b, "    integration: %s\n", c.integration)
+		fmt.Fprintf(&b, "      integration: %s\n", c.integration)
 	}
 	if len(c.passthrough) > 0 {
-		fmt.Fprintf(&b, "    passthrough: [%s]\n", yamlList(c.passthrough))
+		fmt.Fprintf(&b, "      passthrough: [%s]\n", yamlList(c.passthrough))
 	}
 	if len(c.relay) > 0 {
-		fmt.Fprintf(&b, "    ech: { relay: [%s] }\n", yamlList(c.relay))
+		fmt.Fprintf(&b, "      ech: { relay: [%s] }\n", yamlList(c.relay))
 	}
 	return b.String()
 }
@@ -67,19 +73,19 @@ func yamlList(names []string) string {
 }
 
 func interceptSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^an issuer named customer in issuers$`, func() error {
+	sc.Step(`^an issuer named customer in certs$`, func() error {
 		w.useIssuer(newIssuer())
 		return nil
 	})
-	sc.Step(`^listen.intercept picks it(?: with integration "([^"]*)")?$`, func(id string) error {
+	sc.Step(`^the transparent listener picks it(?: with integration "([^"]*)")?$`, func(id string) error {
 		w.intercept = &interceptConf{issuer: "customer", integration: id}
 		return nil
 	})
-	sc.Step(`^listen.connect picks the issuer named customer$`, func() error {
-		w.listenConnect = "  connect: { issuer: customer }\n"
+	sc.Step(`^the connect part picks the issuer named customer$`, func() error {
+		w.listenConnect = "  connect: { cert: customer }\n"
 		return nil
 	})
-	sc.Step(`^a second issuer named other, which listen.intercept picks$`, func() error {
+	sc.Step(`^a second issuer named other, which the transparent listener picks$`, func() error {
 		second := newIssuer()
 		w.second = second
 		w.writeFile("ca/other-cert.pem", issuerCertPEM(second))
@@ -89,7 +95,7 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		w.tunnelRoots.AddCert(second.cert)
 		return nil
 	})
-	sc.Step(`^listen.intercept lists (\S+) in (passthrough|ech.relay)$`, func(name, list string) error {
+	sc.Step(`^the transparent listener lists (\S+) in (passthrough|ech.relay)$`, func(name, list string) error {
 		if list == "passthrough" {
 			w.intercept.passthrough = append(w.intercept.passthrough, name)
 		} else {
@@ -233,7 +239,7 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		w.tunnelErr = errProxyClosed
 		return nil
 	})
-	sc.Step(`^the config file drops listen.intercept$`, func() error {
+	sc.Step(`^the config file drops the transparent listener$`, func() error {
 		w.intercept = nil
 		w.writeFile("hotline-proxy.yaml", w.config())
 		return nil
@@ -246,7 +252,7 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the (?:intercept|capture) record has (.+)$`, w.interceptRecordWith)
 
-	sc.Step(`^another program listens on the listen.intercept address$`, func() error {
+	sc.Step(`^another program listens on the transparent listener address$`, func() error {
 		l := listenLocal()
 		w.listeners = append(w.listeners, l)
 		w.useIssuer(newIssuer())
@@ -254,36 +260,36 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		w.busy = w.intercept.address
 		return nil
 	})
-	sc.Step(`^listen.intercept is added$`, func() error {
+	sc.Step(`^the transparent listener is added$`, func() error {
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
 		return nil
 	})
-	sc.Step(`^listen.intercept lists an ech.relay name that is not a host name$`, func() error {
+	sc.Step(`^the transparent listener lists an ech.relay name that is not a host name$`, func() error {
 		w.problem = `ech.relay "a/b" must be a host name`
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer", relay: []string{"a/b"}}
 		return nil
 	})
-	sc.Step(`^listen.intercept names an issuer that is not in issuers$`, func() error {
-		w.problem = "listen.intercept names the issuer gone, which is not in issuers"
+	sc.Step(`^the transparent listener names a cert that is not in certs$`, func() error {
+		w.problem = "listener intercept: transparent names the cert gone, which is not in certs"
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "gone"}
 		return nil
 	})
-	sc.Step(`^listen.intercept names no issuer$`, func() error {
-		w.problem = "listen.intercept must name an issuer"
+	sc.Step(`^the transparent listener names no cert$`, func() error {
+		w.problem = "listener intercept: transparent needs a cert"
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer", without: "issuer"}
 		return nil
 	})
-	sc.Step(`^listen.intercept has no address$`, func() error {
-		w.problem = "listen.intercept needs an address"
+	sc.Step(`^the transparent listener has no address$`, func() error {
+		w.problem = "listener intercept needs an address"
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{issuer: "customer", without: "address"}
 		return nil
 	})
-	sc.Step(`^listen.intercept lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
+	sc.Step(`^the transparent listener lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
 		w.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
 		w.useIssuer(newIssuer())
 		w.intercept = &interceptConf{address: freePort(), issuer: "customer", passthrough: []string{"api.*.com"}}
@@ -332,7 +338,7 @@ func (w *world) interceptConnect(host, outer string) error {
 		return err
 	}
 	if w.interceptAddr == "" {
-		return failf("the scenario has no listen.intercept")
+		return failf("the scenario has no the transparent listener")
 	}
 	if net.ParseIP(host) == nil {
 		w.vendor(host)

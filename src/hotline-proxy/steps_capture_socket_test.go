@@ -15,10 +15,10 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// captureSocketSteps are the steps about listen.capture, the socket file
+// captureSocketSteps are the steps about the capture listener, the socket file
 // the capture extension sends its CONNECT to (Peter, 2026-11-12).
 func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^listen.capture is a socket file, whose issuer is customer too$`, func() error {
+	sc.Step(`^the capture listener is a socket file, whose issuer is customer too$`, func() error {
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 		return nil
 	})
@@ -93,12 +93,12 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^listen.capture (names no issuer|names an issuer that is not in issuers|lists a passthrough pattern that is not a name|is a path of 120 bytes|is a relative path|is ~/hotline/capture.sock)$`, func(setting string) error {
+	sc.Step(`^the capture listener (names no cert|names a cert that is not in certs|lists a passthrough pattern that is not a name|is a path of 120 bytes|is a relative path|is ~/hotline/capture.sock)$`, func(setting string) error {
 		switch setting {
-		case "names no issuer":
+		case "names no cert":
 			w.captureIssuer = " "
-		case "names an issuer that is not in issuers":
-			w.captureIssuer = "issuer: gone, "
+		case "names a cert that is not in certs":
+			w.captureIssuer = "cert: gone, "
 		case "lists a passthrough pattern that is not a name":
 			w.capturePassthrough = []string{"api.*.com"}
 		case "is a path of 120 bytes":
@@ -115,24 +115,20 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^listen.capture has http ports ([\d, and]+)$`, func(ports string) error {
+	sc.Step(`^the capture listener has http ports ([\d, and]+)$`, func(ports string) error {
 		w.captureHTTP = "[" + strings.ReplaceAll(strings.ReplaceAll(ports, " and ", ", "), " ", "") + "]"
 		return nil
 	})
-	sc.Step(`^listen.capture has no http ports$`, func() error {
+	sc.Step(`^the capture listener has no http ports$`, func() error {
 		w.captureHTTP = "[]"
 		return nil
 	})
-	sc.Step(`^listen.capture lists (\S+) in passthrough$`, func(name string) error {
+	sc.Step(`^the capture listener lists (\S+) in passthrough$`, func(name string) error {
 		w.capturePassthrough = []string{name}
 		return nil
 	})
-	sc.Step(`^the config has no listen.proxy and no listen.connect$`, func() error {
+	sc.Step(`^the config has no proxy listener$`, func() error {
 		w.noProxyPort, w.listenConnect = true, ""
-		return nil
-	})
-	sc.Step(`^the config has listen.connect but no listen.proxy$`, func() error {
-		w.noProxyPort = true
 		return nil
 	})
 	sc.Step(`^nothing listens on the proxy port$`, func() error {
@@ -142,7 +138,7 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the config file drops listen.capture$`, func() error {
+	sc.Step(`^the config file drops the capture listener$`, func() error {
 		w.captureDropped = true
 		w.writeFile("hotline-proxy.yaml", w.config())
 		return nil

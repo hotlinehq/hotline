@@ -1,5 +1,5 @@
 Feature: TLS from apps to the proxy
-  With listen.tls set, the app opens TLS to the proxy and sends the same
+  With the tls part set, the app opens TLS to the proxy and sends the same
   request inside it, with the full vendor address in the request line. The
   proxy shows its own certificate, read from the cert and key files; it
   never makes one of its own. The proxy port then accepts only TLS, versions
@@ -8,7 +8,7 @@ Feature: TLS from apps to the proxy
 
   Background:
     Given a proxy certificate for the name hotline-proxy from the test issuer
-    And a config file whose listen.tls points to its cert and key files
+    And a config file whose tls part points to its cert and key files
 
   Scenario: A call over TLS reaches the vendor
     Given an app that trusts the test issuer
@@ -71,7 +71,7 @@ Feature: TLS from apps to the proxy
       | the key file holds no key                      |
       | the key does not belong to the certificate     |
       | the certificate has already expired            |
-      | listen.tls has a cert file but no key file     |
+      | the tls part has a cert file but no key file     |
 
   Scenario: A renewed certificate is used without a restart
     Given an app that trusts the test issuer
@@ -94,4 +94,4 @@ Feature: TLS from apps to the proxy
     When the key file is replaced with a key that does not belong to the certificate
     And the proxy checks its files
     Then a new connection still gets the first certificate
-    And the proxy logs a warning that the reload failed, naming listen.tls
+    And the proxy logs a warning that the reload failed, naming cert app

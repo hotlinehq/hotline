@@ -12,15 +12,15 @@ Gains: no change in the app's code, the hop to the proxy is encrypted, and signe
 
 ## Decisions (Peter, 2026-10-29)
 
-1. **The issuer comes from the customer**: two PEM files, `cert` and `key`, written once in the top level `issuers` section under a name, and picked by `listen.connect: { issuer: name }` (Peter, 2026-11-08; the earlier `listen.connect: { cert, key }` form is removed, and a config that uses it stops the start). On Kubernetes a mounted Secret, which cert-manager can make and renew. The proxy picks up renewed files through the config reload (see [proxy-config-reload.md](proxy-config-reload.md)). It never invents its own issuer. A name not in `issuers`, or files that are not an issuer, also stop the start. Without `listen.connect`, `CONNECT` keeps getting `501`.
+1. **The issuer comes from the customer**: two PEM files, `cert` and `key`, written once in the top level `certs` section under a name, and picked by `connect: { cert: name }` on a listener (Peter, 2026-11-08; renamed from `issuers` on 2026-11-13, see [proxy-listeners.md](proxy-listeners.md)). On Kubernetes a mounted Secret, which cert-manager can make and renew. The proxy picks up renewed files through the config reload (see [proxy-config-reload.md](proxy-config-reload.md)). It never invents its own issuer. A name not in `certs`, or files that are not an issuer, also stop the start. On a listener without `connect`, `CONNECT` keeps getting `501`.
 2. **Hotline builds nothing for apps to trust the issuer.** The setup guide below shows how per language.
 3. **Every host is intercepted**, as on the other ingresses. An app that pins a vendor's certificate leaves that host out with `NO_PROXY`. No blind tunnel.
-4. **The integration ID comes from the `CONNECT` request**, in `Proxy-Authorization`, and covers every call in the tunnel. A `Proxy-Authorization` inside the tunnel is removed and ignored. `CONNECT` works on a plain port and on a TLS port (`listen.tls`), where the ID travels encrypted too.
+4. **The integration ID comes from the `CONNECT` request**, in `Proxy-Authorization`, and covers every call in the tunnel. A `Proxy-Authorization` inside the tunnel is removed and ignored. `CONNECT` works on a plain port and on a TLS port (the `tls` part), where the ID travels encrypted too.
 5. **Certificates per host** are made on the first tunnel to a host, kept in memory only, valid for 24 hours, and made again when they near their end or the issuer changes.
 6. **HTTP/2 and HTTP/1.1 inside the tunnel**; the app picks. The `CONNECT` itself can come over HTTP/1.1 or HTTP/2. Over HTTP/2 the tunnel is that `CONNECT`'s own stream (one of many lanes in a shared connection), so one connection to the proxy can carry many tunnels (Peter, 2026-10-30).
 7. **Calls go to the `CONNECT` host and port.** A call for another host gets `421` and a minimal record.
 8. **Records.** One per call in the tunnel, `hotline.ingress=connect`. No record for a `CONNECT` that opens fine; a minimal one for a refused `CONNECT`. A new timing, `hotline.timing.app_tls_us`, holds the proxy's TLS setup with the app, on the first call of each connection, so all of the proxy's own cost is visible. An app that doesn't trust the issuer gets a minimal record with `error.type=tls_untrusted_by_app`.
-9. **The same timing on TLS from apps**: `hotline.timing.app_tls_us` also goes on the first call of each connection to a `listen.tls` port. This changes TLS from apps decision 8. Since 2026-10-31 it is the `app tls handshake` span of the call's trace ([proxy-traces.md](proxy-traces.md)).
+9. **The same timing on TLS from apps**: `hotline.timing.app_tls_us` also goes on the first call of each connection to a port with the `tls` part. This changes TLS from apps decision 8. Since 2026-10-31 it is the `app tls handshake` span of the call's trace ([proxy-traces.md](proxy-traces.md)).
 10. **Keeping the signing key safe.** The issuer is made only for Hotline and trusted only by the apps that use the proxy. At start the proxy refuses files that are not an issuer, and warns when the issuer is valid for more than a year. The key is never logged or copied.
 11. **Plain HTTP inside a tunnel is allowed**, told from TLS by the first byte, and handled like a plain `http` call on the forward proxy ingress, with TLS origination.
 
@@ -54,12 +54,14 @@ spec:
 Mount the Secret in the proxy and point the config at it:
 
 ```yaml
-listen:
-  proxy: ":8443"
-  tls: { cert: /etc/hotline/tls/tls.crt, key: /etc/hotline/tls/tls.key }      # optional: encrypts the CONNECT itself
-  connect: { issuer: customer }
-issuers:
-  customer: { cert: /etc/hotline/ca/tls.crt, key: /etc/hotline/ca/tls.key }
+certs:
+  customer: { cert: /etc/hotline/ca/tls.crt, key: /etc/hotline/ca/tls.key }   # the issuer
+  internal: { cert: /etc/hotline/tls/tls.crt, key: /etc/hotline/tls/tls.key } # the proxy's own certificate
+listeners:
+  apps:
+    address: tcp://:8443
+    tls: { cert: internal }          # optional: encrypts the CONNECT itself
+    connect: { cert: customer }
 ```
 
 Never use the company's main issuer here: whoever holds this key can pose as any website to the apps that trust it.
@@ -95,5 +97,5 @@ Give the apps the issuer certificate (`ca.crt`, never the key), for example with
 
 - `connect.go`: the `CONNECT` handler (answers `200`, takes over the connection over HTTP/1.1 or carries the tunnel in its stream over HTTP/2, sets up TLS inside the tunnel, records a failed setup), how a call in a tunnel finds its vendor, and the interceptor that makes and keeps the per host certificates.
 - `appconn.go`: the app connection as the HTTP server sees it, with the handshake timing, and the listener that hands tunnels to a second HTTP server for their calls.
-- `appcert.go`: one type that follows a certificate and key in files, for `listen.tls` and `listen.connect`. On a TLS port the proxy now sets up TLS itself, on the server's own goroutine for the connection.
-- `internal/config`: the `issuers` section and `listen.connect`, checked by `LoadIssuer`.
+- `appcert.go`: one type that follows a certificate and key in files, for the `tls` and `connect` parts. On a TLS port the proxy now sets up TLS itself, on the server's own goroutine for the connection.
+- `internal/config`: the `certs` section and the `connect` part (since 2026-11-13 in `listeners.go`).

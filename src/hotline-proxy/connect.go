@@ -70,7 +70,7 @@ func (p process) attributes() []attribute.KeyValue {
 // byte is not TLS carries plain HTTP. Either way the tunnel is then handed
 // to the HTTP server like any other app connection, and each call in it is
 // a call on the CONNECT ingress.
-func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time) {
+func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time, li *listening) {
 	t, ok := parseTunnel(r)
 	if !ok {
 		refuse(w, http.StatusBadRequest)
@@ -79,7 +79,7 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 	}
 	var err error
 	conn, done := open(w, r)
-	if h.cfg.Load().ConnectPassthrough.Passes(t.host) {
+	if li.cfg.Load().Connect.Passthrough.Passes(t.host) {
 		h.passedThrough(conn, t, start)
 		<-done
 		return
@@ -95,7 +95,7 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 	stop()
 	a := &appConn{Conn: inner, tunnel: t}
 	if len(first) == 1 && first[0] == 0x16 {
-		secure := tls.Server(inner, h.intercept.tlsConfig(t.host))
+		secure := tls.Server(inner, li.signer.tlsConfig(t.host))
 		a.Conn, a.secure = secure, true
 		a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
 		if err != nil {

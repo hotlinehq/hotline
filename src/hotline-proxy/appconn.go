@@ -96,7 +96,8 @@ func appConnOf(r *http.Request) *appConn {
 // from: each tunnel is handed over once TLS inside it is set up, or once
 // the app has started talking plain HTTP in it.
 type tunnels struct {
-	// Listener is the proxy port, whose address the tunnels share.
+	// Listener is nil: tunnels come from every listener, so they have no
+	// address of their own, and the HTTP server never asks for one.
 	net.Listener
 	ready chan net.Conn
 	// ctx ends when the proxy stops taking tunnels; tunnels still being
@@ -105,9 +106,9 @@ type tunnels struct {
 	cancel context.CancelFunc
 }
 
-func newTunnels(port net.Listener) *tunnels {
+func newTunnels() *tunnels {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &tunnels{Listener: port, ready: make(chan net.Conn), ctx: ctx, cancel: cancel}
+	return &tunnels{ready: make(chan net.Conn), ctx: ctx, cancel: cancel}
 }
 
 func (t *tunnels) Accept() (net.Conn, error) {
@@ -119,7 +120,7 @@ func (t *tunnels) Accept() (net.Conn, error) {
 	}
 }
 
-// Close stops taking tunnels. The proxy port is closed by its own server.
+// Close stops taking tunnels. The listeners are closed by their own servers.
 func (t *tunnels) Close() error {
 	t.cancel()
 	return nil

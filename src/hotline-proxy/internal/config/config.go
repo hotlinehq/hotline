@@ -34,27 +34,13 @@ var ErrInvalid = errors.New("config: invalid")
 
 // Config is a loaded, checked config. It never changes after Load.
 type Config struct {
-	ProxyAddr string
-	// AdminAddr is where the health checks listen; empty means none.
-	AdminAddr string
-	// TLS, when set, makes the proxy port accept only TLS, with this
-	// certificate.
-	TLS *TLS
-	// Connect, when set, makes CONNECT an ingress: this issuer signs the
-	// certificate the proxy shows for each vendor host inside a tunnel.
-	Connect *TLS
-	// ConnectPassthrough lists the sites a tunnel relays untouched, from
-	// listen.connect.
-	ConnectPassthrough Passthrough
-	// Intercept, when set, makes a port of its own an ingress for
-	// connections a firewall redirected to the proxy.
-	Intercept *Intercept
-	// Capture, when set, makes a socket file an ingress for the macOS
-	// capture extension.
-	Capture *Capture
-	// Issuers are the named issuers of the issuers section, each checked
-	// to be an issuer, used or not.
-	Issuers   map[string]*TLS
+	// Admin is the admin port; nil means none.
+	Admin *Admin
+	// Listeners are the ports and socket files the proxy opens, by name.
+	Listeners []*Listener
+	// Certs are the named cert and key pairs of the certs section, each
+	// checked to match, used or not.
+	Certs     map[string]*TLS
 	Exporters []Exporter
 	// FileExporters are the exporters that write calls to a local folder.
 	FileExporters []FileExporter
@@ -242,18 +228,14 @@ func (c *Config) API(integrationID, host string) *API {
 
 // file is the config file's layout.
 type file struct {
-	Listen struct {
-		Proxy     string         `yaml:"proxy"`
-		Admin     string         `yaml:"admin"`
-		TLS       *pairFile      `yaml:"tls"`
-		Connect   *connectFile   `yaml:"connect"`
-		Intercept *interceptFile `yaml:"intercept"`
-		Capture   *captureFile   `yaml:"capture"`
-	} `yaml:"listen"`
-	// Issuers are certificate authorities the proxy signs with, each
-	// written once under a name that the ingresses pick.
-	Issuers    map[string]*pairFile `yaml:"issuers"`
-	Telemetry  *telemetryFile       `yaml:"telemetry"`
+	// Listen and Issuers are the old way to write ports and issuers, read
+	// only to say they are ignored.
+	Listen     yaml.Node                `yaml:"listen"`
+	Issuers    yaml.Node                `yaml:"issuers"`
+	Admin      *adminFile               `yaml:"admin"`
+	Certs      map[string]*pairFile     `yaml:"certs"`
+	Listeners  map[string]*listenerFile `yaml:"listeners"`
+	Telemetry  *telemetryFile           `yaml:"telemetry"`
 	SpecChecks struct {
 		QueueMemory string `yaml:"queueMemory"`
 	} `yaml:"specChecks"`
@@ -357,36 +339,6 @@ type pairFile struct {
 	Key  string `yaml:"key"`
 }
 
-// captureFile is listen.capture: the socket file, the issuer it signs
-// with, and the sites it relays untouched.
-type captureFile struct {
-	Path        string   `yaml:"path"`
-	Issuer      string   `yaml:"issuer"`
-	Passthrough []string `yaml:"passthrough"`
-	// HTTP are the ports read as calls; 80 and 443 when left out.
-	HTTP *[]int `yaml:"http"`
-}
-
-// connectFile is listen.connect: the name of the issuer it signs with.
-type connectFile struct {
-	Issuer      string   `yaml:"issuer"`
-	Passthrough []string `yaml:"passthrough"`
-	// Cert and Key are the removed inline form, read only to refuse it.
-	Cert string `yaml:"cert"`
-	Key  string `yaml:"key"`
-}
-
-// interceptFile is listen.intercept.
-type interceptFile struct {
-	Address     string   `yaml:"address"`
-	Issuer      string   `yaml:"issuer"`
-	Integration string   `yaml:"integration"`
-	Passthrough []string `yaml:"passthrough"`
-	ECH         struct {
-		Relay []string `yaml:"relay"`
-	} `yaml:"ech"`
-}
-
 // apiRef is an api an integration names: just its name, or
 // { api: name, vendorTimeout: 5s } to change how long its calls wait.
 type apiRef struct {
@@ -463,55 +415,24 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	c := &Config{
 		Name:         filepath.Base(path),
 		Warnings:     warnings,
-		ProxyAddr:    f.Listen.Proxy,
-		AdminAddr:    f.Listen.Admin,
 		NotPassed:    Settings{TLSOrigination: true, VendorTimeout: time.Minute},
 		integrations: map[string]map[string]*API{},
 		traces:       map[string]Trace{},
 		urlFull:      map[string]bool{},
 		content:      map[string]Content{},
 	}
-	if f.Listen.Admin == "" {
-		c.Warnings = append(c.Warnings, "there is no listen.admin address, so the proxy has no health checks")
+	if f.Listen.Kind != 0 {
+		l.warnings = append(l.warnings, "listen is the old way to write ports and is ignored; write each port under listeners")
 	}
-	if t := f.Listen.TLS; t != nil {
-		c.TLS = l.pair("listen.tls", t, LoadCertificate, now)
+	if f.Issuers.Kind != 0 {
+		l.warnings = append(l.warnings, "issuers is now called certs and is ignored")
 	}
-	c.Issuers = map[string]*TLS{}
-	for _, name := range slices.Sorted(maps.Keys(f.Issuers)) {
-		if f.Issuers[name] == nil {
-			l.problem("issuer %s needs both cert and key", name)
-			continue
-		}
-		c.Issuers[name] = l.pair("issuer "+name, f.Issuers[name], LoadIssuer, now)
-	}
-	if t := f.Listen.Connect; t != nil {
-		switch {
-		case t.Cert != "" || t.Key != "":
-			l.problem("listen.connect must name an issuer, as { issuer: name } with the issuer in the issuers section; cert and key are no longer written in listen.connect")
-		case t.Issuer == "":
-			l.problem("listen.connect must name an issuer, as { issuer: name }")
-		default:
-			if _, known := f.Issuers[t.Issuer]; known {
-				c.Connect = c.Issuers[t.Issuer]
-			} else {
-				l.problem("listen.connect names the issuer %s, which is not in issuers", t.Issuer)
-			}
-		}
-		c.ConnectPassthrough = l.passthrough("listen.connect", t.Passthrough)
-	}
-	if t := f.Listen.Intercept; t != nil {
-		c.Intercept = l.intercept(t, c.Issuers, f.Issuers)
-	}
-	if t := f.Listen.Capture; t != nil {
-		c.Capture = l.capture(t, c.Issuers, f.Issuers)
-	}
-	switch {
-	case f.Listen.Proxy != "":
-	case f.Listen.TLS != nil || f.Listen.Connect != nil:
-		l.problem("listen.tls and listen.connect need a listen.proxy address")
-	case f.Listen.Intercept == nil && f.Listen.Capture == nil:
-		l.problem("there is no listen.proxy address, and no listen.intercept or listen.capture")
+	c.Certs = l.certs(f.Certs, now)
+	c.Admin = l.admin(f.Admin, c.Certs)
+	c.Listeners = l.listeners(f.Listeners, c.Certs)
+	l.sameAddresses(c.Admin, c.Listeners)
+	if len(c.Listeners) == 0 {
+		l.problem("there are no listeners, so the proxy would take no calls")
 	}
 	if len(f.Exporters) == 0 {
 		l.problem("there are no exporters")
@@ -534,8 +455,8 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	c.Telemetry = l.telemetry(f.Telemetry, now)
 	if f.Telemetry != nil && f.Telemetry.Pprof {
 		c.Pprof = true
-		if f.Listen.Admin == "" {
-			c.Warnings = append(c.Warnings, "telemetry.pprof is on but there is no listen.admin address, so there are no profile pages")
+		if f.Admin == nil {
+			l.warnings = append(l.warnings, "telemetry.pprof is on but there is no admin address, so there are no profile pages")
 		}
 	}
 	c.CheckQueueMemory = l.size("specChecks.queueMemory", f.SpecChecks.QueueMemory, 64<<20)
@@ -841,34 +762,6 @@ func (l *loader) settings(label string, f settingsFile, s Settings) Settings {
 	return s
 }
 
-func (l *loader) intercept(f *interceptFile, issuers map[string]*TLS, written map[string]*pairFile) *Intercept {
-	i := &Intercept{Address: f.Address, Integration: f.Integration}
-	if f.Address == "" {
-		l.problem("listen.intercept needs an address")
-	}
-	i.Issuer = l.issuer("listen.intercept", f.Issuer, issuers, written)
-	i.Passthrough = l.passthrough("listen.intercept", f.Passthrough)
-	for _, name := range f.ECH.Relay {
-		if validPattern(name, false) {
-			i.ECHRelay = append(i.ECHRelay, strings.ToLower(name))
-		} else {
-			l.problem("listen.intercept: ech.relay %q must be a host name", name)
-		}
-	}
-	return i
-}
-
-// issuer finds the issuer an ingress names in the issuers section.
-func (l *loader) issuer(label, name string, issuers map[string]*TLS, written map[string]*pairFile) *TLS {
-	switch _, known := written[name]; {
-	case name == "":
-		l.problem("%s must name an issuer, as issuer: name", label)
-	case !known:
-		l.problem("%s names the issuer %s, which is not in issuers", label, name)
-	}
-	return issuers[name]
-}
-
 // passthrough reads the sites an ingress relays untouched: host names, or
 // "*." and a suffix.
 func (l *loader) passthrough(label string, names []string) Passthrough {
@@ -920,27 +813,6 @@ func (l *loader) pair(label string, f *pairFile, load func(certFile, keyFile str
 	}
 	t.Certificate = cert
 	return t
-}
-
-// LoadCertificate reads a PEM certificate, with any issuers in between, and
-// its key, and checks that they match and that the certificate has not
-// expired by now.
-func LoadCertificate(certFile, keyFile string, now time.Time) (*tls.Certificate, error) {
-	return loadPair("listen.tls", certFile, keyFile, now)
-}
-
-// LoadIssuer reads the issuer the proxy signs its certificates for vendor
-// hosts with, as LoadCertificate does, and checks that it is an issuer:
-// a certificate authority allowed to sign certificates.
-func LoadIssuer(certFile, keyFile string, now time.Time) (*tls.Certificate, error) {
-	cert, err := loadPair("issuer", certFile, keyFile, now)
-	if err != nil {
-		return nil, err
-	}
-	if leaf := cert.Leaf; !leaf.IsCA || leaf.KeyUsage != 0 && leaf.KeyUsage&x509.KeyUsageCertSign == 0 {
-		return nil, fmt.Errorf("%w: the certificate in %s is not an issuer: it may not sign certificates", ErrInvalid, certFile)
-	}
-	return cert, nil
 }
 
 func loadPair(label, certFile, keyFile string, now time.Time) (*tls.Certificate, error) {
@@ -1050,44 +922,3 @@ func (l *loader) size(label, text string, def int64) int64 {
 // maxSocketPath is the longest path a socket file may have: macOS keeps
 // at most 104 bytes, the last one ending the path.
 const maxSocketPath = 103
-
-// capture checks listen.capture: an absolute path, or one in the home
-// folder, short enough for a socket file, and the issuer that signs for
-// the sites in its tunnels.
-func (l *loader) capture(f *captureFile, issuers map[string]*TLS, written map[string]*pairFile) *Capture {
-	ports := []int{80, 443}
-	if f.HTTP != nil {
-		ports = *f.HTTP
-	}
-	http := map[string]bool{}
-	for _, port := range ports {
-		if port < 1 || port > 65535 {
-			l.problem("listen.capture: http port %d must be from 1 to 65535", port)
-		}
-		http[strconv.Itoa(port)] = true
-	}
-	return &Capture{
-		Path:        l.capturePath(f.Path),
-		Issuer:      l.issuer("listen.capture", f.Issuer, issuers, written),
-		Passthrough: l.passthrough("listen.capture", f.Passthrough),
-		http:        http,
-	}
-}
-
-func (l *loader) capturePath(path string) string {
-	if rest, ok := strings.CutPrefix(path, "~/"); ok {
-		// Without HOME, or with a relative one, the path is relative and
-		// refused below.
-		home, _ := l.lookupEnv("HOME")
-		path = filepath.Join(home, rest)
-	}
-	if !filepath.IsAbs(path) {
-		l.problem("listen.capture must be an absolute path or start with ~/")
-		return ""
-	}
-	if len(path) > maxSocketPath {
-		l.problem("listen.capture: the path is longer than %d bytes", maxSocketPath)
-		return ""
-	}
-	return path
-}
