@@ -177,11 +177,10 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 	}
 	var status int
 	b, status = openField(b, 15)
-	switch {
-	case s.Failed:
-		b = appendVarint(b, 3, 2)
-	case s.OK:
-		b = appendVarint(b, 3, 1)
+	// OTLP numbers the statuses as Status does: unset 0, ok 1, error 2.
+	// Unset is written as nothing.
+	if s.Status != StatusUnset {
+		b = appendVarint(b, 3, uint64(s.Status)) //nolint:gosec // a status is 1 or 2
 	}
 	b = closeField(b, status)
 	return appendFixed32(b, 16, flags)

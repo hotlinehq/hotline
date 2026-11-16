@@ -30,7 +30,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	step := func(parent trace.SpanID, name string, from, to time.Time, attrs ...attribute.KeyValue) {
 		spans = append(spans, export.Span{
 			ID: tracectx.NewSpanID(), Parent: parent, Name: name, Kind: trace.SpanKindInternal,
-			Start: from, End: to, Failed: name == failed.step, Attrs: attrs,
+			Start: from, End: to, Status: export.FailedIf(name == failed.step), Attrs: attrs,
 		})
 	}
 	if c.appTimed {
@@ -42,7 +42,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	out := orTime(c.vendorOut, end)
 	vendor := export.Span{
 		ID: c.vendorSpan, Parent: call.ID, Name: "vendor call", Kind: trace.SpanKindClient,
-		Start: c.vendorIn, End: out, Failed: failed.errorType != "",
+		Start: c.vendorIn, End: out, Status: export.FailedIf(failed.errorType != ""),
 	}
 	if c.connected {
 		vendor.Attrs = []attribute.KeyValue{attribute.Bool("hotline.connection.reused", c.reused)}
@@ -77,7 +77,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	step(call.ID, "reply to app", out, end)
 	// The app hung up: the vendor did nothing wrong, so only the last step
 	// fails (Peter, 2026-10-31).
-	spans[len(spans)-1].Failed = c.app.failed()
+	spans[len(spans)-1].Status = export.FailedIf(c.app.failed())
 	return spans
 }
 
@@ -94,6 +94,6 @@ func orTime(t, instead time.Time) time.Time {
 func callSpan(sc trace.SpanContext, parent trace.SpanID, from, to time.Time, failed bool) export.Span {
 	return export.Span{
 		ID: sc.SpanID(), Parent: parent, Name: "hotline call", Kind: trace.SpanKindServer,
-		Start: from, End: to, Failed: failed,
+		Start: from, End: to, Status: export.FailedIf(failed),
 	}
 }

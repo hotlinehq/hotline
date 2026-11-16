@@ -200,11 +200,14 @@ func (c *call) sentAddress() string {
 func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skipped string) []export.Span {
 	check := export.Span{
 		ID: tracectx.NewSpanID(), Parent: c.trace.SpanID(), Name: name, Kind: trace.SpanKindInternal,
-		Start: s.start, End: s.end, Failed: len(found) > 0, OK: len(found) == 0 && skipped == "",
+		Start: s.start, End: s.end, Status: export.FailedIf(len(found) > 0),
+	}
+	if len(found) == 0 && skipped == "" {
+		check.Status = export.StatusOK
 	}
 	wait := export.Span{
 		ID: tracectx.NewSpanID(), Parent: check.ID, Name: "wait for check worker", Kind: trace.SpanKindInternal,
-		Start: s.start, End: s.waited, Failed: s.dropped,
+		Start: s.start, End: s.waited, Status: export.FailedIf(s.dropped),
 	}
 	if s.dropped {
 		wait.Attrs = []attribute.KeyValue{semconv.ErrorTypeKey.String("overloaded")}
@@ -295,7 +298,7 @@ func (h *handler) recordShort(s short) {
 	spans := []export.Span{callSpan(traced, parent, s.start, end, s.errorType != "")}
 	if s.appTLS != nil {
 		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
-			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Failed: true})
+			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Status: export.StatusError})
 	}
 	h.recordLater(recorded(finished{cfg: s.cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))
 }

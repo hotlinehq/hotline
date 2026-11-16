@@ -77,13 +77,6 @@ func (w lineWriter) span(s Span) {
 	if s.Parent.IsValid() {
 		parent = jsontext.String(s.Parent.String())
 	}
-	status := "unset"
-	if s.OK {
-		status = "ok"
-	}
-	if s.Failed {
-		status = "error"
-	}
 	w.put(
 		jsontext.BeginObject,
 		jsontext.String("span_id"), jsontext.String(s.ID.String()),
@@ -92,7 +85,7 @@ func (w lineWriter) span(s Span) {
 		jsontext.String("kind"), jsontext.String(s.Kind.String()),
 		jsontext.String("start_time"), jsontext.String(timeText(s.Start)),
 		jsontext.String("end_time"), jsontext.String(timeText(s.End)),
-		jsontext.String("status"), jsontext.String(status),
+		jsontext.String("status"), jsontext.String(s.Status.String()),
 		jsontext.String("attributes"),
 	)
 	w.object(s.Attrs)

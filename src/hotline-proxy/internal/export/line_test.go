@@ -30,7 +30,7 @@ var _ = Describe("Reading back a call's line", func() {
 		Content: []attribute.KeyValue{attribute.String("hotline.content.request.body", "e30=")},
 		Spans: []export.Span{{
 			ID: trace.SpanID{7}, Parent: sc.SpanID(), Name: "vendor call", Kind: trace.SpanKindClient,
-			Start: at, End: at.Add(time.Millisecond), Failed: true,
+			Start: at, End: at.Add(time.Millisecond), Status: export.StatusError,
 		}},
 	}
 

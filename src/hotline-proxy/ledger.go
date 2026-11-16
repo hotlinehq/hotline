@@ -265,20 +265,13 @@ func integrationOf(attrs []attribute.KeyValue) string {
 func ledgerSpans(spans []export.Span) []ledger.Span {
 	out := make([]ledger.Span, len(spans))
 	for i, s := range spans {
-		status := "unset"
-		if s.OK {
-			status = "ok"
-		}
-		if s.Failed {
-			status = "error"
-		}
 		parent := ""
 		if s.Parent.IsValid() {
 			parent = s.Parent.String()
 		}
 		out[i] = ledger.Span{
 			ID: s.ID.String(), Parent: parent, Name: s.Name, Kind: spanKind(s.Kind),
-			Start: s.Start, End: s.End, Status: status, Attrs: s.Attrs,
+			Start: s.Start, End: s.End, Status: s.Status.String(), Attrs: s.Attrs,
 		}
 	}
 	return out
