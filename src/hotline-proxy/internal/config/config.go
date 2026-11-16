@@ -74,17 +74,51 @@ type Config struct {
 	Files []string
 	// Warnings name settings the proxy does not use, such as a misspelt
 	// field. They do not stop the proxy.
-	Warnings     []string
-	integrations map[string]map[string]*API
-	// traces are each integration's trace settings, the not-passed entry's
-	// among them.
-	traces map[string]Trace
-	// urlFull is, for each integration, whether its minimal records carry
-	// url.full; the not-passed entry's value is the default.
-	urlFull map[string]bool
-	// content is, for each integration, whether its calls are kept in full
-	// for the file exporters; the not-passed entry's value is the default.
-	content map[string]Content
+	Warnings []string
+	// integrations are the integrations the config names, by ID, and
+	// notPassed the one for every other ID, each with the not-passed
+	// entry's settings filled in where it says nothing.
+	integrations map[string]*Integration
+	notPassed    *Integration
+}
+
+// Integration is one integration's settings, with every setting it leaves
+// out taken from the not-passed entry, so a call looks it up once
+// (Peter, 2026-11-16).
+type Integration struct {
+	// Name is the integration's ID, or not-passed for an ID the config
+	// does not name. It is the ledger chain its records go in.
+	Name string
+	// Known says the config names the integration; the not-passed entry
+	// itself is not one.
+	Known bool
+	// APIs are the integration's apis by host, in lower case.
+	APIs map[string]*API
+	// Trace says how its app sends its trace context, and whether the
+	// proxy passes its own on to the vendor.
+	Trace Trace
+	// URLFull says whether a minimal record carries url.full, the address
+	// as sent. It is on whenever Content is full (Peter, 2026-11-12).
+	URLFull bool
+	// Content says whether its calls are kept in full, with every header
+	// and their bodies, for the file exporters, and how much of each body
+	// is kept. It is never full without a file exporter.
+	Content Content
+}
+
+// Integration is the integration with this ID, or the not-passed one for
+// an ID the config does not name, an empty one too.
+func (c *Config) Integration(id string) *Integration {
+	if in, known := c.integrations[id]; known {
+		return in
+	}
+	return c.notPassed
+}
+
+// API finds the api the integration uses for a host, or nil when the host
+// is outside its apis.
+func (i *Integration) API(host string) *API {
+	return i.APIs[strings.ToLower(host)]
 }
 
 // Ledger is how records are grouped into signed batches (Peter,
@@ -96,31 +130,12 @@ type Ledger struct {
 	Instance   string
 }
 
-// Chain is the ledger chain a call's record goes in: its integration's when
-// the config knows the integration, the not-passed chain otherwise.
-func (c *Config) Chain(integrationID string) string {
-	if _, known := c.traces[integrationID]; known && integrationID != "" {
-		return integrationID
-	}
-	return notPassed
-}
-
 // Content says whether an integration's calls are kept in full, with every
 // header and their bodies, for the file exporters, and how much of each
 // body is kept.
 type Content struct {
 	Full    bool
 	MaxBody int64
-}
-
-// Content is an integration's content setting, or the not-passed entry's
-// for those that say nothing. It is never full without a file exporter,
-// since the copy would be kept for nothing (Peter, 2026-11-11).
-func (c *Config) Content(integrationID string) Content {
-	if on, ok := c.content[integrationID]; ok {
-		return on
-	}
-	return c.content[notPassed]
 }
 
 // FileExporter is a folder the proxy writes every call to, one line per
@@ -138,21 +153,6 @@ type FileExporter struct {
 	// QueueMemory is how much memory the calls waiting to be written may
 	// hold.
 	QueueMemory int64
-}
-
-// URLFull says whether a minimal record of this integration's call carries
-// url.full, the address as sent. It is off unless the integration, or the
-// not-passed entry for those that say nothing, switches it on (Peter,
-// 2026-11-08). Full content switches it on too: the file already gets the
-// whole address, so every record carries it (Peter, 2026-11-12).
-func (c *Config) URLFull(integrationID string) bool {
-	if c.Content(integrationID).Full {
-		return true
-	}
-	if on, ok := c.urlFull[integrationID]; ok {
-		return on
-	}
-	return c.urlFull[notPassed]
 }
 
 // Label is what every record carries as hotline.config.version: the
@@ -226,24 +226,6 @@ type API struct {
 	// Checks are the parts of a call the api checks against its spec: all
 	// of them when the config leaves checks out.
 	Checks Parts
-}
-
-// Trace is the trace settings of an integration. An unknown ID gets the
-// not-passed entry's, and those are w3c, not forwarded, unless it sets them.
-func (c *Config) Trace(integrationID string) Trace {
-	if t, ok := c.traces[integrationID]; ok {
-		return t
-	}
-	if t, ok := c.traces[notPassed]; ok {
-		return t
-	}
-	return Trace{Format: tracectx.W3C}
-}
-
-// API finds the api an integration uses for a host, or nil when the ID is
-// unknown or the host is outside the integration's apis.
-func (c *Config) API(integrationID, host string) *API {
-	return c.integrations[integrationID][strings.ToLower(host)]
 }
 
 // file is the config file's layout.
@@ -442,11 +424,14 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		Name:         filepath.Base(path),
 		Warnings:     warnings,
 		NotPassed:    Settings{TLSOrigination: true, VendorTimeout: time.Minute},
-		integrations: map[string]map[string]*API{},
-		traces:       map[string]Trace{},
-		urlFull:      map[string]bool{},
-		content:      map[string]Content{},
+		integrations: map[string]*Integration{},
 	}
+	// Each integration's own settings, as the config writes them; the
+	// not-passed entry's fill the gaps once every entry is read.
+	traces := map[string]Trace{}
+	urlFull := map[string]bool{}
+	content := map[string]Content{}
+	byID := map[string]map[string]*API{}
 	if f.Listen.Kind != 0 {
 		l.warnings = append(l.warnings, "listen is the old way to write ports and is ignored; write each port under listeners")
 	}
@@ -519,25 +504,25 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			}
 			t.Format = format
 		}
-		c.traces[in.ID] = t
+		traces[in.ID] = t
 		if in.URLFull != nil {
-			c.urlFull[in.ID] = *in.URLFull
+			urlFull[in.ID] = *in.URLFull
 		}
-		if content, set := l.content("integration "+in.ID, in.Content, in.MaxBodySize); set {
-			if content.Full && len(c.FileExporters) == 0 {
+		if kept, set := l.content("integration "+in.ID, in.Content, in.MaxBodySize); set {
+			if kept.Full && len(c.FileExporters) == 0 {
 				c.Warnings = append(c.Warnings, "integration "+in.ID+" has content: full but there is no file exporter, so its calls are not kept in full")
-				content.Full = false
+				kept.Full = false
 			}
-			if content.Full {
+			if kept.Full {
 				c.Warnings = append(c.Warnings, "integration "+in.ID+" has content: full, so file exporters get its calls with every header and whole bodies, passwords and personal data included")
 			}
-			c.content[in.ID] = content
+			content[in.ID] = kept
 		}
 		if in.ID == notPassed {
 			c.NotPassed = l.settings("integration "+in.ID, in.Settings, c.NotPassed)
 			continue
 		}
-		if _, seen := c.integrations[in.ID]; seen {
+		if _, seen := byID[in.ID]; seen {
 			l.problem("two integrations have the ID %s", in.ID)
 		}
 		byHost := map[string]*API{}
@@ -563,8 +548,33 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 				byHost[host] = api
 			}
 		}
-		c.integrations[in.ID] = byHost
+		byID[in.ID] = byHost
 	}
+	// Each integration takes the not-passed entry's urlFull and content
+	// where it says nothing, wherever the entry is in the file.
+	settle := func(id string, known bool, apis map[string]*API, t Trace) *Integration {
+		in := &Integration{Name: id, Known: known, APIs: apis, Trace: t}
+		kept, set := content[id]
+		if !set {
+			kept = content[notPassed]
+		}
+		in.Content = kept
+		on, set := urlFull[id]
+		if !set {
+			on = urlFull[notPassed]
+		}
+		in.URLFull = on || in.Content.Full
+		return in
+	}
+	for id, apis := range byID {
+		c.integrations[id] = settle(id, true, apis, traces[id])
+	}
+	// An unknown ID traces as the not-passed entry says, w3c otherwise.
+	t, set := traces[notPassed]
+	if !set {
+		t = Trace{Format: tracectx.W3C}
+	}
+	c.notPassed = settle(notPassed, false, nil, t)
 	c.Ledger = l.ledger(f)
 	c.Files = slices.Sorted(maps.Keys(l.read))
 	c.Warnings = append(c.Warnings, l.warnings...)

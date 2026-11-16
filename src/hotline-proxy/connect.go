@@ -219,14 +219,15 @@ func (h *handler) tunnelFailed(r *http.Request, start time.Time, t *tunnel, a *a
 		semconv.ErrorTypeKey.String(errorType),
 	}
 	end := h.clock.Now()
-	traced, parent, _ := h.traced(t.id, r.Header, start)
+	cfg := h.cfg.Load()
+	traced, parent, _ := traceOf(cfg.Integration(t.id), r.Header, start)
 	spans := []export.Span{callSpan(traced, parent, start, end, true)}
 	if from, to, timed := a.handshakeTime(); timed {
 		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
 			Kind: trace.SpanKindInternal, Start: from, End: to, Failed: true})
 	}
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()))
-	h.recordLater(recorded(finished{cfg: h.cfg.Load(), sc: traced, at: start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: start, attrs: attrs, spans: spans}))
 }
 
 // find works out the vendor address of a call inside the tunnel. The call

@@ -101,7 +101,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.ToLower(target.Hostname())
 	cfg := h.cfg.Load()
-	api := cfg.API(id, host)
+	// The call's integration, looked up once, with the not-passed entry's
+	// settings where it says nothing.
+	integration := cfg.Integration(id)
+	api := integration.API(host)
 	settings := cfg.NotPassed
 	if api != nil {
 		settings = api.Settings
@@ -116,22 +119,23 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		transport = h.internal
 	}
 	c := &call{
-		h:          h,
-		cfg:        cfg,
-		start:      start,
-		ingress:    ingress,
-		process:    tunnelProcess(a),
-		target:     target,
-		id:         id,
-		api:        api,
-		scheme:     scheme,
-		host:       host,
-		port:       port,
-		in:         r,
-		timeout:    settings.VendorTimeout,
-		transport:  transport,
-		reqCheck:   newSpecCheck(),
-		replyCheck: newSpecCheck(),
+		h:           h,
+		cfg:         cfg,
+		integration: integration,
+		start:       start,
+		ingress:     ingress,
+		process:     tunnelProcess(a),
+		target:      target,
+		id:          id,
+		api:         api,
+		scheme:      scheme,
+		host:        host,
+		port:        port,
+		in:          r,
+		timeout:     settings.VendorTimeout,
+		transport:   transport,
+		reqCheck:    newSpecCheck(),
+		replyCheck:  newSpecCheck(),
 	}
 	if api != nil && !api.Spec.NamesActionInBody() {
 		// A search of a few microseconds, even for a spec as large as AWS
@@ -140,9 +144,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Method: r.Method, EscapedPath: target.EscapedPath(), RawQuery: target.RawQuery, Header: r.Header,
 		})
 	}
-	traced, parent, tracing := h.traced(id, r.Header, start)
+	traced, parent, tracing := traceOf(integration, r.Header, start)
 	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
-	c.reqBody = &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: bodyHash("request", traced), save: saved(cfg, id), pool: &h.bodies, expect: r.ContentLength}
+	c.reqBody = &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: bodyHash("request", traced), save: saved(integration), pool: &h.bodies, expect: r.ContentLength}
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
 	// The call's context, made once: it ignores the app leaving, ends on
@@ -313,13 +317,13 @@ func refuse(w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
 }
 
-// traced is a call's trace context: the app's trace id and flags, or a new
+// traceOf is a call's trace context: the app's trace id and flags, or a new
 // trace id, sampled, when the app sent none the proxy can read, and a new
 // span id for the proxy's call span. It comes with the app's span id, the
 // call span's parent, not valid when there is none, and with the
 // integration's trace settings.
-func (h *handler) traced(id string, header http.Header, start time.Time) (trace.SpanContext, trace.SpanID, config.Trace) {
-	settings := h.cfg.Load().Trace(id)
+func traceOf(integration *config.Integration, header http.Header, start time.Time) (trace.SpanContext, trace.SpanID, config.Trace) {
+	settings := integration.Trace
 	app, ok := settings.Format.Read(header)
 	traceID, flags, parent := app.TraceID(), app.TraceFlags(), app.SpanID()
 	if !ok {
@@ -363,10 +367,12 @@ func integrationID(h http.Header) string {
 // call is one call through the proxy, from the app's request to the record.
 type call struct {
 	h *handler
-	// cfg is the config the call started with.
-	cfg     *config.Config
-	start   time.Time
-	ingress string
+	// cfg is the config the call started with, and integration the call's
+	// integration in it.
+	cfg         *config.Config
+	integration *config.Integration
+	start       time.Time
+	ingress     string
 	// process is the program that made the call, when the ingress knows.
 	process process
 	// trace is the call's trace context, which its record carries; its
@@ -458,7 +464,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: bodyHash("response", c.trace), save: saved(c.cfg, c.id), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: bodyHash("response", c.trace), save: saved(c.integration), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -657,9 +663,9 @@ func keepReply(api *config.API) int {
 
 // saved is how much of each body to keep for the file exporters: up to
 // maxBodySize under content: full, none otherwise.
-func saved(cfg *config.Config, id string) int64 {
-	if content := cfg.Content(id); content.Full {
-		return content.MaxBody
+func saved(integration *config.Integration) int64 {
+	if integration.Content.Full {
+		return integration.Content.MaxBody
 	}
 	return 0
 }

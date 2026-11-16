@@ -98,7 +98,7 @@ func (c *call) record(end time.Time) finished {
 		}
 		// The address as sent, when the integration asks for it; with no
 		// spec there is nothing to say what to redact (Peter, 2026-11-08).
-		if c.cfg.URLFull(c.id) {
+		if c.integration.URLFull {
 			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
 		}
 	}
@@ -111,7 +111,7 @@ func (c *call) record(end time.Time) finished {
 	}
 	attrs = append(attrs, attribute.String("hotline.response.body.hash", reply))
 	var content []attribute.KeyValue
-	if c.cfg.Content(c.id).Full {
+	if c.integration.Content.Full {
 		content = c.content()
 		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
 		content = c.withBodies(content)
@@ -215,13 +215,14 @@ func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, 
 		semconv.ErrorTypeKey.String("http_request_error"),
 		attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()),
 	)
-	traced, parent, _ := h.traced(id, r.Header, start)
+	cfg := h.cfg.Load()
+	traced, parent, _ := traceOf(cfg.Integration(id), r.Header, start)
 	// No body was read, so each side's hash is of zero bytes.
 	attrs = append(attrs,
 		attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
 		attribute.String("hotline.response.body.hash", emptyBodyHash("response", traced)))
 	spans := []export.Span{callSpan(traced, parent, start, end, true)}
-	h.recordLater(recorded(finished{cfg: h.cfg.Load(), sc: traced, at: start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.

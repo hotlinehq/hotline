@@ -322,7 +322,8 @@ func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, h
 	attrs = append(attrs, extra...)
 	end := h.clock.Now()
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()))
-	traced, parent, _ := h.traced(id, nil, start)
+	cfg := h.cfg.Load()
+	traced, parent, _ := traceOf(cfg.Integration(id), nil, start)
 	spans := []export.Span{callSpan(traced, parent, start, end, failed)}
-	h.recordLater(recorded(finished{cfg: h.cfg.Load(), sc: traced, at: start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: start, attrs: attrs, spans: spans}))
 }
