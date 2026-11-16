@@ -103,9 +103,6 @@ func newBatchLine(name string, logger *slog.Logger, before func(context.Context)
 
 // dropped notes a record the destination dropped, for its batch's record.
 func (l *batchLine) dropped(e Entry) {
-	if e.Batch == "" {
-		return
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	d := l.drops[e.Batch]
