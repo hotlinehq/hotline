@@ -222,6 +222,40 @@ Feature: Records a third party can trust
       And refunds is removed from the config and reloaded
       Then the refunds chain ends with a batch with hotline.batch.last true
 
+    # A record is made after the reply has gone back, so a reload can come
+    # between a call's start and its record. The record goes in a batch of
+    # the config the call started with (Peter, 2026-11-16).
+    Scenario: A call in flight during a reload is batched with the config it started with
+      Given the integration checkout
+      And the vendor holds its answer to the next call
+      When the app sends GET /orders as checkout, which waits for the vendor
+      And the config is changed and reloaded
+      And the vendor answers the call it held
+      And the app sends GET /orders as checkout
+      And 10 seconds pass
+      Then the two records are in two batches of the checkout chain, one after the other
+      And each batch's hotline.batch.config is the config of the record in it
+
+    Scenario: The first record after a reload starts a new batch, even within the window
+      Given the integration checkout
+      When the app sends GET /orders as checkout
+      And the config is changed and reloaded
+      And the app sends GET /orders as checkout
+      And 10 seconds pass
+      Then the two records are in two batches of the checkout chain, one after the other
+      And each batch's hotline.batch.config is the config of the record in it
+
+    Scenario: A call in flight when its integration is removed stays in its integration's chain
+      Given the integrations checkout and refunds
+      When the app sends GET /refunds as refunds
+      And the vendor holds its answer to the next call
+      And the app sends GET /refunds as refunds, which waits for the vendor
+      And refunds is removed from the config and reloaded
+      And the vendor answers the call it held
+      And 10 seconds pass
+      Then the refunds chain goes on unbroken after its last batch
+      And the held call's record is in the refunds chain, after the last batch
+
     Scenario: Batch ids sort by time
       When the app sends GET /orders in each of 3 batch windows
       Then the batch ids, sorted as text, are in sequence order

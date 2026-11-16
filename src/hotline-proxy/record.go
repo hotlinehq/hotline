@@ -13,6 +13,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
 	"hotline-proxy/internal/spec"
@@ -115,7 +116,7 @@ func (c *call) record(end time.Time) finished {
 		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
 		content = c.withBodies(content)
 	}
-	return finished{sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
+	return finished{cfg: c.cfg, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
 }
 
 // content is what content: full adds to the record for the file
@@ -220,11 +221,15 @@ func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, 
 		attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
 		attribute.String("hotline.response.body.hash", emptyBodyHash("response", traced)))
 	spans := []export.Span{callSpan(traced, parent, start, end, true)}
-	h.recordLater(recorded(finished{sc: traced, at: start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: h.cfg.Load(), sc: traced, at: start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.
 type finished struct {
+	// cfg is the config the call started with. The ledger puts the record
+	// in a batch of that config, even when a reload came before the
+	// record was made (Peter, 2026-11-16).
+	cfg   *config.Config
 	sc    trace.SpanContext
 	at    time.Time
 	attrs []attribute.KeyValue

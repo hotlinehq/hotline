@@ -12,4 +12,5 @@ Full wording in [docs/proxy-ledger.md](../proxy-ledger.md). Requirements, with t
 8. Body hashes are salted with the call's trace id and span id, no secret. Every record with an HTTP exchange has both, an empty body hashed as zero bytes.
 9. `content: full` keeps the real values beside the record under `hotline.content.*`, covered by `hotline.content.hash` (bodies left out: the body hashes cover them).
 10. `hotline-proxy verify <folder>` checks a file exporter's folder with no config, key or network. Exit 0, 1 or 2; `--format json` gives `hotline.verify.v1`.
-11. Later, with the control plane: the minute entry, the witness, the qualified time stamp, and secure hardware for the build hash.
+11. Every record in a batch is of the config the batch names: the config its call started with. A record of another config closes the open batch first. A call still in flight when its integration is removed goes on that integration's chain, after the last batch (Peter, 2026-11-16, from the decomplect review).
+12. Later, with the control plane: the minute entry, the witness, the qualified time stamp, and secure hardware for the build hash.

@@ -40,8 +40,11 @@ type book struct {
 	key    ledger.Key
 	keyAt  time.Time
 	chains map[string]*chain
-	timer  Timer
-	every  time.Duration
+	// ended are the chains a reload closed with a last batch. A record of
+	// a call that started before that reload goes on the same chain.
+	ended map[string]*chain
+	timer Timer
+	every time.Duration
 	// stopped is set once the last batches went out.
 	stopped bool
 }
@@ -57,11 +60,14 @@ type chain struct {
 	open   *openBatch
 }
 
-// openBatch is a batch still taking records.
+// openBatch is a batch still taking records, all of calls that started
+// with the same config.
 type openBatch struct {
 	id     string
 	config string
-	leaves [][sha256.Size]byte
+	// maxRecords is that config's ledger.maxRecords.
+	maxRecords int
+	leaves     [][sha256.Size]byte
 	// dropped are, for each destination that keeps the ledger, the records
 	// it did not take, up to shownDropped, and how many in all.
 	dropped [][]attribute.Value
@@ -71,7 +77,7 @@ type openBatch struct {
 func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
 		clock: clock, sink: sink, instance: instanceID, version: version, config: current,
-		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, every: cfg.Ledger.Every,
+		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, ended: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
 		// A named instance keeps the random id next to it, so two runs of
@@ -85,20 +91,33 @@ func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, ver
 // record hands a finished call to the exporters with its trace's hash, its
 // place in its integration's open batch and its own hash, and notes which
 // destinations dropped it. A full batch closes at once.
+//
+// The chain and the batch come from the config the call started with, not
+// the one in use now, so every record in a batch is of the config the
+// batch names. A record of another config closes the open batch first
+// (Peter, 2026-11-16).
 func (b *book) record(ctx context.Context, f finished) {
-	cfg := b.config()
+	cfg := f.cfg
 	name := cfg.Chain(integrationOf(f.attrs))
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := b.chains[name]
 	if ch == nil {
-		ch = &chain{name: name}
+		// A chain a reload ended goes on, for a call that started before.
+		ch = b.ended[name]
+		delete(b.ended, name)
+		if ch == nil {
+			ch = &chain{name: name}
+		}
 		b.chains[name] = ch
+	}
+	if ch.open != nil && ch.open.config != cfg.Digest {
+		b.close(ch, false)
 	}
 	if ch.open == nil {
 		ch.lastID = ledger.NewBatchID(b.clock.Now(), ch.lastID)
 		ch.open = &openBatch{
-			id: ch.lastID, config: cfg.Digest,
+			id: ch.lastID, config: cfg.Digest, maxRecords: cfg.Ledger.MaxRecords,
 			dropped: make([][]attribute.Value, b.sink.Ledgers()), count: make([]int, b.sink.Ledgers()),
 		}
 	}
@@ -126,7 +145,7 @@ func (b *book) record(ctx context.Context, f finished) {
 				attribute.Int("index", index), attribute.String("hash", hash)))
 		}
 	}
-	if len(open.leaves) >= cfg.Ledger.MaxRecords {
+	if len(open.leaves) >= open.maxRecords {
 		b.close(ch, false)
 	}
 }
@@ -152,7 +171,8 @@ func (b *book) tick() {
 }
 
 // reloaded ends the chains of integrations the new config no longer has,
-// each with a last batch.
+// each with a last batch. An ended chain is kept, so a record of a call
+// that started before the reload still goes on it, after the last batch.
 func (b *book) reloaded(cfg *config.Config) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -161,6 +181,7 @@ func (b *book) reloaded(cfg *config.Config) {
 		if cfg.Chain(name) != name {
 			b.close(ch, true)
 			delete(b.chains, name)
+			b.ended[name] = ch
 		}
 	}
 }
@@ -177,7 +198,7 @@ func (b *book) stop() {
 	}
 	// A record that comes late, after a stop that ran out of time, starts
 	// a chain that no batch closes.
-	b.chains = map[string]*chain{}
+	b.chains, b.ended = map[string]*chain{}, map[string]*chain{}
 }
 
 // close signs the chain's open batch and sends its batch record. Only a
