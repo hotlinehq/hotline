@@ -82,9 +82,12 @@ type Config struct {
 	notPassed    *Integration
 }
 
-// Integration is one integration's settings, with every setting it leaves
-// out taken from the not-passed entry, so a call looks it up once
-// (Peter, 2026-11-16).
+// Integration is one integration's settings, with its trace, url and
+// content settings taken from the not-passed entry where it leaves them
+// out, so a call looks it up once (Peter, 2026-11-16). A call to a host
+// outside its apis takes the not-passed entry's own Settings (timeout, TLS
+// origination, internal IPs) from Config.NotPassed instead, as the handler
+// does (spec-checks decision 12, program decision 7).
 type Integration struct {
 	// Name is the integration's ID, or not-passed for an ID the config
 	// does not name. It is the ledger chain its records go in.

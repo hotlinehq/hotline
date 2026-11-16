@@ -131,7 +131,7 @@ func (c *call) record(end time.Time) finished {
 		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
 		content = c.withBodies(content)
 	}
-	return finished{cfg: c.cfg, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
+	return finished{cfg: c.cfg, chain: c.integration.Name, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
 }
 
 // content is what content: full adds to the record for the file
@@ -289,7 +289,8 @@ func (h *handler) recordShort(s short) {
 		attrs = append(attrs, semconv.ErrorTypeKey.String(s.errorType))
 	}
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(s.start, end)))
-	traced, parent, _ := traceOf(s.cfg.Integration(s.id), s.header, s.start)
+	integration := s.cfg.Integration(s.id)
+	traced, parent, _ := traceOf(integration, s.header, s.start)
 	if s.exchange {
 		attrs = append(attrs,
 			attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
@@ -300,7 +301,7 @@ func (h *handler) recordShort(s short) {
 		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: stepAppTLS,
 			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Status: export.StatusError})
 	}
-	h.recordLater(recorded(finished{cfg: s.cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: s.cfg, chain: integration.Name, sc: traced, at: s.start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.
@@ -308,7 +309,10 @@ type finished struct {
 	// cfg is the config the call started with. The ledger puts the record
 	// in a batch of that config, even when a reload came before the
 	// record was made (Peter, 2026-11-16).
-	cfg   *config.Config
+	cfg *config.Config
+	// chain is the ledger chain the record goes in: its integration's
+	// name in that config, or not-passed.
+	chain string
 	sc    trace.SpanContext
 	at    time.Time
 	attrs []attribute.KeyValue

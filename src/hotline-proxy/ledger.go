@@ -97,8 +97,7 @@ func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, ver
 // batch names. A record of another config closes the open batch first
 // (Peter, 2026-11-16).
 func (b *book) record(ctx context.Context, f finished) {
-	cfg := f.cfg
-	name := cfg.Integration(integrationOf(f.attrs)).Name
+	cfg, name := f.cfg, f.chain
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := b.chains[name]
@@ -247,17 +246,6 @@ func (b *book) close(ch *chain, last bool) {
 	b.sink.Batch(export.Batch{At: b.clock.Now(), Attrs: attrs, Own: own})
 	ch.previous = root
 	ch.sequence++
-}
-
-// integrationOf is the integration a record names.
-func integrationOf(attrs []attribute.KeyValue) string {
-	id := ""
-	for _, kv := range attrs {
-		if kv.Key == "hotline.integration.id" {
-			id = kv.Value.AsString()
-		}
-	}
-	return id
 }
 
 // ledgerSpans are a trace's spans as the trace's hash covers them, with the
