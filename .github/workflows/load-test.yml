@@ -1,19 +1,29 @@
-# Runs the load test (make load, see load/README.md) when someone starts it
-# by hand: Actions tab, "load test", Run workflow, and pick the branch to
-# measure. It never runs on its own (Peter, 2026-11-02).
+# Runs the load test (make load, see load/README.md) after every merge to
+# main (Peter, 2026-11-16), and when someone starts it by hand: Actions tab,
+# "load test", Run workflow, and pick the branch to measure.
+#
+# Only one load test runs at a time, and every run waits its turn: none is
+# cancelled (Peter, 2026-11-16). The one runner with the hotline-load label
+# takes one job at a time, so the others wait in GitHub's queue for it, for up
+# to 24 hours. There is on purpose no concurrency group: GitHub keeps only one
+# waiting run per group and cancels the older one when a newer one comes.
 #
 # It runs on a computer of our own, not on GitHub's shared machines, so other
 # people's jobs do not make the numbers jump (Peter, 2026-11-09): a runner
 # labelled hotline-load, an ARM machine with 2 cores. See
 # docs/decisions/load-runner.md. The repository is public, so this workflow
-# must never get a pull_request trigger: only workflow_dispatch (started by
-# hand by someone who can write to the repository) may use that runner.
+# must never get a pull_request trigger: only a push to main (a merge, which
+# only someone who can write to the repository can do) and workflow_dispatch
+# (started by hand by such a person) may use that runner.
 #
 # Every repeat is kept as it came, nothing averaged: the whole load/results
 # folder is saved as the artifact load-results-<run number>, for the
 # comparison with earlier runs that comes later.
 name: load test
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       compare_with:
