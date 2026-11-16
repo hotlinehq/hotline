@@ -609,7 +609,7 @@ func (c *call) fail(w http.ResponseWriter, err error) {
 
 // step is the name of the step the call is in.
 func (c *call) step() string {
-	for _, p := range phaseSteps {
+	for _, p := range phaseSteps() {
 		if c.phase == p.phase {
 			return p.name
 		}

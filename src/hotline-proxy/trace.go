@@ -36,12 +36,16 @@ const (
 	stepReply     = "reply to app"
 )
 
-// phaseSteps are the steps of the vendor connection, in order, with the
-// phase each one is.
-var phaseSteps = []struct {
+// phaseStep is a step of the vendor connection, with the phase it is.
+type phaseStep struct {
 	phase phase
 	name  string
-}{{phaseDNS, stepDNS}, {phaseConnect, stepConnect}, {phaseTLS, stepVendorTLS}}
+}
+
+// phaseSteps are the steps of the vendor connection, in order.
+func phaseSteps() [3]phaseStep {
+	return [3]phaseStep{{phaseDNS, stepDNS}, {phaseConnect, stepConnect}, {phaseTLS, stepVendorTLS}}
+}
 
 // spans are the steps of the call, as its trace (Peter, 2026-10-31). A step
 // that did not happen has no span. Spans hold nothing the record holds, so
@@ -70,7 +74,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 		vendor.Attrs = []attribute.KeyValue{attribute.Bool("hotline.connection.reused", c.reused)}
 	}
 	spans = append(spans, vendor)
-	for _, p := range phaseSteps {
+	for _, p := range phaseSteps() {
 		t := c.times[p.phase]
 		if t[0].IsZero() {
 			continue
