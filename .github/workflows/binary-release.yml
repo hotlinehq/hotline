@@ -44,8 +44,10 @@ jobs:
   publish:
     needs: binaries
     # A by-hand run on any other branch builds and checks, but publishes
-    # nothing.
-    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+    # nothing. A Mac signing job that never got a machine may leave binaries
+    # marked as not successful, so publish asks instead whether the programs
+    # and the image were both checked.
+    if: ${{ !cancelled() && needs.binaries.outputs.checked == 'true' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # create the release
