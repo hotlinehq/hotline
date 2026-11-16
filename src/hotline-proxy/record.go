@@ -87,7 +87,7 @@ func (c *call) record(end time.Time) finished {
 		attrs = append(attrs, semconv.NetworkPeerAddress(c.peer))
 	}
 	opened := c.opened()
-	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(opened).Microseconds()))
+	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(opened, end)))
 	spans := c.spans(opened, end, failed)
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
@@ -281,7 +281,7 @@ func (h *handler) recordShort(s short) {
 	if s.errorType != "" {
 		attrs = append(attrs, semconv.ErrorTypeKey.String(s.errorType))
 	}
-	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(s.start).Microseconds()))
+	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(s.start, end)))
 	cfg := h.cfg.Load()
 	traced, parent, _ := traceOf(cfg.Integration(s.id), s.header, s.start)
 	if s.exchange {
@@ -341,6 +341,16 @@ func clientAddress(r *http.Request) attribute.KeyValue {
 func clientIP(address string) string {
 	host, _, _ := net.SplitHostPort(address)
 	return host
+}
+
+// micros is the time from one moment to the next in whole microseconds,
+// from their wall clock readings, which the trace's spans carry. So a
+// record's hotline.timing.total_us is exactly its call span's length.
+// end.Sub(start) would use the monotonic readings instead, which differ
+// from the wall clock's by a few nanoseconds, and so by a whole
+// microsecond in about one call in 150.
+func micros(from, to time.Time) int64 {
+	return (to.UnixNano() - from.UnixNano()) / 1000
 }
 
 func orNotPassed(id string) string {
