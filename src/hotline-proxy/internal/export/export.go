@@ -132,6 +132,22 @@ func counted(kv attribute.KeyValue) bool {
 	return false
 }
 
+// Setup is what New needs: the destinations from the config, where the
+// console writes, the roots TLS trusts, and how the proxy describes and
+// times itself.
+type Setup struct {
+	Exporters []config.Exporter
+	Files     []config.FileExporter
+	// Console is nil when the config has no console exporter.
+	Console *config.ConsoleExporter
+	Out     Console
+	Roots   *x509.CertPool
+	Service Service
+	Timing  Timing
+	Logger  *slog.Logger
+	Meter   metric.Meter
+}
+
 // New starts one queue and sender per destination. Nothing is sent to a
 // destination before the first record, so a destination that is down does
 // not stop the proxy from starting. TLS to a destination trusts roots and
@@ -143,7 +159,9 @@ func counted(kv attribute.KeyValue) bool {
 //
 // Each file exporter takes its folder's lock, so New fails with
 // ErrFolderTaken when another proxy writes to the same folder.
-func New(exporters []config.Exporter, files []config.FileExporter, console *config.ConsoleExporter, out Console, roots *x509.CertPool, service Service, timing Timing, logger *slog.Logger, meter metric.Meter) (*Sink, error) {
+func New(setup Setup) (*Sink, error) {
+	exporters, files, console, out := setup.Exporters, setup.Files, setup.Console, setup.Out
+	roots, service, timing, logger, meter := setup.Roots, setup.Service, setup.Timing, setup.Logger, setup.Meter
 	s := &Sink{}
 	s.scratch.New = func() any {
 		b := make([]byte, 0, 4096)
