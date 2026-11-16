@@ -609,18 +609,16 @@ func (c *call) fail(w http.ResponseWriter, err error) {
 
 // step is the name of the step the call is in.
 func (c *call) step() string {
-	switch {
-	case c.phase == phaseDNS:
-		return "dns lookup"
-	case c.phase == phaseConnect:
-		return "tcp connect"
-	case c.phase == phaseTLS:
-		return "vendor tls handshake"
-	case c.wrote.IsZero():
-		return "send call"
+	for _, p := range phaseSteps {
+		if c.phase == p.phase {
+			return p.name
+		}
+	}
+	if c.wrote.IsZero() {
+		return stepSend
 	}
 	// No reply came, or the proxy would not be here.
-	return "wait for vendor"
+	return stepWait
 }
 
 func classify(p phase, timedOut bool, err error) (int, string) {

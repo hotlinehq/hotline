@@ -53,7 +53,7 @@ type failure struct {
 func (c *call) failure() failure {
 	if c.respBody != nil {
 		if _, err := c.respBody.counts(); err != nil {
-			return failure{errorType: "http_response_incomplete", step: "receive reply"}
+			return failure{errorType: "http_response_incomplete", step: stepReceive}
 		}
 	}
 	return failure{errorType: c.errorType, step: c.failedStep}
@@ -297,7 +297,7 @@ func (h *handler) recordShort(s short) {
 	}
 	spans := []export.Span{callSpan(traced, parent, s.start, end, s.errorType != "")}
 	if s.appTLS != nil {
-		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
+		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: stepAppTLS,
 			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Status: export.StatusError})
 	}
 	h.recordLater(recorded(finished{cfg: s.cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))

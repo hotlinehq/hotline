@@ -21,6 +21,28 @@ func (c *call) opened() time.Time {
 	return c.start
 }
 
+// The names of a call's steps, as its spans show them. step names the step
+// a call failed in with these same names, and spans marks the span of that
+// name as failed, so a renamed step stays marked.
+const (
+	stepAppTLS    = "app tls handshake"
+	stepRouting   = "routing"
+	stepDNS       = "dns lookup"
+	stepConnect   = "tcp connect"
+	stepVendorTLS = "vendor tls handshake"
+	stepSend      = "send call"
+	stepWait      = "wait for vendor"
+	stepReceive   = "receive reply"
+	stepReply     = "reply to app"
+)
+
+// phaseSteps are the steps of the vendor connection, in order, with the
+// phase each one is.
+var phaseSteps = []struct {
+	phase phase
+	name  string
+}{{phaseDNS, stepDNS}, {phaseConnect, stepConnect}, {phaseTLS, stepVendorTLS}}
+
 // spans are the steps of the call, as its trace (Peter, 2026-10-31). A step
 // that did not happen has no span. Spans hold nothing the record holds, so
 // only two of them have an attribute.
@@ -34,9 +56,9 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 		})
 	}
 	if c.appTimed {
-		step(call.ID, "app tls handshake", c.appStart, c.appEnd)
+		step(call.ID, stepAppTLS, c.appStart, c.appEnd)
 	}
-	step(call.ID, "routing", c.start, c.vendorIn)
+	step(call.ID, stepRouting, c.start, c.vendorIn)
 	// The reply ends when the vendor's reply ended, or when the call
 	// failed.
 	out := orTime(c.vendorOut, end)
@@ -48,10 +70,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 		vendor.Attrs = []attribute.KeyValue{attribute.Bool("hotline.connection.reused", c.reused)}
 	}
 	spans = append(spans, vendor)
-	for _, p := range []struct {
-		phase phase
-		name  string
-	}{{phaseDNS, "dns lookup"}, {phaseConnect, "tcp connect"}, {phaseTLS, "vendor tls handshake"}} {
+	for _, p := range phaseSteps {
 		t := c.times[p.phase]
 		if t[0].IsZero() {
 			continue
@@ -66,15 +85,15 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 		step(vendor.ID, p.name, t[0], t[1], attrs...)
 	}
 	if !c.gotAt.IsZero() {
-		step(vendor.ID, "send call", c.gotAt, orTime(c.wrote, out))
+		step(vendor.ID, stepSend, c.gotAt, orTime(c.wrote, out))
 	}
 	if !c.wrote.IsZero() && (c.firstByte.IsZero() || !c.firstByte.Before(c.wrote)) {
-		step(vendor.ID, "wait for vendor", c.wrote, orTime(c.firstByte, out))
+		step(vendor.ID, stepWait, c.wrote, orTime(c.firstByte, out))
 	}
 	if !c.firstByte.IsZero() {
-		step(vendor.ID, "receive reply", c.firstByte, out)
+		step(vendor.ID, stepReceive, c.firstByte, out)
 	}
-	step(call.ID, "reply to app", out, end)
+	step(call.ID, stepReply, out, end)
 	// The app hung up: the vendor did nothing wrong, so only the last step
 	// fails (Peter, 2026-10-31).
 	spans[len(spans)-1].Status = export.FailedIf(c.app.failed())
