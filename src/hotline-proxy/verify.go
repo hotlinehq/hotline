@@ -97,9 +97,9 @@ type finding struct {
 	Integration string  `json:"integration,omitempty"`
 	Instance    string  `json:"instance,omitempty"`
 	Batch       *int64  `json:"batch,omitempty"`
-	BatchID     string  `json:"batch_id,omitempty"`
+	BatchID     string  `json:"batch_id,omitempty"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	Index       *int64  `json:"index,omitempty"`
-	SpanID      string  `json:"span_id,omitempty"`
+	SpanID      string  `json:"span_id,omitempty"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	File        string  `json:"file,omitempty"`
 	Line        int     `json:"line,omitempty"`
 	Message     string  `json:"message"`
@@ -107,7 +107,7 @@ type finding struct {
 }
 
 type bodyResult struct {
-	SpanID  string `json:"span_id"`
+	SpanID  string `json:"span_id"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	Side    string `json:"side"`
 	Matches bool   `json:"matches"`
 }
@@ -165,12 +165,12 @@ type verifiedRun struct {
 	Integration   string   `json:"integration"`
 	Instance      string   `json:"instance"`
 	Run           *string  `json:"run"`
-	FirstSequence int64    `json:"first_sequence"`
-	LastSequence  int64    `json:"last_sequence"`
+	FirstSequence int64    `json:"first_sequence"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
+	LastSequence  int64    `json:"last_sequence"`  //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	Batches       int      `json:"batches"`
 	Records       int      `json:"records"`
-	CleanStop     bool     `json:"clean_stop"`
-	StoppedAt     *string  `json:"stopped_at"`
+	CleanStop     bool     `json:"clean_stop"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
+	StoppedAt     *string  `json:"stopped_at"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	Notes         []string `json:"notes"`
 	batches       []*lineBatch
 }
@@ -240,8 +240,8 @@ func (v *verifier) readFile(name string) error {
 type rawLine struct {
 	Time       string         `json:"time"`
 	Event      string         `json:"event"`
-	TraceID    string         `json:"trace_id"`
-	SpanID     string         `json:"span_id"`
+	TraceID    string         `json:"trace_id"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
+	SpanID     string         `json:"span_id"`  //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 	Attributes map[string]any `json:"attributes"`
 }
 
@@ -604,7 +604,11 @@ func (v *verifier) printText(out io.Writer) {
 		w.printf("problem: %s%s", where, p.Message)
 	}
 	verdict := "everything checks out"
-	if len(v.problems) > 0 {
+	switch len(v.problems) {
+	case 0:
+	case 1:
+		verdict = "1 problem found"
+	default:
 		verdict = fmt.Sprintf("%d problems found", len(v.problems))
 	}
 	w.printf("%d records, %d batches, %d runs: %s", len(v.records), len(v.batches), len(v.runs), verdict)
@@ -637,8 +641,8 @@ func (v *verifier) printJSON(out io.Writer, code int) {
 			Batches      int `json:"batches"`
 			Runs         int `json:"runs"`
 			Problems     int `json:"problems"`
-			KeptBodies   int `json:"kept_bodies_matched"`
-			BodiesCutOff int `json:"kept_bodies_cut_short"`
+			KeptBodies   int `json:"kept_bodies_matched"`   //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
+			BodiesCutOff int `json:"kept_bodies_cut_short"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
 		} `json:"summary"`
 		Runs     []*verifiedRun `json:"runs"`
 		Problems []finding      `json:"problems"`
@@ -648,7 +652,7 @@ func (v *verifier) printJSON(out io.Writer, code int) {
 	report.Summary.Records, report.Summary.Batches, report.Summary.Runs = len(v.records), len(v.batches), len(v.runs)
 	report.Summary.Problems = len(problems)
 	report.Summary.KeptBodies, report.Summary.BodiesCutOff = v.matched, v.cut
-	data, _ := json.Marshal(report)
+	data, _ := json.Marshal(report) //nolint:errchkjson // plain strings, numbers and lists always encode
 	_, _ = out.Write(export.TerminalSafe(append(data, '\n')))
 }
 

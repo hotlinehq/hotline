@@ -27,4 +27,3 @@ apis:
 integrations:
   - id: checkout
     apis: [aws-sqs-invoices]
-    fingerprintKey: { file: /etc/hotline/keys/fingerprint.key }   # signs this app's records

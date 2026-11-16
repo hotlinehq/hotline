@@ -104,7 +104,8 @@ func (b *book) record(ctx context.Context, f finished) {
 	}
 	open := ch.open
 	traceID, spanID := f.sc.TraceID().String(), f.sc.SpanID().String()
-	attrs := append(f.attrs,
+	// f.attrs was made with room for these, so they need no new array.
+	attrs := append(f.attrs, //nolint:gocritic // the caller's f.attrs keeps its length, so it never sees these
 		attribute.String("hotline.trace.hash", ledger.Text(ledger.TraceHash(traceID, ledgerSpans(f.spans)))),
 		attribute.String("hotline.batch.id", open.id),
 		attribute.Int("hotline.batch.index", len(open.leaves)),

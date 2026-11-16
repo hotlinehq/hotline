@@ -541,6 +541,14 @@ func (w *world) waitsFor(seconds int) error {
 	w.settle()
 	w.clock = &fakeClock{}
 	wait := time.Duration(seconds) * time.Second
+	// The ledger closes batches on the same clock: keep its timers out of
+	// the count of timers that fired.
+	if !strings.Contains(w.topExtra, "ledger:") {
+		w.topExtra += "ledger:\n  batch:\n    every: 1h\n"
+		if w.wroteConfig {
+			w.replaceFile("hotline-proxy.yaml", w.config())
+		}
+	}
 	early := make(chan int, 1)
 	w.vendor("api.talon.one").setAnswer(func(_ http.ResponseWriter, r *http.Request) {
 		early <- w.clock.pass(wait - time.Second)

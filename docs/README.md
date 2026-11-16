@@ -31,7 +31,7 @@
 
 - [Records and their fields over OpenTelemetry](otel-export.md)
 - [Each call's timings as a trace](proxy-traces.md)
-- [Signed records](proxy-signatures.md)
+- [The evidence ledger: record hashes, signed batches and `hotline-proxy verify`](proxy-ledger.md)
 - [Body fields and headers in the record](proxy-body-fields.md)
 - [Trace context on records](proxy-trace-context.md)
 - [OTLP over HTTP](proxy-otlp-protocols.md)

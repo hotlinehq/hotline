@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -126,12 +127,11 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the collector got the newest 64 waiting batch records$`, func() error {
-		batches, err := w.waitBatches(64)
-		if err != nil {
+		if _, err := w.waitBatches(64); err != nil {
 			return err
 		}
 		time.Sleep(200 * time.Millisecond)
-		batches = w.receivers[0].ledger()
+		batches := w.receivers[0].ledger()
 		if len(batches) != 64 {
 			return failf("the collector got %d batch records", len(batches))
 		}
@@ -271,7 +271,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			data, _ := os.ReadFile(running) //nolint:gosec // the scenario's own folder
 			if bytes.Count(data, []byte("\n")) >= 4 {
 				_ = os.MkdirAll(filepath.Join(w.dir, "calls"), 0o750)
-				return os.WriteFile(filepath.Join(w.dir, "calls", "calls.jsonl"), data, 0o600)
+				return os.WriteFile(filepath.Join(w.dir, "calls", "calls.jsonl"), data, 0o600) //nolint:gosec // the scenario's own folder
 			}
 			if time.Now().After(deadline) {
 				return failf("the running proxy wrote %d lines", bytes.Count(data, []byte("\n")))
@@ -830,7 +830,7 @@ func (w *world) changeBatch(sequence int, change func(map[string]any)) error {
 	}
 	for _, line := range lines {
 		attrs, _ := line["attributes"].(map[string]any)
-		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == fmt.Sprint(sequence) {
+		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == strconv.Itoa(sequence) {
 			change(attrs)
 			return w.writeLines(lines)
 		}
@@ -839,7 +839,7 @@ func (w *world) changeBatch(sequence int, change func(map[string]any)) error {
 }
 
 func cloneLine(line map[string]any) map[string]any {
-	data, _ := json.Marshal(line)
+	data, _ := json.Marshal(line) //nolint:errchkjson // a line read from JSON always encodes again
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var out map[string]any

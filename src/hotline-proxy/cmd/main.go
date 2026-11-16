@@ -41,6 +41,7 @@ commands:
   run       start the proxy
   validate  check a config and the specs it points to, then exit
   overlay   write an overlay that turns one spec into another
+  verify    check the records in a file exporter's folder: hotline-proxy verify <folder>
   version   print the version
 
 Every command takes --format console (the default: plain lines for a
@@ -129,6 +130,8 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		return printVersion(args[1:], stdout, stderr)
 	case "overlay":
 		return makeOverlay(args[1:], stdout, stderr)
+	case "verify":
+		return verify(args[1:], stdout, stderr)
 	case "run", "validate":
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command %q\n\n%s", command, usage)
@@ -222,6 +225,40 @@ func makeOverlay(args []string, stdout, stderr io.Writer) int {
 	}
 	_, _ = stdout.Write(out)
 	return exitOK
+}
+
+// verify checks the records a file exporter wrote to a folder. It needs no
+// config, no key and no network. The folder comes first, then the flags.
+func verify(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("hotline-proxy verify <folder>", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	integration := flags.String("integration", "", "check this integration's records alone")
+	body := flags.String("body", "", "a body someone kept, to check against the hash in a record (with --span and --side)")
+	span := flags.String("span", "", "the span id of the record whose body hash --body is checked against")
+	side := flags.String("side", "", "which body --body is: request or response")
+	f := formatFlag(flags)
+	folder := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		folder, args = args[0], args[1:]
+	}
+	if code, ok := parse(flags, args, stderr); !ok {
+		return code
+	}
+	if folder == "" {
+		_, _ = fmt.Fprintln(stderr, "the folder to verify is required")
+		flags.Usage()
+		return exitUsage
+	}
+	if *body != "" && (*span == "" || *side != "request" && *side != "response") {
+		_, _ = fmt.Fprintln(stderr, "--body needs --span and --side request or response")
+		flags.Usage()
+		return exitUsage
+	}
+	return proxy.Verify(stdout, proxy.VerifyOptions{
+		Folder: folder, Integration: *integration,
+		Body: *body, Span: *span, Side: *side,
+		JSON: *f == "json",
+	})
 }
 
 // asFile is standard output or error as a file, so it can be asked

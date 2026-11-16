@@ -16,7 +16,7 @@ The ids go in the log record's own OpenTelemetry fields, not in attributes, so n
 
 The app's own span id is not on the record: there is no standard name for it on a log record (Peter, 2026-10-31). It is the parent of the call's trace instead, so the proxy's steps show inside the app's own trace ([proxy-traces.md](proxy-traces.md)). In Grafana the record's span id opens that trace.
 
-Every record has the three fields: full records, refused calls and failed tunnels alike. They are signed with the rest of the record; see [proxy-signatures.md](proxy-signatures.md).
+Every record has the three fields: full records, refused calls and failed tunnels alike. They are covered by the record's hash; see [proxy-ledger.md](proxy-ledger.md).
 
 ## Formats
 

@@ -33,7 +33,7 @@ Decisions already made, so a new session does not have to dig through old thread
 
 The proxy is built in small slices, tests first. Each item, with its decisions in full: [docs/decisions/slice-plan.md](docs/decisions/slice-plan.md).
 
-- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named issuers and the `checks` list, the intercept ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, the Docker image, the file exporter, and the console exporter.
+- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named issuers and the `checks` list, the intercept ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, the Docker image, the file exporter, the console exporter, and the evidence ledger with `hotline-proxy verify` (which replaced the signatures).
 - In progress: the load test with k6, including pooled body buffers and the spec check queue (`specChecks.queueMemory`).
 - Still to come: the Node, Java and Rust clients in the end-to-end tests.
 
@@ -72,3 +72,4 @@ Open only the file for the topic at hand.
 - Own OTLP encoder for records and spans, `h2c`, and no more gRPC: [docs/decisions/otlp-encoder.md](docs/decisions/otlp-encoder.md)
 - Own forwarder, `internal/forward`, instead of Go's reverse proxy; one request copy: [docs/decisions/forwarder.md](docs/decisions/forwarder.md)
 - Tests in CI (no race detector; ports picked again when taken): [docs/decisions/tests-in-ci.md](docs/decisions/tests-in-ci.md)
+- Evidence ledger (record hashes, signed batches per integration, `hotline-proxy verify`; no more `fingerprintKey`): [docs/decisions/ledger.md](docs/decisions/ledger.md)

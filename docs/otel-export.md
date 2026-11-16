@@ -126,9 +126,9 @@ There are two sizes of record:
 
 **Headers.** Kept by default: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. A header marked `x-hotline-redact: false` in the spec is kept; one marked `true` shows as `REDACTED`. Never recorded: `authorization`, `proxy-authorization`, `cookie`, `set-cookie` and the login headers named in the spec. Every other header is left out, name and all.
 
-### The signature
+### The ledger
 
-Every full record has `hotline.signature` and `hotline.signature_key_id`: an HMAC-SHA256 signature, with the integration's `fingerprintKey`, of everything else the record holds, sorted by name. Each body that passed is signed on its own, in `hotline.request.body.signature` and `hotline.response.body.signature`, and the call's trace in `hotline.trace.signature` ([proxy-traces.md](proxy-traces.md)). Minimal records have none. Detail: [proxy-signatures.md](proxy-signatures.md).
+Every record, minimal or full, has `hotline.record.hash`, a SHA-256 hash of everything else it holds, and `hotline.batch.id` and `hotline.batch.index`, its place in a signed batch. Records with an HTTP exchange have `hotline.request.body.hash` and `hotline.response.body.hash`, and every record with a trace has `hotline.trace.hash`. Every 10 seconds each integration's batch leaves as a record of its own, `event.name = hotline.ledger.batch`, through every exporter. Detail: [proxy-ledger.md](proxy-ledger.md).
 
 ### Check results
 

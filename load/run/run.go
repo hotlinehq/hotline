@@ -689,7 +689,6 @@ func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fa
 		return nil, err
 	}
 	cert := filepath.Join(work, "vendor.pem")
-	key := filepath.Join(work, "fp.key")
 	conf := filepath.Join(work, "hotline-proxy.yaml")
 	spec, err := filepath.Abs(cfg.Spec)
 	if err != nil {
@@ -720,10 +719,9 @@ apis:
     allowInternalIPs: true
 %sintegrations:
   - id: bench-shop
-    fingerprintKey: { file: %q }
     apis: [%s%s]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, key, api, moreNames)
-	for path, data := range map[string][]byte{cert: vendor.CertPEM, key: []byte("hotline-load-test-fingerprint-key"), conf: []byte(yaml)} {
+`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
+	for path, data := range map[string][]byte{cert: vendor.CertPEM, conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
 		}
