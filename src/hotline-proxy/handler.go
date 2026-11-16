@@ -147,7 +147,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	traced, parent, tracing := traceOf(integration, r.Header, start)
 	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
-	c.reqBody = &tap{ReadCloser: r.Body, limit: c.plan.keepRequest, mac: bodyHash("request", traced), save: saved(integration), pool: &h.bodies, expect: r.ContentLength}
+	c.reqBody = &tap{
+		ReadCloser: r.Body,
+		mac:        bodyHash("request", traced),
+		saver:      bodySaver{limit: saved(integration), expect: r.ContentLength},
+		keeper:     bodyKeeper{limit: c.plan.keepRequest, pool: &h.bodies, expect: r.ContentLength},
+	}
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
 	// The call's context, made once: it ignores the app leaving, ends on
@@ -467,11 +472,17 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: c.plan.keepReply, mac: bodyHash("response", c.trace), save: saved(c.integration), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
-		out := c.h.clock.Now()
-		c.mark(func() { c.vendorOut = out })
-		c.checkReply(out, resp)
-	}}
+	c.respBody = &tap{
+		ReadCloser: resp.Body,
+		mac:        bodyHash("response", c.trace),
+		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
+		keeper:     bodyKeeper{limit: c.plan.keepReply, pool: &c.h.bodies, expect: resp.ContentLength},
+		done: func() {
+			out := c.h.clock.Now()
+			c.mark(func() { c.vendorOut = out })
+			c.checkReply(out, resp)
+		},
+	}
 	if both, ok := resp.Body.(io.Writer); ok && resp.StatusCode == http.StatusSwitchingProtocols {
 		// An upgraded connection, such as a WebSocket, carries data both
 		// ways, so the proxy must be able to write to it too. It may stay
@@ -702,193 +713,6 @@ func bodyHash(side string, sc trace.SpanContext) *ledger.BodyHash {
 // passed on.
 func emptyBodyHash(side string, sc trace.SpanContext) string {
 	return bodyHash(side, sc).Sum()
-}
-
-// tap passes a body straight on and counts the bytes that passed. It keeps
-// a copy of up to limit bytes for the checks, and hashes every byte with
-// mac (Peter, 2026-11-16). done, if
-// set, runs once when the body ends: read to the end, broken off, or closed
-// early. The request body is read by the transport, which may still be
-// reading when the record is made, so the counts are behind a lock.
-type tap struct {
-	io.ReadCloser
-	done     func()
-	finished sync.Once
-	// wait, if set, runs before each read and limits how long it may take.
-	wait func() func() bool
-
-	limit int
-	mac   *ledger.BodyHash
-	// save, when above zero, is how much of the body is kept for the file
-	// exporters, under content: full; saved holds it. Unlike the copy for
-	// the checks, it stays until the record is made.
-	save  int64
-	saved []byte
-	// pool lends the buffer the copy is kept in; expect is the body's
-	// Content-Length, or -1 when it was not sent.
-	pool   *bodyPool
-	expect int64
-
-	mu   sync.Mutex
-	size int64
-	err  error
-	kept []byte
-	// buf is the borrowed buffer kept sits in, nil until the first byte.
-	buf  *bodyBuffer
-	over bool
-	// handed is set once the copy has gone to the check: from then on the
-	// copy never changes, and its buffer is never swapped.
-	handed bool
-}
-
-func (t *tap) Read(p []byte) (int, error) {
-	if t.wait != nil {
-		defer t.wait()()
-	}
-	n, err := t.ReadCloser.Read(p)
-	t.mu.Lock()
-	t.size += int64(n)
-	_, _ = t.mac.Write(p[:n])
-	if room := min(int64(n), t.save-int64(len(t.saved))); room > 0 {
-		if t.saved == nil && t.expect > 0 {
-			// The whole body's room at once, when its length is known.
-			t.saved = make([]byte, 0, min(t.expect, t.save))
-		}
-		t.saved = append(t.saved, p[:room]...)
-	}
-	if t.limit > 0 && !t.handed {
-		room := min(n, t.limit-len(t.kept))
-		t.keep(p[:room])
-		t.over = t.over || room < n
-	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		t.err = err
-	}
-	t.mu.Unlock()
-	if err != nil {
-		t.finish()
-	}
-	return n, err
-}
-
-func (t *tap) Close() error {
-	t.finish()
-	return t.ReadCloser.Close()
-}
-
-// counts says how many bytes passed so far, and why the body broke off,
-// if it did.
-func (t *tap) counts() (int64, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.size, t.err
-}
-
-// savedBody is the part of the body saved for the file exporters, and whether
-// the body was longer than that.
-func (t *tap) savedBody() ([]byte, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.saved, t.size > int64(len(t.saved))
-}
-
-// hashed is the hash of the bytes that passed so far: of zero bytes when
-// none did.
-func (t *tap) hashed() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.mac.Sum()
-}
-
-// keep adds b to the copy. The first bytes borrow a buffer the size of the
-// whole body, when its Content-Length says so; a copy that outgrows its
-// buffer moves to a larger one and gives the old one back.
-func (t *tap) keep(b []byte) {
-	if len(b) == 0 {
-		return
-	}
-	need := len(t.kept) + len(b)
-	if t.buf == nil || need > cap(t.buf.data) {
-		want := int64(need)
-		if t.buf == nil && t.expect > want {
-			want = t.expect
-		}
-		buf := t.pool.get(int(min(want, int64(t.limit))))
-		buf.data = append(buf.data, t.kept...)
-		if t.buf != nil {
-			t.pool.put(t.buf)
-		}
-		t.buf = buf
-	}
-	t.buf.data = append(t.buf.data, b...)
-	t.kept = t.buf.data
-}
-
-// held is the memory the copy's buffer takes, or none before the first
-// byte.
-func (t *tap) held() int64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.buf == nil {
-		return 0
-	}
-	return int64(cap(t.buf.data))
-}
-
-// drop gives the copy's buffer back, once the check of the copy has ended.
-func (t *tap) drop() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.buf != nil {
-		t.pool.put(t.buf)
-	}
-	t.kept, t.buf, t.limit = nil, nil, 0
-}
-
-// copied is the copy of the body kept so far. The check reads it after the
-// lock is let go, so the copy stays as it is until drop.
-func (t *tap) copied() spec.Body {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.handed = true
-	return spec.Body{Data: t.kept, TooLarge: t.over}
-}
-
-// bodyPool lends the buffers bodies are kept in, in eight sizes from 16 KB
-// to 2 MiB, each twice the one before, so a buffer given back fits the
-// next body of about its size (Peter, 2026-11-02, found by the load test).
-type bodyPool struct{ sizes [8]sync.Pool }
-
-// bodyBuffer is a borrowed buffer and the pool of its size.
-type bodyBuffer struct {
-	data []byte
-	size int
-}
-
-// get lends an empty buffer of at least n bytes, up to the largest size.
-func (p *bodyPool) get(n int) *bodyBuffer {
-	i := 0
-	for 16<<10<<i < n && i < len(p.sizes)-1 {
-		i++
-	}
-	if b, ok := p.sizes[i].Get().(*bodyBuffer); ok {
-		b.data = b.data[:0]
-		return b
-	}
-	return &bodyBuffer{data: make([]byte, 0, 16<<10<<i), size: i}
-}
-
-// put gives a buffer back to the pool of its size.
-func (p *bodyPool) put(b *bodyBuffer) { p.sizes[b.size].Put(b) }
-
-// finish runs done once. The body can end on two goroutines at once: a
-// WebSocket's copy reads it to its end while the call ending closes it.
-func (t *tap) finish() {
-	t.finished.Do(func() {
-		if t.done != nil {
-			t.done()
-		}
-	})
 }
 
 // tunnelProcess is the program the tunnel an app connection came through
