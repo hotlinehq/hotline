@@ -26,6 +26,9 @@ type listening struct {
 	tls *tlsHolder
 	// signer signs the certificates of connect, transparent and capture.
 	signer *interceptor
+	// signs names the part signer signs for: connect, transparent or
+	// capture.
+	signs string
 	// server serves a forward or capture listener; a transparent one is
 	// served by serveIntercept.
 	server *http.Server
@@ -57,8 +60,8 @@ func (h *handler) newListening(c *config.Listener, l net.Listener, newServer fun
 	if c.TLS != nil {
 		li.tls = newTLSHolder(c.TLS, h.clock, h.logger)
 	}
-	if issuer := partIssuer(c); issuer != nil {
-		li.signer = newInterceptor(issuer, h.clock, h.logger)
+	if part, issuer := signing(c); issuer != nil {
+		li.signer, li.signs = newInterceptor(issuer, h.clock, h.logger), part
 	}
 	switch {
 	case c.Transparent != nil:
@@ -73,18 +76,21 @@ func (h *handler) newListening(c *config.Listener, l net.Listener, newServer fun
 	return li
 }
 
-// partIssuer is the issuer that signs for connect, transparent or capture;
-// nil when the listener has none of them, or relays with protocol tcp.
-func partIssuer(c *config.Listener) *config.TLS {
+// signing names the part of a listener that signs certificates for apps,
+// connect, transparent or capture, and the issuer it signs with; no issuer
+// when the listener has none of them, or relays with protocol tcp. It is
+// the one place that asks which part a listener has for signing (Peter,
+// 2026-11-16, from the decomplect review).
+func signing(c *config.Listener) (string, *config.TLS) {
 	switch {
 	case c.Connect != nil:
-		return c.Connect.Issuer
+		return "connect", c.Connect.Issuer
 	case c.Transparent != nil:
-		return c.Transparent.Issuer
+		return "transparent", c.Transparent.Issuer
 	case c.Capture != nil:
-		return c.Capture.Issuer
+		return "capture", c.Capture.Issuer
 	}
-	return nil
+	return "", nil
 }
 
 // serve starts taking connections.
@@ -128,7 +134,7 @@ func (li *listening) reload(c *config.Listener) {
 	if li.tls != nil {
 		li.tls.set(c.TLS)
 	}
-	if issuer := partIssuer(c); issuer != nil {
+	if _, issuer := signing(c); issuer != nil {
 		li.signer.issuer.set(issuer)
 	}
 }
@@ -214,25 +220,12 @@ func (p *Proxy) certificates() map[string]time.Time {
 		at["admin.tls"] = p.adminTLS.notAfter()
 	}
 	for _, li := range p.listeners {
-		c := li.cfg.Load()
 		if li.tls != nil {
 			at[li.name+".tls"] = li.tls.notAfter()
 		}
 		if li.signer != nil {
-			at[li.name+"."+part(c)] = li.signer.issuer.get().Leaf.NotAfter
+			at[li.name+"."+li.signs] = li.signer.issuer.get().Leaf.NotAfter
 		}
 	}
 	return at
-}
-
-// part names the part of a listener that signs: connect, transparent or
-// capture.
-func part(c *config.Listener) string {
-	switch {
-	case c.Connect != nil:
-		return "connect"
-	case c.Transparent != nil:
-		return "transparent"
-	}
-	return "capture"
 }
