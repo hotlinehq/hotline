@@ -132,12 +132,6 @@ func (w lineWriter) value(v attribute.Value) {
 		// can tell it from a whole number: the ledger's hashes tell them
 		// apart (Peter, 2026-11-16).
 		_ = w.e.WriteValue(jsontext.Value(decimal(v.AsFloat64())))
-	case attribute.FLOAT64SLICE:
-		w.put(jsontext.BeginArray)
-		for _, f := range v.AsFloat64Slice() {
-			_ = w.e.WriteValue(jsontext.Value(decimal(f)))
-		}
-		w.put(jsontext.EndArray)
 	default:
 		_ = json.MarshalEncode(w.e, v.AsInterface())
 	}
@@ -148,15 +142,12 @@ func timeText(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000000Z07:00")
 }
 
-// decimal writes a decimal number as JSON, with a point or an exponent. A
-// value JSON cannot hold, such as infinity, is written as null.
+// decimal writes a decimal number as JSON, with a point or an exponent.
+// A record's decimals come from JSON bodies, so they are never infinite.
 func decimal(f float64) string {
 	text := strconv.FormatFloat(f, 'g', -1, 64)
-	switch {
-	case strings.ContainsAny(text, "IN"):
-		return "null"
-	case strings.ContainsAny(text, ".e"):
-		return text
+	if !strings.ContainsAny(text, ".e") {
+		text += ".0"
 	}
-	return text + ".0"
+	return text
 }

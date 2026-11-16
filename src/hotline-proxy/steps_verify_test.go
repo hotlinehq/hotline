@@ -2,12 +2,15 @@ package proxy_test
 
 import (
 	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -290,6 +293,18 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		result = w.verify(o)
 		return nil
 	})
+	sc.Step(`^the file writes shop.order.weight as 2.0 and as 1.5$`, func() error {
+		data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+		if err != nil {
+			return err
+		}
+		for _, want := range []string{`"shop.order.weight":2.0`, `"shop.order.weight":1.5`} {
+			if !bytes.Contains(data, []byte(want)) {
+				return failf("the file has no %s: %s", want, data)
+			}
+		}
+		return nil
+	})
 	sc.Step(`^it exits with (\d)$`, func(code int) error {
 		if result.code != code {
 			return failf("verify exited with %d, want %d: %s", result.code, code, result.out)
@@ -557,8 +572,16 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed)$`, func(change string) error {
+	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|batch 0 is in the file twice|batch 0 names a batch before it)$`, func(change string) error {
 		switch change {
+		case "a record's hotline.batch.index is changed to 99":
+			return w.changeLine(2, func(line map[string]any) {
+				line["attributes"].(map[string]any)["hotline.batch.index"] = json.Number("99")
+			})
+		case "batch 0 is in the file twice":
+			return w.twiceBatch0()
+		case "batch 0 names a batch before it":
+			return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.previous"] = "sha256:" + strings.Repeat("0", 64) })
 		case "http.response.status_code is changed in a record":
 			return w.changeLine(2, func(line map[string]any) {
 				line["attributes"].(map[string]any)["http.response.status_code"] = json.Number("599")
@@ -585,6 +608,49 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			}
 			return w.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
 		}
+	})
+	sc.Step(`^the kept (url.full|request body) is changed(?: in the record)?$`, func(what string) error {
+		return w.changeLine(1, func(line map[string]any) {
+			attrs := line["attributes"].(map[string]any)
+			if what == "url.full" {
+				attrs["hotline.content.url.full"] = "https://changed.example/"
+				return
+			}
+			attrs["hotline.content.request.body"] = base64.StdEncoding.EncodeToString([]byte("{}"))
+		})
+	})
+	sc.Step(`^the checkout integration's shop spec has the overlay (\S+)$`, func(name string) error {
+		line, err := w.shopAPI("", "    overlays: [./specs/"+name+"]\n")
+		w.integrations = []string{integration("checkout", line)}
+		return err
+	})
+	var namedBatch string
+	sc.Step(`^the first batch record loses its hotline.batch.sequence$`, func() error {
+		lines, err := w.folderLines()
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			if line["event"] == "hotline.ledger.batch" {
+				attrs := line["attributes"].(map[string]any)
+				namedBatch = sprint(attrs["hotline.batch.id"])
+				delete(attrs, "hotline.batch.sequence")
+				return w.writeLines(lines)
+			}
+		}
+		return failf("the folder has no batch line")
+	})
+	sc.Step(`^it prints that the signature of that batch, named by its id, does not check out$`, func() error {
+		return result.prints("the signature of batch " + namedBatch + " does not check out")
+	})
+	sc.Step(`^it prints the instance checkout-0 with the run id proxy-test-1$`, func() error {
+		return result.prints("instance checkout-0, run proxy-test-1")
+	})
+	sc.Step(`^it prints that (the body cannot be read|no record has that span id)$`, func(what string) error {
+		if what == "the body cannot be read" {
+			return result.prints("cannot be read")
+		}
+		return result.prints("no record has the span id 0000000000000000")
 	})
 	sc.Step(`^ok is false and the problems hold one with code (\S+), the batch, and the file and line where it was found$`, func(code string) error {
 		report, err := result.json()
@@ -671,8 +737,16 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^it prints (that the folder does not exist|the file and line it could not read|that hotline.batch.v9 is not a known format)$`, func(what string) error {
+	sc.Step(`^it prints (that the folder does not exist|the file and line it could not read|that hotline.batch.v9 is not a known format|that line 1 has no time|that the compressed file is not gzip|that the compressed file ends too soon|that the rotated file cannot be read)$`, func(what string) error {
 		switch what {
+		case "that line 1 has no time":
+			return result.prints("calls.jsonl line 1 has no time")
+		case "that the compressed file is not gzip":
+			return result.prints(".jsonl.gz is not gzip")
+		case "that the compressed file ends too soon":
+			return result.prints(".jsonl.gz is cut off or damaged")
+		case "that the rotated file cannot be read":
+			return result.prints(".jsonl cannot be read")
 		case "that the folder does not exist":
 			return result.prints("does not exist")
 		case "the file and line it could not read":
@@ -689,7 +763,8 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 func (w *world) verifyOptions(command string) (proxy.VerifyOptions, error) {
 	var o proxy.VerifyOptions
 	rest := command
-	for _, bad := range []string{"a folder that does not exist", "a file that is not JSON lines", "a batch record of format v9"} {
+	for _, bad := range []string{"a folder that does not exist", "a file that is not JSON lines", "a batch record of format v9",
+		"a line with no time", "a compressed file that is not gzip", "a cut-off compressed file", "a rotated file that is a folder"} {
 		if after, found := strings.CutPrefix(command, bad); found {
 			rest = "calls" + after
 			if err := w.badInput(bad); err != nil {
@@ -715,7 +790,11 @@ func (w *world) verifyOptions(command string) (proxy.VerifyOptions, error) {
 				w.writeFile(next, `{"orders":["another"]}`)
 			}
 		case "--span":
+			// The zero span id stands for one no call has.
 			o.Span, i = w.lastSpanID(), i+1
+			if next == "0000000000000000" {
+				o.Span = next
+			}
 		case "--side":
 			o.Side, i = next, i+1
 		}
@@ -730,6 +809,21 @@ func (w *world) badInput(what string) error {
 	case "a folder that does not exist":
 		w.files = nil
 		return os.RemoveAll(folder)
+	case "a line with no time":
+		_ = os.MkdirAll(folder, 0o750)
+		return os.WriteFile(filepath.Join(folder, "calls.jsonl"), []byte(`{"event":"x","attributes":{}}`+"\n"), 0o600)
+	case "a compressed file that is not gzip":
+		_ = os.MkdirAll(folder, 0o750)
+		return os.WriteFile(filepath.Join(folder, "calls-2026-11-16T07-00-00.000.jsonl.gz"), []byte("plain text\n"), 0o600)
+	case "a cut-off compressed file":
+		var zipped bytes.Buffer
+		zw := gzip.NewWriter(&zipped)
+		_, _ = zw.Write(bytes.Repeat([]byte(`{"time":"2026-11-16T07:00:00Z","event":"x","attributes":{}}`+"\n"), 100))
+		_ = zw.Close()
+		_ = os.MkdirAll(folder, 0o750)
+		return os.WriteFile(filepath.Join(folder, "calls-2026-11-16T07-00-00.000.jsonl.gz"), zipped.Bytes()[:zipped.Len()/2], 0o600)
+	case "a rotated file that is a folder":
+		return os.MkdirAll(filepath.Join(folder, "calls-2026-11-16T07-00-00.000.jsonl"), 0o750)
 	case "a file that is not JSON lines":
 		_ = os.MkdirAll(folder, 0o750)
 		return os.WriteFile(filepath.Join(folder, "calls.jsonl"), []byte("{\"time\":\"2026-11-16T07:00:00Z\",\"event\":\"x\",\"attributes\":{}}\nnot json\n"), 0o600)
@@ -836,6 +930,23 @@ func (w *world) changeBatch(sequence int, change func(map[string]any)) error {
 		}
 	}
 	return failf("no batch line has the sequence %d", sequence)
+}
+
+// twiceBatch0 writes the batch line with sequence 0 a second time, right
+// after itself.
+func (w *world) twiceBatch0() error {
+	lines, err := w.folderLines()
+	if err != nil {
+		return err
+	}
+	for i, line := range lines {
+		attrs, _ := line["attributes"].(map[string]any)
+		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == "0" {
+			lines = slices.Insert(lines, i+1, cloneLine(line))
+			return w.writeLines(lines)
+		}
+	}
+	return failf("no batch line has the sequence 0")
 }
 
 func cloneLine(line map[string]any) map[string]any {

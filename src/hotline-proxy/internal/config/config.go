@@ -565,12 +565,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		}
 		c.integrations[in.ID] = byHost
 	}
-	c.Files = slices.Sorted(maps.Keys(l.read))
-	if len(l.problems) > 0 {
-		return &Config{Files: c.Files}, errors.Join(l.problems...)
-	}
-	c.Warnings = append(c.Warnings, l.warnings...)
 	c.Ledger = l.ledger(f)
+	c.Files = slices.Sorted(maps.Keys(l.read))
+	c.Warnings = append(c.Warnings, l.warnings...)
 	if len(l.problems) > 0 {
 		return &Config{Files: c.Files}, errors.Join(l.problems...)
 	}

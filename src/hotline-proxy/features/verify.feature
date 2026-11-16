@@ -22,6 +22,26 @@ Feature: Checking records with hotline-proxy verify
 
   Rule: Good records check out
 
+    Scenario: A decimal body field keeps its point in the file
+      A whole number and a decimal hash differently, so the file writes a
+      decimal such as 2.0 with its point, and verify reads it back as one.
+      Given the overlay weight.overlay.yaml:
+        """
+        overlay: 1.1.0
+        info: { title: Weight, version: "1" }
+        actions:
+          - target: $.components.schemas.Order.properties
+            update:
+              weight: { type: [number, "null"], x-hotline-record: shop.order.weight }
+        """
+      And the checkout integration's shop spec has the overlay weight.overlay.yaml
+      And the vendor answers 201
+      When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2,"weight":2.0}
+      And the app sends POST /orders with "Idempotency-Key: k2" and the json body {"item":"A1","quantity":2,"weight":1.5}
+      And I run hotline-proxy verify calls
+      Then it exits with 0
+      And the file writes shop.order.weight as 2.0 and as 1.5
+
     Scenario: A whole folder checks out
       When the app sends GET /orders 5 times
       And 30 seconds pass
@@ -60,6 +80,13 @@ Feature: Checking records with hotline-proxy verify
       And I run hotline-proxy verify calls --integration checkout
       Then it exits with 0
       And it prints that checkout's 3 records check out, and mentions no other integration
+
+    Scenario: A run with a named instance shows its run id
+      Given the config has ledger instance { env: POD_NAME } and POD_NAME is checkout-0
+      And the folder calls from a stopped proxy, with 1 calls
+      When I run hotline-proxy verify calls
+      Then it exits with 0
+      And it prints the instance checkout-0 with the run id proxy-test-1
 
     Scenario: Each integration's chain is reported on its own
       Given the integrations checkout and refunds
@@ -176,6 +203,17 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 1
       And it prints that the response body does not match
 
+    Scenario Outline: A body check that cannot be made
+      Given the vendor answered GET /orders with the json body {"orders":[]}
+      When I run hotline-proxy verify calls --body <body> --span <span> --side response
+      Then it exits with 1
+      And it prints <message>
+
+      Examples:
+        | body      | span             | message                           |
+        | calls     | 00f067aa0ba902b7 | that the body cannot be read      |
+        | reply.json | 0000000000000000 | that no record has that span id  |
+
     Scenario: A body kept whole in a full record is checked by itself
       Given the integration has content full and maxBodySize 1MiB
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
@@ -236,6 +274,30 @@ Feature: Checking records with hotline-proxy verify
         | hotline.batch.records is changed in a batch record             | batch_signature_invalid |
         | the batch record with sequence 1 is deleted                    | batch_missing           |
         | batch 2's hotline.batch.previous is changed                    | chain_broken            |
+        | a record's hotline.batch.index is changed to 99                | record_extra            |
+        | batch 0 is in the file twice                                   | chain_broken            |
+        | batch 0 names a batch before it                                | chain_broken            |
+
+    Scenario Outline: A changed full record has its own code
+      Given the integration has content full and maxBodySize 1MiB
+      When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
+      And hotline-proxy is stopped
+      And <change>
+      And I run hotline-proxy verify calls --format json
+      Then it exits with 1
+      And ok is false and the problems hold one with code <code>, the batch, and the file and line where it was found
+
+      Examples:
+        | change                                      | code                  |
+        | the kept url.full is changed in the record  | content_hash_mismatch |
+        | the kept request body is changed            | body_hash_mismatch    |
+
+    Scenario: A batch record without a sequence is named by its id
+      Given the folder calls from a stopped proxy
+      When the first batch record loses its hotline.batch.sequence
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the signature of that batch, named by its id, does not check out
 
     Scenario Outline: Things that are not changes are notes, not problems
       Given <situation>
@@ -277,3 +339,7 @@ Feature: Checking records with hotline-proxy verify
         | a folder that does not exist  | that the folder does not exist            |
         | a file that is not JSON lines | the file and line it could not read       |
         | a batch record of format v9   | that hotline.batch.v9 is not a known format |
+        | a line with no time           | that line 1 has no time                   |
+        | a compressed file that is not gzip | that the compressed file is not gzip |
+        | a cut-off compressed file     | that the compressed file ends too soon    |
+        | a rotated file that is a folder | that the rotated file cannot be read    |

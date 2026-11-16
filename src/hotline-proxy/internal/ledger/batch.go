@@ -154,17 +154,15 @@ func format(id [16]byte) string {
 
 // next is the id one above previous, in its random bits.
 func next(previous string) string {
-	raw, err := hex.DecodeString(strings.ReplaceAll(previous, "-", ""))
-	if err != nil || len(raw) != 16 {
-		return previous
-	}
+	// previous is always an id this package wrote, so it reads back whole.
+	var id [16]byte
+	raw, _ := hex.DecodeString(strings.ReplaceAll(previous, "-", ""))
+	copy(id[:], raw)
 	for i := 15; i >= 9; i-- {
-		raw[i]++
-		if raw[i] != 0 {
+		id[i]++
+		if id[i] != 0 {
 			break
 		}
 	}
-	var id [16]byte
-	copy(id[:], raw)
 	return format(id)
 }

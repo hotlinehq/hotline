@@ -136,19 +136,19 @@ func (b *book) record(ctx context.Context, f finished) {
 func (b *book) tick() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.stopped {
-		return
-	}
-	if now := b.clock.Now(); now.Sub(b.keyAt) >= keyLife {
-		b.key, b.keyAt = ledger.NewKey(), now
-	}
-	for _, ch := range b.chains {
-		if ch.open != nil {
-			b.close(ch, false)
+	// A tick that fired as the proxy stopped does nothing.
+	if !b.stopped {
+		if now := b.clock.Now(); now.Sub(b.keyAt) >= keyLife {
+			b.key, b.keyAt = ledger.NewKey(), now
 		}
+		for _, ch := range b.chains {
+			if ch.open != nil {
+				b.close(ch, false)
+			}
+		}
+		b.every = b.config().Ledger.Every
+		b.timer = b.clock.AfterFunc(b.every, b.tick)
 	}
-	b.every = b.config().Ledger.Every
-	b.timer = b.clock.AfterFunc(b.every, b.tick)
 }
 
 // reloaded ends the chains of integrations the new config no longer has,
@@ -156,9 +156,7 @@ func (b *book) tick() {
 func (b *book) reloaded(cfg *config.Config) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.stopped {
-		return
-	}
+	// Once stopped, the book has no chains left to end.
 	for name, ch := range b.chains {
 		if cfg.Chain(name) != name {
 			b.close(ch, true)
@@ -172,14 +170,14 @@ func (b *book) reloaded(cfg *config.Config) {
 func (b *book) stop() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.stopped {
-		return
-	}
 	b.stopped = true
 	b.timer.Stop()
 	for _, ch := range b.chains {
 		b.close(ch, true)
 	}
+	// A record that comes late, after a stop that ran out of time, starts
+	// a chain that no batch closes.
+	b.chains = map[string]*chain{}
 }
 
 // close signs the chain's open batch and sends its batch record. Only a
@@ -188,9 +186,7 @@ func (b *book) close(ch *chain, last bool) {
 	open := ch.open
 	ch.open = nil
 	if open == nil {
-		if !last {
-			return
-		}
+		// Only a last batch closes with nothing open: it is sent empty.
 		ch.lastID = ledger.NewBatchID(b.clock.Now(), ch.lastID)
 		open = &openBatch{id: ch.lastID, config: b.config().Digest}
 	}
@@ -234,12 +230,13 @@ func (b *book) close(ch *chain, last bool) {
 
 // integrationOf is the integration a record names.
 func integrationOf(attrs []attribute.KeyValue) string {
+	id := ""
 	for _, kv := range attrs {
 		if kv.Key == "hotline.integration.id" {
-			return kv.Value.AsString()
+			id = kv.Value.AsString()
 		}
 	}
-	return ""
+	return id
 }
 
 // ledgerSpans are a trace's spans as the trace's hash covers them, with the

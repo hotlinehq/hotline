@@ -2,7 +2,8 @@
 Feature: The hotline-proxy program
   The proxy runs as one program, hotline-proxy, with three commands: run
   starts the proxy, validate only checks a config, and version prints the
-  version. The config file is given only with --config. --trust-file adds
+  version. verify checks the records in a file exporter's folder
+  (docs/proxy-ledger.md). The config file is given only with --config. --trust-file adds
   trusted certificate issuers on top of the system's own. The program's own
   log lines go to standard error. Every command takes --format: console,
   the default, writes plain lines for a person, and json writes one JSON
@@ -68,6 +69,7 @@ Feature: The hotline-proxy program
       | version                                  |
       | validate --config hotline-proxy.yaml     |
       | overlay --from from.yaml --to to.yaml    |
+      | verify calls                             |
 
   Scenario Outline: Help is printed on request
     When hotline-proxy is run with "<command> --help"
@@ -78,6 +80,7 @@ Feature: The hotline-proxy program
       | command | flag              |
       | run     | -shutdown-timeout |
       | version | -format           |
+      | verify  | -integration      |
 
   Scenario Outline: A wrong command line is refused with exit code 2
     When hotline-proxy is run with "<arguments>"
@@ -93,6 +96,14 @@ Feature: The hotline-proxy program
       | run --config hotline-proxy.yaml --colour   | flag provided but not defined   |
       | run --config hotline-proxy.yaml --log-level loud | invalid value "loud"      |
       | run --config hotline-proxy.yaml extra      | unexpected argument "extra"     |
+      | verify                                     | the folder to verify is required |
+      | verify calls --body reply.json             | --body needs --span and --side  |
+      | verify calls extra                         | unexpected argument "extra"     |
+
+  Scenario: verify checks a folder and needs no config
+    When hotline-proxy is run with "verify calls"
+    Then it exits with code 2
+    And standard output starts with "problem: input cannot be read"
 
   Scenario: validate accepts a valid config
     Given a valid config file

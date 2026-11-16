@@ -115,6 +115,7 @@ Feature: Loading the config file
       | an exporter's temporality is neither cumulative nor delta |
       | an exporter's endpoint is not a valid address        |
       | an exporter's queueSize is zero                      |
+      | the ledger's maxRecords is zero                      |
       | an exporter's metricInterval is zero                 |
       | an exporter's logInterval is not a duration          |
       | an exporter's traceInterval is negative              |

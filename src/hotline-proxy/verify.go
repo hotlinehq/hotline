@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bufio"
 	"bytes"
 	"cmp"
 	"compress/gzip"
@@ -207,31 +206,26 @@ func (v *verifier) read() error {
 
 func (v *verifier) readFile(name string) error {
 	path := filepath.Join(v.o.Folder, name)
-	f, err := os.Open(path) //nolint:gosec // the folder the person named
+	data, err := os.ReadFile(path) //nolint:gosec // the folder the person named
 	if err != nil {
-		return fmt.Errorf("%w: %s", errUnreadable, path)
+		return fmt.Errorf("%w: %s cannot be read", errUnreadable, path)
 	}
-	defer func() { _ = f.Close() }()
-	var in io.Reader = f
 	if strings.HasSuffix(name, ".gz") {
-		zr, err := gzip.NewReader(f)
+		zr, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("%w: %s is not gzip", errUnreadable, path)
 		}
-		in = zr
-	}
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 64*1024), 256*1024*1024)
-	for n := 1; scanner.Scan(); n++ {
-		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
-			continue
-		}
-		if err := v.readLine(place{file: path, line: n}, scanner.Bytes()); err != nil {
-			return err
+		if data, err = io.ReadAll(zr); err != nil {
+			return fmt.Errorf("%w: %s is cut off or damaged", errUnreadable, path)
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("%w: %s: %s", errUnreadable, path, err.Error())
+	for n, line := range bytes.Split(data, []byte("\n")) {
+		// Blank lines are skipped.
+		if len(bytes.TrimSpace(line)) > 0 {
+			if err := v.readLine(place{file: path, line: n + 1}, line); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -449,11 +443,11 @@ func (v *verifier) checkBatch(b *lineBatch) {
 		n, _ := entry["index"].(json.Number)
 		index, err := n.Int64()
 		hash, _ := entry["hash"].(string)
-		if err != nil || index < 0 || index >= count || have[index] {
-			continue
+		// An entry that names no free place in the batch is left out.
+		if err == nil && index >= 0 && index < count && !have[index] {
+			leaves[index], have[index] = parseHash(hash), true
+			droppedAt = append(droppedAt, index)
 		}
-		leaves[index], have[index] = parseHash(hash), true
-		droppedAt = append(droppedAt, index)
 	}
 	var missing []int64
 	for i, ok := range have {
@@ -556,16 +550,15 @@ func (v *verifier) checkBody() {
 		return
 	}
 	for _, r := range v.records {
-		if r.spanID != v.o.Span {
-			continue
+		if r.spanID == v.o.Span {
+			matches := bodyHashOf(v.o.Side, r.traceID, r.spanID, data) == r.text("hotline."+v.o.Side+".body.hash")
+			v.body = &bodyResult{SpanID: r.spanID, Side: v.o.Side, Matches: matches}
+			if !matches {
+				v.problems = append(v.problems, finding{Code: "body_mismatch", SpanID: r.spanID, File: r.file, Line: r.line,
+					Message: "the " + v.o.Side + " body does not match the record's hotline." + v.o.Side + ".body.hash"})
+			}
+			return
 		}
-		matches := bodyHashOf(v.o.Side, r.traceID, r.spanID, data) == r.text("hotline."+v.o.Side+".body.hash")
-		v.body = &bodyResult{SpanID: r.spanID, Side: v.o.Side, Matches: matches}
-		if !matches {
-			v.problems = append(v.problems, finding{Code: "body_mismatch", SpanID: r.spanID, File: r.file, Line: r.line,
-				Message: "the " + v.o.Side + " body does not match the record's hotline." + v.o.Side + ".body.hash"})
-		}
-		return
 	}
 	v.problems = append(v.problems, finding{Code: "body_record_missing", SpanID: safe(v.o.Span), Message: "no record has the span id " + safe(v.o.Span)})
 }
@@ -678,14 +671,15 @@ func valueOf(v any) attribute.Value {
 			items[i] = valueOf(item)
 		}
 		return attribute.SliceValue(items...)
-	case map[string]any:
-		entries := make([]attribute.KeyValue, 0, len(x))
-		for name, item := range x {
-			entries = append(entries, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(item)})
-		}
-		return attribute.MapValue(entries...)
 	}
-	return attribute.Value{}
+	// What is left is an object. The file exporter never writes null, so a
+	// null someone put in reads as an empty object, and fails its hash.
+	x, _ := v.(map[string]any)
+	entries := make([]attribute.KeyValue, 0, len(x))
+	for name, item := range x {
+		entries = append(entries, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(item)})
+	}
+	return attribute.MapValue(entries...)
 }
 
 // lineSpans are the spans a line holds, as the trace's hash covers them.

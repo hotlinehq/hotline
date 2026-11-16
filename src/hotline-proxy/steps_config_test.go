@@ -440,6 +440,9 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's traceInterval is negative":
 		w.rawConfig = start + exporters + "      traceInterval: -1s\n"
 		w.problem = "traceInterval \"-1s\" must be a duration above zero"
+	case "the ledger's maxRecords is zero":
+		w.rawConfig = start + exporters + "ledger:\n  batch:\n    maxRecords: 0\n"
+		w.problem = "ledger.batch: maxRecords must be at least 1"
 	case "an exporter's queueSize is zero":
 		w.rawConfig = start + exporters + "      queueSize: 0\n"
 		w.problem = "queueSize must be at least 1"
