@@ -36,7 +36,9 @@ type checkLine struct {
 // checkJob is one side of a call's check, waiting for a worker.
 type checkJob struct {
 	check *specCheck
-	run   func() spec.Checked
+	// run checks the side, and gives what it found and the route it
+	// used.
+	run func() (spec.Checked, spec.Route)
 	// release gives the body's buffer back when the check is dropped.
 	release func()
 	// bytes is the memory the body holds while the check waits.
@@ -163,7 +165,7 @@ func (l *checkLine) work() {
 		l.idle--
 		l.mu.Unlock()
 		job.check.waited = l.clock.Now()
-		job.check.found = job.run()
+		job.check.found, job.check.route = job.run()
 		job.check.end = l.clock.Now()
 		close(job.check.done)
 		l.mu.Lock()

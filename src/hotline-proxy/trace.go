@@ -24,13 +24,13 @@ func (c *call) opened() time.Time {
 // spans are the steps of the call, as its trace (Peter, 2026-10-31). A step
 // that did not happen has no span. Spans hold nothing the record holds, so
 // only two of them have an attribute.
-func (c *call) spans(opened, end time.Time) []export.Span {
-	call := callSpan(c.trace, c.parent, opened, end, c.errorType != "" || c.app.failed())
+func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
+	call := callSpan(c.trace, c.parent, opened, end, failed.errorType != "" || c.app.failed())
 	spans := []export.Span{call}
 	step := func(parent trace.SpanID, name string, from, to time.Time, attrs ...attribute.KeyValue) {
 		spans = append(spans, export.Span{
 			ID: tracectx.NewSpanID(), Parent: parent, Name: name, Kind: trace.SpanKindInternal,
-			Start: from, End: to, Failed: name == c.failedStep, Attrs: attrs,
+			Start: from, End: to, Failed: name == failed.step, Attrs: attrs,
 		})
 	}
 	if c.appTimed {
@@ -42,7 +42,7 @@ func (c *call) spans(opened, end time.Time) []export.Span {
 	out := orTime(c.vendorOut, end)
 	vendor := export.Span{
 		ID: c.vendorSpan, Parent: call.ID, Name: "vendor call", Kind: trace.SpanKindClient,
-		Start: c.vendorIn, End: out, Failed: c.errorType != "",
+		Start: c.vendorIn, End: out, Failed: failed.errorType != "",
 	}
 	if c.connected {
 		vendor.Attrs = []attribute.KeyValue{attribute.Bool("hotline.connection.reused", c.reused)}
