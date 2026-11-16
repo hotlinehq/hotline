@@ -18,10 +18,6 @@ import (
 // (Peter, 2026-11-16).
 const keyLife = time.Hour
 
-// shownDropped is how many dropped records a batch record lists at most,
-// for one destination. Past it only their count is sent.
-const shownDropped = 1024
-
 // book is the proxy's evidence ledger (docs/proxy-ledger.md). Every record
 // carries its hash and its place in a batch. Each integration has its own
 // chain of batches: a batch closes every few seconds, or when it is full,
@@ -68,10 +64,6 @@ type openBatch struct {
 	// maxRecords is that config's ledger.maxRecords.
 	maxRecords int
 	leaves     [][sha256.Size]byte
-	// dropped are, for each destination that keeps the ledger, the records
-	// it did not take, up to shownDropped, and how many in all.
-	dropped [][]attribute.Value
-	count   []int
 }
 
 func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
@@ -117,7 +109,6 @@ func (b *book) record(ctx context.Context, f finished) {
 		ch.lastID = ledger.NewBatchID(b.clock.Now(), ch.lastID)
 		ch.open = &openBatch{
 			id: ch.lastID, config: cfg.Digest, maxRecords: cfg.Ledger.MaxRecords,
-			dropped: make([][]attribute.Value, b.sink.Ledgers()), count: make([]int, b.sink.Ledgers()),
 		}
 	}
 	open := ch.open
@@ -131,19 +122,11 @@ func (b *book) record(ctx context.Context, f finished) {
 	sum := ledger.RecordHash(ledger.Record{Attrs: attrs, At: f.at, TraceID: traceID, SpanID: spanID})
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
-	taken := b.sink.Call(ctx, export.Call{Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content})
-	index := len(open.leaves)
+	b.sink.Call(ctx, export.Call{
+		Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
+		Ledger: export.Entry{Batch: open.id, Index: len(open.leaves), Hash: hash},
+	})
 	open.leaves = append(open.leaves, sum)
-	for i, ok := range taken {
-		if ok {
-			continue
-		}
-		open.count[i]++
-		if len(open.dropped[i]) < shownDropped {
-			open.dropped[i] = append(open.dropped[i], attribute.MapValue(
-				attribute.Int("index", index), attribute.String("hash", hash)))
-		}
-	}
 	if len(open.leaves) >= open.maxRecords {
 		b.close(ch, false)
 	}
@@ -233,17 +216,7 @@ func (b *book) close(ch *chain, last bool) {
 		attrs = append(attrs, attribute.Bool("hotline.batch.last", true))
 	}
 	attrs = append(attrs, b.key.Sign(attrs))
-	own := make([][]attribute.KeyValue, b.sink.Ledgers())
-	for i := range own {
-		switch {
-		case i >= len(open.count) || open.count[i] == 0:
-		case open.count[i] > shownDropped:
-			own[i] = []attribute.KeyValue{attribute.Int("hotline.batch.dropped_count", open.count[i])}
-		default:
-			own[i] = []attribute.KeyValue{attribute.Slice("hotline.batch.dropped", open.dropped[i]...)}
-		}
-	}
-	b.sink.Batch(export.Batch{At: b.clock.Now(), Attrs: attrs, Own: own})
+	b.sink.Batch(export.Batch{ID: open.id, At: b.clock.Now(), Attrs: attrs})
 	ch.previous = root
 	ch.sequence++
 }
