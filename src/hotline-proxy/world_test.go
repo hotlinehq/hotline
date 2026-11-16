@@ -125,6 +125,8 @@ type world struct {
 	clock *fakeClock
 	// runs counts the proxy's starts, so each run has its own instance id.
 	runs int
+	// sent counts the calls sent through the proxy.
+	sent int
 
 	// appID is the integration ID apps send; empty sends none.
 	appID string
@@ -745,6 +747,7 @@ func (w *world) send(r request) error {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	w.sent++
 	return w.exchange(conn, r)
 }
 

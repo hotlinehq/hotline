@@ -23,7 +23,7 @@ func TestFeatures(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeScenario(sc, app) },
 		Options: &godog.Options{
 			Format:   "progress",
-			Paths:    []string{"features/ledger.feature", "features/verify.feature"},
+			Paths:    []string{"features"},
 			Tags:     "~@e2e && ~@later",
 			Strict:   true,
 			TestingT: t,

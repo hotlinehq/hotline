@@ -290,8 +290,8 @@ func (v *verifier) check() {
 	}
 	unbatched := map[string][]*lineRecord{}
 	for _, r := range v.records {
-		v.checkRecord(r)
 		b := byID[r.batchID]
+		v.checkRecord(r, b)
 		if b == nil {
 			unbatched[r.batchID] = append(unbatched[r.batchID], r)
 			continue
@@ -325,7 +325,7 @@ func recordLeftOut(name string) bool {
 		strings.HasPrefix(name, "hotline.content.") && name != "hotline.content.hash"
 }
 
-func (v *verifier) checkRecord(r *lineRecord) {
+func (v *verifier) checkRecord(r *lineRecord, b *lineBatch) {
 	var attrs, content []attribute.KeyValue
 	for name, value := range r.attrs {
 		switch {
@@ -336,6 +336,12 @@ func (v *verifier) checkRecord(r *lineRecord) {
 		}
 	}
 	at := finding{SpanID: r.spanID, File: r.file, Line: r.line}
+	if b != nil {
+		// A problem in a record names the batch it belongs to.
+		at = v.about(at, b)
+		index := r.index
+		at.Index = &index
+	}
 	if ledger.Text(ledger.RecordHash(ledger.Record{Attrs: attrs, At: r.at, TraceID: r.traceID, SpanID: r.spanID})) != r.hash {
 		at.Code, at.Message = "record_hash_mismatch", "the record with span id "+safe(r.spanID)+" does not match its hotline.record.hash"
 		v.problems = append(v.problems, at)
@@ -363,6 +369,9 @@ func (v *verifier) checkKeptBody(r *lineRecord, side string, at finding) {
 	}
 	if cut, _ := r.attrs["hotline.content."+side+".body.truncated"].(bool); cut {
 		v.cut++
+		note := at
+		note.Code, note.Message = "body_not_checked", "the "+side+" body kept with the record with span id "+safe(r.spanID)+" was cut short and could not be checked"
+		v.notes = append(v.notes, note)
 		return
 	}
 	body, err := base64.StdEncoding.DecodeString(kept)

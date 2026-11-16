@@ -31,10 +31,12 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full for one record$`, func() error {
+		w.fileExporterOnce()
 		w.fullForThird()
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full(?: for 1,025 records)?$`, func() error {
+		w.fileExporterOnce()
 		w.files[0].extra = "      queueMemory: 1\n"
 		return nil
 	})
@@ -157,6 +159,13 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 // fullForThird fills the file exporter's queue for the third call only: the
 // queue holds 10KiB, and the vendor's third reply has a header of 20KiB,
 // which the record keeps, so that record alone does not fit.
+// fileExporterOnce adds a file exporter when the scenario has none yet.
+func (w *world) fileExporterOnce() {
+	if len(w.files) == 0 {
+		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+	}
+}
+
 func (w *world) fullForThird() {
 	w.files[0].extra = "      queueMemory: 10KiB\n"
 	var n atomic.Int64
@@ -231,7 +240,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		switch {
 		case windows != "":
 			for range 3 {
-				if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
+				if err := w.ordersTimes(1); err != nil {
 					return err
 				}
 				w.clock.pass(10 * time.Second)
@@ -270,7 +279,8 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 	})
 	sc.Step(`^I run hotline-proxy verify (.+)$`, func(command string) error {
-		o, err := w.verifyOptions(command)
+		// The proxy needs no config and no network to verify a folder.
+		o, err := w.verifyOptions(strings.TrimSuffix(command, " with no config and no network"))
 		if err != nil {
 			return err
 		}
@@ -301,10 +311,6 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			return failf("the folder has %d compressed files", gz)
 		}
 		return result.prints("checkout's 50 records", "everything checks out")
-	})
-	sc.Step(`^I run hotline-proxy verify calls with no config and no network$`, func() error {
-		result = w.verify(proxy.VerifyOptions{Folder: filepath.Join(w.dir, "calls")})
-		return nil
 	})
 	sc.Step(`^it prints 2 runs, each with its own instance, from sequence 0, ending with a clean stop$`, func() error {
 		lines := result.lines("instance ")
@@ -414,7 +420,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return w.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
 	})
 	sc.Step(`^it prints that the record with that span id does not match its hotline.record.hash$`, func() error {
-		return result.prints("the record with span id "+changedSpan+" does not match its hotline.record.hash")
+		return result.prints("the record with span id " + changedSpan + " does not match its hotline.record.hash")
 	})
 	sc.Step(`^it prints that batch 0 of that run does not rebuild its root from its records$`, func() error {
 		return result.prints("batch 0 of that run does not rebuild its root from its records")
@@ -426,7 +432,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("batch 0 holds a record it does not count")
 	})
 	sc.Step(`^it prints that the trace of (?:the record with that span id|that record) does not match its hotline.trace.hash$`, func() error {
-		return result.prints("the trace of the record with span id "+changedSpan+" does not match its hotline.trace.hash")
+		return result.prints("the trace of the record with span id " + changedSpan + " does not match its hotline.trace.hash")
 	})
 	sc.Step(`^it prints that the signature of batch 0 does not check out with its key$`, func() error {
 		return result.prints("the signature of batch 0 does not check out with its key")

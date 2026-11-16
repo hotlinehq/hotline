@@ -102,16 +102,39 @@ Feature: Records a third party can trust
       Then the record is minimal
       And it has hotline.request.body.hash and hotline.response.body.hash
 
-    Scenario Outline: Records with no HTTP exchange are in the ledger, without body hashes
-      When <connection>
+    Scenario: A tunnel relayed untouched is in the ledger, without body hashes
+      Given an interception issuer named customer in certs, which the connect part picks
+      And an app that trusts the interception issuer
+      And the connect part lists *.example.com in passthrough
+      And the app also trusts the vendors' own issuer
+      When the app opens a tunnel to pinned.example.com:443
+      And the app closes its connections
       Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
       And the record has no hotline.request.body.hash or hotline.response.body.hash
 
-      Examples:
-        | connection                                         |
-        | a CONNECT tunnel is relayed untouched (passthrough) |
-        | a TLS handshake fails                              |
-        | a tcp listener relays a connection                 |
+    Scenario: A failed TLS handshake is in the ledger, without body hashes
+      Given an interception issuer named customer in certs, which the connect part picks
+      And an app that does not trust the interception issuer
+      When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a
+      Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
+      And the record has no hotline.request.body.hash or hotline.response.body.hash
+
+    Scenario: A connection a tcp listener relays is in the ledger, without body hashes
+      Given an issuer named customer in certs
+      And pinned.example.com on port 6379 answers "+PONG" to what it gets
+      And the original destination of the connection is 192.0.2.250:6379
+      And the listeners are:
+        """
+        apps:
+          address: tcp://{apps}
+        sidecar:
+          address: tcp://{sidecar}
+          protocol: tcp
+          transparent: { integration: ci-lint }
+        """
+      When the app sends "PING" to the listener sidecar
+      Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
+      And the record has no hotline.request.body.hash or hotline.response.body.hash
 
   Rule: The call's trace has a hash, and the record's hash covers it
 

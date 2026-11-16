@@ -43,10 +43,14 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		if err := w.start(); err != nil {
 			return err
 		}
+		// Each call's record is made in the background: let it join its
+		// batch before the window closes.
+		w.waitCalls(w.sent)
 		w.clock.pass(time.Duration(seconds) * time.Second)
 		return nil
 	})
 	sc.Step(`^an hour passes on the proxy's clock$`, func() error {
+		w.waitCalls(w.sent)
 		w.clock.pass(time.Hour)
 		return nil
 	})
@@ -61,7 +65,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the app sends GET /orders in each of (\d+) batch windows$`, func(n int) error {
 		for range n {
-			if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
+			if err := w.ordersTimes(1); err != nil {
 				return err
 			}
 			w.clock.pass(10 * time.Second)
@@ -758,6 +762,9 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the config has ledger instance \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
+		if w.env == nil {
+			w.env = map[string]string{}
+		}
 		w.env["POD_NAME"] = name
 		w.topExtra += "ledger:\n  instance: { env: POD_NAME }\n"
 		return nil
@@ -847,12 +854,35 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 
 // ordersTimes sends GET /orders n times, one after another.
 func (w *world) ordersTimes(n int) error {
+	before := w.callsMade()
 	for range n {
 		if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
 			return err
 		}
 	}
+	w.waitCalls(before + n)
 	return nil
+}
+
+// callsMade counts the call records the first receiver got or refused.
+func (w *world) callsMade() int {
+	if len(w.receivers) == 0 {
+		return 0
+	}
+	return w.receivers[0].callsMade()
+}
+
+// waitCalls waits a little until the first receiver has seen n call
+// records. A record is made after the reply, in the background, so time
+// passed on the proxy's clock right after a call could otherwise close its
+// batch window before the record joined it.
+func (w *world) waitCalls(n int) {
+	if len(w.receivers) == 0 {
+		return
+	}
+	for deadline := time.Now().Add(5 * time.Second); w.receivers[0].callsMade() < n && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // reloadConfig writes the config again and has the proxy load it.
