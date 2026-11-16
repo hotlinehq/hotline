@@ -176,6 +176,18 @@ Feature: The intercept ingress
         | the vendor name pinned.example.com resolves to 10.0.0.5 | destination_ip_prohibited |
         | the name pinned.example.com has no address         | destination_unavailable   |
 
+    Scenario: A relay gives an address that never answers only its share of the wait
+      A relay has no vendorTimeout, only the time its connect may take. That
+      time is shared between the addresses still to try, as Go's own dialer
+      does, so the first address gets half of it before the second is tried.
+      Given the transparent listener lists pinned.example.com in passthrough
+      And the first address of pinned.example.com never answers
+      When the app connects to the listener naming pinned.example.com in the handshake
+      Then the proxy connected to the address of pinned.example.com
+      When the app closes its connections
+      Then the intercept record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
+      And the record's hotline.timing.total_us is at least 15 seconds, half of the relay's 30 second connect wait
+
     Scenario: Stopping the proxy ends a relay
       Given the transparent listener lists pinned.example.com in passthrough
       When the app connects to the listener naming pinned.example.com in the handshake

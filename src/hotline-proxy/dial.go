@@ -34,7 +34,7 @@ type dialer struct {
 }
 
 func (d *dialer) dial(ctx context.Context, network, address string) (net.Conn, error) {
-	trace := httptrace.ContextClientTrace(ctx)
+	trace := traceOrNone(ctx)
 	host, port, _ := net.SplitHostPort(address)
 	ip, err := netip.ParseAddr(host)
 	ips := []netip.Addr{ip}
@@ -65,6 +65,20 @@ func (d *dialer) dial(ctx context.Context, network, address string) (net.Conn, e
 	return conn, err
 }
 
+// traceOrNone is the call's trace hooks, or hooks that do nothing when the
+// dial has no call's trace, as with a relay.
+func traceOrNone(ctx context.Context) *httptrace.ClientTrace {
+	if trace := httptrace.ContextClientTrace(ctx); trace != nil {
+		return trace
+	}
+	return &httptrace.ClientTrace{
+		DNSStart:     func(httptrace.DNSStartInfo) {},
+		DNSDone:      func(httptrace.DNSDoneInfo) {},
+		ConnectStart: func(string, string) {},
+		ConnectDone:  func(string, string, error) {},
+	}
+}
+
 // lookup asks the resolver for the addresses of host. The real resolver
 // opens its own connections to DNS servers, and the call's trace would see
 // them as connects to the vendor. So the lookup gets a context without the
@@ -80,8 +94,14 @@ func (d *dialer) lookup(ctx context.Context, host string) ([]netip.Addr, error) 
 // dialOne connects to one address, giving up after its share of the time
 // left when other addresses are still to try.
 func (d *dialer) dialOne(ctx context.Context, network, address string, left int) (net.Conn, error) {
-	deadline, _ := ctx.Value(deadlineKey{}).(time.Time)
-	if left > 1 {
+	deadline, found := ctx.Value(deadlineKey{}).(time.Time)
+	if !found {
+		// A relay has no vendorTimeout, only its context's own deadline,
+		// and with no deadline at all each address may take as long as it
+		// needs, as with Go's own dialer.
+		deadline, found = ctx.Deadline()
+	}
+	if left > 1 && found {
 		remaining := deadline.Sub(d.clock.Now())
 		share := max(remaining/time.Duration(left), min(minShare, remaining))
 		var cancel context.CancelFunc

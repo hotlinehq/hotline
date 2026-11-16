@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"net/http/httptrace"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -247,13 +246,6 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 // when the relay ends.
 func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, reason string) {
 	ctx, cancel := context.WithTimeout(h.tunnels.ctx, handshakeTimeout)
-	// The dialer reports to a call's trace, which a relay has none of.
-	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		DNSStart:     func(httptrace.DNSStartInfo) {},
-		DNSDone:      func(httptrace.DNSDoneInfo) {},
-		ConnectStart: func(string, string) {},
-		ConnectDone:  func(string, string, error) {},
-	})
 	vendor, err := h.relays.dial(ctx, "tcp", net.JoinHostPort(host, src.port))
 	cancel()
 	mode := []attribute.KeyValue{

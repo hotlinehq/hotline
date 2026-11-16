@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -211,6 +212,43 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the app closes its connections$`, func() error {
 		for _, c := range w.tunnels {
 			_ = c.Close()
+		}
+		return nil
+	})
+	sc.Step(`^the first address of (\S+) never answers$`, func(host string) error {
+		w.clock = &fakeClock{}
+		v := w.vendor(host)
+		// Time goes by one wait at a time until the proxy gives up on the
+		// first address: the ledger's own waits may come first.
+		w.network.stuck = func() {
+			go func() {
+				for range 20 {
+					if w.network.triedToDial(v.ip.String()) {
+						return
+					}
+					w.clock.passToNext()
+					time.Sleep(10 * time.Millisecond)
+				}
+			}()
+		}
+		dead := netip.MustParseAddr("192.0.2.77")
+		w.network.mu.Lock()
+		w.network.names[host] = []netip.Addr{dead, v.ip}
+		w.network.mu.Unlock()
+		w.network.setHang("192.0.2.77:443")
+		return nil
+	})
+	sc.Step(`^the record's hotline.timing.total_us is at least (\d+) seconds, half of the relay's 30 second connect wait$`, func(seconds int) error {
+		record, err := w.lastRecord()
+		if err != nil {
+			return err
+		}
+		total, err := strconv.ParseInt(fmt.Sprint(record["hotline.timing.total_us"]), 10, 64)
+		if err != nil {
+			return failf("the record's hotline.timing.total_us is %v", record["hotline.timing.total_us"])
+		}
+		if want := int64(seconds) * 1_000_000; total < want {
+			return failf("the relay's record lasts %d us, less than the first address's share of %d us", total, want)
 		}
 		return nil
 	})
