@@ -135,8 +135,6 @@ Feature: Loading the config file
       | an exporter's resource sets service.version          |
       | an exporter's resource has the name "my label"       |
       | an exporter's resource environment variable is not set |
-      | an integration's fingerprintKey is written out       |
-      | an integration's fingerprintKey file does not exist  |
       | two integrations have the same ID                    |
       | one integration names two apis with the same host    |
       | an integration names an api that is not in apis      |
@@ -189,6 +187,6 @@ Feature: Loading the config file
     Then all three problems are listed, not only the first one
 
   Scenario: No secret in error messages
-    Given a broken config file with an integration that has a fingerprint key
+    Given a broken config file with an exporter token read from a file
     When the proxy reports the problem
     Then the message holds no secret value

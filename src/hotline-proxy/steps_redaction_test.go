@@ -165,9 +165,9 @@ components:
 			return err
 		}
 		for key, value := range record {
-			if strings.HasSuffix(key, "signature") {
-				// A signature is random-looking base64, which can hold
-				// "k1" by chance, now that each record has a new span id.
+			if strings.HasSuffix(key, "hash") || key == "hotline.batch.id" {
+				// A hash is random-looking hex, which can hold "k1"
+				// by chance, now that each record has a new span id.
 				continue
 			}
 			if strings.Contains(key, "authorization") || strings.Contains(key, "cookie") ||

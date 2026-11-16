@@ -50,15 +50,6 @@ func reloadSteps(sc *godog.ScenarioContext, w *world) {
 		w.writeFile("overlays/no-paths.yaml", noPathsOverlay)
 		return nil
 	})
-	sc.Step(`^talon-shop-a's fingerprintKey is read from a file$`, func() error {
-		file := w.writeFile("keys/talon-shop-a", signingKey+"\n")
-		w.integrations[0] += "    fingerprintKey: { file: " + file + " }\n"
-		return nil
-	})
-	sc.Step(`^talon-shop-a's key file changes to another key$`, func() error {
-		w.replaceFile("keys/talon-shop-a", "another-key-for-talon-shop-a\n")
-		return nil
-	})
 	sc.Step(`^the proxy checks its files$`, func() error {
 		if err := w.start(); err != nil {
 			return err

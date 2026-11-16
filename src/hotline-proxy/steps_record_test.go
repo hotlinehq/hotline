@@ -178,7 +178,7 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 			"http.request.body.size": true, "http.response.body.size": true,
 		}
 		for key := range record {
-			if !allowed[key] && key != "hotline.timing.total_us" {
+			if !allowed[key] && key != "hotline.timing.total_us" && !ledgerField(key) {
 				return failf("the minimal record has %s", key)
 			}
 		}

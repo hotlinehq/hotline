@@ -129,6 +129,9 @@ type receiver struct {
 
 	mu          sync.Mutex
 	records     []receivedRecord
+	batches     []receivedRecord
+	// down refuses every log export, until it is back.
+	down bool
 	counts      []receivedCount
 	points      []receivedPoint
 	histograms  int
@@ -194,7 +197,10 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		proto:         req.Proto,
 	})
 	var refuse *answer
-	if logs && len(r.answers) > 0 {
+	if logs && r.down {
+		// A collector that is down refuses every log export at once.
+		refuse = &answer{status: http.StatusBadRequest}
+	} else if logs && len(r.answers) > 0 {
 		refuse = &r.answers[0]
 		r.answers = r.answers[1:]
 	}
@@ -288,7 +294,13 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 		res := values(rl.GetResource().GetAttributes())
 		for _, sl := range rl.GetScopeLogs() {
 			for _, lr := range sl.GetLogRecords() {
-				r.records = append(r.records, receivedRecord{
+				list := &r.records
+				if lr.GetEventName() == "hotline.ledger.batch" {
+					// The ledger's batch records are kept apart, so the
+					// scenarios about calls see only the calls' records.
+					list = &r.batches
+				}
+				*list = append(*list, receivedRecord{
 					eventName:      lr.GetEventName(),
 					timestamp:      lr.GetTimeUnixNano(),
 					severityText:   lr.GetSeverityText(),
@@ -437,6 +449,13 @@ func (r *receiver) release() {
 	}
 }
 
+// ledger are the batch records the receiver got.
+func (r *receiver) ledger() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.batches...)
+}
+
 func (r *receiver) got() ([]receivedRecord, []receivedCount) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -479,4 +498,11 @@ func value(v *common.AnyValue) any {
 		return list
 	}
 	return nil
+}
+
+// setDown makes the receiver refuse every log export, or take them again.
+func (r *receiver) setDown(down bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.down = down
 }

@@ -127,14 +127,16 @@ func appendList[T any](b []byte, items []T, value func(T) attribute.Value) []byt
 
 // appendRecord writes the content of one LogRecord message, without its
 // own tag and length, so it fits any batch.
-func appendRecord(b []byte, at, observed time.Time, severity log.Severity, sc trace.SpanContext, attrs []attribute.KeyValue) []byte {
+func appendRecord(b []byte, event string, at, observed time.Time, severity log.Severity, sc trace.SpanContext, attrs []attribute.KeyValue) []byte {
 	b = appendFixed64(b, 1, nanos(at))
 	b = appendVarint(b, 2, uint64(severity)) //nolint:gosec // a level is a small positive number
 	b = appendText(b, 3, severity.String())
 	for _, kv := range attrs {
 		b = appendKeyValue(b, 6, kv)
 	}
-	b = appendFixed32(b, 8, uint32(sc.TraceFlags()))
+	if sc.IsValid() {
+		b = appendFixed32(b, 8, uint32(sc.TraceFlags()))
+	}
 	if id := sc.TraceID(); id.IsValid() {
 		b = appendBytes(b, 9, id[:])
 	}
@@ -142,7 +144,7 @@ func appendRecord(b []byte, at, observed time.Time, severity log.Severity, sc tr
 		b = appendBytes(b, 10, id[:])
 	}
 	b = appendFixed64(b, 11, nanos(observed))
-	return appendText(b, 12, "hotline.request")
+	return appendText(b, 12, event)
 }
 
 // The span flags of OTLP besides the W3C trace flags: that the span says

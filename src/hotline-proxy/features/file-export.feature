@@ -95,58 +95,57 @@ Feature: Writing every call to a local file
   Scenario: Full content keeps the bodies and every header
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
-    Then the line's hotline.http.request.body decodes to the exact body sent
-    And the line's hotline.http.response.body decodes to the vendor's reply
-    And the line has http.request.header.authorization as sent
-    And the line has http.response.header.x-request-id req-5521
-    And the line's url.full is the address as sent
+    Then the line's hotline.content.request.body decodes to the exact body sent
+    And the line's hotline.content.response.body decodes to the vendor's reply
+    And the line has hotline.content.request.header.authorization as sent
+    And the line has hotline.content.response.header.x-request-id req-5521
+    And the line's hotline.content.url.full is the address as sent
 
   Scenario: Proxy-Authorization is kept but redacted
     Given the integration has content full
     When a call with a Proxy-Trace header ends
-    Then the line has http.request.header.proxy-authorization REDACTED
-    And the line has http.request.header.proxy-trace as sent
+    Then the line has hotline.content.request.header.proxy-authorization REDACTED
+    And the line has hotline.content.request.header.proxy-trace as sent
 
   Scenario: A long body is cut and flagged
     Given the integration has content full with maxBodySize 1KiB
     And the vendor replies with a 5KiB body
     When a call ends
     Then the app gets all 5KiB
-    And the line's hotline.http.response.body holds the first 1KiB
-    And the line has hotline.http.response.body.truncated true and http.response.body.size 5120
-    And the line has no hotline.http.request.body.truncated
+    And the line's hotline.content.response.body holds the first 1KiB
+    And the line has hotline.content.response.body.truncated true and http.response.body.size 5120
+    And the line has no hotline.content.request.body.truncated
 
   Scenario: A long request body is cut and flagged
     Given the integration has content full with maxBodySize 1KiB
     When a call with a 4KiB request body ends
     Then the call succeeds
-    And the line's hotline.http.request.body holds the first 1KiB of the body sent
-    And the line has hotline.http.request.body.truncated true
+    And the line's hotline.content.request.body holds the first 1KiB of the body sent
+    And the line has hotline.content.request.body.truncated true
 
   Scenario: The OTLP exporter never gets the full content
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
-    Then the OTLP record has no hotline.http.request.body and no http.request.header.authorization
+    Then the OTLP record has no hotline.content.request.body and no hotline.content.request.header.authorization
 
-  Scenario: A saved body can be checked against its signature
-    The body signature covers the whole body as it passed, as today.
+  Scenario: A saved body can be checked against its hash
+    The body hash covers the whole body as it passed (ledger.feature).
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
-    Then the line's hotline.request.body.signature is the HMAC-SHA256 of the saved body with the integration's key
+    Then the line's hotline.request.body.hash is the body hash of the saved body, with the line's trace id and span id
 
   Scenario: A call without a spec under full content
     Given the integration has content full
     When a call to a host without an api ends
-    Then the line's url.full is the address as sent
+    Then the line's hotline.content.url.full is the address as sent
     And the line has the request and reply headers and the reply body
-    And the line has no hotline.signature
 
   Scenario: A failed call under full content
     Given the integration has content full
     When a call with a JSON body to a vendor that cannot be reached ends
     Then the line has http.response.status_code 502
-    And the line has http.request.header.content-type as sent
-    And the line has no hotline.http.response.body
+    And the line has hotline.content.request.header.content-type as sent
+    And the line has no hotline.content.response.body
 
   Scenario: Full content without a file exporter is skipped
     Given no file exporter

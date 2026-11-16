@@ -176,6 +176,8 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
+	h.book = newBook(o.Clock, sink, cfg, o.InstanceID, o.Version, h.cfg.Load)
+	o.Logger.Info("ledger batches", "every", cfg.Ledger.Every.String(), "max_records", cfg.Ledger.MaxRecords)
 	workers := o.CheckWorkers
 	if workers == 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -335,6 +337,8 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	for _, t := range p.transports {
 		t.CloseIdleConnections()
 	}
+	// Every record is in, so each chain ends with its last batch.
+	p.handler.book.stop()
 	// The proxy's own numbers go last, so they count the final sends.
 	err = errors.Join(err, p.sink.Shutdown(ctx), p.telemetry.Shutdown(ctx))
 	if p.admin != nil {

@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	proxy "hotline-proxy"
 	"hotline-proxy/internal/export"
+	"hotline-proxy/internal/ledger"
 )
 
 // benchRecord is what a full record of one call holds, about as many
@@ -36,8 +36,8 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 		attribute.String("hotline.config.version", "hotline-proxy.yaml+0123456789ab"),
 		attribute.String("url.full", "https://api.load.test/v1/sessions/s-1?dry=true"),
 		attribute.String("url.template", "/v1/sessions/{id}"),
-		attribute.String("hotline.request.body.signature", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
-		attribute.String("hotline.response.body.signature", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+		attribute.String("hotline.request.body.hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+		attribute.String("hotline.response.body.hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"),
 		attribute.String("network.protocol.version", "1.1"),
 		attribute.Int("http.response.body.size", 340),
 		attribute.String("tls.protocol.version", "1.3"),
@@ -57,38 +57,25 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 	return sc, at, attrs, spans
 }
 
-func benchKey() []byte { return []byte("hotline-load-test-fingerprint-key") }
-
-// BenchmarkSignature is what signing a record costs, with the signer
-// reused from its key's pool as the proxy does.
-func BenchmarkSignature(b *testing.B) {
+// BenchmarkRecordHash is what hashing a record for the ledger costs.
+func BenchmarkRecordHash(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
-	pool, key := proxy.NewSigningPool(), benchKey()
+	r := ledger.Record{Attrs: attrs, At: at, TraceID: sc.TraceID().String(), SpanID: sc.SpanID().String()}
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = pool.Signature(key, attrs, at, sc)
+		_ = ledger.RecordHash(r)
 	}
 }
 
-// BenchmarkSignatureParallel signs records from many goroutines at once, as
-// calls do under load.
-func BenchmarkSignatureParallel(b *testing.B) {
-	sc, at, attrs, _ := benchRecord()
-	pool, key := proxy.NewSigningPool(), benchKey()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			_ = pool.Signature(key, attrs, at, sc)
-		}
-	})
-}
-
-// BenchmarkTraceSignature is what signing a trace costs.
-func BenchmarkTraceSignature(b *testing.B) {
+// BenchmarkTraceHash is what hashing a trace costs.
+func BenchmarkTraceHash(b *testing.B) {
 	sc, _, _, spans := benchRecord()
-	pool, key := proxy.NewSigningPool(), benchKey()
+	steps := make([]ledger.Span, len(spans))
+	for i, s := range spans {
+		steps[i] = ledger.Span{ID: s.ID.String(), Name: s.Name, Kind: s.Kind.String(), Start: s.Start, End: s.End, Attrs: s.Attrs}
+	}
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = pool.TraceSignature(key, sc, spans)
+		_ = ledger.TraceHash(sc.TraceID().String(), steps)
 	}
 }

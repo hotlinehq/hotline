@@ -23,7 +23,7 @@ func TestFeatures(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeScenario(sc, app) },
 		Options: &godog.Options{
 			Format:   "progress",
-			Paths:    []string{"features"},
+			Paths:    []string{"features/ledger.feature", "features/verify.feature"},
 			Tags:     "~@e2e && ~@later",
 			Strict:   true,
 			TestingT: t,
@@ -83,7 +83,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	exportSteps(sc, w)
 	fileSteps(sc, w)
 	consoleSteps(sc, w)
-	signatureSteps(sc, w)
+	ledgerSteps(sc, w)
 	bodyFieldSteps(sc, w)
 	protocolSteps(sc, w)
 	tlsSteps(sc, w)

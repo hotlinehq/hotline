@@ -2,6 +2,8 @@ package export
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 	"time"
 
 	"encoding/json/jsontext"
@@ -24,13 +26,15 @@ func (w lineWriter) put(tokens ...jsontext.Token) {
 // names for its fields: the record's time, level, trace and attributes,
 // and the call's spans inside the attributes as hotline.trace.spans
 // (Peter, 2026-11-11). A body is a byte slice, written as base64, which
-// needs no escaping.
-func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, attrs []attribute.KeyValue) {
+// needs no escaping. Under content: full, what the record holds in full
+// follows the record's own attributes, under hotline.content.* names, so
+// the record's hash still rebuilds from the line (Peter, 2026-11-16).
+func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withContent bool) {
 	w := lineWriter{jsontext.NewEncoder(buf, jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))}
 	w.put(
 		jsontext.BeginObject,
 		jsontext.String("time"), jsontext.String(timeText(c.At)),
-		jsontext.String("severity"), jsontext.String(level(attrs).String()),
+		jsontext.String("severity"), jsontext.String(level(c.Attrs).String()),
 		jsontext.String("event"), jsontext.String("hotline.request"),
 		jsontext.String("trace_id"), jsontext.String(c.Trace.TraceID().String()),
 		jsontext.String("span_id"), jsontext.String(c.Trace.SpanID().String()),
@@ -38,13 +42,33 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, attrs 
 	)
 	w.object(resource)
 	w.put(jsontext.String("attributes"), jsontext.BeginObject)
-	w.entries(attrs)
+	w.entries(c.Attrs)
+	if withContent {
+		w.entries(c.Content)
+	}
 	w.put(jsontext.String("hotline.trace.spans"), jsontext.BeginArray)
 	for _, s := range c.Spans {
 		w.span(s)
 	}
 	// The encoder ends the value with a line break.
 	w.put(jsontext.EndArray, jsontext.EndObject, jsontext.EndObject)
+}
+
+// appendBatchLine writes a ledger batch record as a line of flat JSON: its
+// time, its event and its attributes.
+func appendBatchLine(buf *bytes.Buffer, resource []attribute.KeyValue, at time.Time, attrs []attribute.KeyValue) {
+	w := lineWriter{jsontext.NewEncoder(buf, jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))}
+	w.put(
+		jsontext.BeginObject,
+		jsontext.String("time"), jsontext.String(timeText(at)),
+		jsontext.String("severity"), jsontext.String("INFO"),
+		jsontext.String("event"), jsontext.String(batchEvent),
+		jsontext.String("resource"),
+	)
+	w.object(resource)
+	w.put(jsontext.String("attributes"))
+	w.object(attrs)
+	w.put(jsontext.EndObject)
 }
 
 // span writes one step of the call. The trace ID is the line's own.
@@ -103,6 +127,17 @@ func (w lineWriter) value(v attribute.Value) {
 		w.put(jsontext.EndArray)
 	case attribute.MAP:
 		w.object(v.AsMap())
+	case attribute.FLOAT64:
+		// A decimal number always has a point or an exponent, so a reader
+		// can tell it from a whole number: the ledger's hashes tell them
+		// apart (Peter, 2026-11-16).
+		_ = w.e.WriteValue(jsontext.Value(decimal(v.AsFloat64())))
+	case attribute.FLOAT64SLICE:
+		w.put(jsontext.BeginArray)
+		for _, f := range v.AsFloat64Slice() {
+			_ = w.e.WriteValue(jsontext.Value(decimal(f)))
+		}
+		w.put(jsontext.EndArray)
 	default:
 		_ = json.MarshalEncode(w.e, v.AsInterface())
 	}
@@ -111,4 +146,17 @@ func (w lineWriter) value(v attribute.Value) {
 // timeText is a time in UTC, to the microsecond, as RFC 3339 writes it.
 func timeText(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000000Z07:00")
+}
+
+// decimal writes a decimal number as JSON, with a point or an exponent. A
+// value JSON cannot hold, such as infinity, is written as null.
+func decimal(f float64) string {
+	text := strconv.FormatFloat(f, 'g', -1, 64)
+	switch {
+	case strings.ContainsAny(text, "IN"):
+		return "null"
+	case strings.ContainsAny(text, ".e"):
+		return text
+	}
+	return text + ".0"
 }

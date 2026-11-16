@@ -106,16 +106,12 @@ apis:
 integrations:
   - id: checkout
     apis: [aws-secrets-payment, aws-dynamodb-orders, aws-kinesis-shop-events, aws-sns-order-paid, aws-logs-shop]
-    fingerprintKey: { file: ./shop.key }   # signs this integration's records
 
   - id: invoices
     apis: [aws-sts-invoice-worker, aws-sqs-invoices, aws-ssm-shop, aws-s3-invoices, aws-kms-invoice-signing, aws-dynamodb-invoices, aws-eventbridge-shop, aws-kinesis-shop-events, aws-lambda-payment-qr, aws-logs-shop]
-    fingerprintKey: { file: ./shop.key }
 
   - id: mailer
     apis: [aws-sqs-mail, aws-s3-invoices, aws-ses-invoice-email, aws-logs-shop]
-    fingerprintKey: { file: ./shop.key }
 
   - id: refunds
     apis: [aws-dynamodb-orders, aws-sfn-credit-note, aws-logs-shop]
-    fingerprintKey: { file: ./shop.key }

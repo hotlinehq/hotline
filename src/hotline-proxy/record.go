@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/export"
+	"hotline-proxy/internal/ledger"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
 )
@@ -35,8 +36,8 @@ func (c *call) finish() {
 }
 
 // recordRoom is the room made for a full record's attributes: the call's own,
-// what the spec check found, and the two signatures.
-const recordRoom = 40
+// what the spec check found, and the ledger's hashes and place.
+const recordRoom = 44
 
 // record builds the call's record and trace, once its checks have ended.
 func (c *call) record(end time.Time) finished {
@@ -72,8 +73,6 @@ func (c *call) record(end time.Time) finished {
 	opened := c.opened()
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(opened).Microseconds()))
 	spans := c.spans(opened, end)
-	content := c.cfg.Content(c.id)
-	var full []attribute.KeyValue
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
 		requested := c.reqCheck.started.Load()
@@ -86,17 +85,6 @@ func (c *call) record(end time.Time) finished {
 		if replied {
 			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
 		}
-		key := c.api.SigningKey
-		traced := c.h.signers.traceSignature(key, c.trace, spans)
-		if content.Full {
-			// The file's record is signed on its own, with every header
-			// in it; the bodies are signed already, whole, as they passed.
-			full = append(c.withContent(attrs), traced)
-			full = append(full, c.h.signers.signature(key, full, c.start, c.trace)...)
-			full = c.withBodies(full)
-		}
-		attrs = append(attrs, traced)
-		attrs = append(attrs, c.h.signers.signature(key, attrs, c.start, c.trace)...)
 	} else {
 		// A minimal record carries the sizes too, counted as the bodies
 		// passed and never kept (Peter, 2026-11-08). The reply's size is there
@@ -112,64 +100,66 @@ func (c *call) record(end time.Time) finished {
 		if c.cfg.URLFull(c.id) {
 			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
 		}
-		if content.Full {
-			// Unsigned, as minimal records are: there is no spec to sign
-			// against (Peter, 2026-11-11).
-			full = c.withBodies(c.withContent(attrs))
-		}
 	}
-	return finished{sc: c.trace, at: c.start, attrs: attrs, spans: spans, full: full}
+	// Every body that passed has its hash, minimal record or full, an
+	// empty one too, so each is in the ledger (Peter, 2026-11-16).
+	attrs = append(attrs, attribute.String("hotline.request.body.hash", c.reqBody.hashed()))
+	reply := emptyBodyHash("response", c.trace)
+	if c.respBody != nil {
+		reply = c.respBody.hashed()
+	}
+	attrs = append(attrs, attribute.String("hotline.response.body.hash", reply))
+	var content []attribute.KeyValue
+	if c.cfg.Content(c.id).Full {
+		content = c.content()
+		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
+		content = c.withBodies(content)
+	}
+	return finished{sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
 }
 
-// withContent is a new record with every attribute of attrs but the
-// headers and url.full, and then url.full as sent and every header of the
-// call and its reply, as they were, for content: full (Peter, 2026-11-11).
-// Proxy-Authorization holds the integration's login, so its value is
-// REDACTED; other proxy headers are kept as sent. A body cut at
-// maxBodySize is flagged.
-func (c *call) withContent(attrs []attribute.KeyValue) []attribute.KeyValue {
+// content is what content: full adds to the record for the file
+// exporters: url.full as sent and every header of the call and its reply,
+// as they were, under hotline.content.* names, beside the record, which
+// stays as its hash covers it (Peter, 2026-11-16). Proxy-Authorization
+// holds the integration's login, so its value is REDACTED; other proxy
+// headers are kept as sent. A body cut at maxBodySize is flagged.
+func (c *call) content() []attribute.KeyValue {
 	var reply http.Header
 	if c.resp != nil {
 		reply = c.resp.Header
 	}
-	full := make([]attribute.KeyValue, 0, len(attrs)+len(c.in.Header)+len(reply)+8)
-	for _, kv := range attrs {
-		key := string(kv.Key)
-		if kv.Key == semconv.URLFullKey || strings.HasPrefix(key, "http.request.header.") || strings.HasPrefix(key, "http.response.header.") {
-			continue
-		}
-		full = append(full, kv)
-	}
-	full = append(full, semconv.URLFull(c.sentAddress()))
+	full := make([]attribute.KeyValue, 0, len(c.in.Header)+len(reply)+5)
+	full = append(full, attribute.String("hotline.content.url.full", c.sentAddress()))
 	for name, values := range c.in.Header {
 		if strings.EqualFold(name, "Proxy-Authorization") {
 			values = []string{"REDACTED"}
 		}
-		full = append(full, attribute.StringSlice("http.request.header."+strings.ToLower(name), values))
+		full = append(full, attribute.StringSlice("hotline.content.request.header."+strings.ToLower(name), values))
 	}
 	for name, values := range reply {
-		full = append(full, attribute.StringSlice("http.response.header."+strings.ToLower(name), values))
+		full = append(full, attribute.StringSlice("hotline.content.response.header."+strings.ToLower(name), values))
 	}
 	if _, cut := c.reqBody.savedBody(); cut {
-		full = append(full, attribute.Bool("hotline.http.request.body.truncated", true))
+		full = append(full, attribute.Bool("hotline.content.request.body.truncated", true))
 	}
 	if c.respBody != nil {
 		if _, cut := c.respBody.savedBody(); cut {
-			full = append(full, attribute.Bool("hotline.http.response.body.truncated", true))
+			full = append(full, attribute.Bool("hotline.content.response.body.truncated", true))
 		}
 	}
 	return full
 }
 
 // withBodies adds the kept part of each body, as bytes, which the file
-// writes as base64.
+// writes as base64. Each has its own hash in the record already.
 func (c *call) withBodies(full []attribute.KeyValue) []attribute.KeyValue {
 	if body, _ := c.reqBody.savedBody(); len(body) > 0 {
-		full = append(full, attribute.ByteSlice("hotline.http.request.body", body))
+		full = append(full, attribute.ByteSlice("hotline.content.request.body", body))
 	}
 	if c.respBody != nil {
 		if body, _ := c.respBody.savedBody(); len(body) > 0 {
-			full = append(full, attribute.ByteSlice("hotline.http.response.body", body))
+			full = append(full, attribute.ByteSlice("hotline.content.response.body", body))
 		}
 	}
 	return full
@@ -225,6 +215,10 @@ func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, 
 		attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()),
 	)
 	traced, parent, _ := h.traced(id, r.Header, start)
+	// No body was read, so each side's hash is of zero bytes.
+	attrs = append(attrs,
+		attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
+		attribute.String("hotline.response.body.hash", emptyBodyHash("response", traced)))
 	spans := []export.Span{callSpan(traced, parent, start, end, true)}
 	h.recordLater(recorded(finished{sc: traced, at: start, attrs: attrs, spans: spans}))
 }
@@ -235,8 +229,9 @@ type finished struct {
 	at    time.Time
 	attrs []attribute.KeyValue
 	spans []export.Span
-	// full, when set, is the record file exporters get instead of attrs.
-	full []attribute.KeyValue
+	// content, under content: full, is what file exporters get besides the
+	// record.
+	content []attribute.KeyValue
 }
 
 // recordLater is the one way every call is recorded: in the background,
@@ -250,7 +245,7 @@ func (h *handler) recordLater(build func() finished) {
 	go func() {
 		defer h.calls.Done()
 		f := build()
-		h.sink.Call(recordContext(f.sc), export.Call{Trace: f.sc, At: f.at, Attrs: f.attrs, Spans: f.spans, Full: f.full})
+		h.book.record(recordContext(f.sc), f)
 		h.own.ended(f.attrs)
 	}()
 }
@@ -304,13 +299,7 @@ func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
 	if redacted.Template != "" {
 		attrs = append(attrs, semconv.URLFull(redacted.URLFull), semconv.URLTemplate(redacted.Template))
 	}
-	if body := c.reqBody.signed(); body != "" {
-		attrs = append(attrs, attribute.String("hotline.request.body.signature", body))
-	}
 	if c.resp != nil {
-		if body := c.respBody.signed(); body != "" {
-			attrs = append(attrs, attribute.String("hotline.response.body.signature", body))
-		}
 		got, _ := c.respBody.counts()
 		attrs = append(attrs,
 			semconv.NetworkProtocolVersion(strings.TrimSuffix(strings.TrimPrefix(c.resp.Proto, "HTTP/"), ".0")),

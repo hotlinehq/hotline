@@ -1,9 +1,6 @@
 package proxy
 
 import (
-	"bytes"
-	"cmp"
-	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -99,64 +96,4 @@ func callSpan(sc trace.SpanContext, parent trace.SpanID, from, to time.Time, fai
 		ID: sc.SpanID(), Parent: parent, Name: "hotline call", Kind: trace.SpanKindServer,
 		Start: from, End: to, Failed: failed,
 	}
-}
-
-// traceSignature signs a call's trace with the integration's key, so the
-// record, which carries it, covers the trace too (Peter, 2026-10-31). The
-// signed bytes are the trace id, then for each span in start order, a tie
-// going by span id: its span id, parent span id, name, kind, start, end,
-// status and number of attributes, then its attributes sorted by name, all
-// as entries (docs/proxy-traces.md).
-func (p *signPool) traceSignature(key []byte, sc trace.SpanContext, spans []export.Span) attribute.KeyValue {
-	signer := p.get(key)
-	defer p.put(signer)
-	signer.spans = append(signer.spans[:0], spans...)
-	slices.SortFunc(signer.spans, func(a, b export.Span) int {
-		if c := cmp.Compare(a.Start.UnixNano(), b.Start.UnixNano()); c != 0 {
-			return c
-		}
-		return bytes.Compare(a.ID[:], b.ID[:])
-	})
-	s := &signer.s
-	traceID := sc.TraceID()
-	s.hex("trace.trace_id", traceID[:])
-	for _, span := range signer.spans {
-		status := "unset"
-		if span.Failed {
-			status = "error"
-		}
-		if span.OK {
-			status = "ok"
-		}
-		kind := "internal"
-		switch span.Kind {
-		case trace.SpanKindServer:
-			kind = "server"
-		case trace.SpanKindClient:
-			kind = "client"
-		}
-		s.hex("span.span_id", span.ID[:])
-		if span.Parent.IsValid() {
-			s.hex("span.parent_span_id", span.Parent[:])
-		} else {
-			s.text("span.parent_span_id", "")
-		}
-		s.text("span.name", span.Name)
-		s.text("span.kind", kind)
-		s.int("span.start_time", span.Start.UnixNano())
-		s.int("span.end_time", span.End.UnixNano())
-		s.text("span.status", status)
-		s.int("span.attribute_count", int64(len(span.Attrs)))
-		// Sorted by name, as the record's are; one attribute or none needs no copy.
-		attrs := span.Attrs
-		if len(attrs) > 1 {
-			signer.sorted = append(signer.sorted[:0], attrs...)
-			slices.SortFunc(signer.sorted, byKey)
-			attrs = signer.sorted
-		}
-		for _, kv := range attrs {
-			s.entry(kv)
-		}
-	}
-	return attribute.String("hotline.trace.signature", signer.sum())
 }

@@ -354,3 +354,8 @@ func printable(s string) string {
 	}
 	return b.String()
 }
+
+// TerminalSafe is a line of JSON with every character that could change a
+// terminal written as an escape, for other commands that print JSON taken
+// from their input.
+func TerminalSafe(line []byte) []byte { return terminalSafe(line) }

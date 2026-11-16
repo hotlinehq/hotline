@@ -3,12 +3,9 @@ package proxy
 import (
 	"cmp"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
-	"hash"
 	"io"
 	"log/slog"
 	"net"
@@ -26,6 +23,7 @@ import (
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/forward"
+	"hotline-proxy/internal/ledger"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
 )
@@ -61,9 +59,8 @@ type handler struct {
 	bodies bodyPool
 	// checks run the spec checks of every call.
 	checks *checkLine
-	// signers sign every integration's records and traces, reusing their
-	// buffers between calls.
-	signers signPool
+	// book puts every record in the ledger and hands it to the exporters.
+	book *book
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
@@ -133,7 +130,6 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		in:         r,
 		timeout:    settings.VendorTimeout,
 		transport:  transport,
-		reqBody:    &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: macFor(api), save: saved(cfg, id), pool: &h.bodies, expect: r.ContentLength},
 		reqCheck:   newSpecCheck(),
 		replyCheck: newSpecCheck(),
 	}
@@ -146,6 +142,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	traced, parent, tracing := h.traced(id, r.Header, start)
 	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
+	c.reqBody = &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: bodyHash("request", traced), save: saved(cfg, id), pool: &h.bodies, expect: r.ContentLength}
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
 	// The call's context, made once: it ignores the app leaving, ends on
@@ -461,7 +458,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: macFor(c.api), save: saved(c.cfg, c.id), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: bodyHash("response", c.trace), save: saved(c.cfg, c.id), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -667,18 +664,22 @@ func saved(cfg *config.Config, id string) int64 {
 	return 0
 }
 
-// macFor signs a body with the integration's key as it passes: none for a
-// call without a full record.
-func macFor(api *config.API) hash.Hash {
-	if api == nil {
-		return nil
-	}
-	return hmac.New(sha256.New, api.SigningKey)
+// bodyHash hashes a body as it passes, salted with the call's trace id
+// and span id, for every call and reply, minimal or full, so each body is
+// in the ledger (Peter, 2026-11-16).
+func bodyHash(side string, sc trace.SpanContext) *ledger.BodyHash {
+	return ledger.NewBodyHash(side, sc.TraceID(), sc.SpanID())
+}
+
+// emptyBodyHash is the hash of a body of zero bytes, for a side no body
+// passed on.
+func emptyBodyHash(side string, sc trace.SpanContext) string {
+	return bodyHash(side, sc).Sum()
 }
 
 // tap passes a body straight on and counts the bytes that passed. It keeps
-// a copy of up to limit bytes for the checks, and signs every byte with
-// mac, if set (Peter, 2026-10-31). done, if
+// a copy of up to limit bytes for the checks, and hashes every byte with
+// mac (Peter, 2026-11-16). done, if
 // set, runs once when the body ends: read to the end, broken off, or closed
 // early. The request body is read by the transport, which may still be
 // reading when the record is made, so the counts are behind a lock.
@@ -690,7 +691,7 @@ type tap struct {
 	wait func() func() bool
 
 	limit int
-	mac   hash.Hash
+	mac   *ledger.BodyHash
 	// save, when above zero, is how much of the body is kept for the file
 	// exporters, under content: full; saved holds it. Unlike the copy for
 	// the checks, it stays until the record is made.
@@ -720,9 +721,7 @@ func (t *tap) Read(p []byte) (int, error) {
 	n, err := t.ReadCloser.Read(p)
 	t.mu.Lock()
 	t.size += int64(n)
-	if t.mac != nil {
-		t.mac.Write(p[:n])
-	}
+	_, _ = t.mac.Write(p[:n])
 	if room := min(int64(n), t.save-int64(len(t.saved))); room > 0 {
 		if t.saved == nil && t.expect > 0 {
 			// The whole body's room at once, when its length is known.
@@ -766,15 +765,12 @@ func (t *tap) savedBody() ([]byte, bool) {
 	return t.saved, t.size > int64(len(t.saved))
 }
 
-// signed is the signature of the bytes that passed so far, empty when none
-// did.
-func (t *tap) signed() string {
+// hashed is the hash of the bytes that passed so far: of zero bytes when
+// none did.
+func (t *tap) hashed() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.size == 0 {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(t.mac.Sum(nil))
+	return t.mac.Sum()
 }
 
 // keep adds b to the copy. The first bytes borrow a buffer the size of the

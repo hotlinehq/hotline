@@ -1,0 +1,738 @@
+package proxy
+
+import (
+	"bufio"
+	"bytes"
+	"cmp"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"hotline-proxy/internal/export"
+	"hotline-proxy/internal/ledger"
+)
+
+// The exit codes of verify, in both formats.
+const (
+	verifyOK         = 0
+	verifyProblem    = 1
+	verifyUnreadable = 2
+)
+
+// errUnreadable is input verify cannot read.
+var errUnreadable = errors.New("input cannot be read")
+
+// VerifyOptions say what hotline-proxy verify checks and how it prints.
+type VerifyOptions struct {
+	// Folder is a file exporter's folder.
+	Folder string
+	// Integration, when set, checks that integration's records alone.
+	Integration string
+	// Body, Span and Side, when set, check a body someone kept against the
+	// hash in the record with that span id: request or response.
+	Body, Span, Side string
+	// JSON prints one JSON object in place of plain lines.
+	JSON bool
+}
+
+// Verify checks the records a file exporter wrote, with nothing but the
+// lines (docs/proxy-ledger.md): each record's hash and its trace's, each
+// batch's root and signature, and each run's chain. It prints what it
+// found and gives the exit code: 0 when everything checks out, 1 for a
+// problem, 2 when it could not read its input.
+func Verify(out io.Writer, o VerifyOptions) int {
+	v := &verifier{o: o}
+	err := v.read()
+	if err == nil {
+		v.check()
+	}
+	code := verifyOK
+	switch {
+	case err != nil:
+		code = verifyUnreadable
+		v.problems = append(v.problems, finding{Code: "input_unreadable", Message: err.Error()})
+	case len(v.problems) > 0:
+		code = verifyProblem
+	}
+	if o.JSON {
+		v.printJSON(out, code)
+	} else {
+		v.printText(out)
+	}
+	return code
+}
+
+type verifier struct {
+	o       VerifyOptions
+	records []*lineRecord
+	batches []*lineBatch
+	runs    []*verifiedRun
+	// problems and notes are what the checks found; matched and cut count
+	// the kept bodies checked and those cut short.
+	problems []finding
+	notes    []finding
+	matched  int
+	cut      int
+	body     *bodyResult
+}
+
+// finding is one problem or note, as the JSON output holds it.
+type finding struct {
+	Code        string  `json:"code"`
+	Integration string  `json:"integration,omitempty"`
+	Instance    string  `json:"instance,omitempty"`
+	Batch       *int64  `json:"batch,omitempty"`
+	BatchID     string  `json:"batch_id,omitempty"`
+	Index       *int64  `json:"index,omitempty"`
+	SpanID      string  `json:"span_id,omitempty"`
+	File        string  `json:"file,omitempty"`
+	Line        int     `json:"line,omitempty"`
+	Message     string  `json:"message"`
+	Indexes     []int64 `json:"indexes,omitempty"`
+}
+
+type bodyResult struct {
+	SpanID  string `json:"span_id"`
+	Side    string `json:"side"`
+	Matches bool   `json:"matches"`
+}
+
+// place is where a line was read.
+type place struct {
+	file string
+	line int
+}
+
+// lineRecord is a call's record as one line holds it.
+type lineRecord struct {
+	place
+	at              time.Time
+	traceID, spanID string
+	attrs           map[string]any
+	spans           []any
+	batchID         string
+	index           int64
+	hash            string
+}
+
+func (r *lineRecord) text(name string) string {
+	s, _ := r.attrs[name].(string)
+	return s
+}
+
+// lineBatch is a batch record as one line holds it.
+type lineBatch struct {
+	place
+	at    time.Time
+	attrs map[string]any
+	id    string
+	// records are the records found that name the batch, by their index.
+	records map[int64]*lineRecord
+}
+
+func (b *lineBatch) text(name string) string {
+	s, _ := b.attrs[name].(string)
+	return s
+}
+
+func (b *lineBatch) number(name string) (int64, bool) {
+	n, ok := b.attrs[name].(json.Number)
+	if !ok {
+		return 0, false
+	}
+	i, err := n.Int64()
+	return i, err == nil
+}
+
+// verifiedRun is one run of one integration's chain: its batches in
+// sequence order.
+type verifiedRun struct {
+	Integration   string   `json:"integration"`
+	Instance      string   `json:"instance"`
+	Run           *string  `json:"run"`
+	FirstSequence int64    `json:"first_sequence"`
+	LastSequence  int64    `json:"last_sequence"`
+	Batches       int      `json:"batches"`
+	Records       int      `json:"records"`
+	CleanStop     bool     `json:"clean_stop"`
+	StoppedAt     *string  `json:"stopped_at"`
+	Notes         []string `json:"notes"`
+	batches       []*lineBatch
+}
+
+// read reads every file of the folder, the rotated ones first, oldest
+// first, then the current one.
+func (v *verifier) read() error {
+	entries, err := os.ReadDir(v.o.Folder)
+	if err != nil {
+		return fmt.Errorf("%w: the folder %s does not exist or cannot be read", errUnreadable, v.o.Folder)
+	}
+	var rotated []string
+	current := false
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case name == "calls.jsonl":
+			current = true
+		case strings.HasPrefix(name, "calls-") && (strings.HasSuffix(name, ".jsonl") || strings.HasSuffix(name, ".jsonl.gz")):
+			rotated = append(rotated, name)
+		}
+	}
+	slices.Sort(rotated)
+	if current {
+		rotated = append(rotated, "calls.jsonl")
+	}
+	for _, name := range rotated {
+		if err := v.readFile(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *verifier) readFile(name string) error {
+	path := filepath.Join(v.o.Folder, name)
+	f, err := os.Open(path) //nolint:gosec // the folder the person named
+	if err != nil {
+		return fmt.Errorf("%w: %s", errUnreadable, path)
+	}
+	defer func() { _ = f.Close() }()
+	var in io.Reader = f
+	if strings.HasSuffix(name, ".gz") {
+		zr, err := gzip.NewReader(f)
+		if err != nil {
+			return fmt.Errorf("%w: %s is not gzip", errUnreadable, path)
+		}
+		in = zr
+	}
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 64*1024), 256*1024*1024)
+	for n := 1; scanner.Scan(); n++ {
+		if len(bytes.TrimSpace(scanner.Bytes())) == 0 {
+			continue
+		}
+		if err := v.readLine(place{file: path, line: n}, scanner.Bytes()); err != nil {
+			return err
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("%w: %s: %s", errUnreadable, path, err.Error())
+	}
+	return nil
+}
+
+// rawLine is a line as the file exporter writes it.
+type rawLine struct {
+	Time       string         `json:"time"`
+	Event      string         `json:"event"`
+	TraceID    string         `json:"trace_id"`
+	SpanID     string         `json:"span_id"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+func (v *verifier) readLine(at place, data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var line rawLine
+	if err := decoder.Decode(&line); err != nil || line.Attributes == nil {
+		return fmt.Errorf("%w: %s line %d is not a line the file exporter writes", errUnreadable, at.file, at.line)
+	}
+	when, err := time.Parse(time.RFC3339Nano, line.Time)
+	if err != nil {
+		return fmt.Errorf("%w: %s line %d has no time", errUnreadable, at.file, at.line)
+	}
+	switch line.Event {
+	case "hotline.ledger.batch":
+		b := &lineBatch{place: at, at: when, attrs: line.Attributes, records: map[int64]*lineRecord{}}
+		if format := b.text("hotline.batch.format"); format != ledger.BatchFormat {
+			return fmt.Errorf("%w: %s line %d: %s is not a known format", errUnreadable, at.file, at.line, safe(format))
+		}
+		b.id = b.text("hotline.batch.id")
+		if v.o.Integration == "" || b.text("hotline.batch.integration") == v.o.Integration {
+			v.batches = append(v.batches, b)
+		}
+	case "hotline.request":
+		r := &lineRecord{place: at, at: when, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes}
+		r.spans, _ = r.attrs["hotline.trace.spans"].([]any)
+		r.batchID = r.text("hotline.batch.id")
+		r.hash = r.text("hotline.record.hash")
+		if n, ok := r.attrs["hotline.batch.index"].(json.Number); ok {
+			r.index, _ = n.Int64()
+		}
+		if v.o.Integration == "" || r.text("hotline.integration.id") == v.o.Integration {
+			v.records = append(v.records, r)
+		}
+	}
+	return nil
+}
+
+// check runs every check, in the order a reader takes them in: records,
+// batches, then chains.
+func (v *verifier) check() {
+	byID := map[string]*lineBatch{}
+	for _, b := range v.batches {
+		byID[b.id] = b
+	}
+	unbatched := map[string][]*lineRecord{}
+	for _, r := range v.records {
+		v.checkRecord(r)
+		b := byID[r.batchID]
+		if b == nil {
+			unbatched[r.batchID] = append(unbatched[r.batchID], r)
+			continue
+		}
+		if _, taken := b.records[r.index]; taken {
+			v.problem(finding{Code: "record_extra", SpanID: r.spanID, File: r.file, Line: r.line,
+				Message: "batch " + b.sequenceText() + " holds a record it does not count"}, b)
+			continue
+		}
+		b.records[r.index] = r
+	}
+	for _, b := range v.batches {
+		v.checkBatch(b)
+	}
+	v.checkChains()
+	for _, id := range slices.Sorted(maps.Keys(unbatched)) {
+		records := unbatched[id]
+		v.notes = append(v.notes, finding{Code: "records_unbatched", BatchID: id, File: records[0].file, Line: records[0].line,
+			Message: fmt.Sprintf("the records naming batch %s have no batch record (%d records)", safe(id), len(records))})
+	}
+	if v.o.Body != "" {
+		v.checkBody()
+	}
+}
+
+// recordLeftOut are the attributes in a line that the record's hash does
+// not cover: the hash itself, the trace's spans, and what content: full
+// adds, which has its own hash.
+func recordLeftOut(name string) bool {
+	return name == "hotline.record.hash" || name == "hotline.trace.spans" ||
+		strings.HasPrefix(name, "hotline.content.") && name != "hotline.content.hash"
+}
+
+func (v *verifier) checkRecord(r *lineRecord) {
+	var attrs, content []attribute.KeyValue
+	for name, value := range r.attrs {
+		switch {
+		case !recordLeftOut(name):
+			attrs = append(attrs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
+		case strings.HasPrefix(name, "hotline.content.") && !strings.HasSuffix(name, ".body"):
+			content = append(content, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
+		}
+	}
+	at := finding{SpanID: r.spanID, File: r.file, Line: r.line}
+	if ledger.Text(ledger.RecordHash(ledger.Record{Attrs: attrs, At: r.at, TraceID: r.traceID, SpanID: r.spanID})) != r.hash {
+		at.Code, at.Message = "record_hash_mismatch", "the record with span id "+safe(r.spanID)+" does not match its hotline.record.hash"
+		v.problems = append(v.problems, at)
+		return
+	}
+	if want := r.text("hotline.trace.hash"); want != "" && ledger.Text(ledger.TraceHash(r.traceID, lineSpans(r.spans))) != want {
+		at.Code, at.Message = "trace_hash_mismatch", "the trace of the record with span id "+safe(r.spanID)+" does not match its hotline.trace.hash"
+		v.problems = append(v.problems, at)
+	}
+	if want := r.text("hotline.content.hash"); want != "" && ledger.Text(ledger.ContentHash(content)) != want {
+		at.Code, at.Message = "content_hash_mismatch", "the content kept with the record with span id "+safe(r.spanID)+" does not match its hotline.content.hash"
+		v.problems = append(v.problems, at)
+	}
+	for _, side := range []string{"request", "response"} {
+		v.checkKeptBody(r, side, at)
+	}
+}
+
+// checkKeptBody checks a body content: full kept in the line against the
+// record's hash of that body, unless it was cut short.
+func (v *verifier) checkKeptBody(r *lineRecord, side string, at finding) {
+	kept, found := r.attrs["hotline.content."+side+".body"].(string)
+	if !found {
+		return
+	}
+	if cut, _ := r.attrs["hotline.content."+side+".body.truncated"].(bool); cut {
+		v.cut++
+		return
+	}
+	body, err := base64.StdEncoding.DecodeString(kept)
+	if err == nil && bodyHashOf(side, r.traceID, r.spanID, body) == r.text("hotline."+side+".body.hash") {
+		v.matched++
+		return
+	}
+	at.Code, at.Message = "body_hash_mismatch", "the "+side+" body kept with the record with span id "+safe(r.spanID)+" does not match its hash"
+	v.problems = append(v.problems, at)
+}
+
+func bodyHashOf(side, traceID, spanID string, body []byte) string {
+	var t [16]byte
+	var s [8]byte
+	_, _ = hex.Decode(t[:], []byte(traceID))
+	_, _ = hex.Decode(s[:], []byte(spanID))
+	h := ledger.NewBodyHash(side, t, s)
+	_, _ = h.Write(body)
+	return h.Sum()
+}
+
+func (b *lineBatch) sequenceText() string {
+	if n, ok := b.number("hotline.batch.sequence"); ok {
+		return strconv.FormatInt(n, 10)
+	}
+	return safe(b.id)
+}
+
+// problem adds a problem found in a batch, naming the batch.
+func (v *verifier) problem(f finding, b *lineBatch) {
+	v.problems = append(v.problems, v.about(f, b))
+}
+
+func (v *verifier) about(f finding, b *lineBatch) finding {
+	f.Integration, f.Instance, f.BatchID = b.text("hotline.batch.integration"), b.text("hotline.batch.instance"), b.id
+	if n, ok := b.number("hotline.batch.sequence"); ok {
+		f.Batch = &n
+	}
+	if f.File == "" {
+		f.File, f.Line = b.file, b.line
+	}
+	return f
+}
+
+func (v *verifier) checkBatch(b *lineBatch) {
+	name := "batch " + b.sequenceText()
+	attrs := make([]attribute.KeyValue, 0, len(b.attrs))
+	for key, value := range b.attrs {
+		attrs = append(attrs, attribute.KeyValue{Key: attribute.Key(key), Value: valueOf(value)})
+	}
+	if !ledger.CheckSignature(attrs) {
+		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
+	}
+	if lost, _ := b.number("hotline.batch.lost_batches"); lost > 0 {
+		v.problem(finding{Code: "batches_lost", Message: fmt.Sprintf("%d batches before %s were lost by this exporter, and their records cannot be proven", lost, name)}, b)
+	}
+	count, _ := b.number("hotline.batch.records")
+	if dropped, _ := b.number("hotline.batch.dropped_count"); dropped > 0 {
+		v.problem(finding{Code: "batch_unprovable", Message: fmt.Sprintf("%s cannot be proven from this copy: %s records were dropped by this exporter", name, thousands(dropped))}, b)
+		return
+	}
+	leaves := make([][sha256.Size]byte, count)
+	have := make([]bool, count)
+	for index, r := range b.records {
+		if index < 0 || index >= count {
+			v.problem(finding{Code: "record_extra", SpanID: r.spanID, File: r.file, Line: r.line, Message: name + " holds a record it does not count"}, b)
+			continue
+		}
+		leaves[index], have[index] = parseHash(r.hash), true
+	}
+	listed, _ := b.attrs["hotline.batch.dropped"].([]any)
+	var droppedAt []int64
+	for _, item := range listed {
+		entry, _ := item.(map[string]any)
+		n, _ := entry["index"].(json.Number)
+		index, err := n.Int64()
+		hash, _ := entry["hash"].(string)
+		if err != nil || index < 0 || index >= count || have[index] {
+			continue
+		}
+		leaves[index], have[index] = parseHash(hash), true
+		droppedAt = append(droppedAt, index)
+	}
+	var missing []int64
+	for i, ok := range have {
+		if !ok {
+			missing = append(missing, int64(i))
+		}
+	}
+	if len(missing) > 0 {
+		v.problem(finding{Code: "record_missing", Index: &missing[0], Indexes: missing,
+			Message: fmt.Sprintf("%s has %d of %d records and index %s is missing", name, count-int64(len(missing)), count, joinInts(missing))}, b)
+		return
+	}
+	if len(droppedAt) > 0 {
+		slices.Sort(droppedAt)
+		v.notes = append(v.notes, v.about(finding{Code: "records_dropped", Indexes: droppedAt,
+			Message: fmt.Sprintf("%s rebuilds from %d records and %d dropped hash, at index %s", name, count-int64(len(droppedAt)), len(droppedAt), joinInts(droppedAt))}, b))
+	}
+	if ledger.Text(ledger.Root(leaves)) != b.text("hotline.batch.root") {
+		v.problem(finding{Code: "batch_root_mismatch", Message: name + " of that run does not rebuild its root from its records"}, b)
+	}
+}
+
+func parseHash(text string) [sha256.Size]byte {
+	sum, _ := ledger.Parse(text)
+	return sum
+}
+
+// checkChains groups the batches into runs, one per integration, instance
+// and run id, and checks each run's chain: every sequence from 0, each
+// batch naming the root of the one before, and a last batch at the end.
+func (v *verifier) checkChains() {
+	type key struct{ integration, instance, run string }
+	runs := map[key]*verifiedRun{}
+	var order []key
+	for _, b := range v.batches {
+		k := key{b.text("hotline.batch.integration"), b.text("hotline.batch.instance"), b.text("hotline.batch.run")}
+		run := runs[k]
+		if run == nil {
+			run = &verifiedRun{Integration: k.integration, Instance: k.instance, Notes: []string{}}
+			if k.run != "" {
+				id := k.run
+				run.Run = &id
+			}
+			runs[k] = run
+			order = append(order, k)
+		}
+		run.batches = append(run.batches, b)
+	}
+	for _, k := range order {
+		run := runs[k]
+		slices.SortStableFunc(run.batches, func(a, b *lineBatch) int {
+			x, _ := a.number("hotline.batch.sequence")
+			y, _ := b.number("hotline.batch.sequence")
+			return cmp.Compare(x, y)
+		})
+		run.Batches = len(run.batches)
+		expect := int64(0)
+		var before *lineBatch
+		for _, b := range run.batches {
+			seq, _ := b.number("hotline.batch.sequence")
+			run.Records += len(b.records)
+			for ; expect < seq; expect++ {
+				missing := expect
+				v.problems = append(v.problems, v.about(finding{Code: "batch_missing", Batch: &missing,
+					Message: fmt.Sprintf("the run's chain is broken: batch %d is missing", missing)}, b))
+				before = nil
+			}
+			switch {
+			case seq < expect:
+				v.problem(finding{Code: "chain_broken", Message: fmt.Sprintf("the chain is broken: batch %d is there twice", seq)}, b)
+			case before != nil && b.text("hotline.batch.previous") != before.text("hotline.batch.root"):
+				v.problem(finding{Code: "chain_broken", Message: fmt.Sprintf("the chain is broken between batch %d and batch %d", seq-1, seq)}, b)
+			case seq == 0 && b.text("hotline.batch.previous") != "":
+				v.problem(finding{Code: "chain_broken", Message: "the chain is broken: batch 0 names a batch before it"}, b)
+			}
+			before = b
+			expect = seq + 1
+		}
+		run.FirstSequence, _ = run.batches[0].number("hotline.batch.sequence")
+		last := run.batches[len(run.batches)-1]
+		run.LastSequence, _ = last.number("hotline.batch.sequence")
+		if clean, _ := last.attrs["hotline.batch.last"].(bool); clean {
+			run.CleanStop = true
+			stopped := last.at.UTC().Format(time.RFC3339)
+			run.StoppedAt = &stopped
+		} else {
+			run.Notes = append(run.Notes, "no_last_batch")
+			v.notes = append(v.notes, v.about(finding{Code: "no_last_batch", Message: "the run has no last batch: it crashed, or its end is missing"}, last))
+		}
+		v.runs = append(v.runs, run)
+	}
+}
+
+// checkBody checks a body someone kept against the record with its span
+// id.
+func (v *verifier) checkBody() {
+	data, err := os.ReadFile(v.o.Body)
+	if err != nil {
+		v.problems = append(v.problems, finding{Code: "body_unreadable", Message: "the body " + safe(v.o.Body) + " cannot be read"})
+		return
+	}
+	for _, r := range v.records {
+		if r.spanID != v.o.Span {
+			continue
+		}
+		matches := bodyHashOf(v.o.Side, r.traceID, r.spanID, data) == r.text("hotline."+v.o.Side+".body.hash")
+		v.body = &bodyResult{SpanID: r.spanID, Side: v.o.Side, Matches: matches}
+		if !matches {
+			v.problems = append(v.problems, finding{Code: "body_mismatch", SpanID: r.spanID, File: r.file, Line: r.line,
+				Message: "the " + v.o.Side + " body does not match the record's hotline." + v.o.Side + ".body.hash"})
+		}
+		return
+	}
+	v.problems = append(v.problems, finding{Code: "body_record_missing", SpanID: safe(v.o.Span), Message: "no record has the span id " + safe(v.o.Span)})
+}
+
+func (v *verifier) printText(out io.Writer) {
+	w := &lines{out: out}
+	for _, run := range v.runs {
+		ending := "the run ended with a clean stop"
+		if !run.CleanStop {
+			ending = "the run has no last batch: it crashed, or its end is missing"
+		}
+		instance := "instance " + safe(run.Instance)
+		if run.Run != nil {
+			instance += ", run " + safe(*run.Run)
+		}
+		w.printf("%s's %d records and their traces in %d batches check out (%s, sequence %d to %d); %s",
+			safe(run.Integration), run.Records, run.Batches, instance, run.FirstSequence, run.LastSequence, ending)
+	}
+	if v.matched > 0 {
+		w.printf("%d kept bodies match their hash", v.matched)
+	}
+	if v.cut > 0 {
+		w.printf("%d kept bodies were cut short and could not be checked", v.cut)
+	}
+	if v.body != nil && v.body.Matches {
+		w.printf("the %s body matches the record's hotline.%s.body.hash", v.body.Side, v.body.Side)
+	}
+	for _, n := range v.notes {
+		w.printf("note: %s", n.Message)
+	}
+	for _, p := range v.problems {
+		where := ""
+		if p.File != "" {
+			where = fmt.Sprintf("%s line %d: ", safe(p.File), p.Line)
+		}
+		w.printf("problem: %s%s", where, p.Message)
+	}
+	verdict := "everything checks out"
+	if len(v.problems) > 0 {
+		verdict = fmt.Sprintf("%d problems found", len(v.problems))
+	}
+	w.printf("%d records, %d batches, %d runs: %s", len(v.records), len(v.batches), len(v.runs), verdict)
+}
+
+// lines prints plain lines, each one safe for a terminal.
+type lines struct{ out io.Writer }
+
+func (l *lines) printf(format string, args ...any) {
+	_, _ = fmt.Fprintln(l.out, fmt.Sprintf(format, args...))
+}
+
+func (v *verifier) printJSON(out io.Writer, code int) {
+	runs := v.runs
+	if runs == nil {
+		runs = []*verifiedRun{}
+	}
+	problems, notes := v.problems, v.notes
+	if problems == nil {
+		problems = []finding{}
+	}
+	if notes == nil {
+		notes = []finding{}
+	}
+	report := struct {
+		Format  string `json:"format"`
+		OK      bool   `json:"ok"`
+		Summary struct {
+			Records      int `json:"records"`
+			Batches      int `json:"batches"`
+			Runs         int `json:"runs"`
+			Problems     int `json:"problems"`
+			KeptBodies   int `json:"kept_bodies_matched"`
+			BodiesCutOff int `json:"kept_bodies_cut_short"`
+		} `json:"summary"`
+		Runs     []*verifiedRun `json:"runs"`
+		Problems []finding      `json:"problems"`
+		Notes    []finding      `json:"notes"`
+		Body     *bodyResult    `json:"body,omitempty"`
+	}{Format: "hotline.verify.v1", OK: code == verifyOK, Runs: runs, Problems: problems, Notes: notes, Body: v.body}
+	report.Summary.Records, report.Summary.Batches, report.Summary.Runs = len(v.records), len(v.batches), len(v.runs)
+	report.Summary.Problems = len(problems)
+	report.Summary.KeptBodies, report.Summary.BodiesCutOff = v.matched, v.cut
+	data, _ := json.Marshal(report)
+	_, _ = out.Write(export.TerminalSafe(append(data, '\n')))
+}
+
+// valueOf is a value read from a line as the attribute the proxy hashed: a
+// number with a point or an exponent is a decimal, any other a whole
+// number.
+func valueOf(v any) attribute.Value {
+	switch x := v.(type) {
+	case string:
+		return attribute.StringValue(x)
+	case bool:
+		return attribute.BoolValue(x)
+	case json.Number:
+		if strings.ContainsAny(x.String(), ".eE") {
+			f, _ := x.Float64()
+			return attribute.Float64Value(f)
+		}
+		i, _ := x.Int64()
+		return attribute.Int64Value(i)
+	case []any:
+		items := make([]attribute.Value, len(x))
+		for i, item := range x {
+			items[i] = valueOf(item)
+		}
+		return attribute.SliceValue(items...)
+	case map[string]any:
+		entries := make([]attribute.KeyValue, 0, len(x))
+		for name, item := range x {
+			entries = append(entries, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(item)})
+		}
+		return attribute.MapValue(entries...)
+	}
+	return attribute.Value{}
+}
+
+// lineSpans are the spans a line holds, as the trace's hash covers them.
+func lineSpans(raw []any) []ledger.Span {
+	spans := make([]ledger.Span, 0, len(raw))
+	for _, item := range raw {
+		s, _ := item.(map[string]any)
+		text := func(name string) string {
+			t, _ := s[name].(string)
+			return t
+		}
+		when := func(name string) time.Time {
+			t, _ := time.Parse(time.RFC3339Nano, text(name))
+			return t
+		}
+		attrs, _ := s["attributes"].(map[string]any)
+		kvs := make([]attribute.KeyValue, 0, len(attrs))
+		for name, value := range attrs {
+			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
+		}
+		spans = append(spans, ledger.Span{
+			ID: text("span_id"), Parent: text("parent_span_id"), Name: text("name"), Kind: text("kind"),
+			Start: when("start_time"), End: when("end_time"), Status: text("status"), Attrs: kvs,
+		})
+	}
+	return spans
+}
+
+// safe is text from the input, with every character that could change a
+// terminal written as an escape.
+func safe(s string) string {
+	if !strings.ContainsFunc(s, isUnsafe) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if isUnsafe(r) {
+			fmt.Fprintf(&b, `\u%04x`, r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func isUnsafe(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) }
+
+func joinInts(n []int64) string {
+	parts := make([]string, len(n))
+	for i, x := range n {
+		parts[i] = strconv.FormatInt(x, 10)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// thousands writes a count with commas, as 1,025.
+func thousands(n int64) string {
+	text := strconv.FormatInt(n, 10)
+	for i := len(text) - 3; i > 0; i -= 3 {
+		text = text[:i] + "," + text[i:]
+	}
+	return text
+}
