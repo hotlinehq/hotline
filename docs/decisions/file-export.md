@@ -11,3 +11,5 @@ Full wording in [docs/proxy-file-export.md](../proxy-file-export.md). Requiremen
 7. Signatures: body signatures stay over the whole body, as today; the file's record is signed on its own, with every header. Minimal records stay unsigned.
 8. Paths count from the config's folder; one proxy per folder, held with a lock; the queue is capped by memory (`queueMemory`, default 256 MiB).
 9. The lines are written with Go's `encoding/json/jsontext`, with no new dependency. No `path: stdout` and no rotation by time, for now.
+
+Changed 2026-11-16 with the evidence ledger ([docs/decisions/ledger.md](ledger.md)): full content goes beside the record under `hotline.content.*`, with `hotline.content.hash`, and the record stays as every exporter gets it. This replaces 6's names and 7.

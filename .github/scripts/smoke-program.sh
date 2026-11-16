@@ -15,13 +15,6 @@ case "$("$program" version)" in
   *) echo "unexpected version line: $("$program" version)" >&2; exit 1 ;;
 esac
 
-# The sidecar example, with its key read from a temporary folder instead of
-# /etc/hotline/keys, which does not exist on a runner.
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-cp -R deploy/kubernetes/sidecar "$work/config"
-head -c 32 /dev/urandom > "$work/fingerprint.key"
-sed "s#/etc/hotline/keys/fingerprint.key#$work/fingerprint.key#" \
-  deploy/kubernetes/sidecar/hotline-proxy.yaml > "$work/config/hotline-proxy.yaml"
-"$program" validate --config "$work/config/hotline-proxy.yaml"
+# The sidecar example's config. It needs no key: the proxy makes its own.
+"$program" validate --config deploy/kubernetes/sidecar/hotline-proxy.yaml
 echo "smoke test passed: $program $version"

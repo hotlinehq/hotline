@@ -125,13 +125,12 @@ Feature: Marked body fields and headers are copied into the record
             update: { x-hotline-record: shop.idempotency_key }
         """
       And the shop spec with the overlay key.overlay.yaml
-      And the integration's fingerprintKey is read from a file
       And the vendor answers 201
 
-    Scenario: A header is copied, and signed
+    Scenario: A header is copied, and covered by the record's hash
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
       Then the record holds shop.idempotency_key = k1
-      And the signature checks out when rebuilt from the record alone, with the key
+      And the hash checks out when rebuilt from the record alone
 
     Scenario: A header sent twice is joined
       When the app sends POST /orders with "Idempotency-Key: k1; Idempotency-Key: k2" and the json body {"item":"A1","quantity":2}
@@ -145,23 +144,22 @@ Feature: Marked body fields and headers are copied into the record
       When the app sends POST /orders with an Idempotency-Key 300 characters long
       Then the record holds shop.idempotency_key with its first 256 characters
 
-  Rule: The copied fields are signed
+  Rule: The copied fields are covered by the record's hash
 
     Background:
       Given the shop spec with the overlay marks.overlay.yaml
-      And the integration's fingerprintKey is read from a file
 
-    Scenario: A copied field is covered by the signature
+    Scenario: A copied field is covered by the record's hash
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
       Then the record holds shop.order.item = A1
-      And the signature checks out when rebuilt from the record alone, with the key
+      And the hash checks out when rebuilt from the record alone
 
     Scenario: A change to a copied field shows
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
       And shop.order.item is changed in the received record
-      Then the signature no longer checks out
+      Then the hash no longer checks out
 
   Rule: A mark the proxy can't use is refused when it starts
 

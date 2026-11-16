@@ -98,6 +98,7 @@ func (p *Proxy) load() {
 		li.reload(cfg.Listener(li.name))
 	}
 	p.handler.cfg.Store(cfg)
+	p.handler.book.reloaded(cfg)
 	p.handler.checks.resize(cfg.CheckQueueMemory)
 	r.own.reloaded(true, len(needRestart(r.started, cfg)) > 0)
 	r.logger.Info("config reloaded", "config_version", cfg.Label())

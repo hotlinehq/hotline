@@ -48,7 +48,7 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 		})
 		return nil
 	})
-	sc.Step(`^the app sends GET (\S+) (\d+) times$`, func(path string, n uint64) error {
+	sc.Step(`^the app sends GET (/orders/\S+) (\d+) times$`, func(path string, n uint64) error {
 		return measure(n, func() error { return w.shopCall("GET", path, true, "", "", "") })
 	})
 	sc.Step(`^apps send (\d+) orders at once, each of a different size$`, func(n int) error {

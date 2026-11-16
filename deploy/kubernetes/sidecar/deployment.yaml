@@ -48,7 +48,6 @@ spec:
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: config, mountPath: /etc/hotline/config, readOnly: true }
-            - { name: keys, mountPath: /etc/hotline/keys, readOnly: true }
       containers:
         - name: checkout
           image: example.com/checkout:1.0.0   # your app
@@ -59,5 +58,3 @@ spec:
       volumes:
         - name: config
           configMap: { name: hotline-proxy-config }
-        - name: keys
-          secret: { secretName: hotline-proxy-keys }

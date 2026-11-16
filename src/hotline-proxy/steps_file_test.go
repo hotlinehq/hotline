@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -290,8 +288,8 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the line's hotline.http.request.body holds the first 1KiB of the body sent$`, func() error {
-		return w.lineBody("hotline.http.request.body", w.sentBody[:1024])
+	sc.Step(`^the line's hotline.content.request.body holds the first 1KiB of the body sent$`, func() error {
+		return w.lineBody("hotline.content.request.body", w.sentBody[:1024])
 	})
 	sc.Step(`^the folder holds no other file than calls.jsonl$`, func() error {
 		w.settle()
@@ -420,15 +418,15 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the line's (\S+) decodes to the vendor's reply$`, func(key string) error {
 		return w.lineBody(key, `{"ok":true}`)
 	})
-	sc.Step(`^the line's hotline.http.response.body holds the first 1KiB$`, func() error {
-		return w.lineBody("hotline.http.response.body", string(longReply()[:1024]))
+	sc.Step(`^the line's hotline.content.response.body holds the first 1KiB$`, func() error {
+		return w.lineBody("hotline.content.response.body", string(longReply()[:1024]))
 	})
-	sc.Step(`^the line has http.request.header.(\S+) as sent$`, func(name string) error {
+	sc.Step(`^the line has hotline.content.request.header.(\S+) as sent$`, func(name string) error {
 		attrs, err := w.lineAttrs()
 		if err != nil {
 			return err
 		}
-		return has(attrs, "http.request.header."+name, []any{headerValue(w.lastSent, name)})
+		return has(attrs, "hotline.content.request.header."+name, []any{headerValue(w.lastSent, name)})
 	})
 	sc.Step(`^the line has ([a-z][\w-]*\.[\w.-]+) (\S+)$`, func(key, value string) error {
 		attrs, err := w.lineAttrs()
@@ -440,12 +438,12 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return has(attrs, key, value)
 	})
-	sc.Step(`^the line has hotline.http.response.body.truncated true and http.response.body.size 5120$`, func() error {
+	sc.Step(`^the line has hotline.content.response.body.truncated true and http.response.body.size 5120$`, func() error {
 		attrs, err := w.lineAttrs()
 		if err != nil {
 			return err
 		}
-		if err := has(attrs, "hotline.http.response.body.truncated", true); err != nil {
+		if err := has(attrs, "hotline.content.response.body.truncated", true); err != nil {
 			return err
 		}
 		return has(attrs, "http.response.body.size", 5120)
@@ -457,12 +455,12 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return hasNo(attrs, key)
 	})
-	sc.Step(`^the line's url.full is the address as sent$`, func() error {
+	sc.Step(`^the line's hotline.content.url.full is the address as sent$`, func() error {
 		attrs, err := w.lineAttrs()
 		if err != nil {
 			return err
 		}
-		return has(attrs, "url.full", w.target)
+		return has(attrs, "hotline.content.url.full", w.target)
 	})
 	sc.Step(`^the app gets all 5KiB$`, func() error {
 		if len(w.respBody) != 5120 {
@@ -470,26 +468,24 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the OTLP record has no hotline.http.request.body and no http.request.header.authorization$`, func() error {
+	sc.Step(`^the OTLP record has no hotline.content.request.body and no hotline.content.request.header.authorization$`, func() error {
 		record, err := w.record()
 		if err != nil {
 			return err
 		}
-		return hasNo(record, "hotline.http.request.body", "http.request.header.authorization")
+		return hasNo(record, "hotline.content.request.body", "hotline.content.request.header.authorization", "http.request.header.authorization")
 	})
-	sc.Step(`^the line's hotline.request.body.signature is the HMAC-SHA256 of the saved body with the integration's key$`, func() error {
-		attrs, err := w.lineAttrs()
+	sc.Step(`^the line's hotline.request.body.hash is the body hash of the saved body, with the line's trace id and span id$`, func() error {
+		line, err := w.fileLine(0)
 		if err != nil {
 			return err
 		}
-		saved, err := base64.StdEncoding.DecodeString(sprint(attrs["hotline.http.request.body"]))
+		attrs, _ := line["attributes"].(map[string]any)
+		saved, err := base64.StdEncoding.DecodeString(sprint(attrs["hotline.content.request.body"]))
 		if err != nil {
 			return err
 		}
-		// An integration without a fingerprintKey signs with its ID.
-		mac := hmac.New(sha256.New, []byte("talon-shop-a"))
-		mac.Write(saved)
-		return has(attrs, "hotline.request.body.signature", base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+		return has(attrs, "hotline.request.body.hash", bodyHash("request", sprint(line["trace_id"]), sprint(line["span_id"]), saved))
 	})
 	sc.Step(`^the line has the request and reply headers and the reply body$`, func() error {
 		attrs, err := w.lineAttrs()
@@ -497,14 +493,14 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		for key, want := range map[string]any{
-			"http.request.header.content-type":  []any{"application/json"},
-			"http.response.header.x-request-id": []any{"req-5521"},
+			"hotline.content.request.header.content-type":  []any{"application/json"},
+			"hotline.content.response.header.x-request-id": []any{"req-5521"},
 		} {
 			if err := has(attrs, key, want); err != nil {
 				return err
 			}
 		}
-		return w.lineBody("hotline.http.response.body", `{"ok":true}`)
+		return w.lineBody("hotline.content.response.body", `{"ok":true}`)
 	})
 	sc.Step(`^the proxy warns that integration talon-shop-a has content full but there is no file exporter$`, func() error {
 		if w.startErr != nil {
@@ -539,6 +535,24 @@ func longReply() []byte {
 // fileLines are the lines of a file exporter's calls.jsonl, once the proxy
 // has written everything.
 func (w *world) fileLines(i int) ([]map[string]any, error) {
+	all, err := w.allFileLines(i)
+	if err != nil {
+		return nil, err
+	}
+	// The ledger's batch lines are kept apart, so the scenarios about
+	// calls see only the calls' lines.
+	var calls []map[string]any
+	for _, line := range all {
+		if line["event"] != "hotline.ledger.batch" {
+			calls = append(calls, line)
+		}
+	}
+	return calls, nil
+}
+
+// allFileLines are every line of a file exporter's calls.jsonl, the
+// ledger's batch lines among them, once the proxy has stopped.
+func (w *world) allFileLines(i int) ([]map[string]any, error) {
 	w.settle()
 	data, err := os.ReadFile(filepath.Join(w.files[i].path, "calls.jsonl"))
 	if err != nil {

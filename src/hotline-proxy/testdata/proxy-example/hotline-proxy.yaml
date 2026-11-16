@@ -39,11 +39,9 @@ apis:                             # each vendor api once; its spec is read once 
 
 integrations:
   - id: talon-shop-a              # shop A's use of Talon.One and Stripe
-    fingerprintKey: { file: /etc/hotline/keys/talon-shop-a }   # secret key that signs the records, from a mounted Kubernetes Secret
     apis: [talon-one, stripe]     # names from the apis section
 
   - id: talon-shop-b              # same Talon.One API, different shop
-    fingerprintKey: { env: HOTLINE_KEY_TALON_SHOP_B }   # also allowed; a file is preferred
     traceFormat: b3               # how the app sends its trace id: w3c (default), b3, xray or jaeger
     traceForward: false           # default false; true sends the proxy's trace id and span id on to the vendor
     urlFull: false                # default false; true puts the address as sent in url.full on minimal records, query included

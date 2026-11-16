@@ -1,6 +1,6 @@
 # Each call's timings as a trace
 
-Agreed with Peter on 2026-10-31. Tests: `src/hotline-proxy/features/timing.feature`, and the trace part of `signature.feature`.
+Agreed with Peter on 2026-10-31. Tests: `src/hotline-proxy/features/timing.feature`, and the trace part of `ledger.feature`.
 
 A trace is a set of spans; a span is one step with a start time and an end time. The timings of a call used to be a few number attributes on its record (`hotline.timing.*_us`). They are a trace now: every call gets one, sent over OTLP to every exporter next to its record, so Grafana Cloud stores it in Tempo and draws the call as a timeline (Peter, 2026-10-31).
 
@@ -71,11 +71,11 @@ Each piece of data is either on the trace or on the record, never on both, unles
 - Without it, `hotline call` has no parent and the trace id is a new one, as on the record.
 - With `traceForward: true`, the vendor gets the id of `vendor call`, so the vendor's own spans sit under that step.
 
-## Signed
+## Hashed
 
-The trace of a full record is signed with the integration's key, the same as the record (Peter, 2026-10-31). The signature goes on the record as `hotline.trace.signature`, so the record's own signature covers it, as with the body signatures. Minimal records are not signed, so their traces are not either.
+The trace has a hash, `hotline.trace.hash`, on the record, so the record's own hash covers it. Until 2026-11-16 it was an HMAC signature with the integration's key; the bytes and the steps to rebuild them are now in [proxy-ledger.md](proxy-ledger.md). What follows is the signed form of 2026-11-02, kept as history.
 
-The signed bytes are made the same way as the record's ([proxy-signatures.md](proxy-signatures.md)): entries of a name and a typed value, each piece its length then its bytes, nothing quoted or escaped (Peter, 2026-11-02). First the entry `trace.trace_id` (text, hex). Then, for each span in start order, a tie going by span id: `span.span_id` and `span.parent_span_id` (text, hex; empty for none), `span.name`, `span.kind` (`server`, `client` or `internal`), `span.start_time` and `span.end_time` (whole numbers, nanoseconds since 1970), `span.status` (`unset`, `ok` or `error`), `span.attribute_count` (a whole number), then its attributes as entries, in name order.
+The signed bytes were made the same way as the record's: entries of a name and a typed value, each piece its length then its bytes, nothing quoted or escaped (Peter, 2026-11-02). First the entry `trace.trace_id` (text, hex). Then, for each span in start order, a tie going by span id: `span.span_id` and `span.parent_span_id` (text, hex; empty for none), `span.name`, `span.kind` (`server`, `client` or `internal`), `span.start_time` and `span.end_time` (whole numbers, nanoseconds since 1970), `span.status` (`unset`, `ok` or `error`), `span.attribute_count` (a whole number), then its attributes as entries, in name order.
 
 To check a call, take its record and its spans (found by trace id), and rebuild both signatures with the key.
 
@@ -88,7 +88,7 @@ To check a call, take its record and its spans (found by trace id), and rebuild 
 
 ## Where it lives
 
-- `trace.go`: the spans of a call, and the trace signature.
+- `trace.go`: the spans of a call; `internal/ledger`: the trace hash.
 - `internal/export/trace.go` and `wire.go`: the proxy writes each span as OTLP protobuf itself, since 2026-11-08 ([otlp-encoder-scope.md](otlp-encoder-scope.md)); before, it went through the SDK's `tracetest.SpanStub` and trace senders.
 - `internal/export/queue.go`: one queue type for records and spans.
 - New modules, at first: `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` and `otlptracehttp`, Apache-2.0, the OpenTelemetry trace senders. Removed again on 2026-11-08.

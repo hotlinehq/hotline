@@ -279,10 +279,10 @@ func configSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^all three problems are listed, not only the first one$`, func() error {
 		return w.refusedWith("there are no exporters", "two integrations have the ID a", `vendorTimeout "0s"`)
 	})
-	sc.Step(`^a broken config file with an integration that has a fingerprint key$`, func() error {
-		key := w.writeFile("keys/shop-a", "k3y-s3cr3t-value")
-		w.addIntegration(integration("talon-shop-a", w.api("talon-one", "    hosts: [api.talon.one]\n    spec: ./specs/missing.yaml\n")) +
-			"    fingerprintKey: { file: " + key + " }\n")
+	sc.Step(`^a broken config file with an exporter token read from a file$`, func() error {
+		key := w.writeFile("keys/otlp-token", "k3y-s3cr3t-value")
+		w.exporterExtra = []string{"      headers:\n        Authorization: { file: " + key + " }\n"}
+		w.addIntegration(integration("talon-shop-a", w.api("talon-one", "    hosts: [api.talon.one]\n    spec: ./specs/missing.yaml\n")))
 		return nil
 	})
 	sc.Step(`^the message holds no secret value$`, func() error {
@@ -431,12 +431,6 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's resource environment variable is not set":
 		w.rawConfig = start + exporters + "      resource:\n        deployment.environment.name: { env: HOTLINE_ENV }\n"
 		w.problem = "resource deployment.environment.name: the environment variable HOTLINE_ENV is not set"
-	case "an integration's fingerprintKey is written out":
-		w.rawConfig = w.raw(start+exporters, integration("shop", w.apiFor("api.x.com", ""))+"    fingerprintKey: s3cret\n")
-		w.problem = "integration shop: fingerprintKey must be read from { file: path } or { env: NAME }, never written in the config"
-	case "an integration's fingerprintKey file does not exist":
-		w.rawConfig = w.raw(start+exporters, integration("shop", w.apiFor("api.x.com", ""))+"    fingerprintKey: { file: missing-key }\n")
-		w.problem = "integration shop: fingerprintKey: the file missing-key cannot be read"
 	case "an exporter's metricInterval is zero":
 		w.rawConfig = start + exporters + "      metricInterval: 0s\n"
 		w.problem = "metricInterval \"0s\" must be a duration above zero"
@@ -446,6 +440,9 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's traceInterval is negative":
 		w.rawConfig = start + exporters + "      traceInterval: -1s\n"
 		w.problem = "traceInterval \"-1s\" must be a duration above zero"
+	case "the ledger's maxRecords is zero":
+		w.rawConfig = start + exporters + "ledger:\n  batch:\n    maxRecords: 0\n"
+		w.problem = "ledger.batch: maxRecords must be at least 1"
 	case "an exporter's queueSize is zero":
 		w.rawConfig = start + exporters + "      queueSize: 0\n"
 		w.problem = "queueSize must be at least 1"
@@ -547,6 +544,14 @@ func (w *world) waitsFor(seconds int) error {
 	w.settle()
 	w.clock = &fakeClock{}
 	wait := time.Duration(seconds) * time.Second
+	// The ledger closes batches on the same clock: keep its timers out of
+	// the count of timers that fired.
+	if !strings.Contains(w.topExtra, "ledger:") {
+		w.topExtra += "ledger:\n  batch:\n    every: 1h\n"
+		if w.wroteConfig {
+			w.replaceFile("hotline-proxy.yaml", w.config())
+		}
+	}
 	early := make(chan int, 1)
 	w.vendor("api.talon.one").setAnswer(func(_ http.ResponseWriter, r *http.Request) {
 		early <- w.clock.pass(wait - time.Second)

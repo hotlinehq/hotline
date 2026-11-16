@@ -20,8 +20,8 @@ Feature: Records carry the app's trace context
   off by default, it also sends its own trace id and the "vendor call" span's id to the
   vendor, so the vendor's own spans sit under that step.
 
-  The trace id, span id and flags are signed with the rest of the record:
-  see signature.feature.
+  The trace id and span id are covered by the record's hash, with the rest
+  of the record: see ledger.feature.
 
   Background:
     Given the shop spec

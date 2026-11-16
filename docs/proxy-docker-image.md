@@ -33,11 +33,10 @@ One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `li
 | Path | From | Holds |
 |---|---|---|
 | `/etc/hotline/config/` | ConfigMap | the config, its vendor specs and overlays, in one ConfigMap so they change in one step |
-| `/etc/hotline/keys/` | Secret | `fingerprintKey` files |
 | `/etc/hotline/tls/` | Secret, often from cert-manager | the certificate and key of a `tls` part |
 | `/etc/hotline/connect/` | Secret | the issuer of a `connect` part |
 
-Each is its own folder, side by side: Kubernetes and Docker can't mount a folder inside a read-only mounted folder. Changed files are picked up within 5 seconds with no restart ([proxy-config-reload.md](proxy-config-reload.md)); keys read from `env` change only on a restart.
+Each is its own folder, side by side: Kubernetes and Docker can't mount a folder inside a read-only mounted folder. Changed files are picked up within 5 seconds with no restart ([proxy-config-reload.md](proxy-config-reload.md)); values read from `env` change only on a restart.
 
 ## Running it
 
@@ -45,17 +44,16 @@ With Docker, to try it out:
 
 ```
 docker run --rm --read-only --stop-timeout 30 -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/config:/etc/hotline/config:ro" -v "$PWD/keys:/etc/hotline/keys:ro" \
+  -v "$PWD/config:/etc/hotline/config:ro" \
   -e GOMEMLIMIT=230MiB --memory 256m \
   ghcr.io/hotlinehq/hotline-proxy:0.1.0
 ```
 
 `--stop-timeout 30` gives the proxy its full 25 second stop; Docker's default of 10 seconds cuts it short.
 
-On Kubernetes as a sidecar: `deploy/kubernetes/sidecar/` is a kustomize example. Make the key Secret, then apply:
+On Kubernetes as a sidecar: `deploy/kubernetes/sidecar/` is a kustomize example. Apply it:
 
 ```
-kubectl create secret generic hotline-proxy-keys --from-file=fingerprint.key=./fingerprint.key
 kubectl apply -k deploy/kubernetes/sidecar
 ```
 

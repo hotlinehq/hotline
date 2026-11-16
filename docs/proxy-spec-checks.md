@@ -58,7 +58,6 @@ None. All nine were answered; see the decisions below.
 
     integrations:
       - id: talon-shop-a
-        fingerprintKey: { file: /etc/hotline/keys/talon-shop-a }
         apis: [talon-one, stripe]      # names from the apis section
       - id: talon-shop-b
         apis:

@@ -83,7 +83,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	exportSteps(sc, w)
 	fileSteps(sc, w)
 	consoleSteps(sc, w)
-	signatureSteps(sc, w)
+	ledgerSteps(sc, w)
 	bodyFieldSteps(sc, w)
 	protocolSteps(sc, w)
 	tlsSteps(sc, w)

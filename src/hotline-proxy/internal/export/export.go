@@ -50,6 +50,9 @@ type Sink struct {
 	files []fileDestination
 	// console, when set, prints every call to standard output.
 	console *consoleDestination
+	// batches hold the ledger's batch records waiting for each
+	// destination that takes records, the OTLP ones first, then the files.
+	batches []*batchLine
 	// lineResource is the resource every call line carries.
 	lineResource []attribute.KeyValue
 	// lines holds buffers to write a call line in.
@@ -77,9 +80,10 @@ type destination struct {
 // fileDestination is one file exporter's queue of written lines and its
 // writer.
 type fileDestination struct {
-	queue *queue[[]byte]
-	up    *atomic.Int64
-	place attribute.Set
+	queue  *queue[[]byte]
+	writer *fileWriter
+	up     *atomic.Int64
+	place  attribute.Set
 }
 
 // Call is one finished call: its record and its spans.
@@ -89,9 +93,10 @@ type Call struct {
 	// Attrs is the record every exporter gets.
 	Attrs []attribute.KeyValue
 	Spans []Span
-	// Full, when set, is the record file exporters get instead: under
-	// content: full, with every header, the bodies and its own signature.
-	Full []attribute.KeyValue
+	// Content, under content: full, is what file exporters get besides
+	// the record: every header and the bodies, under hotline.content.*
+	// names.
+	Content []attribute.KeyValue
 }
 
 // fileInterval is how long a call line waits at most before it is
@@ -147,9 +152,10 @@ func New(exporters []config.Exporter, files []config.FileExporter, console *conf
 		}
 		write := func(_ context.Context, lines [][]byte) error { return writer.write(lines) }
 		s.files = append(s.files, fileDestination{
-			queue: newQueue("records", write, func(context.Context) error { return writer.close() }, setup),
-			up:    up,
-			place: attribute.NewSet(label),
+			queue:  newQueue("records", write, func(context.Context) error { return writer.close() }, setup),
+			writer: writer,
+			up:     up,
+			place:  attribute.NewSet(label),
 		})
 	}
 	for _, e := range exporters {
@@ -182,6 +188,21 @@ func New(exporters []config.Exporter, files []config.FileExporter, console *conf
 		// The name and unit are fixed and valid, so there is no error to handle.
 		d.requests, _ = d.metrics.Meter("hotline-proxy").Int64Counter("hotline.requests", metric.WithUnit("{request}"))
 		s.destinations = append(s.destinations, d)
+		s.batches = append(s.batches, newBatchLine(e.Endpoint, logger, d.queue.ForceFlush, func(ctx context.Context, items [][]byte) error {
+			body := appendBatch(nil, written, items)
+			return sendWithRetry(ctx, t, records, body, timing.Timeout)
+		}, func(b Batch, attrs []attribute.KeyValue) []byte {
+			return appendRecord(nil, batchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
+		}))
+	}
+	for _, f := range s.files {
+		s.batches = append(s.batches, newBatchLine(f.writer.e.Path, logger, f.queue.ForceFlush, func(_ context.Context, items [][]byte) error {
+			return f.writer.write(items)
+		}, func(b Batch, attrs []attribute.KeyValue) []byte {
+			buf := &bytes.Buffer{}
+			appendBatchLine(buf, s.lineResource, b.At, attrs)
+			return buf.Bytes()
+		}))
 	}
 	if console != nil {
 		up := &atomic.Int64{}
@@ -285,23 +306,22 @@ func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
 
 // Call queues one call for every destination: its record, its count and
 // its spans for each OTLP destination, one line for each file, and its
-// lines on the console. It never
-// blocks: a full queue refuses what is new.
-func (s *Sink) Call(ctx context.Context, c Call) {
+// lines on the console. It never blocks: a full queue refuses what is new.
+// It says, for each destination that keeps the ledger (the OTLP ones, then
+// the files, as Ledgers counts them), whether that destination took the
+// record, so its batch record can list the ones it dropped.
+func (s *Sink) Call(ctx context.Context, c Call) []bool {
+	taken := make([]bool, 0, len(s.batches))
 	if len(s.destinations) > 0 {
-		s.record(ctx, c.At, c.Attrs)
+		taken = s.record(ctx, c.At, c.Attrs, taken)
 		s.trace(c.Trace, c.Spans)
 	}
 	// The file exporters' line, with every header when content is full.
 	var line []byte
 	if len(s.files) > 0 {
-		attrs := c.Attrs
-		if c.Full != nil {
-			attrs = c.Full
-		}
-		line = s.line(c, attrs)
+		line = s.line(c, true)
 		for _, f := range s.files {
-			f.queue.add(line)
+			taken = append(taken, f.queue.add(line))
 		}
 	}
 	switch {
@@ -309,31 +329,37 @@ func (s *Sink) Call(ctx context.Context, c Call) {
 	case s.console.out.JSON:
 		// The record every exporter gets, never content: full. It is the
 		// file exporters' line when that has no more.
-		if line == nil || c.Full != nil {
-			line = s.line(c, c.Attrs)
+		if line == nil || c.Content != nil {
+			line = s.line(c, false)
 		}
 		s.console.queue.add(terminalSafe(line))
 	default:
 		s.console.queue.add(s.console.lines(c))
 	}
+	return taken
 }
 
+// Ledgers is how many destinations keep the ledger: every OTLP exporter
+// and every file exporter. The console does not.
+func (s *Sink) Ledgers() int { return len(s.batches) }
+
 // line is the call as one line of JSON.
-func (s *Sink) line(c Call, attrs []attribute.KeyValue) []byte {
+func (s *Sink) line(c Call, withContent bool) []byte {
 	buf := s.lines.Get().(*bytes.Buffer)
 	buf.Reset()
-	appendLine(buf, s.lineResource, c, attrs)
+	appendLine(buf, s.lineResource, c, withContent)
 	line := slices.Clone(buf.Bytes())
 	s.lines.Put(buf)
 	return line
 }
 
 // record queues one hotline.request log record and counts the call. It
-// never blocks: a full queue refuses the new record.
+// never blocks: a full queue refuses the new record. It adds to taken
+// whether each destination took it.
 // The record is written once, for every destination.
-func (s *Sink) record(ctx context.Context, at time.Time, attrs []attribute.KeyValue) {
+func (s *Sink) record(ctx context.Context, at time.Time, attrs []attribute.KeyValue, taken []bool) []bool {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], at, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
+	b := appendRecord((*scratch)[:0], callEvent, at, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
@@ -344,9 +370,10 @@ func (s *Sink) record(ctx context.Context, at time.Time, attrs []attribute.KeyVa
 		}
 	}
 	for _, d := range s.destinations {
-		d.queue.add(written)
+		taken = append(taken, d.queue.add(written))
 		d.requests.Add(ctx, 1, metric.WithAttributes(counter...))
 	}
+	return taken
 }
 
 // level is INFO unless something went wrong: WARN when the call or the reply
@@ -375,6 +402,10 @@ func level(attrs []attribute.KeyValue) log.Severity {
 // Shutdown sends what is still queued, within the time ctx allows.
 func (s *Sink) Shutdown(ctx context.Context) error {
 	var errs []error
+	// The batch records go after the records they cover.
+	for _, b := range s.batches {
+		errs = append(errs, b.shutdown(ctx))
+	}
 	for _, d := range s.destinations {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
 		d.transport.close()

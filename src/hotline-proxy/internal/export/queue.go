@@ -104,8 +104,9 @@ func newQueue[T any](what string, export func(context.Context, []T) error, close
 }
 
 // add queues items without waiting: all of them, or none when they do not
-// all fit, so the spans of one call are never split.
-func (q *queue[T]) add(items ...T) {
+// all fit, so the spans of one call are never split. It says whether they
+// were queued.
+func (q *queue[T]) add(items ...T) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	weight := int64(0)
@@ -118,7 +119,7 @@ func (q *queue[T]) add(items ...T) {
 		q.crowded.count += len(items)
 		q.crowded.groups++
 		q.dropped.Add(context.Background(), int64(len(items)), dropReason(q.labels, "queue_full"))
-		return
+		return false
 	}
 	end := (q.first + q.count) % len(q.ring)
 	copied := copy(q.ring[end:], items)
@@ -131,6 +132,7 @@ func (q *queue[T]) add(items ...T) {
 		default:
 		}
 	}
+	return true
 }
 
 // take moves up to one batch of waiting items into the sender's batch, and

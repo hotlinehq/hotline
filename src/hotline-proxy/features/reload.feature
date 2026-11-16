@@ -71,14 +71,6 @@ Feature: Reloading the config without a restart
     And an app calls Talon.One as talon-shop-a
     Then record 1 has no url.template
 
-  Scenario: A changed key file is noticed
-    Given talon-shop-a's fingerprintKey is read from a file
-    When an app calls Talon.One as talon-shop-a
-    And talon-shop-a's key file changes to another key
-    And the proxy checks its files
-    And an app calls Talon.One as talon-shop-a
-    Then record 1 and record 2 carry different hotline.signature_key_id
-
   Scenario Outline: Listener changes and exporters need a restart
     A listener that moves, or gains or loses a part, keeps running as it
     started until a restart; the rest of the new config is used at once

@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/tls"
@@ -127,8 +128,13 @@ type receiver struct {
 	// endpoint is how the config names the receiver.
 	endpoint string
 
-	mu          sync.Mutex
-	records     []receivedRecord
+	mu      sync.Mutex
+	records []receivedRecord
+	batches []receivedRecord
+	// down refuses every log export, until it is back.
+	down bool
+	// refused counts the call records refused while down.
+	refused     int
 	counts      []receivedCount
 	points      []receivedPoint
 	histograms  int
@@ -194,7 +200,11 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		proto:         req.Proto,
 	})
 	var refuse *answer
-	if logs && len(r.answers) > 0 {
+	down := logs && r.down
+	if down {
+		// A collector that is down refuses every log export at once.
+		refuse = &answer{status: http.StatusBadRequest}
+	} else if logs && len(r.answers) > 0 {
 		refuse = &r.answers[0]
 		r.answers = r.answers[1:]
 	}
@@ -204,7 +214,10 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		// with the body unread makes the HTTP server close the connection
 		// and wait half a second in a goroutine of its own, which outlives
 		// the scenario and fails its check for leftover goroutines.
-		_, _ = io.Copy(io.Discard, req.Body)
+		data, _ := io.ReadAll(req.Body)
+		if down {
+			r.countRefused(req.Header.Get("Content-Encoding"), data)
+		}
 		if refuse.retryAfter != "" {
 			rw.Header().Set("Retry-After", refuse.retryAfter)
 		}
@@ -288,7 +301,13 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 		res := values(rl.GetResource().GetAttributes())
 		for _, sl := range rl.GetScopeLogs() {
 			for _, lr := range sl.GetLogRecords() {
-				r.records = append(r.records, receivedRecord{
+				list := &r.records
+				if lr.GetEventName() == "hotline.ledger.batch" {
+					// The ledger's batch records are kept apart, so the
+					// scenarios about calls see only the calls' records.
+					list = &r.batches
+				}
+				*list = append(*list, receivedRecord{
 					eventName:      lr.GetEventName(),
 					timestamp:      lr.GetTimeUnixNano(),
 					severityText:   lr.GetSeverityText(),
@@ -437,6 +456,49 @@ func (r *receiver) release() {
 	}
 }
 
+// ledger are the batch records the receiver got.
+// countRefused counts the call records in a log export refused while down,
+// so a scenario can still wait until the proxy has made them.
+func (r *receiver) countRefused(encoding string, data []byte) {
+	if encoding == "gzip" {
+		unzipped, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		data, _ = io.ReadAll(unzipped)
+	}
+	in := &collogs.ExportLogsServiceRequest{}
+	if proto.Unmarshal(data, in) != nil {
+		return
+	}
+	n := 0
+	for _, rl := range in.GetResourceLogs() {
+		for _, sl := range rl.GetScopeLogs() {
+			for _, lr := range sl.GetLogRecords() {
+				if lr.GetEventName() != "hotline.ledger.batch" {
+					n++
+				}
+			}
+		}
+	}
+	r.mu.Lock()
+	r.refused += n
+	r.mu.Unlock()
+}
+
+// callsMade counts the call records the receiver got or refused.
+func (r *receiver) callsMade() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.records) + r.refused
+}
+
+func (r *receiver) ledger() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.batches...)
+}
+
 func (r *receiver) got() ([]receivedRecord, []receivedCount) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -479,4 +541,11 @@ func value(v *common.AnyValue) any {
 		return list
 	}
 	return nil
+}
+
+// setDown makes the receiver refuse every log export, or take them again.
+func (r *receiver) setDown(down bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.down = down
 }

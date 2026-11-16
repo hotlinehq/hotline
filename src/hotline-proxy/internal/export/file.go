@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"hotline-proxy/internal/config"
@@ -31,7 +32,9 @@ const (
 // deleted. A line is never split across files. The current file is never
 // compressed, so it can be followed as it grows (Peter, 2026-11-11).
 type fileWriter struct {
-	e config.FileExporter
+	// mu lets the records and the batch records be written apart.
+	mu sync.Mutex
+	e  config.FileExporter
 	// lock is held for as long as the writer lives, so a second proxy
 	// cannot write to the same folder.
 	lock *os.File
@@ -64,6 +67,8 @@ func openFileWriter(e config.FileExporter) (*fileWriter, error) {
 // nobody can see. The lines of a write that failed are lost, and counted
 // by the queue.
 func (w *fileWriter) write(lines [][]byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.file != nil && !w.inPlace() {
 		_ = w.file.Close()
 		w.file = nil
@@ -207,6 +212,8 @@ func (w *fileWriter) prune() error {
 // folder. Every line was written with its own write, so closing loses
 // nothing.
 func (w *fileWriter) close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	_ = w.file.Close()
 	return w.lock.Close()
 }

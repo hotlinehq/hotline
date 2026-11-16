@@ -25,7 +25,7 @@ QueueUrl:
 5. **Copied only when it fits.** The value is copied only when it is there and has the marked type. Otherwise nothing is recorded, and the checks report the problem as usual. A number too large for the record is left out.
 6. **Text is cut** at 256 characters.
 7. **A promise.** A mark is the spec author's promise that the field holds no secret and no personal data. Mark only fields like queue names, ids of things (not of people) and kinds.
-8. **Full records only.** Calls with a known integration and api get these fields. They are signed with the rest of the record ([proxy-signatures.md](proxy-signatures.md)) (Peter, 2026-10-31).
+8. **Full records only.** Calls with a known integration and api get these fields. They are covered by the record's hash with the rest of the record ([proxy-ledger.md](proxy-ledger.md)).
 9. **Not in the counter.** The fields go into records only, never into `hotline.requests`, since a field could have very many values and make the counter costly (Peter, 2026-10-31).
 
 ## Headers

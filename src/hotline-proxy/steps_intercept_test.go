@@ -314,7 +314,7 @@ func (w *world) interceptRecordWith(fields string) error {
 		"process.pid": true, "process.executable.path": true,
 	}
 	for key := range record {
-		if !allowed[key] {
+		if !allowed[key] && !ledgerField(key) {
 			return failf("the record has %s, which a connection that never became a call has no use for", key)
 		}
 	}

@@ -115,6 +115,7 @@ Feature: Loading the config file
       | an exporter's temporality is neither cumulative nor delta |
       | an exporter's endpoint is not a valid address        |
       | an exporter's queueSize is zero                      |
+      | the ledger's maxRecords is zero                      |
       | an exporter's metricInterval is zero                 |
       | an exporter's logInterval is not a duration          |
       | an exporter's traceInterval is negative              |
@@ -135,8 +136,6 @@ Feature: Loading the config file
       | an exporter's resource sets service.version          |
       | an exporter's resource has the name "my label"       |
       | an exporter's resource environment variable is not set |
-      | an integration's fingerprintKey is written out       |
-      | an integration's fingerprintKey file does not exist  |
       | two integrations have the same ID                    |
       | one integration names two apis with the same host    |
       | an integration names an api that is not in apis      |
@@ -189,6 +188,6 @@ Feature: Loading the config file
     Then all three problems are listed, not only the first one
 
   Scenario: No secret in error messages
-    Given a broken config file with an integration that has a fingerprint key
+    Given a broken config file with an exporter token read from a file
     When the proxy reports the problem
     Then the message holds no secret value

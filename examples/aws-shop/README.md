@@ -132,7 +132,7 @@ The files these commands read are in [aws](aws/): the queue's policy letting the
 
 ## The Hotline config
 
-[hotline-proxy.yaml](../../src/hotline-proxy/testdata/aws/hotline-proxy.yaml) is the config the proxy's tests use, and a good start. Each AWS resource is an api, with the stable spec for its AWS service from [specs/aws](../../specs/aws/) and an overlay naming that resource and the shape of what is sent to it, such as [orders-table.overlay.yaml](../../src/hotline-proxy/testdata/aws/orders-table.overlay.yaml). Each app is an integration listing only the apis it uses. [shop.key](../../src/hotline-proxy/testdata/aws/shop.key) signs the records; it is an example and not secret, so put your own secret there, or use `fingerprintKey: { env: NAME }`. The overlays name the resources above, so change them for another account or region.
+[hotline-proxy.yaml](../../src/hotline-proxy/testdata/aws/hotline-proxy.yaml) is the config the proxy's tests use, and a good start. Each AWS resource is an api, with the stable spec for its AWS service from [specs/aws](../../specs/aws/) and an overlay naming that resource and the shape of what is sent to it, such as [orders-table.overlay.yaml](../../src/hotline-proxy/testdata/aws/orders-table.overlay.yaml). Each app is an integration listing only the apis it uses. No key is needed: the proxy makes its own and signs batches of records ([proxy-ledger.md](../../docs/proxy-ledger.md)). The overlays name the resources above, so change them for another account or region.
 
 ## How the clients reach Hotline
 

@@ -274,11 +274,8 @@ jobs:
       - name: smoke test
         run: |
           set -eu
-          keys=$(mktemp -d)
-          head -c 32 /dev/urandom > "$keys/fingerprint.key"
-          chmod 755 "$keys" && chmod 644 "$keys/fingerprint.key"
           config="$PWD/deploy/kubernetes/sidecar"
-          mounts="-v $config:/etc/hotline/config:ro -v $keys:/etc/hotline/keys:ro"
+          mounts="-v $config:/etc/hotline/config:ro"
 
           # The image holds the very program of the download: the same
           # version line as the Linux amd64 program that was checked.

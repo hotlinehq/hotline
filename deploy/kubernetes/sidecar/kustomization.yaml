@@ -1,6 +1,4 @@
 # The Hotline proxy as a sidecar: kubectl apply -k deploy/kubernetes/sidecar
-# Needs the key first:
-#   kubectl create secret generic hotline-proxy-keys --from-file=fingerprint.key=./fingerprint.key
 resources:
   - deployment.yaml
 configMapGenerator:

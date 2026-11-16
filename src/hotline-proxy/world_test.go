@@ -123,6 +123,10 @@ type world struct {
 	// clock, when set, replaces the system clock, so waits end only when
 	// the test lets time pass.
 	clock *fakeClock
+	// runs counts the proxy's starts, so each run has its own instance id.
+	runs int
+	// sent counts the calls sent through the proxy.
+	sent int
 
 	// appID is the integration ID apps send; empty sends none.
 	appID string
@@ -639,13 +643,16 @@ func (w *world) startOnce() error {
 			return w.original, nil
 		},
 		Version:    "1.0.0-test",
-		InstanceID: "proxy-test-1",
+		InstanceID: fmt.Sprintf("proxy-test-%d", w.runs+1),
 		LookupEnv: func(name string) (string, bool) {
 			v, ok := w.env[name]
 			return v, ok
 		},
 		Console: w.consoleOption(),
 	})
+	if w.startErr == nil {
+		w.runs++
+	}
 	return w.startErr
 }
 
@@ -740,6 +747,7 @@ func (w *world) send(r request) error {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	w.sent++
 	return w.exchange(conn, r)
 }
 

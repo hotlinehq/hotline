@@ -204,20 +204,32 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return n
 	}
+	// sendsBeforeStop counts the log sends while the proxy runs, once ready
+	// says so: a stop sends the ledger's last batch record too.
+	sendsBeforeStop := func(ready func() bool) int {
+		for deadline := time.Now().Add(5 * time.Second); !ready() && time.Now().Before(deadline); {
+			time.Sleep(5 * time.Millisecond)
+		}
+		// Any retry would come at once: give it a moment.
+		time.Sleep(50 * time.Millisecond)
+		return logSends()
+	}
 	sc.Step(`^the record arrives on the second try$`, func() error {
+		sends := sendsBeforeStop(func() bool { records, _ := w.receivers[0].got(); return len(records) > 0 })
 		if got := len(w.records()); got != 1 {
 			return failf("the receiver got %d records, want 1", got)
 		}
-		if got := logSends(); got != 2 {
+		if got := sends; got != 2 {
 			return failf("the record was sent %d times, want 2", got)
 		}
 		return nil
 	})
 	sc.Step(`^the record is lost, and the proxy logs that 1 was dropped$`, func() error {
+		sends := sendsBeforeStop(func() bool { return logSends() > 0 })
 		if got := len(w.records()); got != 0 {
 			return failf("the receiver got %d records, want none", got)
 		}
-		if got := logSends(); got != 1 {
+		if got := sends; got != 1 {
 			return failf("the record was sent %d times, want 1", got)
 		}
 		for _, line := range strings.Split(w.logs.String(), "\n") {

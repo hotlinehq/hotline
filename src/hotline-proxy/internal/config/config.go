@@ -64,6 +64,11 @@ type Config struct {
 	// config, specs and overlays, so every edit gives a new one. Key and certificate files are left out: a
 	// renewal is not a new config, and secrets stay out of it.
 	Fingerprint string
+	// Digest is the whole SHA-256 the fingerprint is cut from, as
+	// sha256:<hex>, which each ledger batch carries as hotline.batch.config.
+	Digest string
+	// Ledger is how records are grouped into signed batches.
+	Ledger Ledger
 	// Files are every file the load read or tried to read, so the proxy
 	// can tell when one changes. A refused config still lists them.
 	Files []string
@@ -80,6 +85,24 @@ type Config struct {
 	// content is, for each integration, whether its calls are kept in full
 	// for the file exporters; the not-passed entry's value is the default.
 	content map[string]Content
+}
+
+// Ledger is how records are grouped into signed batches (Peter,
+// 2026-11-16): a batch closes every Every, or at MaxRecords records.
+// Instance, when set, names the proxy in place of a random id per run.
+type Ledger struct {
+	Every      time.Duration
+	MaxRecords int
+	Instance   string
+}
+
+// Chain is the ledger chain a call's record goes in: its integration's when
+// the config knows the integration, the not-passed chain otherwise.
+func (c *Config) Chain(integrationID string) string {
+	if _, known := c.traces[integrationID]; known && integrationID != "" {
+		return integrationID
+	}
+	return notPassed
 }
 
 // Content says whether an integration's calls are kept in full, with every
@@ -203,9 +226,6 @@ type API struct {
 	// Checks are the parts of a call the api checks against its spec: all
 	// of them when the config leaves checks out.
 	Checks Parts
-	// SigningKey signs the integration's records: its fingerprintKey, or
-	// its ID when it has none.
-	SigningKey []byte
 }
 
 // Trace is the trace settings of an integration. An unknown ID gets the
@@ -258,10 +278,9 @@ type file struct {
 		Console yaml.Node `yaml:"console"`
 	} `yaml:"exporters"`
 	Integrations []struct {
-		ID             string       `yaml:"id"`
-		FingerprintKey *secret      `yaml:"fingerprintKey"`
-		Settings       settingsFile `yaml:",inline"`
-		APIs           []apiRef     `yaml:"apis"`
+		ID       string       `yaml:"id"`
+		Settings settingsFile `yaml:",inline"`
+		APIs     []apiRef     `yaml:"apis"`
 		// TraceFormat is how the app sends its trace context; w3c when not
 		// set. TraceForward passes the proxy's own on to the vendor.
 		TraceFormat  *string `yaml:"traceFormat"`
@@ -273,6 +292,13 @@ type file struct {
 		Content     string `yaml:"content"`
 		MaxBodySize string `yaml:"maxBodySize"`
 	} `yaml:"integrations"`
+	Ledger struct {
+		Batch struct {
+			Every      *string `yaml:"every"`
+			MaxRecords *int    `yaml:"maxRecords"`
+		} `yaml:"batch"`
+		Instance *secret `yaml:"instance"`
+	} `yaml:"ledger"`
 }
 
 // fileExporterFile is one file exporter as the config writes it.
@@ -514,15 +540,6 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		if _, seen := c.integrations[in.ID]; seen {
 			l.problem("two integrations have the ID %s", in.ID)
 		}
-		key := []byte(in.ID)
-		switch {
-		case in.FingerprintKey == nil:
-			c.Warnings = append(c.Warnings, "integration "+in.ID+" has no fingerprintKey, so its records are signed with its ID, which is not secret")
-		case in.FingerprintKey.written:
-			l.problem("integration %s: fingerprintKey must be read from { file: path } or { env: NAME }, never written in the config", in.ID)
-		default:
-			key = []byte(l.secret("integration "+in.ID+": fingerprintKey", *in.FingerprintKey))
-		}
 		byHost := map[string]*API{}
 		for _, ref := range in.APIs {
 			for _, u := range ref.unknown {
@@ -533,9 +550,8 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 				l.problem("integration %s names the api %s, which is not in apis", in.ID, ref.name)
 				continue
 			}
-			// Each integration gets its own copy, with its own key.
+			// Each integration gets its own copy, with its own settings.
 			changed := *api
-			changed.SigningKey = key
 			if ref.vendorTimeout != nil {
 				changed.Settings = l.settings("integration "+in.ID, settingsFile{VendorTimeout: ref.vendorTimeout}, api.Settings)
 			}
@@ -549,19 +565,40 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		}
 		c.integrations[in.ID] = byHost
 	}
+	c.Ledger = l.ledger(f)
 	c.Files = slices.Sorted(maps.Keys(l.read))
+	c.Warnings = append(c.Warnings, l.warnings...)
 	if len(l.problems) > 0 {
 		return &Config{Files: c.Files}, errors.Join(l.problems...)
 	}
-	c.Warnings = append(c.Warnings, l.warnings...)
-	c.Fingerprint = l.fingerprint()
+	c.Digest = l.digest()
+	c.Fingerprint = strings.TrimPrefix(c.Digest, "sha256:")[:12]
 	return c, nil
 }
 
-// fingerprint hashes the config, specs and overlays in the order of their
+// ledger reads the ledger section: a batch every 10 seconds or at 65,536
+// records unless set (Peter, 2026-11-16).
+func (l *loader) ledger(f file) Ledger {
+	out := Ledger{
+		Every:      l.interval("ledger.batch", "every", f.Ledger.Batch.Every, 10*time.Second),
+		MaxRecords: 65_536,
+	}
+	if n := f.Ledger.Batch.MaxRecords; n != nil {
+		if *n < 1 {
+			l.problem("ledger.batch: maxRecords must be at least 1")
+		}
+		out.MaxRecords = *n
+	}
+	if f.Ledger.Instance != nil {
+		out.Instance = l.secret("ledger: instance", *f.Ledger.Instance)
+	}
+	return out
+}
+
+// digest hashes the config, specs and overlays in the order of their
 // paths, each path relative to the config's folder, so the same files give
-// the same fingerprint wherever the folder is.
-func (l *loader) fingerprint() string {
+// the same digest wherever the folder is. Secret files are left out.
+func (l *loader) digest() string {
 	h := sha256.New()
 	for _, path := range slices.Sorted(maps.Keys(l.hashed)) {
 		name, _ := filepath.Rel(l.dir, path) // both are under the same root
@@ -571,7 +608,7 @@ func (l *loader) fingerprint() string {
 		_ = binary.Write(h, binary.BigEndian, uint64(len(data)))
 		h.Write(data)
 	}
-	return hex.EncodeToString(h.Sum(nil))[:12]
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 type loader struct {

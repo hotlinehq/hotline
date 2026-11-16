@@ -63,17 +63,19 @@ When the next line would take `calls.jsonl` past `maxFileSize`, the file is rena
 
 `content: full` on an integration (or on the `not-passed` entry, for calls without a known ID) makes the file exporters get that integration's calls in full:
 
-- **Every header** of the call and the reply, as sent, in `http.request.header.<name>` and `http.response.header.<name>`. `Proxy-Authorization` is kept, but its value is always `REDACTED`, since it holds the integration's login. Other `proxy-` headers are kept as sent.
-- **The bodies**, in `hotline.http.request.body` and `hotline.http.response.body`, as base64 of the bytes as they passed: a gzipped body stays gzipped. Each is cut at `maxBodySize`; a cut body has `hotline.http.request.body.truncated` or `hotline.http.response.body.truncated` set to true, and `http.request.body.size` and `http.response.body.size` still hold the real sizes.
-- **`url.full`** is the address as sent, with nothing redacted.
+Full content goes beside the record, under `hotline.content.*`, and the record's own attributes stay as they are (Peter, 2026-11-16):
 
-To read a body: `jq -r '.attributes."hotline.http.request.body" | @base64d' calls/calls.jsonl`. For a binary body, take the value out with `jq -r` and decode it with `base64 -d`.
+- **Every header** of the call and the reply, as sent, in `hotline.content.request.header.<name>` and `hotline.content.response.header.<name>`. `Proxy-Authorization` is kept, but its value is always `REDACTED`, since it holds the integration's login. Other `proxy-` headers are kept as sent.
+- **The bodies**, in `hotline.content.request.body` and `hotline.content.response.body`, as base64 of the bytes as they passed: a gzipped body stays gzipped. Each is cut at `maxBodySize`; a cut body has `hotline.content.request.body.truncated` or `hotline.content.response.body.truncated` set to true, and `http.request.body.size` and `http.response.body.size` still hold the real sizes.
+- **`hotline.content.url.full`** is the address as sent, with nothing redacted.
+
+To read a body: `jq -r '.attributes."hotline.content.request.body" | @base64d' calls/calls.jsonl`. For a binary body, take the value out with `jq -r` and decode it with `base64 -d`.
 
 Nothing is redacted: passwords, tokens and personal data in headers and bodies land in the file. The proxy logs a warning at start for each integration with `content: full`. The `otlp` exporters always get the normal record, so full content never leaves the machine through them. An integration with `content: full` and no file exporter is not refused: the setting is skipped with a warning, and no copy of the bodies is kept.
 
-### Signatures
+### Hashes
 
-A signed record (a call with a spec) is signed for the file on its own, over everything it holds but the bodies, so every header is covered. The bodies are covered by `hotline.request.body.signature` and `hotline.response.body.signature`, which sign the whole body as it passed, as for every exporter. A body that was not cut can be checked against its signature; a cut one cannot, and its signed `truncated` flag says so. A call without a spec has a minimal record, which is not signed, also under full content.
+The record is the same as every exporter gets, with the same `hotline.record.hash`, so the file's copy rebuilds the signed batch too. The record also holds `hotline.content.hash`, over the content attributes but the bodies. The bodies are covered by `hotline.request.body.hash` and `hotline.response.body.hash`, which hash the whole body as it passed. `hotline-proxy verify` checks a body that was not cut against its hash; a cut one cannot be checked, and verify notes it. Detail: [proxy-ledger.md](proxy-ledger.md).
 
 ## Safety
 
