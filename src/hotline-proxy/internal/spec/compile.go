@@ -165,10 +165,9 @@ func (b *builder) checks(template, method, where string) *checks {
 	item, itemPointer := b.object(itemValue, itemPointer, where)
 	opPointer := itemPointer + token(method)
 	op, _ := item[method].(map[string]any)
-	c := &checks{
-		params:   b.params(where, item["parameters"], itemPointer+"/parameters", op["parameters"], opPointer+"/parameters"),
-		security: b.security(op),
-	}
+	c := &checks{marks: map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "reply": {}}}
+	c.params = b.params(c.marks, where, item["parameters"], itemPointer+"/parameters", op["parameters"], opPointer+"/parameters")
+	c.security = b.security(op)
 	if v, ok := op["requestBody"]; ok {
 		body, pointer := b.object(v, opPointer+"/requestBody", where)
 		c.body = b.bodySpec(body, pointer, where, "the request body")
@@ -183,7 +182,7 @@ func (b *builder) checks(template, method, where string) *checks {
 			if len(code) == 3 && strings.HasSuffix(strings.ToUpper(code), "XX") {
 				code = strings.ToUpper(code)
 			}
-			c.replies[code] = b.reply(r, pointer, where, code)
+			c.replies[code] = b.reply(c.marks, r, pointer, where, code)
 		}
 	}
 	b.clashes(c, where)
@@ -191,8 +190,9 @@ func (b *builder) checks(template, method, where string) *checks {
 }
 
 // params are the route's parameters: those of the path first, then the
-// method's own, which win over a path one of the same name.
-func (b *builder) params(where string, itemParams any, itemPointer string, opParams any, opPointer string) []param {
+// method's own, which win over a path one of the same name. Their
+// x-hotline-redact marks go in marks, read after any $ref is followed.
+func (b *builder) params(marks map[string]map[string]mark, where string, itemParams any, itemPointer string, opParams any, opPointer string) []param {
 	var params []param
 	for _, set := range []struct {
 		list    any
@@ -201,6 +201,7 @@ func (b *builder) params(where string, itemParams any, itemPointer string, opPar
 		list, _ := set.list.([]any)
 		for i, v := range list {
 			m, pointer := b.object(v, fmt.Sprintf("%s/%d", set.pointer, i), where)
+			b.redactMark(marks, where, str(m, "in"), str(m, "name"), m)
 			p := b.param(m, pointer, where)
 			if p == nil {
 				continue
@@ -304,7 +305,7 @@ func (b *builder) bodySpec(m map[string]any, pointer, where, what string) *bodyS
 	return body
 }
 
-func (b *builder) reply(m map[string]any, pointer, where, code string) *reply {
+func (b *builder) reply(marks map[string]map[string]mark, m map[string]any, pointer, where, code string) *reply {
 	r := &reply{body: b.bodySpec(m, pointer, where, "the "+code+" reply")}
 	headers, _ := m["headers"].(map[string]any)
 	for _, name := range slices.Sorted(maps.Keys(headers)) {
@@ -312,6 +313,7 @@ func (b *builder) reply(m map[string]any, pointer, where, code string) *reply {
 			continue
 		}
 		h, hp := b.object(headers[name], pointer+"/headers"+token(name), where)
+		b.redactMark(marks, where, "reply", name, h)
 		if _, marked := h["x-hotline-record"]; marked {
 			b.problem("%s: x-hotline-record on the %s reply header %s: a mark goes only on a header of the call", where, code, name)
 		}
@@ -323,4 +325,30 @@ func (b *builder) reply(m map[string]any, pointer, where, code string) *reply {
 	}
 	r.check = b.responseCheck(r, where)
 	return r
+}
+
+// redactMark reads the x-hotline-redact mark of the value named name, which lives
+// in in, from m, the parameter or header once any $ref is followed. A
+// cookie has no entry: cookies are never recorded.
+func (b *builder) redactMark(marks map[string]map[string]mark, where, in, name string, m map[string]any) {
+	value, marked := m["x-hotline-redact"]
+	if !marked || name == "" {
+		return
+	}
+	var found mark
+	switch value {
+	case true:
+		found = redact
+	case false:
+		found = keep
+	default:
+		b.problem("%s: x-hotline-redact on %s must be true or false", where, name)
+		return
+	}
+	if in != "path" && in != "query" {
+		name = strings.ToLower(name)
+	}
+	if byName, ok := marks[in]; ok {
+		byName[name] = found
+	}
 }

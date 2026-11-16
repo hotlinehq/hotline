@@ -27,6 +27,7 @@ Decisions already made, so a new session does not have to dig through old thread
 - The whole proxy is the system under test (the thing a test drives and checks), with fake vendors and a fake OTLP receiver at its edges.
 - Never change production code just so a test can reach it.
 - Run `make lint` before every push; CI lint finds what tests miss (Peter, 2026-11-02). It needs golangci-lint v2.15 built with the repo's Go: `GOTOOLCHAIN=go1.27.3 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` (v2.13 cannot read Go 1.27.3).
+- Run `make test` and then `make cover` before every push and before opening a pull request (Peter, 2026-11-16). CI fails when any function is below 100% covered, and `make cover` lists the ones that are. Cover a gap with a test through the proxy's ways in and out, never by removing the check.
 - GitHub Actions are pinned to exact commits, with the tag in a comment; Dependabot updates them (Aikido finding, 2026-11-02).
 
 ## Slice plan

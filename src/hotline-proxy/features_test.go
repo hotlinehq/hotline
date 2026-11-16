@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,14 +17,24 @@ import (
 // system under test. The run is strict: a step without a definition fails.
 // End-to-end scenarios run on their own, and scenarios tagged @later wait
 // for a later slice.
+//
+// HOTLINE_FEATURES narrows the run while working on one part, to save the
+// minute and a half the whole suite takes: a feature file, or one scenario
+// by its line, several separated by commas. For example
+// HOTLINE_FEATURES=features/intercept.feature:179 go test -run TestFeatures .
+// Empty, as in CI, runs every feature.
 func TestFeatures(t *testing.T) {
+	paths := []string{"features"}
+	if only := os.Getenv("HOTLINE_FEATURES"); only != "" {
+		paths = strings.Split(only, ",")
+	}
 	app := &exampleApp{dir: t.TempDir()}
 	suite := godog.TestSuite{
 		Name:                "hotline-proxy",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeScenario(sc, app) },
 		Options: &godog.Options{
 			Format:   "progress",
-			Paths:    []string{"features"},
+			Paths:    paths,
 			Tags:     "~@e2e && ~@later",
 			Strict:   true,
 			TestingT: t,

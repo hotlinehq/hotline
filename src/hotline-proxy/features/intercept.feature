@@ -176,6 +176,31 @@ Feature: The intercept ingress
         | the vendor name pinned.example.com resolves to 10.0.0.5 | destination_ip_prohibited |
         | the name pinned.example.com has no address         | destination_unavailable   |
 
+    Scenario: A relay gives an address that never answers only its share of the wait
+      A relay has no vendorTimeout, only the time its connect may take. That
+      time is shared between the addresses still to try, as Go's own dialer
+      does, so the first address gets half of it before the second is tried.
+      Given the transparent listener lists pinned.example.com in passthrough
+      And the first address of pinned.example.com never answers
+      When the app connects to the listener naming pinned.example.com in the handshake
+      Then the proxy connected to the address of pinned.example.com
+      When the app closes its connections
+      Then the intercept record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
+      And the record's hotline.timing.total_us is at least 15 seconds, half of the relay's 30 second connect wait
+
+    # A relay is recorded only when it ends, which can be long after a
+    # reload. Its record goes in a batch of the config it started with, as a
+    # call's does (Peter, 2026-11-16).
+    Scenario: A relay open during a reload is batched with the config it started with
+      Given the proxy's clock is a test clock, so a wait of minutes passes at once
+      And the transparent listener lists pinned.example.com in passthrough
+      When the app connects to the listener naming pinned.example.com in the handshake
+      And the config is changed and reloaded
+      And the app connects to the listener naming pinned.example.com in the handshake
+      And the app closes its connections
+      And both relays' records are made and 10 seconds pass
+      Then the two relays' records are in two batches of one chain, each naming its own config
+
     Scenario: Stopping the proxy ends a relay
       Given the transparent listener lists pinned.example.com in passthrough
       When the app connects to the listener naming pinned.example.com in the handshake

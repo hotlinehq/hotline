@@ -10,12 +10,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// The events of the two kinds of log record the proxy writes.
-const (
-	callEvent  = "hotline.request"
-	batchEvent = "hotline.ledger.batch"
-)
-
 // waitingBatches is how many batch records wait for one destination at
 // most. Past it the oldest is let go, and the next one sent says how many
 // were lost (Peter, 2026-11-16).
@@ -25,27 +19,45 @@ const waitingBatches = 64
 // before it is tried again.
 const batchRetry = time.Second
 
-// Batch is one ledger batch record: its signed attributes, the same for
-// every destination, and what each destination that keeps the ledger adds
-// on its own, such as the records it dropped, in the order Ledgers counts
-// them.
+// shownDropped is how many dropped records a batch record lists at most,
+// by index and hash; past it, only their count.
+const shownDropped = 1024
+
+// Batch is one ledger batch record: its id and its signed attributes, the
+// same for every destination. Each destination adds the records of the
+// batch it dropped on its own.
 type Batch struct {
+	ID    string
 	At    time.Time
 	Attrs []attribute.KeyValue
-	Own   [][]attribute.KeyValue
 }
 
 // Batch queues a batch record for every destination that keeps the
 // ledger. It never blocks and is never refused for a full queue: it waits
 // apart from the records, after them.
 func (s *Sink) Batch(b Batch) {
-	for i, line := range s.batches {
-		var own []attribute.KeyValue
-		if i < len(b.Own) {
-			own = b.Own[i]
-		}
-		line.add(b, own)
+	for _, line := range s.batches {
+		line.add(b)
 	}
+}
+
+// batchDrops are the records of one batch a destination dropped: the
+// first shownDropped of them, and how many in all.
+type batchDrops struct {
+	shown []attribute.Value
+	count int
+}
+
+// own is what the destination adds to the batch's record: the records it
+// dropped, or only their count when there are too many to list.
+func (d *batchDrops) own() []attribute.KeyValue {
+	switch {
+	case d == nil || d.count == 0:
+		return nil
+	case d.count > shownDropped:
+		return []attribute.KeyValue{attribute.Int("hotline.batch.dropped_count", d.count)}
+	}
+	return []attribute.KeyValue{attribute.Slice("hotline.batch.dropped", d.shown...)}
 }
 
 // batchLine holds the batch records waiting for one destination and sends
@@ -63,6 +75,9 @@ type batchLine struct {
 
 	mu      sync.Mutex
 	waiting []waitingBatch
+	// drops are the records the destination dropped, by the batch they
+	// belong to, until that batch's record is queued.
+	drops map[string]*batchDrops
 	// lost counts batch records let go since the last one sent.
 	lost int64
 
@@ -79,15 +94,32 @@ type waitingBatch struct {
 
 func newBatchLine(name string, logger *slog.Logger, before func(context.Context) error, send func(context.Context, [][]byte) error, render func(Batch, []attribute.KeyValue) []byte) *batchLine {
 	l := &batchLine{
-		name: name, logger: logger, before: before, send: send, render: render,
+		name: name, logger: logger, before: before, send: send, render: render, drops: map[string]*batchDrops{},
 		kick: make(chan struct{}, 1), stop: make(chan struct{}), stopped: make(chan struct{}),
 	}
 	go l.run()
 	return l
 }
 
-func (l *batchLine) add(b Batch, own []attribute.KeyValue) {
+// dropped notes a record the destination dropped, for its batch's record.
+func (l *batchLine) dropped(e Entry) {
 	l.mu.Lock()
+	defer l.mu.Unlock()
+	d := l.drops[e.Batch]
+	if d == nil {
+		d = &batchDrops{}
+		l.drops[e.Batch] = d
+	}
+	d.count++
+	if len(d.shown) < shownDropped {
+		d.shown = append(d.shown, attribute.MapValue(attribute.Int("index", e.Index), attribute.String("hash", e.Hash)))
+	}
+}
+
+func (l *batchLine) add(b Batch) {
+	l.mu.Lock()
+	own := l.drops[b.ID].own()
+	delete(l.drops, b.ID)
 	if len(l.waiting) == waitingBatches {
 		clear(l.waiting[:1])
 		l.waiting = l.waiting[1:]

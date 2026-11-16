@@ -123,7 +123,7 @@ type lineRecord struct {
 	at              time.Time
 	traceID, spanID string
 	attrs           map[string]any
-	spans           []any
+	spans           []export.LineSpan
 	batchID         string
 	index           int64
 	hash            string
@@ -230,29 +230,17 @@ func (v *verifier) readFile(name string) error {
 	return nil
 }
 
-// rawLine is a line as the file exporter writes it.
-type rawLine struct {
-	Time       string         `json:"time"`
-	Event      string         `json:"event"`
-	TraceID    string         `json:"trace_id"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
-	SpanID     string         `json:"span_id"`  //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
-	Attributes map[string]any `json:"attributes"`
-}
-
 func (v *verifier) readLine(at place, data []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var line rawLine
-	if err := decoder.Decode(&line); err != nil || line.Attributes == nil {
+	line, err := export.ReadLine(data)
+	switch {
+	case errors.Is(err, export.ErrNoTime):
+		return fmt.Errorf("%w: %s line %d has no time", errUnreadable, at.file, at.line)
+	case err != nil:
 		return fmt.Errorf("%w: %s line %d is not a line the file exporter writes", errUnreadable, at.file, at.line)
 	}
-	when, err := time.Parse(time.RFC3339Nano, line.Time)
-	if err != nil {
-		return fmt.Errorf("%w: %s line %d has no time", errUnreadable, at.file, at.line)
-	}
 	switch line.Event {
-	case "hotline.ledger.batch":
-		b := &lineBatch{place: at, at: when, attrs: line.Attributes, records: map[int64]*lineRecord{}}
+	case export.BatchEvent:
+		b := &lineBatch{place: at, at: line.Time, attrs: line.Attributes, records: map[int64]*lineRecord{}}
 		if format := b.text("hotline.batch.format"); format != ledger.BatchFormat {
 			return fmt.Errorf("%w: %s line %d: %s is not a known format", errUnreadable, at.file, at.line, safe(format))
 		}
@@ -260,9 +248,8 @@ func (v *verifier) readLine(at place, data []byte) error {
 		if v.o.Integration == "" || b.text("hotline.batch.integration") == v.o.Integration {
 			v.batches = append(v.batches, b)
 		}
-	case "hotline.request":
-		r := &lineRecord{place: at, at: when, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes}
-		r.spans, _ = r.attrs["hotline.trace.spans"].([]any)
+	case export.CallEvent:
+		r := &lineRecord{place: at, at: line.Time, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes, spans: line.Spans}
 		r.batchID = r.text("hotline.batch.id")
 		r.hash = r.text("hotline.record.hash")
 		if n, ok := r.attrs["hotline.batch.index"].(json.Number); ok {
@@ -311,19 +298,11 @@ func (v *verifier) check() {
 	}
 }
 
-// recordLeftOut are the attributes in a line that the record's hash does
-// not cover: the hash itself, the trace's spans, and what content: full
-// adds, which has its own hash.
-func recordLeftOut(name string) bool {
-	return name == "hotline.record.hash" || name == "hotline.trace.spans" ||
-		strings.HasPrefix(name, "hotline.content.") && name != "hotline.content.hash"
-}
-
 func (v *verifier) checkRecord(r *lineRecord, b *lineBatch) {
 	var attrs, content []attribute.KeyValue
 	for name, value := range r.attrs {
 		switch {
-		case !recordLeftOut(name):
+		case ledger.RecordCovers(name):
 			attrs = append(attrs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
 		case strings.HasPrefix(name, "hotline.content.") && !strings.HasSuffix(name, ".body"):
 			content = append(content, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
@@ -683,26 +662,16 @@ func valueOf(v any) attribute.Value {
 }
 
 // lineSpans are the spans a line holds, as the trace's hash covers them.
-func lineSpans(raw []any) []ledger.Span {
+func lineSpans(raw []export.LineSpan) []ledger.Span {
 	spans := make([]ledger.Span, 0, len(raw))
-	for _, item := range raw {
-		s, _ := item.(map[string]any)
-		text := func(name string) string {
-			t, _ := s[name].(string)
-			return t
-		}
-		when := func(name string) time.Time {
-			t, _ := time.Parse(time.RFC3339Nano, text(name))
-			return t
-		}
-		attrs, _ := s["attributes"].(map[string]any)
-		kvs := make([]attribute.KeyValue, 0, len(attrs))
-		for name, value := range attrs {
+	for _, s := range raw {
+		kvs := make([]attribute.KeyValue, 0, len(s.Attributes))
+		for name, value := range s.Attributes {
 			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
 		}
 		spans = append(spans, ledger.Span{
-			ID: text("span_id"), Parent: text("parent_span_id"), Name: text("name"), Kind: text("kind"),
-			Start: when("start_time"), End: when("end_time"), Status: text("status"), Attrs: kvs,
+			ID: s.ID, Parent: s.Parent, Name: s.Name, Kind: s.Kind,
+			Start: s.Start, End: s.End, Status: s.Status, Attrs: kvs,
 		})
 	}
 	return spans

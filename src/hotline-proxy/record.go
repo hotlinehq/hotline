@@ -53,7 +53,7 @@ type failure struct {
 func (c *call) failure() failure {
 	if c.respBody != nil {
 		if _, err := c.respBody.counts(); err != nil {
-			return failure{errorType: "http_response_incomplete", step: "receive reply"}
+			return failure{errorType: "http_response_incomplete", step: stepReceive}
 		}
 	}
 	return failure{errorType: c.errorType, step: c.failedStep}
@@ -131,7 +131,7 @@ func (c *call) record(end time.Time) finished {
 		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
 		content = c.withBodies(content)
 	}
-	return finished{cfg: c.cfg, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
+	return finished{cfg: c.cfg, chain: c.integration.Name, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
 }
 
 // content is what content: full adds to the record for the file
@@ -200,11 +200,14 @@ func (c *call) sentAddress() string {
 func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skipped string) []export.Span {
 	check := export.Span{
 		ID: tracectx.NewSpanID(), Parent: c.trace.SpanID(), Name: name, Kind: trace.SpanKindInternal,
-		Start: s.start, End: s.end, Failed: len(found) > 0, OK: len(found) == 0 && skipped == "",
+		Start: s.start, End: s.end, Status: export.FailedIf(len(found) > 0),
+	}
+	if len(found) == 0 && skipped == "" {
+		check.Status = export.StatusOK
 	}
 	wait := export.Span{
 		ID: tracectx.NewSpanID(), Parent: check.ID, Name: "wait for check worker", Kind: trace.SpanKindInternal,
-		Start: s.start, End: s.waited, Failed: s.dropped,
+		Start: s.start, End: s.waited, Status: export.FailedIf(s.dropped),
 	}
 	if s.dropped {
 		wait.Attrs = []attribute.KeyValue{semconv.ErrorTypeKey.String("overloaded")}
@@ -215,10 +218,10 @@ func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skippe
 // refused records a request the proxy read but did not forward, with a
 // minimal record and a trace of the call span alone. The vendor host is in
 // it only when the request named one.
-func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, target *url.URL, status int) {
+func (h *handler) refused(r *http.Request, start time.Time, cfg *config.Config, ingress, id string, target *url.URL, status int) {
 	s := short{
 		id: id, ingress: ingress, client: clientIP(r.RemoteAddr), method: r.Method, status: status,
-		errorType: "http_request_error", header: r.Header, start: start, exchange: true,
+		errorType: "http_request_error", header: r.Header, start: start, cfg: cfg, exchange: true,
 	}
 	if target != nil {
 		s.host = strings.ToLower(target.Hostname())
@@ -249,6 +252,10 @@ type short struct {
 	// nil when there was no request.
 	header http.Header
 	start  time.Time
+	// cfg is the config in use when the connection or request arrived. A
+	// relay can last long past a reload, and its record still belongs to
+	// the config it ran under (ledger decision 11).
+	cfg *config.Config
 	// exchange says the app sent an HTTP request. Only then does the
 	// record carry each side's body hash, of zero bytes, since no body was
 	// read (ledger decision 8, Peter, 2026-11-16).
@@ -282,8 +289,8 @@ func (h *handler) recordShort(s short) {
 		attrs = append(attrs, semconv.ErrorTypeKey.String(s.errorType))
 	}
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(s.start, end)))
-	cfg := h.cfg.Load()
-	traced, parent, _ := traceOf(cfg.Integration(s.id), s.header, s.start)
+	integration := s.cfg.Integration(s.id)
+	traced, parent, _ := traceOf(integration, s.header, s.start)
 	if s.exchange {
 		attrs = append(attrs,
 			attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
@@ -291,10 +298,10 @@ func (h *handler) recordShort(s short) {
 	}
 	spans := []export.Span{callSpan(traced, parent, s.start, end, s.errorType != "")}
 	if s.appTLS != nil {
-		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
-			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Failed: true})
+		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: stepAppTLS,
+			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Status: export.StatusError})
 	}
-	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: s.cfg, chain: integration.Name, sc: traced, at: s.start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.
@@ -302,7 +309,10 @@ type finished struct {
 	// cfg is the config the call started with. The ledger puts the record
 	// in a batch of that config, even when a reload came before the
 	// record was made (Peter, 2026-11-16).
-	cfg   *config.Config
+	cfg *config.Config
+	// chain is the ledger chain the record goes in: its integration's
+	// name in that config, or not-passed.
+	chain string
 	sc    trace.SpanContext
 	at    time.Time
 	attrs []attribute.KeyValue

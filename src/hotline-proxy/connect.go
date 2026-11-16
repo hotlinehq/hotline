@@ -67,17 +67,17 @@ func (p process) attributes() []attribute.KeyValue {
 // byte is not TLS carries plain HTTP. Either way the tunnel is then handed
 // to the HTTP server like any other app connection, and each call in it is
 // a call on the CONNECT ingress.
-func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time, li *listening) {
+func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time, cfg *config.Config, li *listening) {
 	t, ok := parseTunnel(r)
 	if !ok {
 		refuse(w, http.StatusBadRequest)
-		h.refused(r, start, "connect", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
+		h.refused(r, start, cfg, "connect", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
 	var err error
 	conn, done := open(w, r)
 	if li.cfg.Load().Connect.Passthrough.Passes(t.host) {
-		h.passedThrough(conn, t, start)
+		h.passedThrough(conn, t, start, cfg)
 		<-done
 		return
 	}
@@ -96,7 +96,7 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 		a.Conn, a.secure = secure, true
 		a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
 		if err != nil {
-			h.tunnelFailed(r, start, t, a, err)
+			h.tunnelFailed(r, start, cfg, t, a, err)
 			_ = conn.Close()
 		}
 	}
@@ -203,14 +203,14 @@ func (f flushWriter) Write(p []byte) (int, error) {
 
 // tunnelFailed records a tunnel in which TLS failed to set up, with what
 // the CONNECT said, so the record tells which app is missing the issuer.
-func (h *handler) tunnelFailed(r *http.Request, start time.Time, t *tunnel, a *appConn, err error) {
+func (h *handler) tunnelFailed(r *http.Request, start time.Time, cfg *config.Config, t *tunnel, a *appConn, err error) {
 	h.logger.Debug("app TLS setup inside a tunnel failed", "host", t.host, "reason", err.Error())
 	h.own.tlsFailed(err, attribute.String("hotline.ingress", "connect"))
 	// No HTTP call was sent inside the tunnel, so the record has no body
 	// hashes.
 	s := short{
 		id: t.id, ingress: "connect", client: clientIP(r.RemoteAddr), host: t.host, method: r.Method,
-		errorType: untrustedOr(err), header: r.Header, start: start,
+		errorType: untrustedOr(err), header: r.Header, start: start, cfg: cfg,
 	}
 	if from, to, timed := a.handshakeTime(); timed {
 		s.appTLS = &[2]time.Time{from, to}

@@ -1,6 +1,7 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"sync/atomic"
@@ -50,3 +51,11 @@ func (t TestQueue) Flush(ctx context.Context) error { return t.q.ForceFlush(ctx)
 
 // Shutdown stops the queue.
 func (t TestQueue) Shutdown(ctx context.Context) error { return t.q.Shutdown(ctx) }
+
+// LineOf is a call's line as a file exporter writes it, with content:
+// full.
+func LineOf(c Call) []byte {
+	buf := &bytes.Buffer{}
+	appendLine(buf, nil, c, true)
+	return buf.Bytes()
+}

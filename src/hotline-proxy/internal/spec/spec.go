@@ -69,46 +69,24 @@ type document struct {
 	Servers      []struct {
 		URL string `yaml:"url"`
 	} `yaml:"servers"`
-	Paths      map[string]pathItem `yaml:"paths"`
-	Components struct {
-		SecuritySchemes map[string]securityScheme `yaml:"securitySchemes"`
-	} `yaml:"components"`
+	Paths map[string]pathItem `yaml:"paths"`
 }
 
+// pathItem lists a path's methods. Everything else about a route, its
+// parameters, replies and x-hotline-redact marks included, is read by the
+// builder, which follows $ref.
 type pathItem struct {
-	Parameters []parameter `yaml:"parameters"`
-	Get        *operation  `yaml:"get"`
-	Put        *operation  `yaml:"put"`
-	Post       *operation  `yaml:"post"`
-	Delete     *operation  `yaml:"delete"`
-	Options    *operation  `yaml:"options"`
-	Head       *operation  `yaml:"head"`
-	Patch      *operation  `yaml:"patch"`
-	Trace      *operation  `yaml:"trace"`
+	Get     *operation `yaml:"get"`
+	Put     *operation `yaml:"put"`
+	Post    *operation `yaml:"post"`
+	Delete  *operation `yaml:"delete"`
+	Options *operation `yaml:"options"`
+	Head    *operation `yaml:"head"`
+	Patch   *operation `yaml:"patch"`
+	Trace   *operation `yaml:"trace"`
 }
 
-type operation struct {
-	Parameters []parameter         `yaml:"parameters"`
-	Responses  map[string]response `yaml:"responses"`
-}
-
-type response struct {
-	Headers map[string]struct {
-		Redact any `yaml:"x-hotline-redact"` //nolint:tagliatelle // the name of our OpenAPI extension
-	} `yaml:"headers"`
-}
-
-type parameter struct {
-	Name   string `yaml:"name"`
-	In     string `yaml:"in"`
-	Redact any    `yaml:"x-hotline-redact"` //nolint:tagliatelle // the name of our OpenAPI extension
-}
-
-type securityScheme struct {
-	Type string `yaml:"type"`
-	In   string `yaml:"in"`
-	Name string `yaml:"name"`
-}
+type operation struct{}
 
 // Parse reads and checks a spec. name only labels the problems it reports.
 // newEngine makes the engine that checks values against the spec's JSON
@@ -143,7 +121,7 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 					ErrInvalid, name, template, segment))
 			}
 		}
-		for method, op := range item.operations() {
+		for method := range item.operations() {
 			r := route{
 				method:   method,
 				template: template,
@@ -151,29 +129,22 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 				words:    words,
 				rest:     strings.HasSuffix(segments[len(segments)-1], "+}"),
 				segments: segments,
-				marks:    map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "reply": {}},
 			}
 			where := fmt.Sprintf("%s %s %s", name, method, template)
 			r.checks = b.checks(key, strings.ToLower(method), where)
 			r.checks.request = b.requestCheck(r.checks, segments, where)
-			// The method's own entries come last, so they win.
-			for _, p := range append(append([]parameter{}, item.Parameters...), op.Parameters...) {
-				problems = r.addMark(problems, where, p.In, p.Name, p.Redact)
-			}
-			for _, reply := range op.Responses {
-				for header, h := range reply.Headers {
-					problems = r.addMark(problems, where, "reply", header, h.Redact)
-				}
-			}
+			r.marks = r.checks.marks
 			s.routes = append(s.routes, r)
 		}
 	}
-	for _, scheme := range doc.Components.SecuritySchemes {
-		switch {
-		case scheme.Type == "apiKey" && scheme.In == "header":
-			s.secretHeaders[strings.ToLower(scheme.Name)] = true
-		case scheme.Type == "apiKey" && scheme.In == "query":
-			s.secretQuery[scheme.Name] = true
+	// What the security section says apps send to log in is secret. The
+	// Authorization header that other ways use is never recorded anyway.
+	for _, cred := range b.schemes {
+		switch cred.in {
+		case "header":
+			s.secretHeaders[strings.ToLower(cred.name)] = true
+		case "query":
+			s.secretQuery[cred.name] = true
 		}
 	}
 	problems = append(problems, b.problems...)
@@ -244,26 +215,4 @@ func (p pathItem) operations() map[string]*operation {
 		}
 	}
 	return all
-}
-
-func (r route) addMark(problems []error, where, in, name string, value any) []error {
-	var m mark
-	switch value {
-	case nil:
-		return problems
-	case true:
-		m = redact
-	case false:
-		m = keep
-	default:
-		return append(problems, fmt.Errorf("%w: %s: x-hotline-redact on %s must be true or false", ErrInvalid, where, name))
-	}
-	if in != "path" && in != "query" {
-		name = strings.ToLower(name)
-	}
-	// A cookie parameter has no entry: cookies are never recorded.
-	if marks, ok := r.marks[in]; ok {
-		marks[name] = m
-	}
-	return problems
 }

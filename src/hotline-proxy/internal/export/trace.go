@@ -18,11 +18,40 @@ type Span struct {
 	Kind   trace.SpanKind
 	Start  time.Time
 	End    time.Time
-	Failed bool
-	// OK marks a step that proved something went right, such as a check
-	// that passed (Peter, 2026-10-31). Other spans leave it unset.
-	OK    bool
-	Attrs []attribute.KeyValue
+	Status Status
+	Attrs  []attribute.KeyValue
+}
+
+// Status is how a step ended, with OpenTelemetry's three span statuses.
+type Status int
+
+const (
+	// StatusUnset is a step that says nothing either way, most of them.
+	StatusUnset Status = iota
+	// StatusOK is a step that proved something went right, such as a
+	// check that passed (Peter, 2026-10-31).
+	StatusOK
+	// StatusError is a step that failed.
+	StatusError
+)
+
+// String is the status as a file line and a trace's hash write it.
+func (s Status) String() string {
+	switch s {
+	case StatusOK:
+		return "ok"
+	case StatusError:
+		return "error"
+	}
+	return "unset"
+}
+
+// FailedIf is StatusError when failed, and StatusUnset otherwise.
+func FailedIf(failed bool) Status {
+	if failed {
+		return StatusError
+	}
+	return StatusUnset
 }
 
 // trace queues the spans of one call, in the trace sc names, for every

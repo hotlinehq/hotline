@@ -38,6 +38,7 @@ paths:
 2. Path and query values are hidden unless marked `false`.
 3. Headers kept without a mark: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. Any other header is left out, name and all, unless marked `false`. A header marked `true` shows as `REDACTED`.
 4. Never recorded, whatever the mark: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and the login headers and query values named in the spec's security section.
+5. A parameter or header that points to a shared definition with `$ref` (for example `$ref: '#/components/parameters/Customer'`) takes the mark written there.
 
 Detail: [otel-export.md](otel-export.md), [proxy-aws.md](proxy-aws.md).
 

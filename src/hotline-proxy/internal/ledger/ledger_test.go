@@ -123,3 +123,16 @@ var _ = Describe("Batch ids", func() {
 		Expect(next > full).To(BeTrue())
 	})
 })
+
+var _ = Describe("What a record's hash covers", func() {
+	DescribeTable("each attribute of a call's line",
+		func(name string, covered bool) {
+			Expect(ledger.RecordCovers(name)).To(Equal(covered))
+		},
+		Entry("one of the record's own attributes", "hotline.integration.id", true),
+		Entry("the content's own hash", "hotline.content.hash", true),
+		Entry("the record's hash itself", "hotline.record.hash", false),
+		Entry("the trace's spans", "hotline.trace.spans", false),
+		Entry("what content: full adds", "hotline.content.request.body", false),
+	)
+})

@@ -224,6 +224,21 @@ func RecordHash(r Record) [sha256.Size]byte {
 	return w.sum()
 }
 
+// RecordCovers says whether a record's hash covers the attribute named name
+// in the record's file line: every attribute but the hash itself, the
+// trace's spans (hotline.trace.spans, which have their own hash), and what
+// content: full adds under hotline.content.*, which hotline.content.hash
+// covers. The file exporter checks in its tests that it adds nothing else.
+func RecordCovers(name string) bool {
+	switch {
+	case name == "hotline.record.hash", name == "hotline.trace.spans":
+		return false
+	case strings.HasPrefix(name, "hotline.content."):
+		return name == "hotline.content.hash"
+	}
+	return true
+}
+
 // Span is one step of a call's trace, as its hash covers it.
 type Span struct {
 	ID, Parent string

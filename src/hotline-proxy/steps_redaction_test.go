@@ -114,6 +114,41 @@ paths:
 `)
 		return nil
 	})
+	sc.Step(`^a spec whose header X-Debug-Token is a \$ref to a parameter marked x-hotline-redact true$`, func() error {
+		w.useSpec(`openapi: 3.1.0
+paths:
+  /v1/things:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/DebugToken'
+components:
+  parameters:
+    DebugToken: { name: X-Debug-Token, in: header, x-hotline-redact: true }
+`)
+		return nil
+	})
+	sc.Step(`^a spec whose reply header Request-Id is a \$ref to a header marked x-hotline-redact true$`, func() error {
+		w.useSpec(`openapi: 3.1.0
+paths:
+  /v1/things:
+    get:
+      responses:
+        "200":
+          description: ok
+          headers:
+            Request-Id: { $ref: '#/components/headers/RequestId' }
+components:
+  headers:
+    RequestId: { schema: { type: string }, x-hotline-redact: true }
+`)
+		return nil
+	})
+	sc.Step(`^a reply carries "([^:]+): ([^"]*)"$`, func(name, value string) error {
+		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+			rw.Header().Set(name, value)
+		})
+		return w.defaultCall()
+	})
 	sc.Step(`^the record has no attribute for (\S+)$`, func(name string) error {
 		record, err := w.lastRecord()
 		if err != nil {

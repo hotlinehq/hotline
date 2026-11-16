@@ -70,6 +70,10 @@ type checks struct {
 	replies map[string]*reply
 	// request checks the parameters, login and body against the schemas.
 	request RequestCheck
+	// marks hold the x-hotline-redact marks by where the value lives
+	// ("path", "query", "header" and "reply") and then by name. Header
+	// names are lower case.
+	marks map[string]map[string]mark
 }
 
 type param struct {
