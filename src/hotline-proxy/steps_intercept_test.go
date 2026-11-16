@@ -252,6 +252,36 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^both relays' records are made and (\d+) seconds pass$`, func(seconds int) error {
+		if _, err := w.waitRecords(2); err != nil {
+			return err
+		}
+		w.clock.pass(time.Duration(seconds) * time.Second)
+		return nil
+	})
+	sc.Step(`^the two relays' records are in two batches of one chain, each naming its own config$`, func() error {
+		records, err := w.waitRecords(2)
+		if err != nil {
+			return err
+		}
+		// ci-lint is not an integration of the config, so its calls go on
+		// the not-passed chain.
+		batches, err := w.chain("not-passed", 2)
+		if err != nil {
+			return err
+		}
+		first, second := batchOf(batches, records[0]), batchOf(batches, records[1])
+		if first == nil || second == nil {
+			return failf("a relay's record is in no not-passed batch")
+		}
+		if first == second {
+			return failf("both relays' records are in one batch, of config %v", first.attrs["hotline.batch.config"])
+		}
+		if first.attrs["hotline.batch.config"] == second.attrs["hotline.batch.config"] {
+			return failf("both batches name the config %v", first.attrs["hotline.batch.config"])
+		}
+		return checkChain(batches)
+	})
 	sc.Step(`^the name (\S+) has no address$`, func(host string) error {
 		w.vendor(host)
 		w.network.forget(host)

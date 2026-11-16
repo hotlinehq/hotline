@@ -215,10 +215,10 @@ func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skippe
 // refused records a request the proxy read but did not forward, with a
 // minimal record and a trace of the call span alone. The vendor host is in
 // it only when the request named one.
-func (h *handler) refused(r *http.Request, start time.Time, ingress, id string, target *url.URL, status int) {
+func (h *handler) refused(r *http.Request, start time.Time, cfg *config.Config, ingress, id string, target *url.URL, status int) {
 	s := short{
 		id: id, ingress: ingress, client: clientIP(r.RemoteAddr), method: r.Method, status: status,
-		errorType: "http_request_error", header: r.Header, start: start, exchange: true,
+		errorType: "http_request_error", header: r.Header, start: start, cfg: cfg, exchange: true,
 	}
 	if target != nil {
 		s.host = strings.ToLower(target.Hostname())
@@ -249,6 +249,10 @@ type short struct {
 	// nil when there was no request.
 	header http.Header
 	start  time.Time
+	// cfg is the config in use when the connection or request arrived. A
+	// relay can last long past a reload, and its record still belongs to
+	// the config it ran under (ledger decision 11).
+	cfg *config.Config
 	// exchange says the app sent an HTTP request. Only then does the
 	// record carry each side's body hash, of zero bytes, since no body was
 	// read (ledger decision 8, Peter, 2026-11-16).
@@ -282,8 +286,7 @@ func (h *handler) recordShort(s short) {
 		attrs = append(attrs, semconv.ErrorTypeKey.String(s.errorType))
 	}
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(s.start, end)))
-	cfg := h.cfg.Load()
-	traced, parent, _ := traceOf(cfg.Integration(s.id), s.header, s.start)
+	traced, parent, _ := traceOf(s.cfg.Integration(s.id), s.header, s.start)
 	if s.exchange {
 		attrs = append(attrs,
 			attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
@@ -294,7 +297,7 @@ func (h *handler) recordShort(s short) {
 		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
 			Kind: trace.SpanKindInternal, Start: s.appTLS[0], End: s.appTLS[1], Failed: true})
 	}
-	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))
+	h.recordLater(recorded(finished{cfg: s.cfg, sc: traced, at: s.start, attrs: attrs, spans: spans}))
 }
 
 // finished is what a call leaves: its record and its trace.

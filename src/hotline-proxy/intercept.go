@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"hotline-proxy/internal/config"
+
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -149,6 +151,9 @@ type source struct {
 	fallback string
 	// process is the program that made the connection.
 	process process
+	// cfg is the config in use when the connection arrived, which its
+	// record belongs to however long a relay lasts.
+	cfg *config.Config
 }
 
 // ingressAttr is the hotline.ingress attribute of the source's records.
@@ -164,7 +169,7 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination, li *list
 	ic := c.Transparent
 	src := &source{
 		ingress: "transparent", id: ic.Integration, passes: ic.Passes, relays: ic.Relays,
-		certificate: li.signer, port: "443",
+		certificate: li.signer, port: "443", cfg: h.cfg.Load(),
 	}
 	if where != nil {
 		if got, err := where(conn); err == nil {
@@ -298,6 +303,6 @@ func closeWrite(c net.Conn) {
 func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, host, errorType string, extra ...attribute.KeyValue) {
 	h.recordShort(short{
 		id: src.id, ingress: src.ingress, client: clientIP(conn.RemoteAddr().String()), host: host,
-		errorType: errorType, process: src.process, extra: extra, start: start,
+		errorType: errorType, process: src.process, extra: extra, start: start, cfg: src.cfg,
 	})
 }

@@ -75,6 +75,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.calls.Add(1)
 	defer h.calls.Done()
 	start := h.clock.Now()
+	// The config this request runs under, from its start to its record.
+	cfg := h.cfg.Load()
 	a := appConnOf(r)
 	var ingress string
 	var target *url.URL
@@ -86,7 +88,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ingress, id = cmp.Or(a.tunnel.ingress, "connect"), a.tunnel.id
 		target, status = a.tunnel.find(r, a)
 	case r.Method == http.MethodConnect && connects(listeningOf(r)):
-		h.connect(w, r, start, listeningOf(r))
+		h.connect(w, r, start, cfg, listeningOf(r))
 		return
 	default:
 		ingress, target, status = findIngress(r)
@@ -96,11 +98,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != 0 {
 		refuse(w, status)
-		h.refused(r, start, ingress, id, target, status)
+		h.refused(r, start, cfg, ingress, id, target, status)
 		return
 	}
 	host := strings.ToLower(target.Hostname())
-	cfg := h.cfg.Load()
 	// The call's integration, looked up once, with the not-passed entry's
 	// settings where it says nothing.
 	integration := cfg.Integration(id)

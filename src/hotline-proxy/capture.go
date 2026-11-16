@@ -80,19 +80,20 @@ func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request, li *liste
 	h.calls.Add(1)
 	defer h.calls.Done()
 	start := h.clock.Now()
+	cfg := h.cfg.Load()
 	id := integrationID(r.Header)
 	if r.Method != http.MethodConnect {
 		refuse(w, http.StatusMethodNotAllowed)
-		h.refused(r, start, "capture", id, nil, http.StatusMethodNotAllowed)
+		h.refused(r, start, cfg, "capture", id, nil, http.StatusMethodNotAllowed)
 		return
 	}
 	t, ok := parseTunnel(r)
 	if !ok {
 		refuse(w, http.StatusBadRequest)
-		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
+		h.refused(r, start, cfg, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
-	h.captured(w, r, t, li, start)
+	h.captured(w, r, t, li, start, cfg)
 }
 
 // captureProcess reads the program from the capture headers. An unknown
@@ -123,19 +124,19 @@ func captureProcess(h http.Header) (process, error) {
 // an app's connection as the app sent it, to the address the app called, so
 // it is served like an intercepted connection: the site name comes from the
 // TLS handshake, with the CONNECT's host when the handshake names none.
-func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li *listening, start time.Time) {
+func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li *listening, start time.Time, cfg *config.Config) {
 	c := li.cfg.Load().Capture
 	p, err := captureProcess(r.Header)
 	if err != nil {
 		refuse(w, http.StatusBadRequest)
-		h.refused(r, start, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
+		h.refused(r, start, cfg, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
 		return
 	}
 	// A tunnel has no list of ECH outer names to relay: an empty list relays
 	// none, so a program offering ECH sees it rejected and retries without.
 	src := &source{
 		ingress: "capture", id: t.id, passes: c.Passthrough.Passes, relays: config.Passthrough(nil).Passes,
-		certificate: li.signer, port: t.port, fallback: t.host, process: p,
+		certificate: li.signer, port: t.port, fallback: t.host, process: p, cfg: cfg,
 	}
 	conn, done := open(w, r)
 	defer func() { <-done }()
@@ -190,7 +191,7 @@ func startsHTTP(r *bufio.Reader) bool {
 
 // passedThrough relays an ordinary tunnel to a site listed in
 // listen.connect passthrough, untouched.
-func (h *handler) passedThrough(conn net.Conn, t *tunnel, start time.Time) {
-	src := &source{ingress: "connect", id: t.id, port: t.port}
+func (h *handler) passedThrough(conn net.Conn, t *tunnel, start time.Time, cfg *config.Config) {
+	src := &source{ingress: "connect", id: t.id, port: t.port, cfg: cfg}
 	h.relay(src, &bufferedConn{Conn: conn, r: conn}, start, t.host, "passthrough")
 }
