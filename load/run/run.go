@@ -701,9 +701,11 @@ func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fa
 		}
 	}
 	moreAPIs, moreNames := MoreYAML(more)
-	yaml := fmt.Sprintf(`listen:
-  proxy: %q
-  admin: %q
+	yaml := fmt.Sprintf(`admin:
+  address: "tcp://%s"
+listeners:
+  apps:
+    address: "tcp://%s"
 exporters:
   - otlp:
       endpoint: http://%s
@@ -720,7 +722,7 @@ apis:
 %sintegrations:
   - id: bench-shop
     apis: [%s%s]
-`, proxyAddr, adminAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
+`, adminAddr, proxyAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
 	for path, data := range map[string][]byte{cert: vendor.CertPEM, conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
