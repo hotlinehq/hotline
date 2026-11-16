@@ -122,6 +122,19 @@ Feature: Building the request record
     When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
     Then url.full is "https://api.stripe.com/v1/charges?limit=3"
 
+  Scenario: The not-passed entry is the default even when it comes after the integration
+    Given integration talon-shop-a with an api for api.talon.one
+    And the not-passed entry has urlFull on
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
+  Scenario: An integration that says nothing about content follows the not-passed entry
+    Given a file exporter
+    And the not-passed entry has content full
+    And integration talon-shop-a with an api for api.talon.one
+    When the app talon-shop-a calls https://api.stripe.com/v1/charges?limit=3, outside its apis
+    Then url.full is "https://api.stripe.com/v1/charges?limit=3"
+
   Scenario: A call with no integration ID follows the not-passed entry
     Given the not-passed entry has urlFull on
     When a call with no integration ID goes to https://api.stripe.com/v1/charges?limit=3

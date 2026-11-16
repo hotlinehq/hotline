@@ -98,7 +98,7 @@ func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, ver
 // (Peter, 2026-11-16).
 func (b *book) record(ctx context.Context, f finished) {
 	cfg := f.cfg
-	name := cfg.Chain(integrationOf(f.attrs))
+	name := cfg.Integration(integrationOf(f.attrs)).Name
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := b.chains[name]
@@ -178,7 +178,7 @@ func (b *book) reloaded(cfg *config.Config) {
 	defer b.mu.Unlock()
 	// Once stopped, the book has no chains left to end.
 	for name, ch := range b.chains {
-		if cfg.Chain(name) != name {
+		if cfg.Integration(name).Name != name {
 			b.close(ch, true)
 			delete(b.chains, name)
 			b.ended[name] = ch
