@@ -14,9 +14,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-
-	"hotline-proxy/internal/export"
 )
 
 // maxHello is the most the proxy reads to find the first message of a TLS
@@ -200,7 +197,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	first, err := readHello(reader)
 	if err != nil {
 		h.own.tlsFailed(err, src.ingressAttr())
-		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("not_tls"))
+		h.interceptRecord(src, conn, start, "", "not_tls")
 		_ = conn.Close()
 		return
 	}
@@ -219,11 +216,11 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		// no ECH keys. The program sees ECH rejected and retries without.
 		secure := tls.Server(inner, src.certificate.tlsConfig(host))
 		_, _ = timeHandshake(h.tunnels.ctx, secure, h.clock)
-		h.interceptRecord(src, conn, start, host, semconv.ErrorTypeKey.String("ech_rejected"))
+		h.interceptRecord(src, conn, start, host, "ech_rejected")
 		_ = conn.Close()
 		return
 	case host == "":
-		h.interceptRecord(src, conn, start, "", semconv.ErrorTypeKey.String("no_sni"))
+		h.interceptRecord(src, conn, start, "", "no_sni")
 		_ = conn.Close()
 		return
 	case src.passes(host):
@@ -237,7 +234,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	if err != nil {
 		h.logger.Debug("app TLS setup on an intercepting ingress failed", "ingress", src.ingress, "reason", err.Error())
 		h.own.tlsFailed(err, src.ingressAttr())
-		h.interceptRecord(src, conn, start, host, semconv.ErrorTypeKey.String(untrustedOr(err)))
+		h.interceptRecord(src, conn, start, host, untrustedOr(err))
 		_ = conn.Close()
 		return
 	}
@@ -268,7 +265,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 		if errors.Is(err, errProhibited) {
 			errorType = "destination_ip_prohibited"
 		}
-		h.interceptRecord(src, app.Conn, start, host, append(mode, semconv.ErrorTypeKey.String(errorType))...)
+		h.interceptRecord(src, app.Conn, start, host, errorType, mode...)
 		_ = app.Close()
 		return
 	}
@@ -287,7 +284,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 	<-done
 	_ = app.Close()
 	_ = vendor.Close()
-	h.interceptRecord(src, app.Conn, start, host, mode...)
+	h.interceptRecord(src, app.Conn, start, host, "", mode...)
 }
 
 // closeWrite tells the other side nothing more comes, and keeps reading
@@ -304,26 +301,11 @@ func closeWrite(c net.Conn) {
 
 // interceptRecord records a connection on an intercepting ingress that never
 // became a call: minimal, with the host when the proxy could read one.
-func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, host string, extra ...attribute.KeyValue) {
-	from, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	id := src.id
-	attrs := append([]attribute.KeyValue{
-		attribute.String("hotline.integration.id", orNotPassed(id)),
-		src.ingressAttr(),
-		semconv.ClientAddress(from),
-	}, src.process.attributes()...)
-	if host != "" {
-		attrs = append(attrs, semconv.ServerAddress(host))
-	}
-	failed := false
-	for _, kv := range extra {
-		failed = failed || kv.Key == semconv.ErrorTypeKey
-	}
-	attrs = append(attrs, extra...)
-	end := h.clock.Now()
-	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()))
-	cfg := h.cfg.Load()
-	traced, parent, _ := traceOf(cfg.Integration(id), nil, start)
-	spans := []export.Span{callSpan(traced, parent, start, end, failed)}
-	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: start, attrs: attrs, spans: spans}))
+// errorType is empty when nothing went wrong. The proxy read no HTTP call,
+// so the record has no body hashes.
+func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, host, errorType string, extra ...attribute.KeyValue) {
+	h.recordShort(short{
+		id: src.id, ingress: src.ingress, client: clientIP(conn.RemoteAddr().String()), host: host,
+		errorType: errorType, process: src.process, extra: extra, start: start,
+	})
 }

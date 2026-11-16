@@ -26,11 +26,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/config"
-	"hotline-proxy/internal/export"
-	"hotline-proxy/internal/tracectx"
 )
 
 // tunnel is what a CONNECT named: the vendor host and port, and the
@@ -209,25 +206,16 @@ func (f flushWriter) Write(p []byte) (int, error) {
 func (h *handler) tunnelFailed(r *http.Request, start time.Time, t *tunnel, a *appConn, err error) {
 	h.logger.Debug("app TLS setup inside a tunnel failed", "host", t.host, "reason", err.Error())
 	h.own.tlsFailed(err, attribute.String("hotline.ingress", "connect"))
-	errorType := untrustedOr(err)
-	attrs := []attribute.KeyValue{
-		attribute.String("hotline.integration.id", orNotPassed(t.id)),
-		attribute.String("hotline.ingress", "connect"),
-		clientAddress(r),
-		semconv.ServerAddress(t.host),
-		semconv.HTTPRequestMethodKey.String(r.Method),
-		semconv.ErrorTypeKey.String(errorType),
+	// No HTTP call was sent inside the tunnel, so the record has no body
+	// hashes.
+	s := short{
+		id: t.id, ingress: "connect", client: clientIP(r.RemoteAddr), host: t.host, method: r.Method,
+		errorType: untrustedOr(err), header: r.Header, start: start,
 	}
-	end := h.clock.Now()
-	cfg := h.cfg.Load()
-	traced, parent, _ := traceOf(cfg.Integration(t.id), r.Header, start)
-	spans := []export.Span{callSpan(traced, parent, start, end, true)}
 	if from, to, timed := a.handshakeTime(); timed {
-		spans = append(spans, export.Span{ID: tracectx.NewSpanID(), Parent: traced.SpanID(), Name: "app tls handshake",
-			Kind: trace.SpanKindInternal, Start: from, End: to, Failed: true})
+		s.appTLS = &[2]time.Time{from, to}
 	}
-	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(start).Microseconds()))
-	h.recordLater(recorded(finished{cfg: cfg, sc: traced, at: start, attrs: attrs, spans: spans}))
+	h.recordShort(s)
 }
 
 // find works out the vendor address of a call inside the tunnel. The call
