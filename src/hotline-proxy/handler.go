@@ -134,10 +134,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		in:          r,
 		timeout:     settings.VendorTimeout,
 		transport:   transport,
+		plan:        planFor(api),
 		reqCheck:    newSpecCheck(),
 		replyCheck:  newSpecCheck(),
 	}
-	if api != nil && !api.Spec.NamesActionInBody() {
+	if api != nil && !c.plan.routeInBody {
 		// A search of a few microseconds, even for a spec as large as AWS
 		// SSM's, against a vendor call of milliseconds (Peter, 2026-11-08).
 		c.route = api.Spec.Find(spec.Exchange{
@@ -146,7 +147,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	traced, parent, tracing := traceOf(integration, r.Header, start)
 	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
-	c.reqBody = &tap{ReadCloser: r.Body, limit: keepRequest(api), mac: bodyHash("request", traced), save: saved(integration), pool: &h.bodies, expect: r.ContentLength}
+	c.reqBody = &tap{ReadCloser: r.Body, limit: c.plan.keepRequest, mac: bodyHash("request", traced), save: saved(integration), pool: &h.bodies, expect: r.ContentLength}
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
 	// The call's context, made once: it ignores the app leaving, ends on
@@ -407,6 +408,8 @@ type call struct {
 	reqBody  *tap
 	respBody *tap
 	timedOut atomic.Bool
+	// plan is what the call checks and keeps for that.
+	plan checkPlan
 	// reqCheck and replyCheck check each side against the spec as soon as
 	// it is whole.
 	reqCheck   *specCheck
@@ -464,7 +467,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.respBody = &tap{ReadCloser: resp.Body, limit: keepReply(c.api), mac: bodyHash("response", c.trace), save: saved(c.integration), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
+	c.respBody = &tap{ReadCloser: resp.Body, limit: c.plan.keepReply, mac: bodyHash("response", c.trace), save: saved(c.integration), pool: &c.h.bodies, expect: resp.ContentLength, done: func() {
 		out := c.h.clock.Now()
 		c.mark(func() { c.vendorOut = out })
 		c.checkReply(out, resp)
@@ -642,23 +645,41 @@ type upgraded struct {
 // keptBody is how much of each body the proxy keeps for the checks.
 const keptBody = 2 << 20
 
-// keepRequest is how much of the request body to keep: none for a call
-// that is not checked, and none when the api checks no body, unless the
-// spec names the route's action in the body.
-func keepRequest(api *config.API) int {
-	if api == nil || !api.Checks.Has(config.PartBody) && !api.Spec.NamesActionInBody() {
-		return 0
-	}
-	return keptBody
+// checkPlan is what a call checks against its spec and what it keeps for
+// that, worked out once from its api, so the rule lives in one place
+// (Peter, 2026-11-16, from the decomplect review). A call with no api
+// checks and keeps nothing.
+type checkPlan struct {
+	// routeInBody says the spec names the call's action in the body: the
+	// request's check finds the route, and the reply's check waits for it.
+	routeInBody bool
+	// request and reply say whether each side is checked. The request is
+	// also read when the route is in its body.
+	request bool
+	reply   bool
+	// keepRequest and keepReply are how much of each body is kept for the
+	// checks: none for a body that is not checked, unless the route is in
+	// the request's.
+	keepRequest int
+	keepReply   int
 }
 
-// keepReply is how much of the reply body to keep: none when it is not
-// checked.
-func keepReply(api *config.API) int {
-	if api == nil || !api.Checks.Has(config.PartReplyBody) {
-		return 0
+func planFor(api *config.API) checkPlan {
+	if api == nil {
+		return checkPlan{}
 	}
-	return keptBody
+	p := checkPlan{
+		routeInBody: api.Spec.NamesActionInBody(),
+		reply:       api.Checks.Any(config.ReplyParts),
+	}
+	p.request = p.routeInBody || api.Checks.Any(config.RequestParts)
+	if p.routeInBody || api.Checks.Has(config.PartBody) {
+		p.keepRequest = keptBody
+	}
+	if api.Checks.Has(config.PartReplyBody) {
+		p.keepReply = keptBody
+	}
+	return p
 }
 
 // saved is how much of each body to keep for the file exporters: up to

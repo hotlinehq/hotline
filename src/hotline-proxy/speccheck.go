@@ -60,18 +60,13 @@ func (s *specCheck) wait() bool {
 
 // checkRequest starts the check of the request.
 func (c *call) checkRequest(start time.Time) {
-	if c.api == nil {
-		return
-	}
-	// With no request part to check, the route is already found, unless
-	// the spec names it in the body.
-	if !c.api.Checks.Any(config.RequestParts) && !c.api.Spec.NamesActionInBody() {
+	if !c.plan.request {
 		return
 	}
 	c.reqCheck.begin(start, c.h.checks, c.reqBody, nil, func() (spec.Checked, spec.Route) {
 		body := c.reqBody.copied()
 		route := c.route
-		if c.api.Spec.NamesActionInBody() {
+		if c.plan.routeInBody {
 			// The route is in the body, so this check finds it, and hands
 			// it back with what it found.
 			route = c.api.Spec.Find(spec.Exchange{
@@ -96,11 +91,11 @@ func (c *call) checkRequest(start time.Time) {
 
 // checkReply starts the check of the reply.
 func (c *call) checkReply(start time.Time, resp *http.Response) {
-	if c.api == nil || resp == nil || !c.api.Checks.Any(config.ReplyParts) {
+	if resp == nil || !c.plan.reply {
 		return
 	}
 	var after <-chan struct{}
-	if c.api.Spec.NamesActionInBody() {
+	if c.plan.routeInBody {
 		// The route is known only once the request's check has read the
 		// body, so the reply's check joins the line after it, and never
 		// holds a worker while it waits. finish starts the request check
@@ -128,7 +123,7 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 // once the request's check has ended; a check that gave way in a full
 // line found no route.
 func (c *call) specRoute() spec.Route {
-	if c.api.Spec.NamesActionInBody() {
+	if c.plan.routeInBody {
 		return c.reqCheck.route
 	}
 	return c.route
