@@ -40,6 +40,25 @@ func (c *call) finish() {
 // what the spec check found, and the ledger's hashes and place.
 const recordRoom = 44
 
+// failure is what went wrong with a call, if anything: the RFC 9209 error
+// name, and the step it went wrong in.
+type failure struct {
+	errorType string
+	step      string
+}
+
+// failure is how the call failed: as fail noted, or, for a reply the
+// vendor broke off after it began, in the step that received it. It only
+// reads the call, which is locked.
+func (c *call) failure() failure {
+	if c.respBody != nil {
+		if _, err := c.respBody.counts(); err != nil {
+			return failure{errorType: "http_response_incomplete", step: "receive reply"}
+		}
+	}
+	return failure{errorType: c.errorType, step: c.failedStep}
+}
+
 // record builds the call's record and trace, once its checks have ended.
 func (c *call) record(end time.Time) finished {
 	c.reqCheck.wait()
@@ -58,13 +77,9 @@ func (c *call) record(end time.Time) finished {
 		semconv.HTTPResponseStatusCode(c.status),
 	)
 	attrs = append(attrs, c.process.attributes()...)
-	if c.respBody != nil {
-		if _, err := c.respBody.counts(); err != nil {
-			c.errorType, c.failedStep = "http_response_incomplete", "receive reply"
-		}
-	}
-	if c.errorType != "" {
-		attrs = append(attrs, semconv.ErrorTypeKey.String(c.errorType))
+	failed := c.failure()
+	if failed.errorType != "" {
+		attrs = append(attrs, semconv.ErrorTypeKey.String(failed.errorType))
 	}
 	if c.peer != "" {
 		// The IP the proxy connected to, after DNS and any try at a
@@ -73,7 +88,7 @@ func (c *call) record(end time.Time) finished {
 	}
 	opened := c.opened()
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", end.Sub(opened).Microseconds()))
-	spans := c.spans(opened, end)
+	spans := c.spans(opened, end, failed)
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
 		requested := c.reqCheck.started.Load()
@@ -347,7 +362,7 @@ func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
 		replyHeaders = c.resp.Header
 	}
 	// record waited for both checks, so the route is found by now.
-	redacted := c.api.Spec.Redact(c.route, spec.Call{
+	redacted := c.api.Spec.Redact(c.specRoute(), spec.Call{
 		Origin:       origin,
 		EscapedPath:  c.target.EscapedPath(),
 		RawQuery:     c.target.RawQuery,

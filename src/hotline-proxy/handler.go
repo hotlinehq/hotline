@@ -411,10 +411,10 @@ type call struct {
 	// it is whole.
 	reqCheck   *specCheck
 	replyCheck *specCheck
-	// route is the call's route in the spec, found once. For most specs
-	// the call finds it as it starts, before any check exists. For a spec
-	// that names its action in the body, the request's check finds it, and
-	// the reply's check and the record read it only once that check ended.
+	// route is the call's route in the spec, found as the call starts,
+	// before any check exists, and never changed. A spec that names its
+	// action in the body has none here: the request's check finds it and
+	// hands it back with its results (see specRoute).
 	route spec.Route
 
 	mu        sync.Mutex
