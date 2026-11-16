@@ -10,12 +10,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// The events of the two kinds of log record the proxy writes.
-const (
-	callEvent  = "hotline.request"
-	batchEvent = "hotline.ledger.batch"
-)
-
 // waitingBatches is how many batch records wait for one destination at
 // most. Past it the oldest is let go, and the next one sent says how many
 // were lost (Peter, 2026-11-16).

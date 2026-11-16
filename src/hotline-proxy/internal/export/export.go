@@ -192,7 +192,7 @@ func New(exporters []config.Exporter, files []config.FileExporter, console *conf
 			body := appendBatch(nil, written, items)
 			return sendWithRetry(ctx, t, records, body, timing.Timeout)
 		}, func(b Batch, attrs []attribute.KeyValue) []byte {
-			return appendRecord(nil, batchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
+			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
 		}))
 	}
 	for _, f := range s.files {
@@ -359,7 +359,7 @@ func (s *Sink) line(c Call, withContent bool) []byte {
 // The record is written once, for every destination.
 func (s *Sink) record(ctx context.Context, at time.Time, attrs []attribute.KeyValue, taken []bool) []bool {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], callEvent, at, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
+	b := appendRecord((*scratch)[:0], CallEvent, at, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)

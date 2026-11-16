@@ -35,7 +35,7 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 		jsontext.BeginObject,
 		jsontext.String("time"), jsontext.String(timeText(c.At)),
 		jsontext.String("severity"), jsontext.String(level(c.Attrs).String()),
-		jsontext.String("event"), jsontext.String("hotline.request"),
+		jsontext.String("event"), jsontext.String(CallEvent),
 		jsontext.String("trace_id"), jsontext.String(c.Trace.TraceID().String()),
 		jsontext.String("span_id"), jsontext.String(c.Trace.SpanID().String()),
 		jsontext.String("resource"),
@@ -46,7 +46,7 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 	if withContent {
 		w.entries(c.Content)
 	}
-	w.put(jsontext.String("hotline.trace.spans"), jsontext.BeginArray)
+	w.put(jsontext.String(TraceSpans), jsontext.BeginArray)
 	for _, s := range c.Spans {
 		w.span(s)
 	}
@@ -62,7 +62,7 @@ func appendBatchLine(buf *bytes.Buffer, resource []attribute.KeyValue, at time.T
 		jsontext.BeginObject,
 		jsontext.String("time"), jsontext.String(timeText(at)),
 		jsontext.String("severity"), jsontext.String("INFO"),
-		jsontext.String("event"), jsontext.String(batchEvent),
+		jsontext.String("event"), jsontext.String(BatchEvent),
 		jsontext.String("resource"),
 	)
 	w.object(resource)
