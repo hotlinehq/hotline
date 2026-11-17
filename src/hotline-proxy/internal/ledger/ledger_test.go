@@ -136,3 +136,38 @@ var _ = Describe("What a record's hash covers", func() {
 		Entry("what content: full adds", "hotline.content.request.body", false),
 	)
 })
+
+var _ = Describe("Hashing a body", func() {
+	ids := func() ([16]byte, [8]byte) { return [16]byte{1, 2, 3}, [8]byte{4, 5, 6} }
+
+	// The proxy can still be reading a request body when the call's record
+	// takes its hash; the bytes that come later are not in the hash.
+	It("ignores bytes written after the hash is taken", func() {
+		var h ledger.Hasher
+		trace, span := ids()
+		body := h.Body("request", trace, span)
+		_, _ = body.Write([]byte("hello"))
+		sum := body.Sum()
+		n, err := body.Write([]byte(" and more"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(n).To(Equal(9))
+		Expect(body.Sum()).To(Equal(sum))
+		other := h.Body("request", trace, span)
+		_, _ = other.Write([]byte("hello"))
+		Expect(other.Sum()).To(Equal(sum))
+	})
+})
+
+var _ = Describe("Hashing a trace", func() {
+	It("leaves the caller's spans in their own order", func() {
+		at := time.Unix(1_700_000_000, 0)
+		spans := []ledger.Span{
+			{ID: "b", Name: "later", Start: at.Add(time.Millisecond), End: at.Add(2 * time.Millisecond)},
+			{ID: "a", Name: "first", Start: at, End: at.Add(time.Millisecond)},
+		}
+		var h ledger.Hasher
+		_ = h.Trace("0102", spans)
+		Expect(spans[0].Name).To(Equal("later"))
+		Expect(spans[1].Name).To(Equal("first"))
+	})
+})

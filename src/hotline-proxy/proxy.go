@@ -178,7 +178,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
-	h.book = newBook(o.Clock, sink, cfg, o.InstanceID, o.Version, h.cfg.Load, &h.hashes)
+	h.book = newBook(o.Clock, sink, cfg, o.InstanceID, o.Version, h.cfg.Load)
 	o.Logger.Info("ledger batches", "every", cfg.Ledger.Every.String(), "max_records", cfg.Ledger.MaxRecords)
 	workers := o.CheckWorkers
 	if workers == 0 {

@@ -89,8 +89,7 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 		r.records.add(counted.n)
 	case strings.HasSuffix(req.URL.Path, "/v1/traces"):
 		r.spans.add(counted.n)
-	}
-	if strings.HasSuffix(req.URL.Path, "/v1/metrics") {
+	case strings.HasSuffix(req.URL.Path, "/v1/metrics"):
 		var export colmetrics.ExportMetricsServiceRequest
 		if err := proto.Unmarshal(data, &export); err != nil {
 			http.Error(w, "bad OTLP metrics", http.StatusBadRequest)

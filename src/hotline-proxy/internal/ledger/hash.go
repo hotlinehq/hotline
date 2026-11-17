@@ -46,9 +46,11 @@ type writer struct {
 	h   hash.Hash
 	buf [512]byte
 	n   int
-	// sorted is room to sort attributes in, kept with the writer so a
-	// reused writer sorts without making a new list.
+	// sorted and spans are room to sort attributes and spans in, kept
+	// with the writer so a reused writer sorts without making a new list,
+	// and the caller's own list is never changed.
 	sorted []attribute.KeyValue
+	spans  []Span
 }
 
 func newWriter() *writer { return &writer{h: sha256.New()} }
@@ -74,6 +76,8 @@ func (h *Hasher) sum(w *writer) [sha256.Size]byte {
 	w.h.Reset()
 	clear(w.sorted)
 	w.sorted = w.sorted[:0]
+	clear(w.spans)
+	w.spans = w.spans[:0]
 	h.writers.Put(w)
 	return out
 }
@@ -247,7 +251,8 @@ type Record struct {
 
 // RecordHash is the hash of a record: the word hotline.record.v1, every
 // attribute sorted by name, then the time in microseconds since 1970, the
-// trace id and the span id as hex.
+// trace id and the span id as hex. It is the one-off form, for verify; the
+// proxy reuses writers through a Hasher.
 func RecordHash(r Record) [sha256.Size]byte { return (&Hasher{}).Record(r) }
 
 // Record is RecordHash, with a reused writer.
@@ -289,24 +294,25 @@ type Span struct {
 // trace id, then each span in start order, a tie going by span id: its span
 // id, parent span id (empty for none), name, kind, start and end in
 // microseconds, status and number of attributes, then its attributes sorted
-// by name. It sorts spans in place, so the caller passes a list it does
-// not need in its own order.
+// by name. It is the one-off form, for verify; the proxy reuses writers
+// through a Hasher.
 func TraceHash(traceID string, spans []Span) [sha256.Size]byte {
 	return (&Hasher{}).Trace(traceID, spans)
 }
 
-// Trace is TraceHash, with a reused writer. It sorts spans in place too.
+// Trace is TraceHash, with a reused writer.
 func (h *Hasher) Trace(traceID string, spans []Span) [sha256.Size]byte {
-	slices.SortFunc(spans, func(a, b Span) int {
+	w := h.writer()
+	w.spans = append(w.spans[:0], spans...)
+	slices.SortFunc(w.spans, func(a, b Span) int {
 		if c := cmp.Compare(a.Start.UnixMicro(), b.Start.UnixMicro()); c != 0 {
 			return c
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	w := h.writer()
 	w.piece(traceFormat)
 	w.entry(attribute.String("trace.trace_id", traceID))
-	for _, s := range spans {
+	for _, s := range w.spans {
 		w.entry(attribute.String("span.span_id", s.ID))
 		w.entry(attribute.String("span.parent_span_id", s.Parent))
 		w.entry(attribute.String("span.name", s.Name))
@@ -322,7 +328,8 @@ func (h *Hasher) Trace(traceID string, spans []Span) [sha256.Size]byte {
 
 // ContentHash is the hash of what content: full adds to a record, the
 // bodies apart, as they have their own hashes: the word hotline.content.v1,
-// then every attribute sorted by name.
+// then every attribute sorted by name. It is the one-off form, for verify;
+// the proxy reuses writers through a Hasher.
 func ContentHash(attrs []attribute.KeyValue) [sha256.Size]byte {
 	return (&Hasher{}).Content(attrs)
 }
@@ -347,7 +354,8 @@ type BodyHash struct {
 // NewBodyHash starts a body's hash: the word hotline.body.v1, the side
 // (request or response), the trace id's 16 bytes and the span id's 8 bytes.
 // The ids are a public salt: they keep two calls with the same body from
-// having the same hash.
+// having the same hash. It is the one-off form, for verify; the proxy
+// reuses writers through a Hasher.
 func NewBodyHash(side string, traceID [16]byte, spanID [8]byte) *BodyHash {
 	return (&Hasher{}).Body(side, traceID, spanID)
 }
@@ -362,14 +370,18 @@ func (h *Hasher) Body(side string, traceID [16]byte, spanID [8]byte) *BodyHash {
 	return &BodyHash{h: h, w: w}
 }
 
-// Write adds body bytes. It never fails.
+// Write adds body bytes. It never fails. Bytes written after Sum are not
+// in the hash: the proxy can still be reading a request body when the
+// call's record takes its hash.
 func (b *BodyHash) Write(p []byte) (int, error) {
-	b.w.write(p)
+	if b.w != nil {
+		b.w.write(p)
+	}
 	return len(p), nil
 }
 
-// Sum is the body's hash as text. Nothing may be written after it; asking
-// again gives the same text.
+// Sum is the body's hash as text, and hands the writer back to its Hasher.
+// Asking again gives the same text.
 func (b *BodyHash) Sum() string {
 	if b.w != nil {
 		b.text = Text(b.h.sum(b.w))

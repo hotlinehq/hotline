@@ -31,8 +31,8 @@ type book struct {
 	run     string
 	version string
 	config  func() *config.Config
-	// hashes makes the record and trace hashes, shared with the handler.
-	hashes *ledger.Hasher
+	// hashes makes the record and trace hashes, reusing its writers.
+	hashes ledger.Hasher
 
 	mu     sync.Mutex
 	key    ledger.Key
@@ -72,9 +72,9 @@ type openBatch struct {
 	leaves     [][sha256.Size]byte
 }
 
-func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config, hashes *ledger.Hasher) *book {
+func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
-		clock: clock, sink: sink, instance: instanceID, version: version, config: current, hashes: hashes,
+		clock: clock, sink: sink, instance: instanceID, version: version, config: current,
 		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, ended: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
