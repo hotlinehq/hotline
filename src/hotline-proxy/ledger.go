@@ -53,6 +53,10 @@ type chain struct {
 	previous string
 	// lastID is the id of the newest batch, so the next sorts after it.
 	lastID string
+	// config is the config of the newest batch, which an empty last batch
+	// names too: not the config in use now, which may no longer have this
+	// integration (Peter, 2026-11-17, from the decomplect review).
+	config string
 	open   *openBatch
 }
 
@@ -106,7 +110,7 @@ func (b *book) record(ctx context.Context, f finished) {
 		b.close(ch, false)
 	}
 	if ch.open == nil {
-		ch.lastID = ledger.NewBatchID(b.clock.Now(), ch.lastID)
+		ch.lastID, ch.config = ledger.NewBatchID(b.clock.Now(), ch.lastID), cfg.Digest
 		ch.open = &openBatch{
 			id: ch.lastID, config: cfg.Digest, maxRecords: cfg.Ledger.MaxRecords,
 		}
@@ -191,7 +195,7 @@ func (b *book) close(ch *chain, last bool) {
 	if open == nil {
 		// Only a last batch closes with nothing open: it is sent empty.
 		ch.lastID = ledger.NewBatchID(b.clock.Now(), ch.lastID)
-		open = &openBatch{id: ch.lastID, config: b.config().Digest}
+		open = &openBatch{id: ch.lastID, config: ch.config}
 	}
 	root := ledger.Text(ledger.Root(open.leaves))
 	attrs := []attribute.KeyValue{

@@ -307,6 +307,11 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		w.tunnelErr = errProxyClosed
 		return nil
 	})
+	sc.Step(`^the config file adds (\S+) to the transparent listener's passthrough$`, func(name string) error {
+		w.intercept.passthrough = append(w.intercept.passthrough, name)
+		w.writeFile("hotline-proxy.yaml", w.config())
+		return nil
+	})
 	sc.Step(`^the config file drops the transparent listener$`, func() error {
 		w.intercept = nil
 		w.writeFile("hotline-proxy.yaml", w.config())

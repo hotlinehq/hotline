@@ -222,6 +222,16 @@ Feature: Records a third party can trust
       And refunds is removed from the config and reloaded
       Then the refunds chain ends with a batch with hotline.batch.last true
 
+    # When the chain's batch already closed, its last batch is sent empty.
+    # It names the config of the chain's batches, not the new config, which
+    # has no refunds (Peter, 2026-11-17, from the decomplect review).
+    Scenario: An empty last batch names the config its chain had
+      Given the integrations checkout and refunds
+      When the app sends GET /refunds as refunds
+      And 10 seconds pass
+      And refunds is removed from the config and reloaded
+      Then the refunds chain ends with an empty last batch of the config of the batch before it
+
     # A record is made after the reply has gone back, so a reload can come
     # between a call's start and its record. The record goes in a batch of
     # the config the call started with (Peter, 2026-11-16).

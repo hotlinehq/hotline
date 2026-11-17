@@ -76,7 +76,7 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 	}
 	var err error
 	conn, done := open(w, r)
-	if li.cfg.Load().Connect.Passthrough.Passes(t.host) {
+	if li.settings(cfg).Connect.Passthrough.Passes(t.host) {
 		h.passedThrough(conn, t, start, cfg)
 		<-done
 		return

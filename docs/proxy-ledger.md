@@ -76,7 +76,7 @@ The signature is Ed25519 over the SHA-256 of the word `hotline.batch.v1` and eve
 - A batch closes every 10 seconds, or at 65,536 records. A window with no calls sends no batch.
 - The proxy makes a new key in memory at start, and again every hour. The key is never written anywhere.
 - Each run starts each chain at sequence 0. On a clean stop the proxy sends a last batch for every chain, an empty one too, with `hotline.batch.last`. A chain with no last batch means a crash or a cut-off end.
-- A config reload changes `hotline.batch.config` from the next batch on. An integration added starts its chain at 0; one removed closes its chain with a last batch.
+- A config reload changes `hotline.batch.config` from the next batch on. An integration added starts its chain at 0; one removed closes its chain with a last batch. A last batch sent empty names the config of the chain's batch before it, not the config in use at the time.
 - Every record in a batch is of the config the batch names: the config its call started with, even when a reload came before the record was made. The first record of another config closes the open batch and starts a new one. A record of a call that started before its integration was removed goes on that integration's chain, after its last batch.
 - A batch record is never refused for a full queue. At most 64 wait per exporter; when more pile up the oldest goes, and the next one sent says how many were lost.
 
