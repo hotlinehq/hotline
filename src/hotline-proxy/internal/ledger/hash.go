@@ -14,6 +14,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -45,9 +46,41 @@ type writer struct {
 	h   hash.Hash
 	buf [512]byte
 	n   int
+	// sorted and spans are room to sort attributes and spans in, kept
+	// with the writer so a reused writer sorts without making a new list,
+	// and the caller's own list is never changed.
+	sorted []attribute.KeyValue
+	spans  []Span
 }
 
 func newWriter() *writer { return &writer{h: sha256.New()} }
+
+// Hasher makes the ledger's hashes. It keeps the writers it is done with
+// and uses them again, so a busy proxy does not make a new writer and a new
+// SHA-256 for every hash. The zero value is ready to use, and it is safe
+// for many goroutines at once.
+type Hasher struct{ writers sync.Pool }
+
+// writer is a writer with nothing written yet: a kept one, or a new one.
+func (h *Hasher) writer() *writer {
+	if w, ok := h.writers.Get().(*writer); ok {
+		return w
+	}
+	return newWriter()
+}
+
+// sum is the SHA-256 of everything w wrote. w is kept for the next hash,
+// so the caller must not use it again.
+func (h *Hasher) sum(w *writer) [sha256.Size]byte {
+	out := w.sum()
+	w.h.Reset()
+	clear(w.sorted)
+	w.sorted = w.sorted[:0]
+	clear(w.spans)
+	w.spans = w.spans[:0]
+	h.writers.Put(w)
+	return out
+}
 
 func (w *writer) write(p []byte) {
 	for len(p) > 0 {
@@ -174,11 +207,16 @@ func (w *writer) list(n int) {
 	w.uint(uint64(n)) //nolint:gosec // a count is never negative
 }
 
-// entries writes attributes sorted by name.
+// entries writes attributes sorted by name. Attributes already in order
+// are written as they are; others are sorted in the writer's own room, so
+// the caller's list is never changed.
 func (w *writer) entries(attrs []attribute.KeyValue) {
-	sorted := slices.Clone(attrs)
-	slices.SortFunc(sorted, byKey)
-	for _, kv := range sorted {
+	if !slices.IsSortedFunc(attrs, byKey) {
+		w.sorted = append(w.sorted[:0], attrs...)
+		slices.SortFunc(w.sorted, byKey)
+		attrs = w.sorted
+	}
+	for _, kv := range attrs {
 		w.entry(kv)
 	}
 }
@@ -213,15 +251,19 @@ type Record struct {
 
 // RecordHash is the hash of a record: the word hotline.record.v1, every
 // attribute sorted by name, then the time in microseconds since 1970, the
-// trace id and the span id as hex.
-func RecordHash(r Record) [sha256.Size]byte {
-	w := newWriter()
+// trace id and the span id as hex. It is the one-off form, for verify; the
+// proxy reuses writers through a Hasher.
+func RecordHash(r Record) [sha256.Size]byte { return (&Hasher{}).Record(r) }
+
+// Record is RecordHash, with a reused writer.
+func (h *Hasher) Record(r Record) [sha256.Size]byte {
+	w := h.writer()
 	w.piece(recordFormat)
 	w.entries(r.Attrs)
 	w.entry(attribute.Int64("log.record.timestamp", r.At.UnixMicro()))
 	w.entry(attribute.String("log.record.trace_id", r.TraceID))
 	w.entry(attribute.String("log.record.span_id", r.SpanID))
-	return w.sum()
+	return h.sum(w)
 }
 
 // RecordCovers says whether a record's hash covers the attribute named name
@@ -252,19 +294,25 @@ type Span struct {
 // trace id, then each span in start order, a tie going by span id: its span
 // id, parent span id (empty for none), name, kind, start and end in
 // microseconds, status and number of attributes, then its attributes sorted
-// by name.
+// by name. It is the one-off form, for verify; the proxy reuses writers
+// through a Hasher.
 func TraceHash(traceID string, spans []Span) [sha256.Size]byte {
-	sorted := slices.Clone(spans)
-	slices.SortFunc(sorted, func(a, b Span) int {
+	return (&Hasher{}).Trace(traceID, spans)
+}
+
+// Trace is TraceHash, with a reused writer.
+func (h *Hasher) Trace(traceID string, spans []Span) [sha256.Size]byte {
+	w := h.writer()
+	w.spans = append(w.spans[:0], spans...)
+	slices.SortFunc(w.spans, func(a, b Span) int {
 		if c := cmp.Compare(a.Start.UnixMicro(), b.Start.UnixMicro()); c != 0 {
 			return c
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	w := newWriter()
 	w.piece(traceFormat)
 	w.entry(attribute.String("trace.trace_id", traceID))
-	for _, s := range sorted {
+	for _, s := range w.spans {
 		w.entry(attribute.String("span.span_id", s.ID))
 		w.entry(attribute.String("span.parent_span_id", s.Parent))
 		w.entry(attribute.String("span.name", s.Name))
@@ -275,41 +323,69 @@ func TraceHash(traceID string, spans []Span) [sha256.Size]byte {
 		w.entry(attribute.Int("span.attribute_count", len(s.Attrs)))
 		w.entries(s.Attrs)
 	}
-	return w.sum()
+	return h.sum(w)
 }
 
 // ContentHash is the hash of what content: full adds to a record, the
 // bodies apart, as they have their own hashes: the word hotline.content.v1,
-// then every attribute sorted by name.
+// then every attribute sorted by name. It is the one-off form, for verify;
+// the proxy reuses writers through a Hasher.
 func ContentHash(attrs []attribute.KeyValue) [sha256.Size]byte {
-	w := newWriter()
+	return (&Hasher{}).Content(attrs)
+}
+
+// Content is ContentHash, with a reused writer.
+func (h *Hasher) Content(attrs []attribute.KeyValue) [sha256.Size]byte {
+	w := h.writer()
 	w.piece(contentFormat)
 	w.entries(attrs)
-	return w.sum()
+	return h.sum(w)
 }
 
 // BodyHash hashes one body as it passes. Write the body's bytes to it, then
 // call Sum.
-type BodyHash struct{ w *writer }
+type BodyHash struct {
+	h *Hasher
+	w *writer
+	// text is the hash, once Sum has worked it out and let the writer go.
+	text string
+}
 
 // NewBodyHash starts a body's hash: the word hotline.body.v1, the side
 // (request or response), the trace id's 16 bytes and the span id's 8 bytes.
 // The ids are a public salt: they keep two calls with the same body from
-// having the same hash.
+// having the same hash. It is the one-off form, for verify; the proxy
+// reuses writers through a Hasher.
 func NewBodyHash(side string, traceID [16]byte, spanID [8]byte) *BodyHash {
-	w := newWriter()
+	return (&Hasher{}).Body(side, traceID, spanID)
+}
+
+// Body is NewBodyHash, with a reused writer: Sum hands it back.
+func (h *Hasher) Body(side string, traceID [16]byte, spanID [8]byte) *BodyHash {
+	w := h.writer()
 	w.piece(bodyFormat)
 	w.piece(side)
 	w.write(traceID[:])
 	w.write(spanID[:])
-	return &BodyHash{w: w}
+	return &BodyHash{h: h, w: w}
 }
 
-// Write adds body bytes. It never fails.
+// Write adds body bytes. It never fails. Bytes written after Sum are not
+// in the hash: the proxy can still be reading a request body when the
+// call's record takes its hash.
 func (b *BodyHash) Write(p []byte) (int, error) {
-	b.w.write(p)
+	if b.w != nil {
+		b.w.write(p)
+	}
 	return len(p), nil
 }
 
-// Sum is the body's hash as text.
-func (b *BodyHash) Sum() string { return Text(b.w.sum()) }
+// Sum is the body's hash as text, and hands the writer back to its Hasher.
+// Asking again gives the same text.
+func (b *BodyHash) Sum() string {
+	if b.w != nil {
+		b.text = Text(b.h.sum(b.w))
+		b.w = nil
+	}
+	return b.text
+}

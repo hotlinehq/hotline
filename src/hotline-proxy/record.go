@@ -120,7 +120,7 @@ func (c *call) record(end time.Time) finished {
 	// Every body that passed has its hash, minimal record or full, an
 	// empty one too, so each is in the ledger (Peter, 2026-11-16).
 	attrs = append(attrs, attribute.String("hotline.request.body.hash", c.reqBody.hashed()))
-	reply := emptyBodyHash("response", c.trace)
+	reply := c.h.emptyBodyHash("response", c.trace)
 	if c.respBody != nil {
 		reply = c.respBody.hashed()
 	}
@@ -128,7 +128,7 @@ func (c *call) record(end time.Time) finished {
 	var content []attribute.KeyValue
 	if c.integration.Content.Full {
 		content = c.content()
-		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(ledger.ContentHash(content))))
+		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(c.h.hashes.Content(content))))
 		content = c.withBodies(content)
 	}
 	return finished{cfg: c.cfg, chain: c.integration.Name, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
@@ -293,8 +293,8 @@ func (h *handler) recordShort(s short) {
 	traced, parent, _ := traceOf(integration, s.header, s.start)
 	if s.exchange {
 		attrs = append(attrs,
-			attribute.String("hotline.request.body.hash", emptyBodyHash("request", traced)),
-			attribute.String("hotline.response.body.hash", emptyBodyHash("response", traced)))
+			attribute.String("hotline.request.body.hash", h.emptyBodyHash("request", traced)),
+			attribute.String("hotline.response.body.hash", h.emptyBodyHash("response", traced)))
 	}
 	spans := []export.Span{callSpan(traced, parent, s.start, end, s.errorType != "")}
 	if s.appTLS != nil {

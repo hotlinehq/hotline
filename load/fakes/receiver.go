@@ -38,7 +38,11 @@ type Receiver struct {
 	Addr     string
 	requests atomic.Int64
 	bytes    atomic.Int64
-	server   *http.Server
+	// records and spans count the sends to /v1/logs and /v1/traces on their
+	// own, so a run shows which kind of send grew.
+	records counted
+	spans   counted
+	server  *http.Server
 
 	mu        sync.Mutex
 	allocated int64
@@ -80,7 +84,12 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 	data, _ := io.ReadAll(body)
 	_, _ = io.Copy(io.Discard, counted)
 	r.bytes.Add(counted.n)
-	if strings.HasSuffix(req.URL.Path, "/v1/metrics") {
+	switch {
+	case strings.HasSuffix(req.URL.Path, "/v1/logs"):
+		r.records.add(counted.n)
+	case strings.HasSuffix(req.URL.Path, "/v1/traces"):
+		r.spans.add(counted.n)
+	case strings.HasSuffix(req.URL.Path, "/v1/metrics"):
 		var export colmetrics.ExportMetricsServiceRequest
 		if err := proto.Unmarshal(data, &export); err != nil {
 			http.Error(w, "bad OTLP metrics", http.StatusBadRequest)
@@ -198,6 +207,28 @@ func (r *Receiver) Requests() int64 { return r.requests.Load() }
 
 // Bytes is how many bytes the sends carried, as they came over the wire.
 func (r *Receiver) Bytes() int64 { return r.bytes.Load() }
+
+// Sends is how many sends of one kind the receiver got, and the bytes they
+// carried as they came over the wire.
+type Sends struct {
+	Requests, Bytes int64
+}
+
+// counted adds up the sends of one kind.
+type counted struct{ requests, bytes atomic.Int64 }
+
+func (c *counted) add(n int64) {
+	c.requests.Add(1)
+	c.bytes.Add(n)
+}
+
+func (c *counted) sends() Sends { return Sends{Requests: c.requests.Load(), Bytes: c.bytes.Load()} }
+
+// Records is the sends of records, to /v1/logs.
+func (r *Receiver) Records() Sends { return r.records.sends() }
+
+// Spans is the sends of spans, to /v1/traces.
+func (r *Receiver) Spans() Sends { return r.spans.sends() }
 
 // Allocated is the last go.memory.allocated the proxy sent, in bytes, and
 // false if none has arrived yet.

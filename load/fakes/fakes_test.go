@@ -180,6 +180,16 @@ var _ = Describe("The fake receiver", func() {
 		Expect(receiver.Bytes()).To(Equal(int64(12)))
 	})
 
+	It("counts the sends of records and of spans apart, with their bytes", func() {
+		send("/v1/logs", []byte("1234567"), false)
+		send("/v1/logs", []byte("123"), false)
+		send("/v1/traces", []byte("12345"), false)
+		send("/v1/metrics", counter("go.memory.allocated", 1), false)
+		Expect(receiver.Records()).To(Equal(fakes.Sends{Requests: 2, Bytes: 10}))
+		Expect(receiver.Spans()).To(Equal(fakes.Sends{Requests: 1, Bytes: 5}))
+		Expect(receiver.Requests()).To(Equal(int64(4)))
+	})
+
 	It("reads the proxy's memory handed out from a gzipped send of its own numbers", func() {
 		send("/v1/metrics", counter("go.memory.allocated", 4096), true)
 		allocated, ok := receiver.Allocated()
