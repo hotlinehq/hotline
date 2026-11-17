@@ -1,7 +1,10 @@
-// Package labels keeps the label sets of the proxy's own numbers. Making a
-// set sorts and hashes its labels, and the proxy made one for every call,
-// though only a few different ones exist: the numbers are never split by
-// anything that grows with the calls (Peter, 2026-10-31).
+// Package labels keeps the label sets of the proxy's numbers. Making a set
+// sorts and hashes its labels, and the proxy made one for every call, though
+// few different ones come: the numbers are split by integrations, spec
+// routes, methods, status codes and error types, never by anything that
+// grows with each call (Peter, 2026-10-31). Some of these come from the app,
+// such as the integration id of a refused call, so the store must not
+// trust them to stay few.
 package labels
 
 import (
@@ -10,14 +13,15 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// Room is how many labels a kept set holds at most; a list of more is made
-// fresh each time.
-const Room = 4
+// Room is how many labels a kept set holds at most, enough for the records
+// counter's five; a list of more is made fresh each time.
+const Room = 5
 
-// Most is how many sets are kept at most, so labels that turn out to vary
-// more than expected, such as a vendor's odd status codes, cost memory once
-// and no more.
-const Most = 1000
+// Most is how many sets are kept at most, about 2.5 MB. A full store starts
+// again empty, so sets that stop coming, after a reload or from an app that
+// makes up ids, do not hold the room for ever; the ones in use are made
+// again at their next call.
+const Most = 4096
 
 // key is a list of labels as a value that can be looked up. Labels are
 // compared in the order given, so the same labels in another order make a
@@ -46,12 +50,10 @@ func (k *Kept) Set(kvs ...attribute.KeyValue) attribute.Set {
 		return set
 	}
 	set := attribute.NewSet(kvs...)
-	if k.sets == nil {
+	if k.sets == nil || len(k.sets) >= Most {
 		k.sets = make(map[key]attribute.Set)
 	}
-	if len(k.sets) < Most {
-		k.sets[at] = set
-	}
+	k.sets[at] = set
 	return set
 }
 

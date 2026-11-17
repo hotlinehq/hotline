@@ -26,14 +26,28 @@ var _ = Describe("Kept label sets", func() {
 		Expect(kept.Len()).To(Equal(2))
 	})
 
-	It("still gives the right set once full, without keeping more", func() {
+	It("keeps a set of five labels, as the records counter has", func() {
+		var kept labels.Kept
+		kept.Set(
+			attribute.String("hotline.integration.id", "shop"),
+			attribute.String("url.template", "/orders/{id}"),
+			attribute.String("http.request.method", "GET"),
+			attribute.Int("http.response.status_code", 200),
+			attribute.String("error.type", "timeout"),
+		)
+		Expect(kept.Len()).To(Equal(1))
+	})
+
+	// Labels that stop coming, after a reload or from an app that sends
+	// made-up ids, must not hold the room for ever.
+	It("starts again empty once full, and still gives the right set", func() {
 		var kept labels.Kept
 		for i := range labels.Most + 5 {
 			set := kept.Set(attribute.Int("n", i))
 			v, _ := set.Value("n")
 			Expect(v.AsInt64()).To(BeEquivalentTo(i))
 		}
-		Expect(kept.Len()).To(Equal(labels.Most))
+		Expect(kept.Len()).To(Equal(5))
 	})
 
 	It("makes a set it does not keep for more labels than a key holds", func() {
