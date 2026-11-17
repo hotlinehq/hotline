@@ -57,13 +57,15 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 	return sc, at, attrs, spans
 }
 
-// BenchmarkRecordHash is what hashing a record for the ledger costs.
+// BenchmarkRecordHash is what hashing a record for the ledger costs, with
+// one Hasher reused as the proxy does.
 func BenchmarkRecordHash(b *testing.B) {
 	sc, at, attrs, _ := benchRecord()
 	r := ledger.Record{Attrs: attrs, At: at, TraceID: sc.TraceID().String(), SpanID: sc.SpanID().String()}
+	var h ledger.Hasher
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = ledger.RecordHash(r)
+		_ = h.Record(r)
 	}
 }
 
@@ -74,8 +76,22 @@ func BenchmarkTraceHash(b *testing.B) {
 	for i, s := range spans {
 		steps[i] = ledger.Span{ID: s.ID.String(), Name: s.Name, Kind: s.Kind.String(), Start: s.Start, End: s.End, Attrs: s.Attrs}
 	}
+	var h ledger.Hasher
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = ledger.TraceHash(sc.TraceID().String(), steps)
+		_ = h.Trace(sc.TraceID().String(), steps)
+	}
+}
+
+// BenchmarkBodyHash is what hashing a small body costs.
+func BenchmarkBodyHash(b *testing.B) {
+	sc, _, _, _ := benchRecord()
+	body := make([]byte, 340)
+	var h ledger.Hasher
+	b.ReportAllocs()
+	for b.Loop() {
+		bh := h.Body("response", sc.TraceID(), sc.SpanID())
+		_, _ = bh.Write(body)
+		_ = bh.Sum()
 	}
 }

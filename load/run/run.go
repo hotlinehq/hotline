@@ -130,6 +130,12 @@ type Result struct {
 	// run and the wait after it.
 	OTLPRequests int64 `json:"otlpRequests"`
 	OTLPBytes    int64 `json:"otlpBytes"`
+	// The same, for the sends of records (/v1/logs) and of spans
+	// (/v1/traces) alone. The rest are the proxy's metrics.
+	OTLPRecordRequests int64 `json:"otlpRecordRequests"`
+	OTLPRecordBytes    int64 `json:"otlpRecordBytes"`
+	OTLPSpanRequests   int64 `json:"otlpSpanRequests"`
+	OTLPSpanBytes      int64 `json:"otlpSpanBytes"`
 }
 
 // ReadSummary takes the numbers out of a k6 summary file.
@@ -630,6 +636,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 		return Result{}, errNoAllocated
 	}
 	reqs0, bytes0 := receiver.Requests(), receiver.Bytes()
+	records0, spans0 := receiver.Records(), receiver.Spans()
 	cpu0, err := p.cpuTicks()
 	if err != nil {
 		return Result{}, err
@@ -649,6 +656,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	}
 	alloc1, _ := allocated()
 	calls := float64(l.Calls)
+	records, spans := receiver.Records(), receiver.Spans()
 	return Result{
 		Proxy:                 l,
 		CPUMicrosPerCall:      float64(cpu1-cpu0) * 10000 / calls, // 100 ticks a second
@@ -656,6 +664,10 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 		PeakRSSKB:             peak,
 		OTLPRequests:          receiver.Requests() - reqs0,
 		OTLPBytes:             receiver.Bytes() - bytes0,
+		OTLPRecordRequests:    records.Requests - records0.Requests,
+		OTLPRecordBytes:       records.Bytes - records0.Bytes,
+		OTLPSpanRequests:      spans.Requests - spans0.Requests,
+		OTLPSpanBytes:         spans.Bytes - spans0.Bytes,
 	}, nil
 }
 

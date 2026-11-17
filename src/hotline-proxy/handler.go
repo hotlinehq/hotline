@@ -57,6 +57,8 @@ type handler struct {
 	forward forward.Forwarder
 	// bodies hold the copies of bodies kept for the checks.
 	bodies bodyPool
+	// hashes makes the ledger's hashes, reusing its writers.
+	hashes ledger.Hasher
 	// checks run the spec checks of every call.
 	checks *checkLine
 	// book puts every record in the ledger and hands it to the exporters.
@@ -150,7 +152,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.trace, c.parent, c.vendorSpan, c.tracing = traced, parent, tracectx.NewSpanID(), tracing
 	c.reqBody = &tap{
 		ReadCloser: r.Body,
-		mac:        bodyHash("request", traced),
+		mac:        h.bodyHash("request", traced),
 		saver:      bodySaver{limit: saved(integration), expect: r.ContentLength},
 		keeper:     bodyKeeper{limit: c.plan.keepRequest, pool: &h.bodies, expect: r.ContentLength},
 	}
@@ -475,7 +477,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	c.respBody = &tap{
 		ReadCloser: resp.Body,
-		mac:        bodyHash("response", c.trace),
+		mac:        c.h.bodyHash("response", c.trace),
 		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
 		keeper:     bodyKeeper{limit: c.plan.keepReply, pool: &c.h.bodies, expect: resp.ContentLength},
 		done: func() {
@@ -704,14 +706,14 @@ func saved(integration *config.Integration) int64 {
 // bodyHash hashes a body as it passes, salted with the call's trace id
 // and span id, for every call and reply, minimal or full, so each body is
 // in the ledger (Peter, 2026-11-16).
-func bodyHash(side string, sc trace.SpanContext) *ledger.BodyHash {
-	return ledger.NewBodyHash(side, sc.TraceID(), sc.SpanID())
+func (h *handler) bodyHash(side string, sc trace.SpanContext) *ledger.BodyHash {
+	return h.hashes.Body(side, sc.TraceID(), sc.SpanID())
 }
 
 // emptyBodyHash is the hash of a body of zero bytes, for a side no body
 // passed on.
-func emptyBodyHash(side string, sc trace.SpanContext) string {
-	return bodyHash(side, sc).Sum()
+func (h *handler) emptyBodyHash(side string, sc trace.SpanContext) string {
+	return h.bodyHash(side, sc).Sum()
 }
 
 // tunnelProcess is the program the tunnel an app connection came through

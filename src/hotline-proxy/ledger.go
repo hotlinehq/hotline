@@ -31,6 +31,8 @@ type book struct {
 	run     string
 	version string
 	config  func() *config.Config
+	// hashes makes the record and trace hashes, shared with the handler.
+	hashes *ledger.Hasher
 
 	mu     sync.Mutex
 	key    ledger.Key
@@ -70,9 +72,9 @@ type openBatch struct {
 	leaves     [][sha256.Size]byte
 }
 
-func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
+func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config, hashes *ledger.Hasher) *book {
 	b := &book{
-		clock: clock, sink: sink, instance: instanceID, version: version, config: current,
+		clock: clock, sink: sink, instance: instanceID, version: version, config: current, hashes: hashes,
 		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, ended: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
@@ -94,6 +96,10 @@ func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, ver
 // (Peter, 2026-11-16).
 func (b *book) record(ctx context.Context, f finished) {
 	cfg, name := f.cfg, f.chain
+	traceID, spanID := f.sc.TraceID().String(), f.sc.SpanID().String()
+	// The trace's hash needs nothing from the batch, so it is worked out
+	// before the lock that every call's record waits for.
+	traceHash := ledger.Text(b.hashes.Trace(traceID, ledgerSpans(f.spans)))
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := b.chains[name]
@@ -116,14 +122,13 @@ func (b *book) record(ctx context.Context, f finished) {
 		}
 	}
 	open := ch.open
-	traceID, spanID := f.sc.TraceID().String(), f.sc.SpanID().String()
 	// f.attrs was made with room for these, so they need no new array.
 	attrs := append(f.attrs, //nolint:gocritic // the caller's f.attrs keeps its length, so it never sees these
-		attribute.String("hotline.trace.hash", ledger.Text(ledger.TraceHash(traceID, ledgerSpans(f.spans)))),
+		attribute.String("hotline.trace.hash", traceHash),
 		attribute.String("hotline.batch.id", open.id),
 		attribute.Int("hotline.batch.index", len(open.leaves)),
 	)
-	sum := ledger.RecordHash(ledger.Record{Attrs: attrs, At: f.at, TraceID: traceID, SpanID: spanID})
+	sum := b.hashes.Record(ledger.Record{Attrs: attrs, At: f.at, TraceID: traceID, SpanID: spanID})
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
 	b.sink.Call(ctx, export.Call{
