@@ -27,9 +27,12 @@ Feature: Reading the integration ID
     And the record's ID is not-passed
 
   Scenario: Unknown ID
+    An ID the config does not name is recorded as not-passed, as if none
+    was sent: an app could otherwise make up IDs without end, each a new
+    series in the proxy's numbers (Peter, 2026-11-17).
     When an app calls https://api.talon.one with the ID "talon-shop-x"
     Then the not-passed settings apply
-    And the record's ID is talon-shop-x, so typos stay visible
+    And the record's ID is not-passed
 
   Scenario: Host outside the integration's apis
     When an app calls https://api.stripe.com with the ID "talon-shop-a"

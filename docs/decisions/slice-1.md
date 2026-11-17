@@ -3,7 +3,7 @@
 Full wording is at the end of [docs/proxy-slice-1.md](../proxy-slice-1.md).
 
 1. Other requests on the proxy port (a plain path, a Host header request, `CONNECT`) get `501`. `CONNECT` is an ingress since 2026-10-29, when `listen.connect` is set. A full address the proxy can't use gets `400`.
-2. A broken `Proxy-Authorization` header counts as no integration ID: `not-passed`.
+2. A broken `Proxy-Authorization` header counts as no integration ID: `not-passed`. Since 2026-11-17 an ID the config does not name counts the same, in the record and the counters, so an app cannot make up IDs without end (Peter, 2026-11-17).
 3. A path with no route in the spec: `url.full` and `url.template` are left out.
 4. Turning `http` into `https` keeps the app's port.
 5. `not-passed` calls that use `https` stay `https`. Since 2026-11-01 calls outside the config (no known ID, or a host outside the integration's apis) also turn `http` into `https`; the `not-passed` entry can set `tlsOrigination: false` (Peter, 2026-11-01, after the shop example called Secrets Manager on port 80).
