@@ -74,7 +74,7 @@ func BenchmarkTraceHash(b *testing.B) {
 	sc, _, _, spans := benchRecord()
 	steps := make([]ledger.Span, len(spans))
 	for i, s := range spans {
-		steps[i] = ledger.Span{ID: s.ID.String(), Name: s.Name, Kind: s.Kind.String(), Start: s.Start, End: s.End, Attrs: s.Attrs}
+		steps[i] = ledger.Span{ID: ledger.SpanID(s.ID), Name: s.Name, Kind: s.Kind.String(), Start: s.Start, End: s.End, Attrs: s.Attrs}
 	}
 	var h ledger.Hasher
 	b.ReportAllocs()

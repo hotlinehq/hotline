@@ -32,6 +32,14 @@ func reply(status int, header http.Header, body io.ReadCloser) fakeVendor {
 	}
 }
 
+// sized answers with a body of the given announced length, -1 for unknown.
+func sized(length int64, header http.Header, body string) fakeVendor {
+	return func(*http.Request) *http.Response {
+		return &http.Response{StatusCode: http.StatusOK, Header: header, ContentLength: length,
+			Body: io.NopCloser(strings.NewReader(body))}
+	}
+}
+
 var (
 	errVendorGone = errors.New("vendor went away")
 	errAppGone    = errors.New("app went away")
@@ -60,6 +68,7 @@ type appWriter struct {
 	*httptest.ResponseRecorder
 	writeErr, flushErr error
 	conn               net.Conn
+	flushes            int
 }
 
 func (a *appWriter) Write(p []byte) (int, error) {
@@ -69,7 +78,10 @@ func (a *appWriter) Write(p []byte) (int, error) {
 	return a.ResponseRecorder.Write(p)
 }
 
-func (a *appWriter) FlushError() error { return a.flushErr }
+func (a *appWriter) FlushError() error {
+	a.flushes++
+	return a.flushErr
+}
 
 func (a *appWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return a.conn, bufio.NewReadWriter(bufio.NewReader(a.conn), bufio.NewWriter(a.conn)), nil
@@ -135,12 +147,35 @@ var _ = Describe("Forwarding without a server", func() {
 		Expect(w.Body.String()).To(BeEmpty())
 	})
 
-	It("stops when a part cannot be flushed to the app", func() {
-		f := forwarder(reply(http.StatusOK, http.Header{}, io.NopCloser(strings.NewReader("body"))))
+	It("stops when a part of a stream cannot be flushed to the app", func() {
+		f := forwarder(sized(-1, http.Header{}, "body"))
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), flushErr: errAppGone}
 		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
 		Expect(w.Body.String()).To(Equal("body"))
 	})
+
+	// Flushing sends a network write of its own, so a reply of known length
+	// goes out in one go, as Go's own ReverseProxy does.
+	// Flushing sends a network write of its own, so the headers of a reply
+	// of known length go with its first part, as Go's own ReverseProxy does.
+	It("sends the headers of a reply of known length with its first part", func() {
+		f := forwarder(sized(4, http.Header{}, "body"))
+		w := &appWriter{ResponseRecorder: httptest.NewRecorder()}
+		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
+		Expect(w.Body.String()).To(Equal("body"))
+		Expect(w.flushes).To(Equal(1))
+	})
+
+	DescribeTable("flushes the headers and every part of a stream",
+		func(length int64, contentType string) {
+			f := forwarder(sized(length, http.Header{"Content-Type": {contentType}}, "body"))
+			w := &appWriter{ResponseRecorder: httptest.NewRecorder()}
+			Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
+			Expect(w.flushes).To(Equal(2))
+		},
+		Entry("a reply of unknown length", int64(-1), "application/json"),
+		Entry("events, even with a known length", int64(4), "text/event-stream; charset=utf-8"),
+	)
 })
 
 var _ = Describe("Upgrades without a server", func() {

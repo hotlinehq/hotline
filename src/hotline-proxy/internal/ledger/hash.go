@@ -5,6 +5,7 @@
 package ledger
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/sha256"
 	"encoding/binary"
@@ -202,6 +203,21 @@ func (w *writer) value(v attribute.Value) {
 	}
 }
 
+// spanID is an entry of a span id as text, as entry would write it, the
+// hex made in place: empty for no span.
+func (w *writer) spanID(name string, id SpanID) {
+	w.piece(name)
+	w.byte('s')
+	if id == (SpanID{}) {
+		w.piece("")
+		return
+	}
+	var text [2 * len(SpanID{})]byte
+	hex.Encode(text[:], id[:])
+	w.uint(uint64(len(text)))
+	w.write(text[:])
+}
+
 func (w *writer) list(n int) {
 	w.byte('l')
 	w.uint(uint64(n)) //nolint:gosec // a count is never negative
@@ -281,9 +297,35 @@ func RecordCovers(name string) bool {
 	return true
 }
 
+// ErrNotASpanID is a text that is not a span id as the proxy writes it.
+var ErrNotASpanID = errors.New("ledger: not a span id")
+
+// SpanID is a span's id as its 8 bytes. The zero id is no span: the parent
+// of a trace's first span. It is hashed as the proxy writes it, 16 small hex
+// letters, or empty for no span, made in the writer without a text of its
+// own.
+type SpanID [8]byte
+
+// ParseSpanID reads a span id as the proxy writes it, empty for no span.
+// Any other text, capital hex letters or zeros too, is refused: the proxy
+// never writes it, so a file holding it was changed.
+func ParseSpanID(text string) (SpanID, error) {
+	var id SpanID
+	if text == "" {
+		return id, nil
+	}
+	if len(text) != 2*len(id) || strings.ToLower(text) != text {
+		return id, ErrNotASpanID
+	}
+	if _, err := hex.Decode(id[:], []byte(text)); err != nil || id == (SpanID{}) {
+		return SpanID{}, ErrNotASpanID
+	}
+	return id, nil
+}
+
 // Span is one step of a call's trace, as its hash covers it.
 type Span struct {
-	ID, Parent string
+	ID, Parent SpanID
 	Name, Kind string
 	Start, End time.Time
 	Status     string
@@ -308,13 +350,15 @@ func (h *Hasher) Trace(traceID string, spans []Span) [sha256.Size]byte {
 		if c := cmp.Compare(a.Start.UnixMicro(), b.Start.UnixMicro()); c != 0 {
 			return c
 		}
-		return strings.Compare(a.ID, b.ID)
+		// Hex keeps the order of the bytes, so this is the order of the
+		// ids as text.
+		return bytes.Compare(a.ID[:], b.ID[:])
 	})
 	w.piece(traceFormat)
 	w.entry(attribute.String("trace.trace_id", traceID))
 	for _, s := range w.spans {
-		w.entry(attribute.String("span.span_id", s.ID))
-		w.entry(attribute.String("span.parent_span_id", s.Parent))
+		w.spanID("span.span_id", s.ID)
+		w.spanID("span.parent_span_id", s.Parent)
 		w.entry(attribute.String("span.name", s.Name))
 		w.entry(attribute.String("span.kind", s.Kind))
 		w.entry(attribute.Int64("span.start_time", s.Start.UnixMicro()))

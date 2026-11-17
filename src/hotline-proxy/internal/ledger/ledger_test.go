@@ -158,12 +158,51 @@ var _ = Describe("Hashing a body", func() {
 	})
 })
 
+func spanID(text string) ledger.SpanID {
+	id, err := ledger.ParseSpanID(text)
+	Expect(err).NotTo(HaveOccurred())
+	return id
+}
+
 var _ = Describe("Hashing a trace", func() {
+	// The hash was taken when span ids were given as text; ids given as
+	// bytes must make the same one, or files written before fail verify.
+	It("makes the same hash as when span ids were text", func() {
+		at := time.UnixMicro(1_700_000_000_123_456)
+		root := spanID("00f067aa0ba902b7")
+		spans := []ledger.Span{
+			{ID: root, Name: "POST", Kind: "server", Start: at, End: at.Add(3 * time.Millisecond), Status: "Ok"},
+			{ID: spanID("a1b2c3d4e5f60718"), Parent: root, Name: "routing", Kind: "internal", Start: at, End: at.Add(time.Millisecond), Status: "Unset",
+				Attrs: []attribute.KeyValue{attribute.Bool("hotline.connection.reused", true)}},
+			{ID: spanID("0a1b2c3d4e5f6071"), Parent: root, Name: "vendor call", Kind: "client", Start: at, End: at.Add(2 * time.Millisecond), Status: "Error"},
+		}
+		Expect(ledger.Text(ledger.TraceHash("4bf92f3577b34da6a3ce929d0e0e4736", spans))).
+			To(Equal("sha256:01b2cb934226ffed4e8756705c6049959230c02fe4d3eac2523c3b6db049c3f5"))
+	})
+
+	It("reads a span id as the proxy writes it, and an empty one as no span", func() {
+		Expect(spanID("00f067aa0ba902b7")).To(Equal(ledger.SpanID{0x00, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7}))
+		Expect(spanID("")).To(Equal(ledger.SpanID{}))
+	})
+
+	// Each of these reads as an id the proxy never writes, so a file that
+	// holds one was changed; reading it as a real id could hide that.
+	DescribeTable("refuses a span id the proxy never writes",
+		func(text string) {
+			_, err := ledger.ParseSpanID(text)
+			Expect(err).To(MatchError(ledger.ErrNotASpanID))
+		},
+		Entry("capital letters", "00F067AA0BA902B7"),
+		Entry("too short", "00f067aa"),
+		Entry("not hex", "00f067aa0ba902zz"),
+		Entry("all zeros, which stands for no span", "0000000000000000"),
+	)
+
 	It("leaves the caller's spans in their own order", func() {
 		at := time.Unix(1_700_000_000, 0)
 		spans := []ledger.Span{
-			{ID: "b", Name: "later", Start: at.Add(time.Millisecond), End: at.Add(2 * time.Millisecond)},
-			{ID: "a", Name: "first", Start: at, End: at.Add(time.Millisecond)},
+			{ID: ledger.SpanID{2}, Name: "later", Start: at.Add(time.Millisecond), End: at.Add(2 * time.Millisecond)},
+			{ID: ledger.SpanID{1}, Name: "first", Start: at, End: at.Add(time.Millisecond)},
 		}
 		var h ledger.Hasher
 		_ = h.Trace("0102", spans)

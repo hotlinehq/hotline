@@ -9,6 +9,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"hotline-proxy/internal/labels"
 )
 
 // own are the numbers the proxy keeps about itself, for the telemetry
@@ -28,6 +30,8 @@ type own struct {
 	// change waits for a restart.
 	reloadFailed atomic.Int64
 	restart      atomic.Int64
+	// labels keeps the few label sets of calls, made once each.
+	labels labels.Kept
 }
 
 // newOwn makes the instruments. Their names, units and ranges are fixed
@@ -88,7 +92,7 @@ func (o *own) observe(p *Proxy) {
 
 // started counts a call in flight, until the returned func is called.
 func (o *own) started(ingress string) func() {
-	labels := metric.WithAttributes(attribute.String("hotline.ingress", ingress))
+	labels := metric.WithAttributeSet(o.labels.Set(attribute.String("hotline.ingress", ingress)))
 	o.active.Add(context.Background(), 1, labels)
 	return func() { o.active.Add(context.Background(), -1, labels) }
 }
@@ -96,7 +100,8 @@ func (o *own) started(ingress string) func() {
 // ended measures a finished call's total time from its record, by ingress,
 // status code and error type.
 func (o *own) ended(attrs []attribute.KeyValue) {
-	var labels []attribute.KeyValue
+	// Room for the three on the stack, so the list costs no memory to make.
+	labels := make([]attribute.KeyValue, 0, 3)
 	var total int64
 	for _, kv := range attrs {
 		switch kv.Key {
@@ -106,7 +111,7 @@ func (o *own) ended(attrs []attribute.KeyValue) {
 			total = kv.Value.AsInt64()
 		}
 	}
-	o.duration.Record(context.Background(), float64(total)/1e6, metric.WithAttributes(labels...))
+	o.duration.Record(context.Background(), float64(total)/1e6, metric.WithAttributeSet(o.labels.Set(labels...)))
 }
 
 // tlsFailed counts an app connection whose TLS setup failed, inside a

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -92,7 +93,7 @@ func (c *call) record(end time.Time) finished {
 	if c.api != nil {
 		req, reply := c.reqCheck.found, c.replyCheck.found
 		requested := c.reqCheck.started.Load()
-		attrs = append(attrs, c.full(req.With(reply), requested || replied)...)
+		attrs = c.full(attrs, req.With(reply), requested || replied)
 		// Each side was checked alongside the call, so its step may end
 		// after the call span (Peter, 2026-10-31).
 		if requested {
@@ -370,9 +371,10 @@ func orNotPassed(id string) string {
 	return id
 }
 
-// full is the rest of the record, for calls with a known integration and
-// api, and the status of the check against the spec, which is part of it.
-func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
+// full adds the rest of the record to attrs, for calls with a known
+// integration and api, and the status of the check against the spec, which
+// is part of it.
+func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribute.KeyValue {
 	origin := c.scheme + "://" + c.host
 	if c.target.Port() != "" {
 		origin += ":" + c.port
@@ -391,7 +393,8 @@ func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()
-	attrs := make([]attribute.KeyValue, 0, 16+len(redacted.Header)+len(redacted.ReplyHeaders))
+	// Room for the headers and found fields at once, in the record's own list.
+	attrs = slices.Grow(attrs, 16+len(redacted.Header)+len(redacted.ReplyHeaders)+len(found.Copied))
 	attrs = append(attrs,
 		semconv.URLScheme(c.scheme),
 		semconv.ServerPort(port),
@@ -419,7 +422,7 @@ func (c *call) full(found spec.Checked, ran bool) []attribute.KeyValue {
 	for name, values := range redacted.ReplyHeaders {
 		attrs = append(attrs, attribute.StringSlice("http.response.header."+name, values))
 	}
-	return append(attrs, checked(found, ran)...)
+	return checked(attrs, found, ran)
 }
 
 // shownResults is how many results of one side a record holds at most.
@@ -428,8 +431,7 @@ const shownResults = 20
 // checked is what the checks found, as the record holds it, with the
 // status: valid, invalid, or skipped when nothing was found but part of
 // the check did not run (Peter, 2026-10-31).
-func checked(found spec.Checked, ran bool) []attribute.KeyValue {
-	var attrs []attribute.KeyValue
+func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribute.KeyValue {
 	for _, f := range found.Copied {
 		switch v := f.Value.(type) {
 		case string:

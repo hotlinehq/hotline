@@ -320,7 +320,7 @@ func (v *verifier) checkRecord(r *lineRecord, b *lineBatch) {
 		v.problems = append(v.problems, at)
 		return
 	}
-	if want := r.text("hotline.trace.hash"); want != "" && ledger.Text(ledger.TraceHash(r.traceID, lineSpans(r.spans))) != want {
+	if want := r.text("hotline.trace.hash"); want != "" && !traceMatches(r.traceID, r.spans, want) {
 		at.Code, at.Message = "trace_hash_mismatch", "the trace of the record with span id "+safe(r.spanID)+" does not match its hotline.trace.hash"
 		v.problems = append(v.problems, at)
 	}
@@ -661,20 +661,35 @@ func valueOf(v any) attribute.Value {
 	return attribute.MapValue(entries...)
 }
 
+// traceMatches says whether a line's spans have the trace hash want. A span
+// id the proxy never writes does not match.
+func traceMatches(traceID string, raw []export.LineSpan, want string) bool {
+	spans, err := lineSpans(raw)
+	return err == nil && ledger.Text(ledger.TraceHash(traceID, spans)) == want
+}
+
 // lineSpans are the spans a line holds, as the trace's hash covers them.
-func lineSpans(raw []export.LineSpan) []ledger.Span {
+func lineSpans(raw []export.LineSpan) ([]ledger.Span, error) {
 	spans := make([]ledger.Span, 0, len(raw))
 	for _, s := range raw {
+		id, err := ledger.ParseSpanID(s.ID)
+		if err != nil {
+			return nil, err
+		}
+		parent, err := ledger.ParseSpanID(s.Parent)
+		if err != nil {
+			return nil, err
+		}
 		kvs := make([]attribute.KeyValue, 0, len(s.Attributes))
 		for name, value := range s.Attributes {
 			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
 		}
 		spans = append(spans, ledger.Span{
-			ID: s.ID, Parent: s.Parent, Name: s.Name, Kind: s.Kind,
+			ID: id, Parent: parent, Name: s.Name, Kind: s.Kind,
 			Start: s.Start, End: s.End, Status: s.Status, Attrs: kvs,
 		})
 	}
-	return spans
+	return spans, nil
 }
 
 // safe is text from the input, with every character that could change a
