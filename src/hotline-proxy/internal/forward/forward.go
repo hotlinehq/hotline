@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
@@ -166,7 +167,10 @@ func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http
 	}
 	w.WriteHeader(res.StatusCode)
 	rc := http.NewResponseController(w)
-	_ = rc.Flush()
+	if streamed(res) {
+		// Events may come long after the headers; the app gets them first.
+		_ = rc.Flush()
+	}
 	err = f.copy(w, rc, res.Body)
 	_ = res.Body.Close()
 	if err != nil {
@@ -256,8 +260,19 @@ func hasToken(values []string, token string) bool {
 	return false
 }
 
-// copy writes the reply body, flushing after every part: a reply may be a
-// stream.
+// streamed says the reply's headers go to the app before its body: events,
+// or a reply whose length is not known, may be slow to send their first
+// part. Any other reply's headers go with its first part, in one network
+// write instead of two, as with Go's ReverseProxy; a vendor slow to start
+// the body holds them back too.
+func streamed(res *http.Response) bool {
+	kind, _, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
+	return kind == "text/event-stream" || res.ContentLength < 0
+}
+
+// copy writes the reply body, flushing after every part: the app gets each
+// part as it comes, and the last one without waiting for the vendor to
+// close the body.
 func (f *Forwarder) copy(w io.Writer, rc *http.ResponseController, src io.Reader) error {
 	buf := f.Buffers.Get()
 	defer f.Buffers.Put(buf)

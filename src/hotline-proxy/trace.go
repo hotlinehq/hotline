@@ -42,6 +42,11 @@ type phaseStep struct {
 	name  string
 }
 
+// spanRoom is the most spans a call's trace holds: the call, app TLS,
+// routing, the vendor call and its connection phases, sending, waiting and
+// receiving, the reply, and two spans for each side's spec check.
+const spanRoom = 4 + len([3]phaseStep{}) + 3 + 1 + 2*2
+
 // phaseSteps are the steps of the vendor connection, in order.
 func phaseSteps() [3]phaseStep {
 	return [3]phaseStep{{phaseDNS, stepDNS}, {phaseConnect, stepConnect}, {phaseTLS, stepVendorTLS}}
@@ -52,7 +57,10 @@ func phaseSteps() [3]phaseStep {
 // only two of them have an attribute.
 func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	call := callSpan(c.trace, c.parent, opened, end, failed.errorType != "" || c.app.failed())
-	spans := []export.Span{call}
+	// Room for every step at once, the check spans too, so the list is
+	// made once and never copied as it grows.
+	spans := make([]export.Span, 0, spanRoom)
+	spans = append(spans, call)
 	step := func(parent trace.SpanID, name string, from, to time.Time, attrs ...attribute.KeyValue) {
 		spans = append(spans, export.Span{
 			ID: tracectx.NewSpanID(), Parent: parent, Name: name, Kind: trace.SpanKindInternal,

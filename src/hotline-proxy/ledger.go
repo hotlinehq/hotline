@@ -235,12 +235,9 @@ func (b *book) close(ch *chain, last bool) {
 func ledgerSpans(spans []export.Span) []ledger.Span {
 	out := make([]ledger.Span, len(spans))
 	for i, s := range spans {
-		parent := ""
-		if s.Parent.IsValid() {
-			parent = s.Parent.String()
-		}
+		// An invalid parent is the zero id: no span.
 		out[i] = ledger.Span{
-			ID: s.ID.String(), Parent: parent, Name: s.Name, Kind: spanKind(s.Kind),
+			ID: ledger.SpanID(s.ID), Parent: ledger.SpanID(s.Parent), Name: s.Name, Kind: spanKind(s.Kind),
 			Start: s.Start, End: s.End, Status: s.Status.String(), Attrs: s.Attrs,
 		}
 	}

@@ -418,6 +418,24 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			spans[len(spans)-1].(map[string]any)["end_time"] = "2001-01-01T00:00:00.000000Z"
 		})
 	})
+	sc.Step(`^the (span_id|parent_span_id) of the last span in the second line's spans is changed to (the same id in capital letters|zeros, which stand for no span)$`, func(field, id string) error {
+		return w.changeLine(2, func(line map[string]any) {
+			spans := line["attributes"].(map[string]any)["hotline.trace.spans"].([]any)
+			changedSpan = sprint(line["span_id"])
+			last := spans[len(spans)-1].(map[string]any)
+			if strings.HasPrefix(id, "zeros") {
+				last[field] = "0000000000000000"
+			} else {
+				// An id of digits alone has no letter to make capital, so
+				// its first digit becomes one.
+				upper := strings.ToUpper(sprint(last[field]))
+				if !strings.ContainsAny(upper, "ABCDEF") {
+					upper = "A" + upper[1:]
+				}
+				last[field] = upper
+			}
+		})
+	})
 	sc.Step(`^hotline.batch.records is changed in the first batch record$`, func() error {
 		return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
 	})

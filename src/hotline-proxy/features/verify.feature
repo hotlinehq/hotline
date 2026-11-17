@@ -132,6 +132,18 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 1
       And it prints that the trace of the record with that span id does not match its hotline.trace.hash
 
+    Scenario Outline: A span id written another way than the proxy writes it
+      Given the folder calls from a stopped proxy, with 3 calls
+      When the <field> of the last span in the second line's spans is changed to <id>
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the trace of the record with that span id does not match its hotline.trace.hash
+
+      Examples:
+        | field          | id                                  |
+        | span_id        | the same id in capital letters      |
+        | parent_span_id | zeros, which stand for no span      |
+
     Scenario: A span removed from a call's trace
       Given the folder calls from a stopped proxy, with 3 calls
       When one span is removed from the second line's spans
