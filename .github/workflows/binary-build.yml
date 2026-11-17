@@ -114,6 +114,24 @@ jobs:
         with:
           name: hotline-proxy_${{ needs.version.outputs.label }}_darwin_arm64.tar.gz
           path: dist
+      # codesign asks Apple's timestamp server to vouch for the signing time.
+      # From GitHub's Mac runners that server has stopped answering at times
+      # (2026-11-17), and others report it fails over IPv6, the newer kind of
+      # internet address, but works over IPv4. This prints how the server
+      # answers each way (000 means no answer), then turns IPv6 off so
+      # codesign uses IPv4. The runner is thrown away after the job, and the
+      # signing script stays free of runner settings so it can run on a Mac.
+      - name: reach Apple's timestamp server over IPv4 only
+        run: |
+          for ip in 4 6; do
+            code=$(curl -"$ip" -sS -o /dev/null -w '%{http_code}' --max-time 10 http://timestamp.apple.com/ts01 2>&1 || true)
+            echo "timestamp server over IPv$ip: $code"
+          done
+          networksetup -listallnetworkservices | tail -n +2 | sed 's/^\*//' | while IFS= read -r service; do
+            sudo networksetup -setv6off "$service" || true
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://timestamp.apple.com/ts01 2>&1 || true)
+          echo "timestamp server with IPv6 off: $code"
       - name: sign and notarize the Mac program
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
