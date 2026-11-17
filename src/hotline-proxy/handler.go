@@ -83,7 +83,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var ingress string
 	var target *url.URL
 	var status int
-	id := integrationID(r.Header)
+	id := integrationID(r.Header, cfg)
 	switch {
 	case a != nil && a.tunnel != nil:
 		// The CONNECT carried the ID for every call in its tunnel.
@@ -352,8 +352,18 @@ func recordContext(sc trace.SpanContext) context.Context {
 }
 
 // integrationID reads the user name from "Proxy-Authorization: Basic".
-// Anything else, including a broken or repeated header, counts as no ID.
-func integrationID(h http.Header) string {
+// Anything else, including a broken or repeated header, counts as no ID,
+// and so does an ID cfg does not name: the app chooses it, so made-up IDs
+// would each be a new series in the proxy's numbers (Peter, 2026-11-17).
+func integrationID(h http.Header, cfg *config.Config) string {
+	if id := sentID(h); cfg.Integration(id).Known {
+		return id
+	}
+	return ""
+}
+
+// sentID is the user name the app sent in "Proxy-Authorization: Basic".
+func sentID(h http.Header) string {
 	values := h.Values("Proxy-Authorization")
 	if len(values) != 1 {
 		return ""

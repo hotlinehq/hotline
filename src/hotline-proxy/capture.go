@@ -81,13 +81,13 @@ func (h *handler) serveCapture(w http.ResponseWriter, r *http.Request, li *liste
 	defer h.calls.Done()
 	start := h.clock.Now()
 	cfg := h.cfg.Load()
-	id := integrationID(r.Header)
+	id := integrationID(r.Header, cfg)
 	if r.Method != http.MethodConnect {
 		refuse(w, http.StatusMethodNotAllowed)
 		h.refused(r, start, cfg, "capture", id, nil, http.StatusMethodNotAllowed)
 		return
 	}
-	t, ok := parseTunnel(r)
+	t, ok := parseTunnel(r, cfg)
 	if !ok {
 		refuse(w, http.StatusBadRequest)
 		h.refused(r, start, cfg, "capture", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)

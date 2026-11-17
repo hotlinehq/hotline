@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/config"
+	"hotline-proxy/internal/labels"
 )
 
 // Timing says how long one send to a destination may take, retries
@@ -60,6 +61,8 @@ type Sink struct {
 	// scratch holds buffers to write a record or a call's spans in,
 	// before they are copied to their own exact size.
 	scratch sync.Pool
+	// labels keeps the records counter's label sets, made once each.
+	labels labels.Kept
 }
 
 // destination is one exporter's own pipeline, with its own resource.
@@ -394,17 +397,20 @@ func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
+	// Room for the five on the stack, so the list costs no memory to make.
 	counter := make([]attribute.KeyValue, 0, 5)
 	for _, kv := range attrs {
 		if counted(kv) {
 			counter = append(counter, kv)
 		}
 	}
+	// One set for every destination.
+	counts := metric.WithAttributeSet(s.labels.Set(counter...))
 	for _, d := range s.destinations {
 		if !d.queue.add(written) {
 			d.batches.dropped(c.Ledger)
 		}
-		d.requests.Add(ctx, 1, metric.WithAttributes(counter...))
+		d.requests.Add(ctx, 1, counts)
 	}
 }
 

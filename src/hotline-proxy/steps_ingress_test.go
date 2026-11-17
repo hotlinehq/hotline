@@ -256,7 +256,7 @@ func integrationSteps(sc *godog.ScenarioContext, w *world) {
 		return w.call("PUT", target, headers...)
 	})
 	sc.Step(`^the integration ID is (\S+)$`, w.recordID)
-	sc.Step(`^the record's ID is (\S+?)(?:, so typos stay visible)?$`, w.recordID)
+	sc.Step(`^the record's ID is (\S+)$`, w.recordID)
 	sc.Step(`^hotline.integration.id is (\S+)$`, w.recordID)
 	sc.Step(`^the api for api.talon.one is used, with its spec, TLS origination setting and vendorTimeout$`, func() error {
 		record, err := w.record()

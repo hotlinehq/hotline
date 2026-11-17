@@ -68,7 +68,7 @@ func (p process) attributes() []attribute.KeyValue {
 // to the HTTP server like any other app connection, and each call in it is
 // a call on the CONNECT ingress.
 func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Time, cfg *config.Config, li *listening) {
-	t, ok := parseTunnel(r)
+	t, ok := parseTunnel(r, cfg)
 	if !ok {
 		refuse(w, http.StatusBadRequest)
 		h.refused(r, start, cfg, "connect", t.id, &url.URL{Host: t.host}, http.StatusBadRequest)
@@ -108,9 +108,11 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 }
 
 // parseTunnel reads the host and port a CONNECT names, and its integration
-// ID. A host or port that is not usable is refused.
-func parseTunnel(r *http.Request) (*tunnel, bool) {
-	t := &tunnel{id: integrationID(r.Header)}
+// ID as cfg knows it. The ID is judged once, for the whole tunnel: a reload
+// that adds or removes the integration applies from the next connection,
+// as passthrough changes do. A host or port that is not usable is refused.
+func parseTunnel(r *http.Request, cfg *config.Config) (*tunnel, bool) {
+	t := &tunnel{id: integrationID(r.Header, cfg)}
 	var err error
 	t.host, t.port, err = net.SplitHostPort(r.Host)
 	if port, _ := strconv.Atoi(t.port); err != nil || t.host == "" || port < 1 || port > 65535 {

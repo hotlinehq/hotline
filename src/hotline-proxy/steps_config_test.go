@@ -248,7 +248,7 @@ func configSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		if err := has(record, "hotline.integration.id", "talon-shop-a"); err != nil {
+		if err := has(record, "hotline.integration.id", "not-passed"); err != nil {
 			return err
 		}
 		return hasNo(record, "url.full")

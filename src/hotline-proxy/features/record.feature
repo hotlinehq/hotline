@@ -75,7 +75,7 @@ Feature: Building the request record
     Examples:
       | call                                                | id           |
       | a call without Proxy-Authorization                  | not-passed   |
-      | a call with the unknown ID talon-shop-x             | talon-shop-x |
+      | a call with the unknown ID talon-shop-x             | not-passed   |
       | a call from talon-shop-a to api.stripe.com, outside its apis | talon-shop-a |
 
   Scenario: A minimal record leaves out url.full unless it is switched on
