@@ -564,6 +564,20 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return has(batches[len(batches)-1].attrs, "hotline.batch.last", true)
 	})
+	sc.Step(`^the refunds chain ends with an empty last batch of the config of the batch before it$`, func() error {
+		batches, err := w.chain("refunds", 2)
+		if err != nil {
+			return err
+		}
+		before, last := batches[len(batches)-2], batches[len(batches)-1]
+		if err := has(last.attrs, "hotline.batch.last", true); err != nil {
+			return err
+		}
+		if err := has(last.attrs, "hotline.batch.records", int64(0)); err != nil {
+			return err
+		}
+		return has(last.attrs, "hotline.batch.config", before.attrs["hotline.batch.config"])
+	})
 	sc.Step(`^the batch ids, sorted as text, are in sequence order$`, func() error {
 		batches, err := w.waitBatches(3)
 		if err != nil {

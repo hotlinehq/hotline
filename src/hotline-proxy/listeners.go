@@ -18,7 +18,9 @@ import (
 // moved, or gained or lost a part, keeps its old settings until a restart.
 type listening struct {
 	name string
-	cfg  atomic.Pointer[config.Listener]
+	// cfg is the settings it last took. A connection reads them only when
+	// its config has none of this shape: see settings.
+	cfg atomic.Pointer[config.Listener]
 	// shape is the shape it was opened with.
 	shape    string
 	listener net.Listener
@@ -122,6 +124,19 @@ func (li *listening) shutdown(ctx context.Context) error {
 	}
 	<-li.served
 	return err
+}
+
+// settings are the listener's settings in cfg, the config a connection
+// loaded when it arrived, so one connection sees one version of the config
+// even while a reload is under way. Where cfg moved the listener, gave it
+// or took away a part, or dropped it, the listener keeps the settings it
+// last took, until a restart (Peter, 2026-11-17, from the decomplect
+// review).
+func (li *listening) settings(cfg *config.Config) *config.Listener {
+	if c := cfg.Listener(li.name); c != nil && c.Shape() == li.shape {
+		return c
+	}
+	return li.cfg.Load()
 }
 
 // reload takes the settings of a new config, when the listener keeps its

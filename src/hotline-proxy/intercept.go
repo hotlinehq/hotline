@@ -165,11 +165,12 @@ func (s *source) ingressAttr() attribute.KeyValue {
 // listener.
 func (h *handler) intercepted(conn net.Conn, where OriginalDestination, li *listening) {
 	start := h.clock.Now()
-	c := li.cfg.Load()
+	cfg := h.cfg.Load()
+	c := li.settings(cfg)
 	ic := c.Transparent
 	src := &source{
 		ingress: "transparent", id: ic.Integration, passes: ic.Passes, relays: ic.Relays,
-		certificate: li.signer, port: "443", cfg: h.cfg.Load(),
+		certificate: li.signer, port: "443", cfg: cfg,
 	}
 	if where != nil {
 		if got, err := where(conn); err == nil {

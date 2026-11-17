@@ -66,9 +66,9 @@ type handler struct {
 	calls sync.WaitGroup
 }
 
-// connects says whether CONNECT is an ingress on the listener.
-func connects(li *listening) bool {
-	return li != nil && li.cfg.Load().Connect != nil
+// connects says whether CONNECT is an ingress on the listener, in cfg.
+func connects(li *listening, cfg *config.Config) bool {
+	return li != nil && li.settings(cfg).Connect != nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The CONNECT carried the ID for every call in its tunnel.
 		ingress, id = cmp.Or(a.tunnel.ingress, "connect"), a.tunnel.id
 		target, status = a.tunnel.find(r, a)
-	case r.Method == http.MethodConnect && connects(listeningOf(r)):
+	case r.Method == http.MethodConnect && connects(listeningOf(r), cfg):
 		h.connect(w, r, start, cfg, listeningOf(r))
 		return
 	default:

@@ -125,7 +125,7 @@ func captureProcess(h http.Header) (process, error) {
 // it is served like an intercepted connection: the site name comes from the
 // TLS handshake, with the CONNECT's host when the handshake names none.
 func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li *listening, start time.Time, cfg *config.Config) {
-	c := li.cfg.Load().Capture
+	c := li.settings(cfg).Capture
 	p, err := captureProcess(r.Header)
 	if err != nil {
 		refuse(w, http.StatusBadRequest)

@@ -129,6 +129,16 @@ Feature: The intercept ingress
       When the app connects to the listener naming api.talon.one in the handshake
       Then the app sees a certificate for api.talon.one signed by the interception issuer
 
+    # A connection reads its listener's settings from the config it loaded,
+    # so it never mixes a new listener with an old config (Peter,
+    # 2026-11-17, from the decomplect review).
+    Scenario: A host added to passthrough by a reload is relayed from the next connection
+      Given the app has connected to the listener naming pinned.example.com in the handshake
+      When the config file adds pinned.example.com to the transparent listener's passthrough
+      And the proxy checks its files
+      And the app connects to the listener naming pinned.example.com in the handshake
+      Then the vendor's own certificate reaches the app, not one from the interception issuer
+
   Rule: Connections that cannot be intercepted are recorded
 
     Scenario: An app that does not trust the issuer
