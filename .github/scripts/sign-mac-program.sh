@@ -57,9 +57,20 @@ identity=$(security find-identity -v -p codesigning "$keychain" | grep 'Develope
 [ -n "$identity" ] || { echo "No Developer ID Application certificate in the .p12 file." >&2; exit 1; }
 
 # The hardened runtime (--options runtime) and Apple's timestamp (--timestamp)
-# are what Apple asks for before it accepts a program.
-codesign --force --options runtime --timestamp --keychain "$keychain" \
-  --identifier io.github.petercipov.hotline-proxy --sign "$identity" "$program"
+# are what Apple asks for before it accepts a program. The timestamp comes
+# from Apple's server, which sometimes does not answer ("A timestamp was
+# expected but was not found"), so signing is tried up to three times, half
+# a minute apart, before the job gives up.
+tries=3
+for try in $(seq "$tries"); do
+  if codesign --force --options runtime --timestamp --keychain "$keychain" \
+    --identifier io.github.petercipov.hotline-proxy --sign "$identity" "$program"; then
+    break
+  fi
+  [ "$try" -lt "$tries" ] || { echo "Signing failed $tries times." >&2; exit 1; }
+  echo "Signing try $try failed, trying again in 30 seconds." >&2
+  sleep 30
+done
 
 # Stop before sending anything to Apple if the signature lacks the hardened
 # runtime or our team.
