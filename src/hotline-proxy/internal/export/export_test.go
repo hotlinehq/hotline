@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/url"
 	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/metric/noop"
+
+	"hotline-proxy/internal/config"
 )
 
 // What the tests in export_test may reach: one queue of strings, to pin
@@ -58,4 +61,23 @@ func LineOf(c Call) []byte {
 	buf := &bytes.Buffer{}
 	appendLine(buf, nil, c, true)
 	return buf.Bytes()
+}
+
+// TestTransport sends gzipped records to one collector over HTTP, like a
+// destination does.
+type TestTransport struct{ t *httpTransport }
+
+// NewTestTransport sends to the collector at rawURL, with gzip on.
+func NewTestTransport(rawURL string) TestTransport {
+	u, _ := url.Parse(rawURL)
+	return TestTransport{newHTTPTransport(config.Exporter{URL: u, Gzip: true}, nil, "test")}
+}
+
+// Sender is one more sender of records over the transport, like the record
+// queue or the ledger's batch line of a destination.
+func (t TestTransport) Sender() func(ctx context.Context, body []byte) error {
+	z := t.t.newZipper()
+	return func(ctx context.Context, body []byte) error {
+		return sendWithRetry(ctx, t.t, records, z, body, time.Second)
+	}
 }

@@ -7,9 +7,19 @@ package read //nolint:testpackage // fuzzes inner parsers, by the fuzzing except
 // built only with the fuzz tag and run in the nightly workflow fuzz.yml.
 
 import (
+	"os"
 	"testing"
 	"time"
+
+	"hotline-proxy/internal/fuzzlog"
 )
+
+// TestMain keeps each fuzz worker's output in a file, so a crash says why
+// (internal/fuzzlog). It does nothing outside a fuzz worker.
+func TestMain(m *testing.M) {
+	fuzzlog.Capture()
+	os.Exit(m.Run())
+}
 
 // readWait is the longest one body may take to read.
 const readWait = time.Second

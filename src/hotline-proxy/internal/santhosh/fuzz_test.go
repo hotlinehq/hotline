@@ -7,9 +7,19 @@ package santhosh //nolint:testpackage // fuzzes inner parsers, by the fuzzing ex
 // only with the fuzz tag and runs in the nightly workflow fuzz.yml.
 
 import (
+	"os"
 	"testing"
 	"time"
+
+	"hotline-proxy/internal/fuzzlog"
 )
+
+// TestMain keeps each fuzz worker's output in a file, so a crash says why
+// (internal/fuzzlog). It does nothing outside a fuzz worker.
+func TestMain(m *testing.M) {
+	fuzzlog.Capture()
+	os.Exit(m.Run())
+}
 
 func FuzzDecodeJSON(f *testing.F) {
 	f.Add([]byte(`{"item":"A1","quantity":1,"lines":[{"sku":"s"}]}`))
