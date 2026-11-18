@@ -61,6 +61,26 @@ Feature: Forwarding a call to the vendor
     Then the app gets 101 Switching Protocols and "ping" back
     And the record says http.response.status_code 101
 
+  Scenario: A WebSocket that ends logs no warning
+    Once the forwarder has taken over the app's connection for the
+    WebSocket, the handler must not flush it: Go's server would crash on
+    that, catch the crash itself and log a warning with a stack trace,
+    for every WebSocket (found by the WebSocket spike, 2026-11-18).
+    Given a vendor that accepts a WebSocket upgrade and sends back what it gets
+    When an app opens a WebSocket through the proxy and sends "ping"
+    Then the record says http.response.status_code 101
+    And the proxy's HTTP server logged nothing
+
+  Scenario: A WebSocket to a checked api is valid
+    After the 101, the connection carries the WebSocket's frames, not a
+    reply body, so the reply check has no body to read. Before, it read the
+    vendor's frames as the body and failed with not_in_spec (found by the
+    WebSocket spike, 2026-11-18).
+    Given a shop spec where GET /orders answers 101 Switching Protocols
+    And the shop vendor accepts a WebSocket upgrade, sends "bye" and closes at once
+    When an app opens a WebSocket to the shop through the proxy, reads "bye" and closes, 1 times
+    Then the record says hotline.schema.status=valid
+
   Scenario: A WebSocket that ends from both sides at once is recorded once
     As a WebSocket ends, the proxy reads the vendor's side to its end
     while the end of the call closes it, both at the same moment. Each

@@ -131,6 +131,15 @@ Feature: Listeners
       When a health check asks /readyz over TLS
       Then it gets 200
 
+    Scenario: The admin port's TLS errors go to the proxy's log as warnings
+      Given the certs are:
+        """
+        team: { cert: ./tls/cert.pem, key: ./tls/key.pem }
+        """
+      And the admin port has tls: { cert: team }
+      When something connects to the admin port and hangs up before TLS is set up
+      Then the proxy's HTTP server logged a warning about "TLS handshake error"
+
   Rule: The listeners are checked with the config
 
     Scenario Outline: A listener that cannot work stops the proxy at start

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -222,6 +223,9 @@ type toApp struct {
 	appLeft <-chan struct{}
 	gone    bool
 	err     error
+	// hijacked says the forwarder took over the app's connection, for a
+	// WebSocket: the server's writer must not be used after that.
+	hijacked bool
 }
 
 func (a *toApp) WriteHeader(status int) {
@@ -237,7 +241,12 @@ func (a *toApp) Write(b []byte) (int, error) {
 }
 
 // FlushError sends what is written so far, and notes it when that fails.
+// After a hijack there is nothing left to send: the server's writer is gone,
+// and Go's server would crash on the flush, catch it and log a warning.
 func (a *toApp) FlushError() error {
+	if a.hijacked {
+		return nil
+	}
 	err := http.NewResponseController(a.ResponseWriter).Flush()
 	a.err = cmp.Or(a.err, err)
 	return err
@@ -254,8 +263,13 @@ func (a *toApp) check() {
 	}
 }
 
-// Unwrap lets http.ResponseController reach the server's writer to flush.
-func (a *toApp) Unwrap() http.ResponseWriter { return a.ResponseWriter }
+// Hijack hands the app's connection to the forwarder for a WebSocket, and
+// notes that it did.
+func (a *toApp) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(a.ResponseWriter).Hijack()
+	a.hijacked = err == nil
+	return conn, rw, err
+}
 
 // findIngress works out which ingress a request used and the vendor address
 // it names. A status other than 0 means the proxy refuses the request; the
@@ -485,18 +499,26 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	both, upgrade := resp.Body.(io.Writer)
+	upgrade = upgrade && resp.StatusCode == http.StatusSwitchingProtocols
+	keep := c.plan.keepReply
+	if upgrade {
+		// What follows a 101 is the WebSocket's frames, not a reply body,
+		// so none of it is kept for the reply check, which then finds no body.
+		keep = 0
+	}
 	c.respBody = &tap{
 		ReadCloser: resp.Body,
 		mac:        c.h.bodyHash("response", c.trace),
 		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
-		keeper:     bodyKeeper{limit: c.plan.keepReply, pool: &c.h.bodies, expect: resp.ContentLength},
+		keeper:     bodyKeeper{limit: keep, pool: &c.h.bodies, expect: resp.ContentLength},
 		done: func() {
 			out := c.h.clock.Now()
 			c.mark(func() { c.vendorOut = out })
 			c.checkReply(out, resp)
 		},
 	}
-	if both, ok := resp.Body.(io.Writer); ok && resp.StatusCode == http.StatusSwitchingProtocols {
+	if upgrade {
 		// An upgraded connection, such as a WebSocket, carries data both
 		// ways, so the proxy must be able to write to it too. It may stay
 		// quiet for as long as both sides like.

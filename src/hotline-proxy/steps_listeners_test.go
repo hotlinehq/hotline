@@ -216,6 +216,25 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a health check asks /readyz over TLS$`, func() error {
 		return w.adminTLSGet("/readyz")
 	})
+	sc.Step(`^something connects to the admin port and hangs up before TLS is set up$`, func() error {
+		if err := w.start(); err != nil {
+			return err
+		}
+		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.adminAddr)
+		if err != nil {
+			return err
+		}
+		return conn.Close()
+	})
+	sc.Step(`^the proxy's HTTP server logged a warning about "([^"]+)"$`, func(text string) error {
+		w.settle()
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, `level=WARN msg="http server"`) && strings.Contains(line, text) {
+				return nil
+			}
+		}
+		return failf("no warning from the proxy's HTTP server about %q in:\n%s", text, w.logs.String())
+	})
 	sc.Step(`^it gets (\d+)$`, func(status int) error {
 		if w.resp == nil || w.resp.StatusCode != status {
 			return failf("the health check got %v, want %d", w.resp, status)
