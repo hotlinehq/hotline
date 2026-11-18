@@ -222,6 +222,8 @@ type world struct {
 	// with the world. tunnelErr says why TLS inside the last one failed.
 	tunnel  net.Conn
 	tunnels []net.Conn
+	// socket is the app's open WebSocket, for the WebSocket scenarios.
+	socket *openSocket
 	// h2 is the app's HTTP/2 connection for tunnels, and h2Reused says
 	// the last tunnel shared it.
 	h2        *http.Transport

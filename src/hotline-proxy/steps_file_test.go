@@ -559,11 +559,11 @@ func (w *world) fileLines(i int) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The ledger's batch lines are kept apart, so the scenarios about
-	// calls see only the calls' lines.
+	// The ledger's batch lines and the WebSocket session lines are kept
+	// apart, so the scenarios about calls see only the calls' lines.
 	var calls []map[string]any
 	for _, line := range all {
-		if line["event"] != "hotline.ledger.batch" {
+		if line["event"] == "hotline.request" {
 			calls = append(calls, line)
 		}
 	}

@@ -78,6 +78,8 @@ The instrumentation scope (the name of the code that made the data) is `hotline-
 
 One OpenTelemetry log record per call, sent once the reply has gone back to the app. A call inside a `CONNECT` tunnel gets its own record; a tunnel that opens fine gets none.
 
+A WebSocket's opening call is recorded as soon as its `101` reaches the app, like any other call: its reply has no body (`http.response.body.size` is 0 and `hotline.response.body.hash` is the hash of no bytes), and its time ends at the `101`. What follows the `101` belongs to the session, which gets a record of its own when it ends: see [WebSocket sessions](#websocket-sessions) (Peter, 2026-11-18). Before, a WebSocket had one record, made at its end: it counted the vendor's frames as the reply body and the whole session as the call's time.
+
 - Event name: `hotline.request`.
 - Timestamp: when the call reached the proxy.
 - Trace id, span id and flags, in the log record's own OpenTelemetry fields, not in attributes. The trace id and flags are the app's, read from its call in the integration's `traceFormat` (`w3c` by default, or `b3`, `xray`, `jaeger`); when the app sent none, the proxy makes a new trace id. The span id is always a new one for the proxy's step. Detail: [proxy-trace-context.md](proxy-trace-context.md).
@@ -175,19 +177,39 @@ A `CONNECT` tunnel whose TLS setup with the app fails gets a minimal record with
 
 Plain HTTP sent to a TLS port is a failed TLS setup, not a request, so it has no record.
 
+### WebSocket sessions
+
+A WebSocket, after its `101`, gets one more log record when it ends, whichever side ends it (Peter, 2026-11-18, WebSocket milestone 1). It reads no frames: it counts and hashes the bytes each side sent. Checking the messages against the vendor's AsyncAPI document comes in milestone 2, with who ended the session and its close code.
+
+- Event name: `hotline.websocket.session`.
+- Timestamp: when the `101` reached the app.
+- Trace id and flags: the opening call's. Span id: the `websocket session` span's (see [Signal 3](#signal-3-the-trace-of-each-call)).
+- Level: `INFO`.
+- It goes into the ledger like a call's record, with `hotline.record.hash`, `hotline.trace.hash` and its place in a batch, and `hotline-proxy verify` checks it. It is not counted in `hotline.requests`.
+- A session still open when the proxy stops is ended and recorded, within the stop's time.
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `hotline.integration.id`, `hotline.ingress`, `client.address`, `server.address` | text | As in the opening call's record. A captured session also names its program, as the call does. |
+| `hotline.websocket.from_app.size` | number | Bytes the app sent after the `101`: the WebSocket's frames as they passed, compressed or not, without TLS. |
+| `hotline.websocket.from_vendor.size` | number | Bytes the vendor sent after the `101`, counted the same way. |
+| `hotline.websocket.from_app.hash` | text | The hash of those bytes, made as a body's hash is, with the side `from_app` and the session's trace and span ids ([proxy-ledger.md](proxy-ledger.md)). |
+| `hotline.websocket.from_vendor.hash` | text | The same for the vendor's bytes, with the side `from_vendor`. |
+| `hotline.websocket.duration_us` | number | How long the session was open, from the `101` reaching the app to its end, in whole microseconds. |
+
 ## Signal 2: the hotline.requests counter
 
 | Name | Type | Unit | Attributes |
 |---|---|---|---|
 | `hotline.requests` | Sum that only goes up | `{request}` | `hotline.integration.id`, `url.template`, `http.request.method`, `http.response.status_code`, `error.type` |
 
-Every record above also counts once here, refused calls and failed tunnels included. Each attribute is there only when the record has it, so minimal records carry no `url.template`.
+Every call's record above also counts once here, refused calls and failed tunnels included. A WebSocket counts once, with status 101; its session record does not count, as a `CONNECT` tunnel that opens fine does not (Peter, 2026-11-18). Each attribute is there only when the record has it, so minimal records carry no `url.template`.
 
 There is no latency histogram and no pass or fail count: the control plane builds those from the records.
 
 ## Signal 3: the trace of each call
 
-One trace per call, to every destination, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive reply` under it, and `reply to app`, with `request spec check` and `reply spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. Detail: [proxy-traces.md](proxy-traces.md).
+One trace per call, to every destination, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive reply` under it, and `reply to app`, with `request spec check` and `reply spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Detail: [proxy-traces.md](proxy-traces.md).
 
 ## Signal 4: the proxy's own numbers
 

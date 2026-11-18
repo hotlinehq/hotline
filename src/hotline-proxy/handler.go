@@ -67,6 +67,9 @@ type handler struct {
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
+	// sessions are the WebSockets open now, each by its *call, so a stop
+	// can end them.
+	sessions sync.Map
 }
 
 // connects says whether CONNECT is an ingress on the listener, in cfg.
@@ -168,7 +171,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, deadlineKey{}, h.clock.Now().Add(c.timeout))
 	ctx = httptrace.WithClientTrace(ctx, c.clientTrace())
 	defer c.finish()
-	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done()}
+	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done(), switched: c.Switched}
 	c.app = app
 	if err := h.forward.Forward(ctx, app, r, c); err != nil {
 		c.fail(app, err)
@@ -226,7 +229,12 @@ type toApp struct {
 	// hijacked says the forwarder took over the app's connection, for a
 	// WebSocket: the server's writer must not be used after that.
 	hijacked bool
+	// switched is told when the app has the 101 and the WebSocket starts.
+	switched func()
 }
+
+// Switched passes on that the app has the 101 (see forward.Switcher).
+func (a *toApp) Switched() { a.switched() }
 
 func (a *toApp) WriteHeader(status int) {
 	a.check()
@@ -440,6 +448,9 @@ type call struct {
 	reqBody  *tap
 	respBody *tap
 	timedOut atomic.Bool
+	// session is the WebSocket that follows a 101, if the vendor
+	// switched to one.
+	session *session
 	// plan is what the call checks and keeps for that.
 	plan checkPlan
 	// reqCheck and replyCheck check each side against the spec as soon as
@@ -499,35 +510,37 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	both, upgrade := resp.Body.(io.Writer)
+	toVendor, upgrade := resp.Body.(io.Writer)
 	upgrade = upgrade && resp.StatusCode == http.StatusSwitchingProtocols
-	keep := c.plan.keepReply
+	body := resp.Body
 	if upgrade {
-		// What follows a 101 is the WebSocket's frames, not a reply body,
-		// so none of it is kept for the reply check, which then finds no body.
-		keep = 0
+		// What follows a 101 is the session's, not the call's: the call's
+		// reply has no body, and ends here (Peter, 2026-11-18).
+		c.session = c.newSession(resp.Body, toVendor)
+		body = http.NoBody
 	}
 	c.respBody = &tap{
-		ReadCloser: resp.Body,
+		ReadCloser: body,
 		mac:        c.h.bodyHash("response", c.trace),
 		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
-		keeper:     bodyKeeper{limit: keep, pool: &c.h.bodies, expect: resp.ContentLength},
+		keeper:     bodyKeeper{limit: c.plan.keepReply, pool: &c.h.bodies, expect: resp.ContentLength},
 		done: func() {
 			out := c.h.clock.Now()
 			c.mark(func() { c.vendorOut = out })
 			c.checkReply(out, resp)
 		},
 	}
+	c.mark(func() { c.resp = resp; c.status = resp.StatusCode })
 	if upgrade {
-		// An upgraded connection, such as a WebSocket, carries data both
-		// ways, so the proxy must be able to write to it too. It may stay
-		// quiet for as long as both sides like.
-		resp.Body = upgraded{tap: c.respBody, Writer: both}
+		c.respBody.finish()
+		// The session carries bytes both ways, so the proxy must be able
+		// to write to the vendor too. It may stay quiet for as long as
+		// both sides like.
+		resp.Body = upgraded{tap: c.session.fromVendor, Writer: c.session.fromApp}
 	} else {
 		c.respBody.wait = c.waitForVendor
 		resp.Body = c.respBody
 	}
-	c.mark(func() { c.resp = resp; c.status = resp.StatusCode })
 	return resp, nil
 }
 

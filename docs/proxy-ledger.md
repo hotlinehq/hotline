@@ -39,7 +39,7 @@ SHA-256 over the word `hotline.trace.v1`, the trace id, then each span in start 
 
 ### The body hashes
 
-SHA-256 over the word `hotline.body.v1`, the word `request` or `response`, the trace id's 16 bytes, the span id's 8 bytes, then the body as it streamed. Both ids are known when the call starts, so the body is hashed as it passes, with no copy and no size limit. The ids are a public salt: they hide that two calls had the same body. They do not hide a short body from someone guessing it.
+SHA-256 over the word `hotline.body.v1`, the word `request` or `response`, the trace id's 16 bytes, the span id's 8 bytes, then the body as it streamed. A WebSocket session's bytes are hashed the same way, with the side `from_app` or `from_vendor` and the session span's id (Peter, 2026-11-18). Both ids are known when the call starts, so the body is hashed as it passes, with no copy and no size limit. The ids are a public salt: they hide that two calls had the same body. They do not hide a short body from someone guessing it.
 
 ### Content kept beside the record
 

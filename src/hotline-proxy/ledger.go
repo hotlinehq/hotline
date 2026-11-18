@@ -132,7 +132,7 @@ func (b *book) record(ctx context.Context, f finished) {
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
 	b.sink.Call(ctx, export.Call{
-		Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
+		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
 		Ledger: export.Entry{Batch: open.id, Index: len(open.leaves), Hash: hash},
 	})
 	open.leaves = append(open.leaves, sum)

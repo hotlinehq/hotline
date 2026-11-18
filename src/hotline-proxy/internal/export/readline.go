@@ -12,6 +12,9 @@ import (
 const (
 	// CallEvent is the event of a call's line.
 	CallEvent = "hotline.request"
+	// SessionEvent is the event of a WebSocket session's line, which is
+	// written like a call's (Peter, 2026-11-18).
+	SessionEvent = "hotline.websocket.session"
 	// BatchEvent is the event of a ledger batch's line.
 	BatchEvent = "hotline.ledger.batch"
 	// TraceSpans is the attribute of a call's line that holds its spans.

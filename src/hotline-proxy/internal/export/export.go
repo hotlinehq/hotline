@@ -6,6 +6,7 @@ package export
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -93,8 +94,13 @@ type fileDestination struct {
 	batches *batchLine
 }
 
-// Call is one finished call: its record and its spans.
+// Call is one finished call, or a WebSocket session: its record and its
+// spans.
 type Call struct {
+	// Event is the record's event name: empty for a call, which is
+	// hotline.request, or SessionEvent for a WebSocket session. Only a
+	// call counts in hotline.requests (Peter, 2026-11-18).
+	Event string
 	Trace trace.SpanContext
 	At    time.Time
 	// Attrs is the record every exporter gets.
@@ -387,13 +393,16 @@ func (s *Sink) line(c Call, withContent bool) []byte {
 	return line
 }
 
-// record queues one hotline.request log record and counts the call. It
+// event is the record's event name.
+func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
+
+// record queues one log record and counts it when it is a call. It
 // never blocks: a full queue refuses the new record. It adds to taken
 // whether each destination took it.
 // The record is written once, for every destination.
 func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], CallEvent, c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
+	b := appendRecord((*scratch)[:0], c.event(), c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
@@ -406,11 +415,14 @@ func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	}
 	// One set for every destination.
 	counts := metric.WithAttributeSet(s.labels.Set(counter...))
+	call := c.event() == CallEvent
 	for _, d := range s.destinations {
 		if !d.queue.add(written) {
 			d.batches.dropped(c.Ledger)
 		}
-		d.requests.Add(ctx, 1, counts)
+		if call {
+			d.requests.Add(ctx, 1, counts)
+		}
 	}
 }
 

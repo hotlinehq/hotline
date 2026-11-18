@@ -23,7 +23,7 @@ A file exporter may stand alone or next to `otlp` exporters. Several file export
 
 ## The file
 
-The folder holds `calls.jsonl`, one line of JSON per call, and the rotated files. There is no file for metrics or traces: the file exporter writes no metrics, and a call's spans are inside its line.
+The folder holds `calls.jsonl`, one line of JSON per call, and the rotated files. A WebSocket session that ended also gets a line, with `event` set to `hotline.websocket.session` and the session record's fields ([otel-export.md](otel-export.md), Peter, 2026-11-18). There is no file for metrics or traces: the file exporter writes no metrics, and a call's spans are inside its line.
 
 A line looks like this, spread out here to read:
 

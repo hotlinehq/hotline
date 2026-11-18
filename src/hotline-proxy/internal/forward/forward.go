@@ -33,6 +33,13 @@ type Forwarder struct {
 	Buffers httputil.BufferPool
 }
 
+// Switcher is a reply writer that is told when an upgraded connection,
+// such as a WebSocket, starts: Forward calls Switched once the app has the
+// 101, before any byte passes either way after it (Peter, 2026-11-18).
+type Switcher interface {
+	Switched()
+}
+
 // Errors that Forward returns, wrapped with detail.
 var (
 	errBrokenProtocol = errors.New("forward: a protocol name that is not plain text")
@@ -327,6 +334,9 @@ func (f *Forwarder) upgrade(ctx context.Context, w http.ResponseWriter, in *http
 	res.Body = nil
 	if res.Write(brw) != nil || brw.Flush() != nil {
 		return nil // the app has gone; nothing is left to answer
+	}
+	if s, ok := w.(Switcher); ok {
+		s.Switched()
 	}
 	ended := make(chan struct{}, 2)
 	go func() { _, _ = io.Copy(vendor, brw); ended <- struct{}{} }()
