@@ -2,6 +2,15 @@
 
 Read [memory.md](memory.md) first: it is a short index of decisions already made, the slice plan, and where the detail lives. Add new decisions to the matching file in `docs/decisions/`, and keep memory.md short.
 
+## Asking Peter questions
+
+Whenever you ask Peter to decide something (requirements, design, which option), use the decomplect skill's Interview mode (Peter, 2026-11-18):
+
+- One question per message, numbered (Q1, Q2, ...). Wait for the answer, say in one line what is now decided, then ask the next.
+- Context first: two to four plain sentences on what exists today and why the question comes up. Answer from the code and docs whatever they can answer; ask only what Peter alone can decide.
+- Then the question in one sentence, your pick with a one-sentence reason, and a small tradeoff table: today's behaviour as the first column, two to four rows of criteria, words in every cell, marked 🟢 good, 🟡 challenge, 🔴 blocking, ? unknown. No totals.
+- Record each answer where the topic's decisions live.
+
 ## Development Approach
 
 This project uses **Test-Driven Development (TDD)**. Write tests before writing implementation code.
