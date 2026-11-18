@@ -8,8 +8,11 @@ Whenever you ask Peter to decide something (requirements, design, which option),
 
 - One question per message, numbered (Q1, Q2, ...). Wait for the answer, say in one line what is now decided, then ask the next.
 - Context first: two to four plain sentences on what exists today and why the question comes up. Answer from the code and docs whatever they can answer; ask only what Peter alone can decide.
-- Then the question in one sentence, your pick with a one-sentence reason, and a small tradeoff table: today's behaviour as the first column, two to four rows of criteria, words in every cell, marked 🟢 good, 🟡 challenge, 🔴 blocking, ? unknown. No totals.
-- Record each answer where the topic's decisions live.
+- Then the question in one sentence, your pick with a one-sentence reason, and a small tradeoff table, following the skill's `references/tradeoff-table.md`:
+  - today's behaviour as the first column, two to four rows of criteria, words in every cell, marked 🟢 good, 🟡 challenge, 🔴 blocking, ? unknown. No totals;
+  - a hard constraint, something the decision must meet rather than a preference, gets `(must)` after its label and goes first. A 🔴 there rules the option out: say so in the cell ("🔴 leaks the key: out") and keep the column, so it shows why the option lost;
+  - when the call is close (the runner-up loses on only one or two rows), end with a "Flips if" line: the fact you could observe that would make the runner-up win, such as a number crossing a limit or a use case arriving.
+- Record each answer where the topic's decisions live, and turn its "Flips if" line into a "Revisit if" line there.
 
 ## Development Approach
 
