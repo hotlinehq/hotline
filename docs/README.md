@@ -21,6 +21,7 @@
 - [The Host header, with HTTP/2](proxy-host-header.md)
 - [Transparent redirect](proxy-transparent-redirect.md)
 - [Guarding against calls to internal addresses](proxy-internal-guard.md)
+- [WebSockets through the proxy](proxy-websockets.md): what works on each ingress, and the known problems
 
 ## Checking calls against the vendor's spec
 

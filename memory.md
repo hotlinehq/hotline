@@ -36,7 +36,7 @@ The proxy is built in small slices, tests first. Each item, with its decisions i
 
 - Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named issuers and the `checks` list, the intercept ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, the Docker image, the file exporter, the console exporter, and the evidence ledger with `hotline-proxy verify` (which replaced the signatures).
 - In progress: the load test with k6, including pooled body buffers and the spec check queue (`specChecks.queueMemory`).
-- Still to come: the Node, Java and Rust clients in the end-to-end tests.
+- Still to come: the Node, Java and Rust clients in the end-to-end tests; WebSocket sessions as their own records, and the shop assistant on Gemini Live with a fake Gemini ([docs/proxy-websockets.md](docs/proxy-websockets.md)).
 
 ## Earlier decisions
 
@@ -74,4 +74,5 @@ Open only the file for the topic at hand.
 - Own forwarder, `internal/forward`, instead of Go's reverse proxy; one request copy: [docs/decisions/forwarder.md](docs/decisions/forwarder.md)
 - Tests in CI (no race detector; ports picked again when taken): [docs/decisions/tests-in-ci.md](docs/decisions/tests-in-ci.md)
 - Fuzzing (nightly `fuzz.yml`; through the ways in, and straight at the parsers behind the `fuzz` tag): [docs/decisions/fuzzing.md](docs/decisions/fuzzing.md)
+- WebSockets (one trace with separate spans per record; the shop assistant on Gemini Live with a fake Gemini as the example): [docs/decisions/websockets.md](docs/decisions/websockets.md)
 - Evidence ledger (record hashes, signed batches per integration, `hotline-proxy verify`; no more `fingerprintKey`): [docs/decisions/ledger.md](docs/decisions/ledger.md)

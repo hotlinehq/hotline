@@ -54,7 +54,7 @@ model {
       }
       forwarder = component 'Forwarder' {
         technology 'internal/forward'
-        description 'Calls the vendor with the bytes unchanged, times DNS, connect, TLS and first byte'
+        description 'Calls the vendor with the bytes unchanged, times DNS, connect, TLS and first byte. After a 101, copies a WebSocket both ways'
       }
       guard = component 'Address guard' 'Refuses loopback and private addresses unless allowInternalIPs'
       tap = component 'Body tap' 'Passes bodies straight on, keeps a copy up to 2 MiB'

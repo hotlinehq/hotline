@@ -109,8 +109,9 @@
   <text x="740" y="328" font-size="14" fill="#164E63" text-anchor="middle">which integration,</text>
   <text x="740" y="349" font-size="14" fill="#164E63" text-anchor="middle">which vendor api</text>
   <text x="1060" y="302" font-size="20" font-weight="700" fill="#155E75" text-anchor="middle">Forwarder</text>
-  <text x="1060" y="328" font-size="14" fill="#164E63" text-anchor="middle">calls the vendor, bytes unchanged</text>
-  <text x="1060" y="349" font-size="14" fill="#164E63" text-anchor="middle">times dns · connect · tls · first byte</text>
+  <text x="1060" y="325" font-size="14" fill="#164E63" text-anchor="middle">calls the vendor, bytes unchanged</text>
+  <text x="1060" y="344" font-size="14" fill="#164E63" text-anchor="middle">times dns · connect · tls · first byte</text>
+  <text x="1060" y="363" font-size="14" fill="#164E63" text-anchor="middle">WebSockets: copies both ways after 101</text>
   <path d="M860,319 L896,319" fill="none" stroke="#0E7490" stroke-width="2" marker-end="url(#arrowTeal)"/>
 
   <!-- Address guard -->
