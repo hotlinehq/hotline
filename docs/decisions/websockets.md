@@ -12,3 +12,12 @@ From the WebSocket interview in the project thread. Requirements: `shop-assistan
 8. The sink tells a session record from a call record by `export.Call.Event`, empty for a call (Q14). Only a call counts in `hotline.requests`, and the console shows a session in two lines of its own. Revisit if a session record needs things a call never has inside the sink, such as its own queue; then a separate type.
 9. The forwarder tells the handler when the `101` has reached the app, with the optional `forward.Switcher` (Q15; [forwarder.md](forwarder.md), item 8).
 10. Revisit if a WebSocket must be checked over HTTP/2, or plain `ws://` on the transparent listeners: both are left for later.
+
+## The shop assistant (Peter, 2026-11-18)
+
+The example that shows milestone 1 at work, in `examples/aws-shop`. Requirements: `shop-assistant/requirements.md` in the project files.
+
+11. A fourth app, `assistant`, integration `shop-assistant`: it talks to Gemini Live through Google's Go SDK, text only, with one tool, `orderStatus(orderId)`, which reads the order from the DynamoDB `orders` table. It waits for the turn that holds the answer after a tool call. Settings: `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_BASE_URL`.
+12. The opening call is checked against [specs/google/gemini-live](../../specs/google/gemini-live/), whose security section names `x-goog-api-key`, so the key is in no record, span or log, even with content: full. The Floci run fails if it finds the key in its records or log.
+13. Gemini Live is played by aimock (a scripted fake of AI vendors, `ghcr.io/copilotkit/aimock`, pinned by digest) behind a small TLS front (socat), reached over `wss://` through `CONNECT`, which Hotline opens with a test issuer made for the run.
+14. The assistant runs only in the Floci workflow, on Linux (Q16). The example needs no run against real AWS or real Gemini; aimock and its front start in `floci/up.sh`. Revisit if the story must run against real AWS or real Gemini, or on a Mac.

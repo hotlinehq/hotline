@@ -1,0 +1,39 @@
+openapi: 3.1.0
+info:
+  title: Gemini Live API, opening call
+  version: v1beta
+  description: >-
+    The call that opens a Gemini Live session: a GET that the server answers
+    with 101 Switching Protocols, after which the connection carries the
+    session's WebSocket messages. Only the opening call is described here;
+    the messages are for an AsyncAPI document (WebSocket milestone 2).
+servers:
+  - url: https://generativelanguage.googleapis.com
+security:
+  - apiKey: []
+  - accessToken: []
+paths:
+  /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent:
+    get:
+      operationId: BidiGenerateContent
+      summary: Open a Live session with an api key
+      responses:
+        "101":
+          description: Switched to a WebSocket; the session follows.
+  /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained:
+    get:
+      operationId: BidiGenerateContentConstrained
+      summary: Open a Live session with an ephemeral token
+      responses:
+        "101":
+          description: Switched to a WebSocket; the session follows.
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-goog-api-key
+    accessToken:
+      type: apiKey
+      in: query
+      name: access_token

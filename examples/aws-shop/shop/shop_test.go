@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/genai"
 
 	"hotline-example/aws-shop/internal/fakeaws"
 	"hotline-example/aws-shop/internal/fakes3"
@@ -345,6 +349,136 @@ var _ = Describe("The shop's four apps", func() {
 		})
 	})
 
+	Describe("assistant", func() {
+		// ask asks the assistant one question over a scripted Gemini Live
+		// session.
+		ask := func(live *fakeLive, question string) (string, error) {
+			return app("shop-assistant").Ask(ctx, live, question)
+		}
+
+		It("answers about a paid order with the orderStatus tool, reading the order from the orders table", func() {
+			pay()
+			live := &fakeLive{script: []*genai.LiveServerMessage{
+				toolCall("call-1", "A-1001"),
+				turnComplete(), // the turn that held the tool call ends first
+				text("Order A-1001 is paid."),
+				turnComplete(),
+			}}
+			answer, err := ask(live, "Where is order A-1001?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("Order A-1001 is paid."))
+			Expect(live.asked).To(Equal([]string{"Where is order A-1001?"}))
+			Expect(live.answered).To(HaveLen(1))
+			Expect(live.answered[0].ID).To(Equal("call-1"))
+			Expect(live.answered[0].Name).To(Equal("orderStatus"))
+			Expect(live.answered[0].Response).To(Equal(map[string]any{
+				"status": "paid", "paidAt": "2026-11-01T10:00:00Z", "total": "65.97", "currency": "EUR",
+			}))
+			Expect(aws.Targets()[len(aws.Targets())-1]).To(Equal("DynamoDB_20120810.GetItem"))
+		})
+
+		It("tells the model an order it can't find is not found", func() {
+			live := &fakeLive{script: []*genai.LiveServerMessage{
+				toolCall("call-1", "A-4040"),
+				turnComplete(),
+				text("I can't find order A-4040."),
+				turnComplete(),
+			}}
+			answer, err := ask(live, "Where is order A-4040?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("I can't find order A-4040."))
+			Expect(live.answered[0].Response).To(Equal(map[string]any{"status": "not found"}))
+		})
+
+		It("gives the model's reply when it calls no tool", func() {
+			live := &fakeLive{script: []*genai.LiveServerMessage{
+				text("I can only help with orders. "),
+				text("Which order number?"),
+				turnComplete(),
+			}}
+			answer, err := ask(live, "Hello!")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("I can only help with orders. Which order number?"))
+			Expect(live.answered).To(BeEmpty())
+		})
+
+		It("says so when the model ends its turn with neither an answer nor a tool call", func() {
+			for _, script := range [][]*genai.LiveServerMessage{
+				{turnComplete()},
+				{toolCall("call-1", "A-1001"), turnComplete(), turnComplete()},
+			} {
+				_, err := ask(&fakeLive{script: script}, "Where is order A-1001?")
+				Expect(err).To(MatchError(shop.ErrNoAnswer))
+			}
+		})
+
+		It("tells the model a call without an order number is wrong, without reading the table", func() {
+			before := len(aws.Targets())
+			call := &genai.LiveServerMessage{ToolCall: &genai.LiveServerToolCall{FunctionCalls: []*genai.FunctionCall{
+				{ID: "call-1", Name: "orderStatus", Args: map[string]any{}},
+			}}}
+			live := &fakeLive{script: []*genai.LiveServerMessage{call, turnComplete(), text("Which order?"), turnComplete()}}
+			answer, err := ask(live, "Where is my order?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("Which order?"))
+			Expect(live.answered[0].Response).To(Equal(map[string]any{"error": "orderId is missing"}))
+			Expect(aws.Targets()).To(HaveLen(before))
+		})
+
+		It("tells the model a tool it doesn't have is unknown", func() {
+			call := &genai.LiveServerMessage{ToolCall: &genai.LiveServerToolCall{FunctionCalls: []*genai.FunctionCall{
+				{ID: "call-1", Name: "refund", Args: map[string]any{"orderId": "A-1001"}},
+			}}}
+			live := &fakeLive{script: []*genai.LiveServerMessage{call, turnComplete(), text("I can't."), turnComplete()}}
+			_, err := ask(live, "Refund A-1001")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(live.answered[0].Response).To(Equal(map[string]any{"error": "no such tool: refund"}))
+		})
+
+		It("sends secure WebSockets through the proxy, as the app's integration, and plain ones directly", func() {
+			proxy, err := shop.LiveProxy("http://localhost:8080", "shop-assistant")
+			Expect(err).NotTo(HaveOccurred())
+			secure, err := proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "generativelanguage.googleapis.com"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(secure.String()).To(Equal("http://shop-assistant:x@localhost:8080"))
+			plain, err := proxy(&http.Request{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:4010"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(plain).To(BeNil())
+		})
+
+		It("refuses a proxy address it can't read", func() {
+			_, err := shop.LiveProxy("http://[::1", "shop-assistant")
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("says so when the order can't be read", func() {
+			// A proxy that nobody answers on: DynamoDB can't be reached.
+			a, err := shop.NewApp(ctx, "shop-assistant", shop.Settings{Proxy: "http://127.0.0.1:1"}, names, testAWS()...)
+			Expect(err).NotTo(HaveOccurred())
+			live := &fakeLive{script: []*genai.LiveServerMessage{toolCall("call-1", "A-1001")}}
+			_, err = a.Ask(ctx, live, "Where is order A-1001?")
+			Expect(err).To(MatchError(ContainSubstring("read the order")))
+		})
+
+		It("stops when the session breaks off before the answer", func() {
+			live := &fakeLive{script: []*genai.LiveServerMessage{text("Order")}}
+			_, err := ask(live, "Where is order A-1001?")
+			Expect(err).To(MatchError(io.EOF))
+		})
+
+		It("stops when the question can't be sent", func() {
+			live := &fakeLive{sendErr: io.ErrClosedPipe}
+			_, err := ask(live, "Hello!")
+			Expect(err).To(MatchError(io.ErrClosedPipe))
+		})
+
+		It("stops when the tool's answer can't be sent", func() {
+			live := &fakeLive{script: []*genai.LiveServerMessage{toolCall("call-1", "A-1001")}, toolErr: io.ErrClosedPipe}
+			_, err := ask(live, "Where is order A-1001?")
+			Expect(err).To(MatchError(io.ErrClosedPipe))
+		})
+	})
+
 	Describe("the log group", func() {
 		It("gets each app's log lines, in the app's own log stream", func() {
 			names.LogGroup = "/shop/aws-shop"
@@ -366,3 +500,49 @@ var _ = Describe("The shop's four apps", func() {
 		})
 	})
 })
+
+// fakeLive is a scripted Gemini Live session: it hands out its script's
+// messages one by one, then io.EOF, and keeps what the app sent.
+type fakeLive struct {
+	script           []*genai.LiveServerMessage
+	sendErr, toolErr error
+	asked            []string
+	answered         []*genai.FunctionResponse
+}
+
+func (f *fakeLive) SendClientContent(in genai.LiveClientContentInput) error {
+	for _, turn := range in.Turns {
+		for _, p := range turn.Parts {
+			f.asked = append(f.asked, p.Text)
+		}
+	}
+	return f.sendErr
+}
+
+func (f *fakeLive) SendToolResponse(in genai.LiveToolResponseInput) error {
+	f.answered = append(f.answered, in.FunctionResponses...)
+	return f.toolErr
+}
+
+func (f *fakeLive) Receive() (*genai.LiveServerMessage, error) {
+	if len(f.script) == 0 {
+		return nil, io.EOF
+	}
+	next := f.script[0]
+	f.script = f.script[1:]
+	return next, nil
+}
+
+func toolCall(id, orderID string) *genai.LiveServerMessage {
+	return &genai.LiveServerMessage{ToolCall: &genai.LiveServerToolCall{FunctionCalls: []*genai.FunctionCall{
+		{ID: id, Name: "orderStatus", Args: map[string]any{"orderId": orderID}},
+	}}}
+}
+
+func text(t string) *genai.LiveServerMessage {
+	return &genai.LiveServerMessage{ServerContent: &genai.LiveServerContent{ModelTurn: &genai.Content{Parts: []*genai.Part{{Text: t}}}}}
+}
+
+func turnComplete() *genai.LiveServerMessage {
+	return &genai.LiveServerMessage{ServerContent: &genai.LiveServerContent{TurnComplete: true}}
+}

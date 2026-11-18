@@ -105,3 +105,13 @@ Feature: WebSocket sessions
     And hotline-proxy is stopped
     And I run hotline-proxy verify calls
     Then it exits with 0
+
+  Scenario: Gemini Live's opening call checks out against its spec, with the key hidden
+    The spec in specs/google names x-goog-api-key in its security section,
+    so the key is in no record, span or log.
+    Given the integration shop-assistant uses Gemini Live with the spec in specs/google
+    And Gemini Live accepts a WebSocket upgrade, reads 5 bytes, sends "ok" and closes
+    When shop-assistant opens a Gemini Live session through the connect ingress with "X-Goog-Api-Key: k-not-real-123"
+    And the app sends "hello" and reads "ok"
+    Then the call record says hotline.schema.status valid and url.template /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
+    And no record, span or log holds "k-not-real-123"

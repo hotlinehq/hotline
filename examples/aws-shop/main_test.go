@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/gorilla/websocket"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -218,6 +220,39 @@ var _ = Describe("The aws-shop program", func() {
 		Entry("refund", "refunds", "start", "--order", "A-1001", "--amount", "1.00", "--reason", "late"),
 	)
 
+	Describe("assistant ask", func() {
+		BeforeEach(func() {
+			// ask sets the proxy of Google's SDK's dialer; this puts it back after.
+			proxy := websocket.DefaultDialer.Proxy
+			DeferCleanup(func() { websocket.DefaultDialer.Proxy = proxy })
+			GinkgoT().Setenv("GEMINI_API_KEY", "test-key-not-real")
+		})
+
+		It("answers a question over Gemini Live, as integration shop-assistant", func() {
+			gemini := fakeGemini("I can only help with orders.")
+			GinkgoT().Setenv("GEMINI_BASE_URL", "ws://"+gemini.Listener.Addr().String())
+			Expect(run("assistant", "ask", "--question", "Hello!")).To(Equal(0), stderr.String())
+			Expect(stdout.String()).To(Equal("I can only help with orders.\n"))
+			// The fake is plain ws on this machine, so it is reached directly;
+			// Google's wss address goes through the proxy, as shop-assistant.
+			viaProxy, err := websocket.DefaultDialer.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "generativelanguage.googleapis.com"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(viaProxy.String()).To(Equal("http://shop-assistant:x@" + files.Addr))
+		})
+
+		It("stops before connecting when GEMINI_API_KEY is not set", func() {
+			GinkgoT().Setenv("GEMINI_API_KEY", "")
+			Expect(run("assistant", "ask", "--question", "Hello!")).To(Equal(1))
+			Expect(stderr.String()).To(ContainSubstring("set GEMINI_API_KEY"))
+		})
+
+		It("says so when Gemini Live can't be reached", func() {
+			GinkgoT().Setenv("GEMINI_BASE_URL", "ws://127.0.0.1:1")
+			Expect(run("assistant", "ask", "--question", "Hello!")).To(Equal(1))
+			Expect(stderr.String()).To(ContainSubstring("open the Gemini Live session"))
+		})
+	})
+
 	It("reports a proxy address it can't read", func() {
 		GinkgoT().Setenv("HOTLINE_PROXY", "://nope")
 		Expect(run("invoices", "list")).To(Equal(1))
@@ -242,5 +277,32 @@ var _ = Describe("The aws-shop program", func() {
 		Entry("cleanup with a day it can't read", "invoices", "cleanup", "--before", "soon"),
 		Entry("mail without a folder", "mailer", "work"),
 		Entry("a refund without a reason", "refunds", "start", "--order", "A-1001", "--amount", "1.00"),
+		Entry("a question to the assistant left out", "assistant", "ask"),
 	)
 })
+
+// fakeGemini is a Gemini Live server that answers any question with reply,
+// in one model turn.
+func fakeGemini(reply string) *httptest.Server {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		if _, _, err := conn.ReadMessage(); err != nil { // the setup
+			return
+		}
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"setupComplete":{}}`))
+		if _, _, err := conn.ReadMessage(); err != nil { // the question
+			return
+		}
+		answer, _ := json.Marshal(map[string]any{"serverContent": map[string]any{"modelTurn": map[string]any{"parts": []any{map[string]any{"text": reply}}}}})
+		_ = conn.WriteMessage(websocket.TextMessage, answer)
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"serverContent":{"turnComplete":true}}`))
+		_, _, _ = conn.ReadMessage() // until the app closes
+	}))
+	DeferCleanup(server.Close)
+	return server
+}

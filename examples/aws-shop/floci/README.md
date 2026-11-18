@@ -12,6 +12,10 @@ It needs Docker, Go, and Terraform (or OpenTofu), and the right to change `/etc/
 
 The shop sends each call to Hotline as plain `http` to AWS's real host name, such as `sqs.eu-west-1.amazonaws.com`. [up.sh](up.sh) makes those names point to this machine (lines in `/etc/hosts`, taken out again by [down.sh](down.sh)) and publishes Floci's port 4566 as port 80. [hotline-proxy.yaml](hotline-proxy.yaml) is the proxy's test config with `tlsOrigination: false` (plain http to the vendor) and `allowInternalIPs: true` (this machine is allowed) on every api. The account number comes from the access key, as Floci takes a key of 12 digits as the account.
 
+## The fake Gemini Live
+
+The assistant talks to Gemini Live over `wss://generativelanguage.googleapis.com`. [up.sh](up.sh) points that name to this machine too, and starts [aimock](https://github.com/CopilotKit/aimock) (a scripted fake of AI vendors, pinned by digest) with the script in [aimock/shop-assistant.json](aimock/shop-assistant.json), behind a small TLS front (socat) on port 443. It makes a test issuer and the front's certificate in `out/tls`: Hotline opens the assistant's `CONNECT` with that issuer, and trusts the front through `SSL_CERT_FILE` (the system's roots plus the test issuer, which works on Linux). The script knows the order A-1001 only, so `run.sh` uses that order. The key is a made up one, and `run.sh` fails if it appears in `out/calls` or `proxy.log`.
+
 ## What a run leaves in `out/`
 
 - `calls/calls.jsonl`: every call in full, one JSON line each, with all headers and the bodies (see [proxy-file-export.md](../../../docs/proxy-file-export.md)). Read a body with `jq -r '.attributes."hotline.http.request.body" | @base64d' out/calls/calls.jsonl`. Nothing is hidden, so keep it to test data.
