@@ -271,9 +271,6 @@ func (a *toApp) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return conn, rw, err
 }
 
-// Unwrap lets http.ResponseController reach the server's writer to flush.
-func (a *toApp) Unwrap() http.ResponseWriter { return a.ResponseWriter }
-
 // findIngress works out which ingress a request used and the vendor address
 // it names. A status other than 0 means the proxy refuses the request; the
 // address is then whatever part of it the proxy could read, or nil.
