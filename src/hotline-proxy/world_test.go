@@ -167,6 +167,10 @@ type world struct {
 	proxyCert tls.Certificate
 	// appTLS, when set, makes apps open TLS to the proxy with it.
 	appTLS *tls.Config
+	// callsEnd, when set, is the latest an app waits for the proxy: to
+	// connect, to set up TLS and for the answer. The fuzz tests set it for
+	// each input.
+	callsEnd time.Time
 	// tlsState is what the app's last TLS connection agreed on, and
 	// tlsErr why setting it up failed.
 	tlsState tls.ConnectionState
@@ -755,12 +759,12 @@ func (w *world) send(r request) error {
 // uses it. When TLS fails to set up, the error is errTLSSetup and tlsErr
 // says why.
 func (w *world) dialProxy() (net.Conn, error) {
-	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.addr)
+	conn, err := (&net.Dialer{Deadline: w.callsEnd}).DialContext(context.Background(), "tcp", w.addr)
 	if err != nil || w.appTLS == nil {
 		return conn, err
 	}
 	client := tls.Client(conn, w.appTLS)
-	_ = client.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = client.SetDeadline(w.waitUntil(10 * time.Second))
 	w.tlsErr = client.HandshakeContext(context.Background())
 	if w.tlsErr != nil {
 		_ = conn.Close()
@@ -809,7 +813,7 @@ func (w *world) exchange(conn net.Conn, r request) error {
 
 // readAnswer reads the proxy's answer to the request just sent.
 func (w *world) readAnswer(conn net.Conn) error {
-	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetReadDeadline(w.waitUntil(10 * time.Second))
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	w.resp, w.respErr = resp, err
 	if err == nil {
@@ -817,6 +821,16 @@ func (w *world) readAnswer(conn net.Conn) error {
 		_ = resp.Body.Close()
 	}
 	return nil
+}
+
+// waitUntil is how long an app waits: limit from now, but never past
+// callsEnd when it is set.
+func (w *world) waitUntil(limit time.Duration) time.Time {
+	until := time.Now().Add(limit)
+	if !w.callsEnd.IsZero() && w.callsEnd.Before(until) {
+		return w.callsEnd
+	}
+	return until
 }
 
 func (w *world) writeBody(conn net.Conn, r request) {

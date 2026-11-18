@@ -30,6 +30,18 @@ import (
 // fuzzWait is the longest the proxy may take over one input.
 const fuzzWait = 2 * time.Second
 
+// inputTime is the longest one input may take in all: its sends, their
+// second tries and the normal calls after them. Go stops a fuzz process
+// without a word when one input takes 10 seconds, so every wait ends by
+// then and a slow input fails with its own message and logs instead.
+const inputTime = 6 * time.Second
+
+// startInput starts the clock of one input: from now on every wait of the
+// input ends within inputTime.
+func (w *world) startInput() {
+	w.callsEnd = time.Now().Add(inputTime)
+}
+
 // fuzzWorld starts the proxy for one fuzz test, with what setup adds.
 func fuzzWorld(f *testing.F, setup func(w *world)) *world {
 	f.Helper()
@@ -65,6 +77,9 @@ func (w *world) tryTwice(t *testing.T, send func() time.Duration) {
 // stillWell checks the three rules after one input that took took.
 func (w *world) stillWell(t *testing.T, took time.Duration) {
 	t.Helper()
+	if time.Now().After(w.callsEnd) {
+		t.Fatalf("the input took more than %v in all\n%s", inputTime, w.logs.String())
+	}
 	if took > fuzzWait {
 		t.Fatalf("the proxy took %v over the input, more than %v\n%s", took, fuzzWait, w.logs.String())
 	}
@@ -79,6 +94,9 @@ func (w *world) stillWell(t *testing.T, took time.Duration) {
 	w.forget()
 	w.resp = nil
 	if err := w.call("GET", "https://api.talon.one/v1/status"); err != nil || w.resp == nil {
+		if time.Now().After(w.callsEnd) {
+			t.Fatalf("the input took more than %v in all, its normal call included\n%s", inputTime, w.logs.String())
+		}
 		t.Fatalf("a normal call after the input got no answer: %v %v\n%s", err, w.respErr, w.logs.String())
 	}
 }
@@ -100,16 +118,18 @@ func (w *world) forget() {
 
 // sendRaw writes data on a new connection to address, says nothing more
 // comes, and reads until the proxy closes the connection. It gives how long
-// that took; a wait cut off at fuzzWait counts as longer.
-func sendRaw(t *testing.T, network, address string, data []byte) time.Duration {
+// that took; a wait cut off at fuzzWait, or at the end of the input's
+// time, counts as longer.
+func (w *world) sendRaw(t *testing.T, network, address string, data []byte) time.Duration {
 	t.Helper()
 	start := time.Now()
-	conn, err := (&net.Dialer{Timeout: fuzzWait}).DialContext(context.Background(), network, address)
+	until := w.waitUntil(fuzzWait)
+	conn, err := (&net.Dialer{Deadline: until}).DialContext(context.Background(), network, address)
 	if err != nil {
 		t.Fatalf("cannot connect to the proxy: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(start.Add(fuzzWait))
+	_ = conn.SetDeadline(until)
 	_, _ = conn.Write(data)
 	if half, ok := conn.(interface{ CloseWrite() error }); ok {
 		_ = half.CloseWrite()
@@ -153,10 +173,11 @@ func FuzzFirstBytes(f *testing.F) {
 	f.Add([]byte("GET / HTTP/1.1\r\nHost: api.talon.one\r\n\r\n"))
 	f.Add([]byte{0x16, 3, 1, 0, 0})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.interceptAddr, data) })
+		w.startInput()
+		w.tryTwice(t, func() time.Duration { return w.sendRaw(t, "tcp", w.interceptAddr, data) })
 		connect := "CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" +
 			"Hotline-Capture: 2\r\nHotline-Capture-Pid: 42\r\nHotline-Capture-Program: /usr/bin/app\r\n\r\n"
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "unix", w.captureFile, append([]byte(connect), data...)) })
+		w.tryTwice(t, func() time.Duration { return w.sendRaw(t, "unix", w.captureFile, append([]byte(connect), data...)) })
 	})
 }
 
@@ -174,7 +195,8 @@ func FuzzRequest(f *testing.F) {
 	f.Add([]byte("CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" + login + "\r\n\r\n"))
 	f.Add([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.addr, data) })
+		w.startInput()
+		w.tryTwice(t, func() time.Duration { return w.sendRaw(t, "tcp", w.addr, data) })
 	})
 }
 
@@ -199,6 +221,7 @@ func FuzzRequestBody(f *testing.F) {
 	f.Add(uint8(1), []byte("amount=5&currency=eur&metadata[order]=6735&items[0][price]=p1&items[0][quantity]=2"))
 	f.Add(uint8(2), []byte(`<Delete><Quiet>true</Quiet><Object><Key>a</Key></Object></Delete>`))
 	f.Fuzz(func(t *testing.T, kind uint8, body []byte) {
+		w.startInput()
 		w.tryTwice(t, func() time.Duration {
 			start := time.Now()
 			w.sendBody(kind, body)
@@ -236,6 +259,7 @@ func FuzzReply(f *testing.F) {
 	f.Add("application/xml", []byte(`<Error><Code>NoSuchBucket</Code></Error>`))
 	f.Add("application/json", []byte(`{"Name":"shop-invoices"}`))
 	f.Fuzz(func(t *testing.T, mediaType string, body []byte) {
+		w.startInput()
 		w.filesAnswer(200, mediaType, string(body))
 		w.tryTwice(t, func() time.Duration {
 			start := time.Now()
@@ -253,7 +277,7 @@ func (w *world) recordTime(start time.Time) time.Duration {
 		if w.receivers[0].takenCalls() >= w.sent {
 			return time.Since(start)
 		}
-		if time.Since(start) > fuzzWait {
+		if time.Since(start) > fuzzWait || time.Now().After(w.callsEnd) {
 			return fuzzWait + time.Millisecond
 		}
 		time.Sleep(time.Millisecond)
