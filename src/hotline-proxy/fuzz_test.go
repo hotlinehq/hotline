@@ -68,7 +68,11 @@ func (w *world) stillWell(t *testing.T, took time.Duration) {
 	if took > fuzzWait {
 		t.Fatalf("the proxy took %v over the input, more than %v\n%s", took, fuzzWait, w.logs.String())
 	}
-	if logs := w.logs.String(); strings.Contains(logs, "panic") {
+	// Go's HTTP server writes this line when it stops one call on a panic.
+	// A panic anywhere else stops the whole test. Matching only this line
+	// keeps a made-up host or path with the word "panic" in it, which the
+	// logs may repeat, from failing the test.
+	if logs := w.logs.String(); strings.Contains(logs, "http: panic serving") {
 		t.Fatalf("the proxy panicked over the input:\n%s", logs)
 	}
 	w.logs.Reset()

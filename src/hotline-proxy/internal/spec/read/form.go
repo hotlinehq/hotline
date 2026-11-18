@@ -19,19 +19,14 @@ func Form(data []byte) (map[string]any, error) {
 		return nil, err
 	}
 	for key := range values {
-		// Each "[" starts one more name.
-		if strings.Count(key, "[") >= maxDepth {
+		// Counted with the same split that nest uses, so the limit and
+		// the reading agree on what one name is.
+		if len(splitBrackets(key)) > maxDepth {
 			return nil, errTooDeep
 		}
 	}
 	return nest(values), nil
 }
-
-// maxDepth is how deep a body is read: names in a form field, or elements
-// in XML, the root counted. Reading goes one level deeper in memory for
-// each, so without a limit a 2 MB body nested very deep took some 300 MB
-// (security scan, 2026-11-18). Real bodies stay far below it.
-const maxDepth = 64
 
 // errTooDeep marks a form body with a field nested deeper than maxDepth.
 var errTooDeep = errors.New("a form field is nested too deep")
