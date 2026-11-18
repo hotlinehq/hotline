@@ -241,6 +241,16 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 0
       And it prints that 1 kept body was cut short and could not be checked
 
+    Scenario: A full record with its login hidden checks out
+      The content hash covers the content as written, with REDACTED in it
+      (Peter, 2026-11-18).
+      Given the integration has content full and maxBodySize 1MiB
+      When the app sends GET /orders
+      And hotline-proxy is stopped
+      And I run hotline-proxy verify calls
+      Then it exits with 0
+      And the line has hotline.content.request.header.authorization REDACTED
+
   Rule: With --format json, the result is one JSON object
 
     The object holds a summary, one entry per run, and one entry per

@@ -65,17 +65,18 @@ When the next line would take `calls.jsonl` past `maxFileSize`, the file is rena
 
 Full content goes beside the record, under `hotline.content.*`, and the record's own attributes stay as they are (Peter, 2026-11-16):
 
-- **Every header** of the call and the reply, as sent, in `hotline.content.request.header.<name>` and `hotline.content.response.header.<name>`. `Proxy-Authorization` is kept, but its value is always `REDACTED`, since it holds the integration's login. Other `proxy-` headers are kept as sent.
+- **Every header** of the call and the reply, in `hotline.content.request.header.<name>` and `hotline.content.response.header.<name>`, as sent unless it is secret (below). Other `proxy-` headers are kept as sent.
 - **The bodies**, in `hotline.content.request.body` and `hotline.content.response.body`, as base64 of the bytes as they passed: a gzipped body stays gzipped. Each is cut at `maxBodySize`; a cut body has `hotline.content.request.body.truncated` or `hotline.content.response.body.truncated` set to true, and `http.request.body.size` and `http.response.body.size` still hold the real sizes.
-- **`hotline.content.url.full`** is the address as sent, with nothing redacted.
+- **`hotline.content.url.full`** is the address as sent, but for secret query words and path values (below).
+- **Secrets are `REDACTED`** (Peter, 2026-11-18), so nobody copies a vendor key out of a file kept for debugging. Secret, always: `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`. With a spec, also the login its security section names (a header such as `X-Api-Key`, or a query word such as `key`), and every header, query word and path value marked `x-hotline-redact: true`. A value the spec does not call secret, marked or not, stays as sent: `content: full` keeps far more than the record. Until 2026-11-18 only `Proxy-Authorization` was hidden.
 
 To read a body: `jq -r '.attributes."hotline.content.request.body" | @base64d' calls/calls.jsonl`. For a binary body, take the value out with `jq -r` and decode it with `base64 -d`.
 
-Nothing is redacted: passwords, tokens and personal data in headers and bodies land in the file. The proxy logs a warning at start for each integration with `content: full`. The `otlp` exporters always get the normal record, so full content never leaves the machine through them. An integration with `content: full` and no file exporter is not refused: the setting is skipped with a warning, and no copy of the bodies is kept.
+Beyond the secrets above, nothing is redacted: tokens the spec does not name, passwords in bodies and personal data land in the file. The proxy logs a warning at start for each integration with `content: full`. The `otlp` exporters always get the normal record, so full content never leaves the machine through them. An integration with `content: full` and no file exporter is not refused: the setting is skipped with a warning, and no copy of the bodies is kept.
 
 ### Hashes
 
-The record is the same as every exporter gets, with the same `hotline.record.hash`, so the file's copy rebuilds the signed batch too. The record also holds `hotline.content.hash`, over the content attributes but the bodies. The bodies are covered by `hotline.request.body.hash` and `hotline.response.body.hash`, which hash the whole body as it passed. `hotline-proxy verify` checks a body that was not cut against its hash; a cut one cannot be checked, and verify notes it. Detail: [proxy-ledger.md](proxy-ledger.md).
+The record is the same as every exporter gets, with the same `hotline.record.hash`, so the file's copy rebuilds the signed batch too. The record also holds `hotline.content.hash`, over the content attributes but the bodies, as written, so with `REDACTED` where a secret was (Peter, 2026-11-18). The bodies are covered by `hotline.request.body.hash` and `hotline.response.body.hash`, which hash the whole body as it passed. `hotline-proxy verify` checks a body that was not cut against its hash; a cut one cannot be checked, and verify notes it. Detail: [proxy-ledger.md](proxy-ledger.md).
 
 ## Safety
 

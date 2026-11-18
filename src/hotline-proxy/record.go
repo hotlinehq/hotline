@@ -138,24 +138,32 @@ func (c *call) record(end time.Time) finished {
 
 // content is what content: full adds to the record for the file
 // exporters: url.full as sent and every header of the call and its reply,
-// as they were, under hotline.content.* names, beside the record, which
-// stays as its hash covers it (Peter, 2026-11-16). Proxy-Authorization
-// holds the integration's login, so its value is REDACTED; other proxy
-// headers are kept as sent. A body cut at maxBodySize is flagged.
+// under hotline.content.* names, beside the record, which stays as its
+// hash covers it (Peter, 2026-11-16). Each value that is secret, by the
+// spec or always (Authorization, Proxy-Authorization, Cookie,
+// Set-Cookie), is REDACTED, so no key is copied out of a file kept for
+// debugging (Peter, 2026-11-18). A body cut at maxBodySize is flagged.
 func (c *call) content() []attribute.KeyValue {
 	var reply http.Header
 	if c.resp != nil {
 		reply = c.resp.Header
 	}
-	full := make([]attribute.KeyValue, 0, len(c.in.Header)+len(reply)+5)
-	full = append(full, attribute.String("hotline.content.url.full", c.sentAddress()))
-	for name, values := range c.in.Header {
-		if strings.EqualFold(name, "Proxy-Authorization") {
-			values = []string{"REDACTED"}
-		}
+	var api *spec.Spec
+	if c.api != nil {
+		api = c.api.Spec
+	}
+	hidden := spec.Hide(api, c.specRoute(), spec.Call{
+		EscapedPath:  c.target.EscapedPath(),
+		RawQuery:     c.target.RawQuery,
+		Header:       c.in.Header,
+		ReplyHeaders: reply,
+	})
+	full := make([]attribute.KeyValue, 0, len(hidden.Header)+len(hidden.ReplyHeaders)+5)
+	full = append(full, attribute.String("hotline.content.url.full", c.hiddenAddress(hidden)))
+	for name, values := range hidden.Header {
 		full = append(full, attribute.StringSlice("hotline.content.request.header."+strings.ToLower(name), values))
 	}
-	for name, values := range reply {
+	for name, values := range hidden.ReplyHeaders {
 		full = append(full, attribute.StringSlice("hotline.content.response.header."+strings.ToLower(name), values))
 	}
 	if _, cut := c.reqBody.savedBody(); cut {
@@ -183,16 +191,31 @@ func (c *call) withBodies(full []attribute.KeyValue) []attribute.KeyValue {
 	return full
 }
 
+// hiddenAddress is the address as sent, with the path and query that
+// spec.Hide left, so its secrets are REDACTED.
+func (c *call) hiddenAddress(hidden spec.Call) string {
+	out := c.sentURL()
+	out.Path, _ = url.PathUnescape(hidden.EscapedPath)
+	out.RawPath, out.RawQuery = hidden.EscapedPath, hidden.RawQuery
+	return out.String()
+}
+
 // sentAddress is the address the call went to, as the app sent it: the scheme
 // the proxy used, no user and password, the path and query as written.
 func (c *call) sentAddress() string {
+	out := c.sentURL()
+	return out.String()
+}
+
+// sentURL is the address the call went to, as a value to change.
+func (c *call) sentURL() url.URL {
 	out := *c.target
 	out.Scheme, out.User, out.Fragment = c.scheme, nil, ""
 	out.Host = c.host
 	if c.target.Port() != "" {
 		out.Host = net.JoinHostPort(c.host, c.port)
 	}
-	return out.String()
+	return out
 }
 
 // checkSpans are the step of one side's check, error when that side broke

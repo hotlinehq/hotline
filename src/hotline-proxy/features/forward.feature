@@ -81,6 +81,14 @@ Feature: Forwarding a call to the vendor
     When an app opens a WebSocket to the shop through the proxy, reads "bye" and closes, 1 times
     Then the record says hotline.schema.status=valid
 
+  Scenario: A WebSocket's opening call hides its key under full content
+    Given a file exporter
+    And a shop spec where GET /orders answers 101 Switching Protocols, with content full and the key header X-Goog-Api-Key in its security section
+    And the shop vendor accepts a WebSocket upgrade, sends "bye" and closes at once
+    When an app opens a WebSocket to the shop through the proxy with "X-Goog-Api-Key: k-123", reads "bye" and closes
+    Then the line has hotline.content.request.header.x-goog-api-key REDACTED
+    And the line has hotline.content.request.header.authorization REDACTED
+
   Scenario: A WebSocket that ends from both sides at once is recorded once
     As a WebSocket ends, the proxy reads the vendor's side to its end
     while the end of the call closes it, both at the same moment. Each
