@@ -94,6 +94,10 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 	if resp == nil || !c.plan.reply {
 		return
 	}
+	// The status and headers are read now, in the goroutine that has the
+	// reply: once it has passed on, such as for a WebSocket's 101, the
+	// forwarder may change the reply while the check runs on its own.
+	status, header := resp.StatusCode, resp.Header
 	var after <-chan struct{}
 	if c.plan.routeInBody {
 		// The route is known only once the request's check has read the
@@ -108,8 +112,8 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 		// line, there is no route.
 		route := c.specRoute()
 		found := c.api.Spec.CheckReply(route, spec.Exchange{
-			Status:      resp.StatusCode,
-			ReplyHeader: resp.Header,
+			Status:      status,
+			ReplyHeader: header,
 			ReplyBody:   c.respBody.copied(),
 		})
 		c.respBody.drop()
