@@ -227,6 +227,17 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		w.addIntegration(integration("talon-shop-a", w.specAPI("api.shop.test", websocketSpec, "")))
 		return nil
 	})
+	sc.Step(`^a shop spec where GET /orders answers 101 Switching Protocols, with content full and the key header (\S+) in its security section$`, func(header string) error {
+		spec := websocketSpec + "components:\n  securitySchemes:\n    key: { type: apiKey, in: header, name: " + header + " }\n"
+		w.addIntegration(integration("talon-shop-a", w.specAPI("api.shop.test", spec, "")) + "    content: full\n")
+		return nil
+	})
+	sc.Step(`^an app opens a WebSocket to the shop through the proxy with "([^"]+)", reads "(\w+)" and closes$`, func(header, message string) error {
+		if err := w.start(); err != nil {
+			return err
+		}
+		return w.websocketOnce("https://api.shop.test/orders", message, header)
+	})
 	sc.Step(`^the proxy's HTTP server logged nothing$`, func() error {
 		w.settle()
 		for _, line := range strings.Split(w.logs.String(), "\n") {
@@ -703,7 +714,7 @@ func (w *world) forwardWithHost(target, host string) error {
 
 // websocketOnce opens a WebSocket to target through the proxy, reads
 // message and closes at once, as the vendor closes its side.
-func (w *world) websocketOnce(target, message string) error {
+func (w *world) websocketOnce(target, message string, headers ...string) error {
 	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.addr)
 	if err != nil {
 		return err
@@ -712,7 +723,8 @@ func (w *world) websocketOnce(target, message string) error {
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	host := hostOf(target)
 	_, err = io.WriteString(conn, "GET "+target+" HTTP/1.1\r\nHost: "+host+"\r\n"+
-		basic("talon-shop-a:x")+"\r\nAuthorization: Bearer t0k3n\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		basic("talon-shop-a:x")+"\r\nAuthorization: Bearer t0k3n\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"+
+		strings.Join(append(headers, ""), "\r\n")+"\r\n")
 	if err != nil {
 		return err
 	}

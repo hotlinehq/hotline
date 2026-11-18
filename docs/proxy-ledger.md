@@ -43,7 +43,7 @@ SHA-256 over the word `hotline.body.v1`, the word `request` or `response`, the t
 
 ### Content kept beside the record
 
-A file exporter with `content: full` writes the real values beside the record, under `hotline.content.*`: `url.full`, every request and response header, the bodies (base64) and whether each was cut short. The record keeps its normal, redacted attributes exactly as hashed. `hotline.content.hash` is SHA-256 over the word `hotline.content.v1` and the content attributes in name order, the bodies left out (the body hashes already cover them).
+A file exporter with `content: full` writes the real values beside the record, under `hotline.content.*`: `url.full`, every request and response header, the bodies (base64) and whether each was cut short. Secrets are written as `REDACTED` ([proxy-file-export.md](proxy-file-export.md)), and the hash covers them as written, so `verify` rebuilds it from the file (Peter, 2026-11-18). The record keeps its normal, redacted attributes exactly as hashed. `hotline.content.hash` is SHA-256 over the word `hotline.content.v1` and the content attributes in name order, the bodies left out (the body hashes already cover them).
 
 ## What a batch record holds
 

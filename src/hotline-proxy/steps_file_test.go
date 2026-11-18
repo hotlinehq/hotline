@@ -82,6 +82,26 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")) + "    content: full\n    maxBodySize: " + size + "\n")
 		return nil
 	})
+	sc.Step(`^the integration has content full and a spec whose (.+)$`, func(which string) error {
+		spec, ok := secretSpecs()[which]
+		if !ok {
+			return failf("no spec whose %s", which)
+		}
+		w.addIntegration(integration("talon-shop-a", w.specAPI("api.x.com", spec, "")) + "    content: full\n")
+		w.method, w.target = "GET", "https://api.x.com/v1/things"
+		return nil
+	})
+	sc.Step(`^a call to a host without an api carries "([^"]+)" and "([^"]+)"$`, func(first, second string) error {
+		w.target = "https://api.other.test/v1/things"
+		return w.defaultCall(first, second)
+	})
+	sc.Step(`^the line's hotline.content.url.full is "([^"]+)"$`, func(full string) error {
+		attrs, err := w.lineAttrs()
+		if err != nil {
+			return err
+		}
+		return has(attrs, "hotline.content.url.full", full)
+	})
 	sc.Step(`^the vendor replies with a 5KiB body$`, func() error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
@@ -629,4 +649,51 @@ func parseLines(data []byte) ([]map[string]any, error) {
 		return nil, failf("the last line is cut")
 	}
 	return lines, scanner.Err()
+}
+
+// secretSpecs are specs for api.x.com that call one value secret, each in
+// its own way.
+func secretSpecs() map[string]string {
+	return map[string]string{ //nolint:gosec // specs that name where a secret goes, holding none
+		"security section names X-Api-Key": `openapi: 3.1.0
+paths:
+  /v1/things:
+    get: {}
+components:
+  securitySchemes:
+    api_key: { type: apiKey, in: header, name: X-Api-Key }
+`,
+		"header X-Debug-Token is marked x-hotline-redact true": `openapi: 3.1.0
+paths:
+  /v1/things:
+    get:
+      parameters:
+        - { name: X-Debug-Token, in: header, x-hotline-redact: true }
+`,
+		"reply header Request-Id is marked x-hotline-redact true": `openapi: 3.1.0
+paths:
+  /v1/things:
+    get:
+      responses:
+        "200":
+          description: ok
+          headers:
+            Request-Id: { schema: { type: string }, x-hotline-redact: true }
+`,
+		"path value id is marked x-hotline-redact true": `openapi: 3.1.0
+paths:
+  /v1/things/{id}:
+    get:
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, x-hotline-redact: true }
+`,
+		"security section names the query word key": `openapi: 3.1.0
+paths:
+  /v1/things:
+    get: {}
+components:
+  securitySchemes:
+    query_key: { type: apiKey, in: query, name: key }
+`,
+	}
 }

@@ -57,17 +57,57 @@ func (s *Spec) Redact(found Route, c Call) Redacted {
 	if r.segments == nil {
 		return redacted
 	}
-	path := strings.TrimSuffix(c.EscapedPath, "/")
-	segments := r.split(path)
-	for i, segment := range segments {
-		segments[i] = r.pathValue(i, segment)
-	}
-	redacted.URLFull = c.Origin + strings.Join(segments, "/") + strings.TrimPrefix(c.EscapedPath, path)
+	// Path values are redacted unless marked false.
+	redacted.URLFull = c.Origin + r.replacePath(c.EscapedPath, func(name string) bool {
+		return r.marks["path"][name] != keep
+	})
 	if c.RawQuery != "" {
 		redacted.URLFull += "?" + s.redactQuery(r, c.RawQuery)
 	}
 	redacted.Template = r.template
 	return redacted
+}
+
+// Hide returns the call as content: full writes it: every header and the
+// whole address kept, but each value that is secret replaced by REDACTED.
+// Secret, always: Authorization, Proxy-Authorization, Cookie and
+// Set-Cookie. With a spec, also what its security section names as the
+// login (a header or a query word) and every value marked
+// x-hotline-redact: true. s is nil for a call with no spec.
+func Hide(s *Spec, found Route, c Call) Call {
+	r := found.r
+	c.Header = hideHeaders(s, c.Header, r.marks["header"])
+	c.ReplyHeaders = hideHeaders(s, c.ReplyHeaders, r.marks["reply"])
+	if s == nil {
+		return c
+	}
+	// Only what is marked true is hidden here; the record hides more.
+	if r.segments != nil {
+		c.EscapedPath = r.replacePath(c.EscapedPath, func(name string) bool {
+			return r.marks["path"][name] == redact
+		})
+	}
+	c.RawQuery = replaceQuery(c.RawQuery, func(name, _ string) bool {
+		return s.secretQuery[name] || r.marks["query"][name] == redact
+	})
+	return c
+}
+
+// hideHeaders copies the headers, with each secret value REDACTED. Unlike
+// the record's headers, nothing is left out.
+func hideHeaders(s *Spec, h http.Header, marks map[string]mark) http.Header {
+	if h == nil {
+		return nil
+	}
+	out := make(http.Header, len(h))
+	for name, values := range h {
+		lower := strings.ToLower(name)
+		if neverRecorded(lower) || marks[lower] == redact || (s != nil && s.secretHeaders[lower]) {
+			values = []string{redacted}
+		}
+		out[name] = values
+	}
+	return out
 }
 
 // match finds the route for a call. A fixed segment wins over a templated
@@ -167,12 +207,17 @@ func (r route) split(path string) []string {
 	return segments
 }
 
-func (r route) pathValue(i int, segment string) string {
-	template := r.segments[i]
-	if !isValue(template) || r.marks["path"][valueName(template)] == keep {
-		return segment
+// replacePath writes REDACTED for each path value of the route whose name
+// hide picks, keeping fixed segments and the trailing slash as they are.
+func (r route) replacePath(escapedPath string, hide func(name string) bool) string {
+	path := strings.TrimSuffix(escapedPath, "/")
+	segments := r.split(path)
+	for i := range segments {
+		if template := r.segments[i]; isValue(template) && hide(valueName(template)) {
+			segments[i] = redacted
+		}
 	}
-	return redacted
+	return strings.Join(segments, "/") + strings.TrimPrefix(escapedPath, path)
 }
 
 // valueName is the name of a path value written {name} or {name+}.
@@ -185,14 +230,25 @@ func isValue(segment string) bool {
 }
 
 func (s *Spec) redactQuery(r route, rawQuery string) string {
+	// A name that does not unescape matches no mark, so it is redacted,
+	// and a word's value fixed by the route is no secret.
+	return replaceQuery(rawQuery, func(name, value string) bool {
+		return !r.fixedWord(name, value) && (s.secretQuery[name] || r.marks["query"][name] != keep)
+	})
+}
+
+// replaceQuery writes REDACTED for the value of each query word hide picks,
+// by its unescaped name and its value as written. An empty value has
+// nothing to hide, so it stays empty.
+func replaceQuery(rawQuery string, hide func(name, value string) bool) string {
+	if rawQuery == "" {
+		return ""
+	}
 	pairs := strings.Split(rawQuery, "&")
 	for i, pair := range pairs {
 		name, value, _ := strings.Cut(pair, "=")
-		// A name that does not unescape matches no mark, so it is redacted.
 		plain, _ := url.QueryUnescape(name)
-		// An empty value has nothing to hide, so it stays empty, and a
-		// word's value fixed by the route is no secret either.
-		if value != "" && !r.fixedWord(plain, value) && (s.secretQuery[plain] || r.marks["query"][plain] != keep) {
+		if value != "" && hide(plain, value) {
 			pairs[i] = name + "=" + redacted
 		}
 	}

@@ -92,12 +92,12 @@ Feature: Writing every call to a local file
     And calls.jsonl has no line
     And the proxy warns that the queue was full
 
-  Scenario: Full content keeps the bodies and every header
+  Scenario: Full content keeps the bodies and every header, with logins hidden
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
     Then the line's hotline.content.request.body decodes to the exact body sent
     And the line's hotline.content.response.body decodes to the vendor's reply
-    And the line has hotline.content.request.header.authorization as sent
+    And the line has hotline.content.request.header.authorization REDACTED
     And the line has hotline.content.response.header.x-request-id req-5521
     And the line's hotline.content.url.full is the address as sent
 
@@ -106,6 +106,42 @@ Feature: Writing every call to a local file
     When a call with a Proxy-Trace header ends
     Then the line has hotline.content.request.header.proxy-authorization REDACTED
     And the line has hotline.content.request.header.proxy-trace as sent
+
+  Scenario Outline: What the spec calls secret is hidden under full content
+    Secrets stay out of the file as they stay out of the record, so nobody
+    copies a vendor key out of a file kept for debugging (Peter,
+    2026-11-18). The hash of the content covers it as written.
+    Given the integration has content full and a spec whose <spec>
+    When a call carries "<header>: <value>"
+    Then the line has hotline.content.<side>.header.<name> REDACTED
+
+    Examples:
+      | spec                                                | header        | value  | side     | name          |
+      | security section names X-Api-Key                    | X-Api-Key     | k-123  | request  | x-api-key     |
+      | header X-Debug-Token is marked x-hotline-redact true | X-Debug-Token | dbg-1  | request  | x-debug-token |
+      | reply header Request-Id is marked x-hotline-redact true | Request-Id | req-9 | response | request-id    |
+      | security section names X-Api-Key                    | Cookie        | sid=1  | request  | cookie        |
+
+  Scenario: A secret query word is hidden in the address under full content
+    Given the integration has content full and a spec whose security section names the query word key
+    When an app calls with "?key=k-123&page=2"
+    Then the line's hotline.content.url.full is "https://api.x.com/v1/things?key=REDACTED&page=2"
+
+  Scenario: A path value marked secret is hidden in the address under full content
+    Given the integration has content full and a spec whose path value id is marked x-hotline-redact true
+    When an app calls "https://api.x.com/v1/things/t-42?page=2"
+    Then the line's hotline.content.url.full is "https://api.x.com/v1/things/REDACTED?page=2"
+
+  Scenario: A header the spec does not call secret is written as sent
+    Given the integration has content full and a spec whose security section names X-Api-Key
+    When a call carries "X-Trace-Id: t-77"
+    Then the line has hotline.content.request.header.x-trace-id as sent
+
+  Scenario: Login headers are hidden without a spec too
+    Given the integration has content full
+    When a call to a host without an api carries "Authorization: Bearer t-1" and "Cookie: sid=1"
+    Then the line has hotline.content.request.header.authorization REDACTED
+    And the line has hotline.content.request.header.cookie REDACTED
 
   Scenario: A long body is cut and flagged
     Given the integration has content full with maxBodySize 1KiB
