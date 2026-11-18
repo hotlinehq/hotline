@@ -59,8 +59,14 @@ if [[ -n "${GRAFANA_OTLP_ENDPOINT:-}" && -n "${GRAFANA_OTLP_AUTHORIZATION:-}" ]]
       print "    headers:"
       print "      Authorization: { env: GRAFANA_OTLP_AUTHORIZATION }"
     }' hotline-proxy.yaml |
-    sed -e 's#\.\./\.\./\.\./#../../../../#g' -e 's#path: \./out/calls#path: ./calls#' >"$config"
+    sed -e 's#\.\./\.\./\.\./#../../../../#g' -e 's#path: \./out/calls#path: ./calls#' -e 's#\./out/tls/#./tls/#g' >"$config"
 fi
+
+# The proxy trusts the fake Gemini Live's TLS front, and the shop trusts
+# the proxy's issuer for CONNECT: both are up.sh's test issuer, on top of
+# this machine's own issuers (Grafana Cloud needs those).
+cat /etc/ssl/certs/ca-certificates.crt out/tls/ca.pem >out/tls/trusted.pem
+export SSL_CERT_FILE="$PWD/out/tls/trusted.pem"
 
 echo "Starting the Hotline proxy"
 ./out/hotline-proxy run --config "$config" >out/proxy.log 2>&1 &
@@ -73,10 +79,20 @@ done
 
 export AWS_REGION=eu-west-1 AWS_ACCESS_KEY_ID=192325781350 AWS_SECRET_ACCESS_KEY=test
 export MAIL_FROM=shop@example.com HOTLINE_PROXY=http://localhost:8080
+# Floci starts empty, so the sample order A-1001 is new each run, and the
+# fake Gemini Live's script (aimock/shop-assistant.json) knows it. The key
+# is a test value: aimock takes any, and Hotline must hide it.
+export ORDER=A-1001 GEMINI_API_KEY=test-key-not-real-7c1e
 # Same name as the config's file exporter folder, whichever config is used.
 (cd .. && ./run-shop.sh) 2>&1 | tee out/run-shop.log
 
 kill -TERM "$proxy_pid" && wait "$proxy_pid" 2>/dev/null || true
 proxy_pid=
+# The spec names x-goog-api-key in its security section, so the key is in
+# no record, not even under content: full.
+if grep -q "$GEMINI_API_KEY" out/calls/calls.jsonl out/proxy.log; then
+  echo "The Gemini api key was written to out/calls/calls.jsonl or out/proxy.log"
+  exit 1
+fi
 echo
 echo "Every call, in full: floci/out/calls/calls.jsonl ($(wc -l <out/calls/calls.jsonl) calls)"

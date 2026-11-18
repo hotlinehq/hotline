@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -20,8 +22,9 @@ type openSocket struct {
 }
 
 func websocketSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the shop vendor accepts a WebSocket upgrade, reads (\d+) bytes, sends "(\w+)" and closes$`, func(n int, answer string) error {
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+	sc.Step(`^(the shop vendor|Gemini Live) accepts a WebSocket upgrade, reads (\d+) bytes, sends "(\w+)" and closes$`, func(who string, n int, answer string) error {
+		host := map[string]string{"the shop vendor": "api.shop.test", "Gemini Live": geminiHost}[who]
+		w.vendor(host).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			conn, buf := switchToWebSocket(rw)
 			if conn == nil {
 				return
@@ -45,6 +48,20 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an app opens a WebSocket to the shop through the (\w+) ingress$`, w.openWebSocket)
+	sc.Step(`^the integration shop-assistant uses Gemini Live with the spec in specs/google$`, func() error {
+		spec, err := os.ReadFile(filepath.Join("..", "..", "specs", "google", "gemini-live", "v1beta.openapi.yaml"))
+		if err != nil {
+			return err
+		}
+		w.addIntegration(integration("shop-assistant", w.specAPI(geminiHost, string(spec), "")))
+		return nil
+	})
+	sc.Step(`^shop-assistant opens a Gemini Live session through the connect ingress with "([^"]+)"$`, func(header string) error {
+		return w.openSocketTo("connect", geminiHost, geminiPath, "shop-assistant", header)
+	})
+	sc.Step(`^no record, span or log holds "([^"]+)"$`, func(secret string) error {
+		return w.nowhere(secret)
+	})
 	sc.Step(`^the app sends "(\w+)" and reads "(\w+)"$`, func(message, answer string) error {
 		if _, err := io.WriteString(w.socket.conn, message); err != nil {
 			return err
@@ -79,6 +96,13 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^there is one call record and one session record$`, func() error {
 		_, _, err := w.callAndSession()
 		return err
+	})
+	sc.Step(`^the call record says hotline.schema.status valid and url.template (\S+)$`, func(template string) error {
+		call, _, err := w.callAndSession()
+		if err != nil {
+			return err
+		}
+		return errors.Join(has(call.attrs, "hotline.schema.status", "valid"), has(call.attrs, "url.template", template))
 	})
 	sc.Step(`^the call record says http.response.status_code 101 and hotline.ingress (\w+)$`, func(ingress string) error {
 		call, _, err := w.callAndSession()
@@ -189,6 +213,13 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 	})
 }
 
+// geminiHost and geminiPath are where Google's SDKs open a Gemini Live
+// session.
+const (
+	geminiHost = "generativelanguage.googleapis.com"
+	geminiPath = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+)
+
 // switchToWebSocket answers 101 and takes over the connection, as a vendor's
 // WebSocket server does; conn is nil when it could not.
 func switchToWebSocket(rw http.ResponseWriter) (net.Conn, *bufio.ReadWriter) {
@@ -205,35 +236,41 @@ func switchToWebSocket(rw http.ResponseWriter) (net.Conn, *bufio.ReadWriter) {
 // openWebSocket opens a WebSocket to the shop's /orders through the given
 // ingress, as integration talon-shop-a, and keeps it open in w.socket.
 func (w *world) openWebSocket(ingress string) error {
+	return w.openSocketTo(ingress, "api.shop.test", "/orders", "talon-shop-a")
+}
+
+// openSocketTo opens a WebSocket to path on host through the given ingress,
+// as integration id, with any extra headers, and keeps it open in w.socket.
+func (w *world) openSocketTo(ingress, host, path, id string, extra ...string) error {
 	if err := w.start(); err != nil {
 		return err
 	}
-	w.vendor("api.shop.test")
+	w.vendor(host)
 	var (
 		conn net.Conn
 		err  error
 	)
-	head := []string{basic("talon-shop-a:x")}
-	target := "/orders"
+	head := []string{basic(id + ":x")}
+	target := path
 	switch ingress {
 	case "forward_proxy":
-		target = "https://api.shop.test/orders"
-		head = append(head, "Host: api.shop.test")
+		target = "https://" + host + path
+		head = append(head, "Host: "+host)
 	case "url_in_path":
-		target = "/https://api.shop.test/orders"
+		target = "/https://" + host + path
 		head = append(head, "Host: localhost:8080")
 	case "host_header":
-		head = append(head, "Host: api.shop.test")
+		head = append(head, "Host: "+host)
 	case "connect":
-		if err := w.openTunnel("api.shop.test", "443", "talon-shop-a"); err != nil {
+		if err := w.openTunnel(host, "443", id); err != nil {
 			return err
 		}
-		conn, head = w.tunnel, []string{"Host: api.shop.test"}
+		conn, head = w.tunnel, []string{"Host: " + host}
 	case "capture":
-		if err := w.captureTunnel("api.shop.test", "443", captureHeaders("4242", "/usr/bin/curl"), "api.shop.test", nil); err != nil {
+		if err := w.captureTunnel(host, "443", captureHeaders("4242", "/usr/bin/curl"), host, nil); err != nil {
 			return err
 		}
-		conn, head = w.tunnel, []string{"Host: api.shop.test"}
+		conn, head = w.tunnel, []string{"Host: " + host}
 	default:
 		return failf("no ingress %s", ingress)
 	}
@@ -247,7 +284,7 @@ func (w *world) openWebSocket(ingress string) error {
 		return failf("no connection to the proxy: %v", w.tunnelErr)
 	}
 	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-	head = append(head, "Connection: Upgrade", "Upgrade: websocket")
+	head = append(append(head, extra...), "Connection: Upgrade", "Upgrade: websocket")
 	if _, err := io.WriteString(conn, "GET "+target+" HTTP/1.1\r\n"+strings.Join(head, "\r\n")+"\r\n\r\n"); err != nil {
 		return err
 	}

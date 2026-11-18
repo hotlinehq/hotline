@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -15,6 +16,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"hotline-example/aws-shop/shop"
 )
@@ -29,6 +32,7 @@ const usage = `usage:
   aws-shop invoices cleanup --before 2026-11-01
   aws-shop mailer work [--out FOLDER] [--once]   sends with SES from $MAIL_FROM, or writes to FOLDER
   aws-shop refunds start --order A-1001 --amount 10.00 --reason returned
+  aws-shop assistant ask --question TEXT          one question about an order, answered by Gemini Live
 
 every command also takes:
   --proxy URL        Hotline's forward proxy, such as http://localhost:8080; each app adds
@@ -44,15 +48,20 @@ AWS resources, each from its environment variable, else Peter's own:
   CREDIT_NOTE_WORKFLOW, SHOP_LOG_GROUP (empty: no CloudWatch Logs),
   INVOICE_WORKER_ROLE (empty: no role), PAYMENT_QR_FUNCTION (empty: no payment text),
   MAIL_FROM (an SES sender; empty: the mailer needs --out)
+
+the assistant's Gemini Live settings:
+  GEMINI_API_KEY (required), GEMINI_MODEL (default gemini-live-2.5-flash),
+  GEMINI_BASE_URL (another address than Google's, such as a fake Gemini)
 `
 
 // commands lists each app's commands.
 func commands() map[string][]string {
 	return map[string][]string{
-		"checkout": {"pay", "send"},
-		"invoices": {"work", "status", "fetch", "list", "cleanup"},
-		"mailer":   {"work"},
-		"refunds":  {"start"},
+		"checkout":  {"pay", "send"},
+		"invoices":  {"work", "status", "fetch", "list", "cleanup"},
+		"mailer":    {"work"},
+		"refunds":   {"start"},
+		"assistant": {"ask"},
 	}
 }
 
@@ -66,7 +75,7 @@ func main() {
 type options struct {
 	proxy, endpoint, s3Endpoint, snsEndpoint             string
 	order, language, template, sendTo, body, out, before string
-	amount, reason                                       string
+	amount, reason, question                             string
 	once                                                 bool
 }
 
@@ -94,6 +103,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&o.before, "before", "", "")
 	flags.StringVar(&o.amount, "amount", "", "")
 	flags.StringVar(&o.reason, "reason", "", "")
+	flags.StringVar(&o.question, "question", "", "")
 	flags.BoolVar(&o.once, "once", false, "")
 	if err := flags.Parse(args[2:]); err != nil {
 		return 2
@@ -108,7 +118,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	a, err := shop.NewApp(ctx, app, shop.Settings{Proxy: o.proxy, SQSEndpoint: o.endpoint, S3Endpoint: o.s3Endpoint, SNSEndpoint: o.snsEndpoint}, names())
+	a, err := shop.NewApp(ctx, integrationOf(app), shop.Settings{Proxy: o.proxy, SQSEndpoint: o.endpoint, S3Endpoint: o.s3Endpoint, SNSEndpoint: o.snsEndpoint}, names())
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
 		return 1
@@ -119,6 +129,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// integrationOf is the app's integration ID in Hotline: its own name, but
+// shop-assistant for the assistant.
+func integrationOf(app string) string {
+	if app == "assistant" {
+		return "shop-assistant"
+	}
+	return app
 }
 
 func known(app, command string) bool {
@@ -147,6 +166,8 @@ func missingFlags(command string, o options) string {
 		return "--out, or MAIL_FROM to send with SES"
 	case command == "refunds start" && (o.order == "" || o.amount == "" || o.reason == ""):
 		return "--order, --amount and --reason"
+	case command == "assistant ask" && o.question == "":
+		return "--question"
 	}
 	return ""
 }
@@ -232,6 +253,32 @@ func carryOut(ctx context.Context, a shop.App, command string, o options, cutoff
 			return err
 		}
 		_, _ = fmt.Fprintf(stdout, "credit note started: %s\n", arn)
+	case "shop-assistant ask":
+		answer, err := ask(ctx, a, o)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(stdout, answer)
 	}
 	return nil
+}
+
+// ask opens a Gemini Live session through Hotline and asks the question.
+// Google's SDK dials with websocket.DefaultDialer, so its proxy is set
+// first, with the assistant's integration ID (see shop.LiveProxy).
+func ask(ctx context.Context, a shop.App, o options) (string, error) {
+	g := shop.Gemini{APIKey: os.Getenv("GEMINI_API_KEY"), Model: cmp.Or(os.Getenv("GEMINI_MODEL"), "gemini-live-2.5-flash"), BaseURL: os.Getenv("GEMINI_BASE_URL")}
+	if o.proxy != "" {
+		proxy, err := shop.LiveProxy(o.proxy, a.Name)
+		if err != nil {
+			return "", err
+		}
+		websocket.DefaultDialer.Proxy = proxy
+	}
+	live, err := shop.OpenLive(ctx, g)
+	if err != nil {
+		return "", fmt.Errorf("open the Gemini Live session: %w", err)
+	}
+	defer func() { _ = live.Close() }()
+	return a.Ask(ctx, live, o.question)
 }

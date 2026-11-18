@@ -1,6 +1,6 @@
 # Example: a small shop on AWS, through Hotline
 
-A small shop made of four apps, each its own Hotline integration, all in one Go program, `aws-shop`, using the AWS SDK for Go v2:
+A small shop made of five apps, each its own Hotline integration, all in one Go program, `aws-shop`, using the AWS SDK for Go v2:
 
 | App | What it does | AWS it uses |
 |---|---|---|
@@ -8,6 +8,7 @@ A small shop made of four apps, each its own Hotline integration, all in one Go 
 | `invoices` | makes the invoice: first takes on its role, then reads the default template, gets the payment text, renders the PDF, stores it, signs it, saves its row, announces it | STS, SQS `invoices`, SSM, Lambda `payment-qr`, S3, KMS, DynamoDB `invoices`, EventBridge, Kinesis |
 | `mailer` | mails the invoice: takes the announcement off its queue and sends the email with SES, PDF attached, or writes it to a folder | SQS `mail`, S3, SES |
 | `refunds` | starts a credit note for a refund | DynamoDB `orders`, Step Functions |
+| `assistant` | answers questions about orders over Gemini Live (a WebSocket), with one tool, `orderStatus`, that reads the order | Gemini Live, DynamoDB `orders` |
 
 The `order-paid` topic passes each job, as is, to the `invoices` queue. A role is a set of AWS rights: when the invoices worker starts, it takes on the role `invoice-worker` through STS and gets short-lived keys with only those rights, used for all its other calls. SNS and STS use AWS's older "query" form, where the action is a field of a form body; Hotline reads it to pick the route (see [docs/spec-marks.md](../../docs/spec-marks.md)).
 
@@ -39,6 +40,7 @@ aws-shop invoices list
 aws-shop invoices cleanup --before 2026-11-01
 aws-shop mailer work [--out FOLDER] [--once]
 aws-shop refunds start --order A-1001 --amount 10.00 --reason returned
+aws-shop assistant ask --question "Where is order A-1001?"
 ```
 
 Every command takes `--proxy` (or `HOTLINE_PROXY`), `--endpoint` (or `SQS_ENDPOINT`, a local SQS), `--s3-endpoint` (or `S3_ENDPOINT`, a local S3) and `--sns-endpoint` (or `SNS_ENDPOINT`, a local SNS). The AWS region and credentials come from the usual AWS settings. Exit codes: 0 done, 1 failed, 2 a wrong command line.
@@ -46,6 +48,7 @@ Every command takes `--proxy` (or `HOTLINE_PROXY`), `--endpoint` (or `SQS_ENDPOI
 - `invoices work` takes jobs off the queue. With `--out` it writes `invoice-<order>.pdf` to that folder instead of the bucket. It deletes a job it already handled, since SQS may deliver a message twice, and leaves a job it can't use on the queue. Give the queue a dead letter queue (a second queue where SQS moves messages that keep failing), so such jobs move aside. It waits up to 20 seconds for each receive, so Hotline's `vendorTimeout` for SQS must be above that. With `--once` it stops when the queue is empty.
 - `invoices work` asks the `payment-qr` function for the payment text and prints it on the invoice. When the function fails, the job stays on the queue.
 - `mailer work` sends the email with SES from `MAIL_FROM`, as a whole email with the PDF attached. With `--out` it writes `<order>.eml` to that folder instead. With neither, it stops with an error. In SES's sandbox (a new account's start), SES sends only to verified addresses and to its test inboxes.
+- `assistant ask` opens a Gemini Live session, sends the question and prints the answer. It needs `GEMINI_API_KEY`; `GEMINI_MODEL` picks the model (default `gemini-live-2.5-flash`) and `GEMINI_BASE_URL` another address. It runs only on [Floci](floci/README.md), against a fake Gemini Live.
 - The orders and the two templates (`invoice-standard-v2`, `invoice-compact-v1`) are built in.
 
 ## The AWS resources

@@ -3,13 +3,19 @@
 # changes: plain http to the vendor and loopback allowed (Floci is a local
 # copy of AWS over plain http), every integration's full traffic written to
 # floci/out/calls/calls.jsonl, and, when run.sh finds Grafana Cloud settings,
-# a second exporter that sends the usual records to Grafana Cloud.
+# a second exporter that sends the usual records to Grafana Cloud. The
+# shop's assistant reaches the fake Gemini Live through the CONNECT ingress,
+# with the test issuer up.sh makes in out/tls.
 
 admin:
   address: tcp://:8081
+certs:
+  floci-test: { cert: ./out/tls/ca.pem, key: ./out/tls/ca-key.pem }   # made by up.sh, for this run only
+
 listeners:
   apps:
     address: tcp://:8080
+    connect: { cert: floci-test }   # the assistant's wss:// to Gemini Live comes as CONNECT
 
 exporters:
   - file:
@@ -131,6 +137,11 @@ apis:
     spec: ../../../specs/aws/sesv2/2019-09-27.openapi.yaml
     overlays: [../../../src/hotline-proxy/testdata/aws/invoice-email.overlay.yaml]
 
+  gemini-live:                     # the assistant's Gemini Live sessions; aimock and its TLS front stand in for Google
+    hosts: [generativelanguage.googleapis.com]
+    allowInternalIPs: true  # the fake Gemini Live runs on this machine
+    spec: ../../../specs/google/gemini-live/v1beta.openapi.yaml
+
 # Each app is one integration: its ID is the user name the app puts in the
 # proxy address, such as http://checkout:x@localhost:8080.
 integrations:
@@ -149,3 +160,7 @@ integrations:
   - id: refunds
     apis: [aws-dynamodb-orders, aws-sfn-credit-note, aws-logs-shop]
     content: full           # bodies and all headers go to the file exporter
+
+  - id: shop-assistant
+    apis: [gemini-live, aws-dynamodb-orders]
+    content: full           # bodies and all headers go to the file exporter; the Gemini key is hidden by the spec
