@@ -15,7 +15,15 @@ import (
 	"time"
 
 	proxy "hotline-proxy"
+	"hotline-proxy/internal/fuzzlog"
 )
+
+// TestMain keeps each fuzz worker's output in a file, so a crash says why
+// (internal/fuzzlog). It does nothing outside a fuzz worker.
+func TestMain(m *testing.M) {
+	fuzzlog.Capture()
+	os.Exit(m.Run())
+}
 
 // The fuzz tests make up input after input and send each one to the proxy
 // the way an app or a vendor would, through the proxy's ways in only

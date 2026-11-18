@@ -204,7 +204,13 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	for i, c := range cfg.Listeners {
 		p.listeners = append(p.listeners, h.newListening(c, opened[i], newServer))
 	}
+	if adminListener != nil && cfg.Admin.TLS != nil {
+		p.adminTLS = newTLSHolder(cfg.Admin.TLS, o.Clock, o.Logger)
+	}
 	p.reload = &reloader{path: o.ConfigPath, clock: o.Clock, lookupEnv: o.LookupEnv, logger: o.Logger, own: h.own, started: cfg}
+	// From now on the own telemetry reads the listeners' and the admin
+	// port's certificates from a goroutine of its own, so they are all set
+	// above, before it starts.
 	h.own.observe(p)
 	p.reload.seen = stat(cfg.Files)
 	go func() {
@@ -217,8 +223,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		addresses = append(addresses, "listener."+li.name, li.listener.Addr().String())
 	}
 	if adminListener != nil {
-		if cfg.Admin.TLS != nil {
-			p.adminTLS = newTLSHolder(cfg.Admin.TLS, o.Clock, o.Logger)
+		if p.adminTLS != nil {
 			adminListener = tls.NewListener(adminListener, p.adminTLS.config())
 		}
 		p.serveAdmin(adminListener, o.Logger, cfg.Pprof)

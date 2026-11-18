@@ -15,3 +15,8 @@ Fuzzing makes up input after input, changing each one a little, and keeps any in
 4. **Found on the first runs (2026-11-18):**
    - A form body whose names are all numbers, such as `0=x`, stopped the whole proxy (spec-checks decision 17).
    - A header value that is not UTF-8 made the collector refuse the whole send, losing every record in it. Every text of a record is now made valid UTF-8 before the ledger hashes it (otlp-encoder decision).
+   - Two exporter queues shared one gzip writer, so two sends at once mixed their bodies. The collector refused the broken ones (HTTP 400, records lost), and sometimes the fuzz process crashed. Each sender now has its own zipper (PR 185).
+5. **Spot crashes and races sooner (Peter, 2026-11-18).**
+   - Go sends a fuzz worker's output nowhere, so a crash showed only "fuzzing process hung or terminated unexpectedly". Each package with fuzz tests calls `fuzzlog.Capture()` (`internal/fuzzlog`) from its `TestMain`, so a new target gets it too: when `HOTLINE_FUZZ_LOGS` names a folder, a worker writes its error output to `worker-<pid>.log` there. A failing job prints each panic in its log and saves the logs with the input.
+   - A nightly `race` job in the same workflow runs every test, the `fuzz` tag included, under Go's race detector, which flags two goroutines touching the same memory. Pull requests skip it to stay fast. Its first run found the admin port's certificate set after the own telemetry had started reading it; it is now set before.
+   - Revisit if the race job takes longer than about 15 minutes, or a race slips past it into a fuzz crash: then run the exporter fuzz targets under the race detector too.
