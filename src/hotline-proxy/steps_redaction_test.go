@@ -161,6 +161,12 @@ components:
 		}
 		return nil
 	})
+	sc.Step(`^a reply carries Request-Id with the byte FF in it, which is not UTF-8$`, func() error {
+		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+			rw.Header().Set("Request-Id", "req\xff1")
+		})
+		return w.defaultCall()
+	})
 	sc.Step(`^a reply carries "([^"]+)" twice$`, func(name string) error {
 		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Add(name, "100;w=60")

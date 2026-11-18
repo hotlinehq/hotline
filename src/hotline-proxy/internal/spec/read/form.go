@@ -1,6 +1,7 @@
 package read
 
 import (
+	"errors"
 	"maps"
 	"net/url"
 	"slices"
@@ -17,8 +18,18 @@ func Form(data []byte) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	for key := range values {
+		// Counted with the same split that nest uses, so the limit and
+		// the reading agree on what one name is.
+		if len(splitBrackets(key)) > maxDepth {
+			return nil, errTooDeep
+		}
+	}
 	return nest(values), nil
 }
+
+// errTooDeep marks a form body with a field nested deeper than maxDepth.
+var errTooDeep = errors.New("a form field is nested too deep")
 
 // nest reads bracketed names into objects and lists. A name with no
 // brackets keeps its first value.
@@ -30,7 +41,13 @@ func nest(values url.Values) map[string]any {
 			put(root, path, value)
 		}
 	}
-	return lists(root).(map[string]any)
+	// The body itself is always an object, even when all its names are
+	// numbers; only the objects inside it may become lists. Turning the
+	// body into a list stopped the proxy (found by fuzzing, 2026-11-18).
+	for key, child := range root {
+		root[key] = lists(child)
+	}
+	return root
 }
 
 func splitBrackets(key string) []string {
@@ -81,9 +98,6 @@ func lists(v any) any {
 			return m
 		}
 		indexes = append(indexes, i)
-	}
-	if len(indexes) == 0 {
-		return m
 	}
 	sort.Ints(indexes)
 	list := make([]any, len(indexes))

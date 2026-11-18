@@ -18,6 +18,14 @@ Feature: Choosing headers for the record
       | RateLimit-Remaining: 9     | http.response.header.ratelimit-remaining = 9       |
       | Stripe-Version: 2024-06-20 | http.request.header.stripe-version = 2024-06-20    |
 
+  Scenario: A header value that is not UTF-8 is recorded with the broken byte replaced
+    OTLP text must be UTF-8, and a collector refuses a send that holds
+    anything else, losing every record in it. So each byte that is not
+    UTF-8 becomes the replacement character (found by fuzzing, 2026-11-18).
+    Given the Stripe spec
+    When a reply carries Request-Id with the byte FF in it, which is not UTF-8
+    Then the record has "http.response.header.request-id = req�1"
+
   Scenario: A header marked true keeps its name only
     Given a spec with the header X-Debug-Token marked x-hotline-redact true
     When a call carries "X-Debug-Token: abc"

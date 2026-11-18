@@ -204,7 +204,7 @@ Feature: Printing every call to the console
     Examples:
       | what                       | shown  |
       | the control character 9B   | \u009b |
-      | the byte FF, not UTF-8     | \xff   |
+      | the byte FF, not UTF-8     | �      |
       | the right-to-left mark 202E | \u202e |
 
   Scenario Outline: With --format json, characters that could change the terminal are escaped

@@ -115,6 +115,19 @@ Feature: Checking XML bodies
         | <!-- nothing here -->                                                                                   | body $ xml                               |
         | <!DOCTYPE l [<!ENTITY a "shop-invoices">]><ListBucketResult><Name>&a;</Name><KeyCount>0</KeyCount></ListBucketResult> | body $ xml       |
 
+    Scenario Outline: XML nested more than 64 elements deep is not read
+      Elements are read only up to 64 deep, the root counted, so a small
+      body cannot make the proxy build a huge tree (security scan,
+      2026-11-18).
+      Given the files vendor answers 200 with a list nested <depth> elements deep
+      When the app sends GET /?list-type=2 to the files vendor
+      Then <outcome>
+
+      Examples:
+        | depth | outcome                            |
+        | 64    | the record has no reply results    |
+        | 65    | the reply results are body $ xml   |
+
     Scenario: A root element named by the xml notes
       Given the files vendor answers 201 with the application/xml body <label><trackingId>T-1</trackingId></label>
       When the app sends POST /shipments to the files vendor with the text/xml body <Shipment reference="A-1"><parcels><parcel><weightGrams>1</weightGrams></parcel></parcels></Shipment>

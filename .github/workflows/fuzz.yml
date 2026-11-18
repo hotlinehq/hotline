@@ -1,0 +1,73 @@
+# Fuzzes the proxy every night, and when someone starts it by hand:
+# Actions tab, "fuzz", Run workflow (Peter, 2026-11-18). Fuzzing makes up
+# input after input and keeps any input that makes the proxy panic, answer
+# too slowly or stop answering. See docs/decisions/fuzzing.md.
+#
+# Each target runs for 5 minutes on its own GitHub machine, all side by
+# side. The five through the proxy's ways in are in fuzz_test.go; the six
+# straight at the parsers are built only with the fuzz tag. When a target
+# finds an input, the job fails and saves the input as the artifact
+# fuzz-<target>. Nothing is pushed: a person adds the input to
+# testdata/fuzz/<target>/ with its fix and a behaviour test.
+#
+# 01:00 UTC is 02:00 in Prague in winter and 03:00 in summer.
+name: fuzz
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: how long each target runs, such as 5m or 30s
+        default: 5m
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: FuzzFirstBytes, package: ., tags: '' }
+          - { target: FuzzRequest, package: ., tags: '' }
+          - { target: FuzzRequestBody, package: ., tags: '' }
+          - { target: FuzzReply, package: ., tags: '' }
+          - { target: FuzzVerify, package: ., tags: '' }
+          - { target: FuzzReadHello, package: ., tags: fuzz }
+          - { target: FuzzSentID, package: ., tags: fuzz }
+          - { target: FuzzForm, package: ./internal/spec/read, tags: fuzz }
+          - { target: FuzzXML, package: ./internal/spec/read, tags: fuzz }
+          - { target: FuzzDecodeJSON, package: ./internal/santhosh, tags: fuzz }
+          - { target: FuzzReadLine, package: ./internal/export, tags: fuzz }
+    defaults:
+      run:
+        working-directory: src/hotline-proxy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.4'
+          check-latest: false
+          cache-dependency-path: |
+            src/hotline-proxy/go.sum
+            go.work.sum
+      - name: fuzz ${{ matrix.target }}
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '5m' }}
+          TAGS: ${{ matrix.tags }}
+          TARGET: ${{ matrix.target }}
+          PACKAGE: ${{ matrix.package }}
+        run: go test -tags "$TAGS" -run '^$' -fuzz "^${TARGET}\$" -fuzztime "$FUZZTIME" "$PACKAGE"
+      - name: save the input that broke a rule
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: src/hotline-proxy/**/testdata/fuzz/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30

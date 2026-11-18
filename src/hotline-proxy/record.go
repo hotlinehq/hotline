@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
@@ -334,9 +335,47 @@ func (h *handler) recordLater(build func() finished) {
 	go func() {
 		defer h.calls.Done()
 		f := build()
+		f.validText()
 		h.book.record(recordContext(f.sc), f)
 		h.own.ended(f.attrs)
 	}()
+}
+
+// validText makes every text of the record and its trace valid UTF-8,
+// before the ledger hashes it, so every exporter and the hash see the same
+// text. A header or address that an app or a vendor sent may hold any
+// bytes, and OTLP text must be UTF-8: a collector refuses the whole send
+// otherwise, losing every record in it (found by fuzzing, 2026-11-18). Each
+// byte that is not UTF-8 becomes the replacement character.
+func (f *finished) validText() {
+	validAttrs(f.attrs)
+	validAttrs(f.content)
+	for i := range f.spans {
+		f.spans[i].Name = strings.ToValidUTF8(f.spans[i].Name, "\uFFFD")
+		validAttrs(f.spans[i].Attrs)
+	}
+}
+
+// validAttrs makes the text values in attrs valid UTF-8, in place. Values
+// that already are, nearly all of them, are left as they are.
+func validAttrs(attrs []attribute.KeyValue) {
+	for i, kv := range attrs {
+		switch kv.Value.Type() {
+		case attribute.STRING:
+			if s := kv.Value.AsString(); !utf8.ValidString(s) {
+				attrs[i] = attribute.String(string(kv.Key), strings.ToValidUTF8(s, "\uFFFD"))
+			}
+		case attribute.STRINGSLICE:
+			list := kv.Value.AsStringSlice()
+			if !slices.ContainsFunc(list, func(s string) bool { return !utf8.ValidString(s) }) {
+				continue
+			}
+			for j, s := range list {
+				list[j] = strings.ToValidUTF8(s, "\uFFFD")
+			}
+			attrs[i] = attribute.StringSlice(string(kv.Key), list)
+		}
+	}
 }
 
 // recorded is a record already made, for recordLater.

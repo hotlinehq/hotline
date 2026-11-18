@@ -121,6 +121,9 @@ func (r *xmlReader) next() (xml.Token, error) {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			if len(r.open) == maxDepth {
+				return nil, ErrNotXML
+			}
 			r.open = append(r.open, t.Name)
 			return tok, nil
 		case xml.EndElement:
