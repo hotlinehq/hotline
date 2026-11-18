@@ -1,6 +1,6 @@
 module github.com/petercipov/hotline/otel-hotline
 
-go 1.27.3
+go 1.27.4
 
 replace github.com/petercipov/hotline/otel-hotline => .
 
@@ -38,5 +38,5 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 )
