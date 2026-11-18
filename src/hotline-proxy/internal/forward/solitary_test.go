@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
 	"strings"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -69,6 +71,21 @@ type appWriter struct {
 	writeErr, flushErr error
 	conn               net.Conn
 	flushes            int
+
+	mu       sync.Mutex
+	switches int
+}
+
+func (a *appWriter) Switched() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.switches++
+}
+
+func (a *appWriter) switchCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.switches
 }
 
 func (a *appWriter) Write(p []byte) (int, error) {
@@ -195,5 +212,29 @@ var _ = Describe("Upgrades without a server", func() {
 		Expect(other.Close()).To(Succeed())
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), conn: app}
 		Expect(f.Forward(GinkgoT().Context(), w, upgradeCall())).To(Succeed())
+		Expect(w.switches).To(BeZero())
+	})
+
+	It("tells the writer once the app has the 101, before any byte passes after it", func() {
+		f := forwarder(reply(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("after")}))
+		app, other := net.Pipe()
+		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), conn: app}
+		read := make(chan string, 1)
+		go func() {
+			br := bufio.NewReader(other)
+			res, err := http.ReadResponse(br, nil)
+			if err != nil {
+				read <- err.Error()
+				return
+			}
+			_ = res.Body.Close()
+			first, _ := br.ReadByte()
+			switches := w.switchCount()
+			rest, _ := io.ReadAll(br)
+			read <- fmt.Sprintf("%d %d %c%s", res.StatusCode, switches, first, rest)
+		}()
+		Expect(f.Forward(GinkgoT().Context(), w, upgradeCall())).To(Succeed())
+		Expect(other.Close()).To(Succeed())
+		Eventually(read).Should(Receive(Equal("101 1 after")))
 	})
 })

@@ -127,9 +127,12 @@ func (l *consoleLines) word(text string, codes ...string) {
 	l.style(text, codes...)
 }
 
-// lines writes the call. Every value that came with the call is escaped,
-// so it cannot change the terminal.
+// lines writes the call, or the end of a WebSocket session. Every value
+// that came with the call is escaped, so it cannot change the terminal.
 func (c *consoleDestination) lines(call Call) []byte {
+	if call.Event == SessionEvent {
+		return c.sessionLines(call)
+	}
 	l := &consoleLines{color: c.color}
 	var (
 		id, method, failure, checked, host, address string
@@ -207,6 +210,47 @@ func (c *consoleDestination) lines(call Call) []byte {
 	if len(found) > 0 {
 		l.b.WriteString("\n")
 	}
+	return l.b.Bytes()
+}
+
+// sessionLines writes the end of a WebSocket session in the call's two
+// lines: who and where, then the bytes the app sent and received after the
+// 101, and how long the session was open.
+func (c *consoleDestination) sessionLines(call Call) []byte {
+	l := &consoleLines{color: c.color}
+	var id, host string
+	var sent, received, open int64
+	for _, kv := range call.Attrs {
+		switch kv.Key {
+		case "hotline.integration.id":
+			id = printable(kv.Value.AsString())
+		case semconv.ServerAddressKey:
+			host = kv.Value.AsString()
+		case "hotline.websocket.from_app.size":
+			sent = kv.Value.AsInt64()
+		case "hotline.websocket.from_vendor.size":
+			received = kv.Value.AsInt64()
+		case "hotline.websocket.duration_us":
+			open = kv.Value.AsInt64()
+		}
+	}
+	at := call.At.Local().Format("15:04:05.000")
+	l.style(at, dim)
+	l.b.WriteString(" ")
+	l.style(id, cyan)
+	l.b.WriteString(": ")
+	l.style("WebSocket", bold)
+	l.b.WriteString(" ")
+	l.style(cut(printable(host), int(c.columns.Load())), bold)
+	l.b.WriteString("\n")
+	under := strings.Repeat(" ", utf8.RuneCountInString(at)+1+utf8.RuneCountInString(id)+2)
+	l.b.WriteString(under[3:])
+	l.style("<<", bold)
+	l.word("ended", bold)
+	l.word(byteSize(sent) + " sent")
+	l.word(byteSize(received) + " received")
+	l.word(strconv.FormatFloat(float64(open)/1000, 'f', 1, 64) + " ms")
+	l.b.WriteString("\n")
 	return l.b.Bytes()
 }
 

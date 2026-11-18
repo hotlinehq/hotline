@@ -322,6 +322,9 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		err = errors.Join(err, <-stopped)
 	}
 	<-p.tunnelServed
+	// A WebSocket lasts as long as both sides like, so the stop ends those
+	// still open, and each is recorded (Peter, 2026-11-18).
+	p.handler.endSessions()
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()

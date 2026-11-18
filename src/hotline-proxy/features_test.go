@@ -118,6 +118,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	telemetrySteps(sc, w)
 	memorySteps(sc, w)
 	specLineSteps(sc, w)
+	websocketSteps(sc, w)
 }
 
 var errCheck = errors.New("check failed")

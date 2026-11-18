@@ -35,7 +35,7 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 		jsontext.BeginObject,
 		jsontext.String("time"), jsontext.String(timeText(c.At)),
 		jsontext.String("severity"), jsontext.String(level(c.Attrs).String()),
-		jsontext.String("event"), jsontext.String(CallEvent),
+		jsontext.String("event"), jsontext.String(c.event()),
 		jsontext.String("trace_id"), jsontext.String(c.Trace.TraceID().String()),
 		jsontext.String("span_id"), jsontext.String(c.Trace.SpanID().String()),
 		jsontext.String("resource"),

@@ -28,6 +28,16 @@ import (
 // background, as for every call.
 func (c *call) finish() {
 	end := c.h.clock.Now()
+	c.mu.Lock()
+	switched := c.session != nil && !c.session.opened.IsZero()
+	c.mu.Unlock()
+	if switched {
+		// The call was recorded at its 101; what ended now is the session,
+		// which a stop no longer needs to end.
+		c.h.sessions.Delete(c)
+		c.h.recordLater(func() finished { return c.sessionRecord(end) })
+		return
+	}
 	if c.api != nil {
 		c.checkRequest(end)
 		c.mu.Lock()
@@ -331,6 +341,9 @@ func (h *handler) recordShort(s short) {
 
 // finished is what a call leaves: its record and its trace.
 type finished struct {
+	// event is the record's event name: empty for a call, or
+	// export.SessionEvent for a WebSocket session.
+	event string
 	// cfg is the config the call started with. The ledger puts the record
 	// in a batch of that config, even when a reload came before the
 	// record was made (Peter, 2026-11-16).
@@ -360,7 +373,10 @@ func (h *handler) recordLater(build func() finished) {
 		f := build()
 		f.validText()
 		h.book.record(recordContext(f.sc), f)
-		h.own.ended(f.attrs)
+		if f.event == "" {
+			// Only a call has a total time to measure.
+			h.own.ended(f.attrs)
+		}
 	}()
 }
 
