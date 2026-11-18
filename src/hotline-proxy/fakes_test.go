@@ -120,6 +120,14 @@ func (v *vendor) record(scheme, port string) http.HandlerFunc {
 	}
 }
 
+// forget drops the calls the vendor kept, so a long fuzz run does not
+// fill the memory.
+func (v *vendor) forget() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.calls = nil
+}
+
 func (v *vendor) received() []vendorCall {
 	v.mu.Lock()
 	defer v.mu.Unlock()
