@@ -11,6 +11,10 @@ The Hotline proxy sits between your apps and those vendors. For every call it:
 
 Apps reach the proxy through the ingress that suits them: as an HTTP proxy, with `CONNECT`, with the vendor address in the path, by Host header, or by a transparent redirect. Signed AWS calls stay valid.
 
+![The Hotline proxy: the ingresses, the call path to the vendor, the checks beside it, and where records go](docs/architecture/hotline-proxy.svg)
+
+The same parts as a C4 model, with a view of the system, its containers and the proxy's parts: [docs/architecture/](docs/architecture/README.md).
+
 ## Status
 
 Early, and not released yet. The proxy works end to end and runs against real AWS in the shop example below. Tracking vendor SLAs and alerting on them come next.
