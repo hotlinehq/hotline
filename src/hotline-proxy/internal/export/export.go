@@ -223,9 +223,12 @@ func New(setup Setup) (*Sink, error) {
 		}
 		// The name and unit are fixed and valid, so there is no error to handle.
 		d.requests, _ = d.metrics.Meter("hotline-proxy").Int64Counter("hotline.requests", metric.WithUnit("{request}"))
+		// The batch line sends records too, at the same time as the record
+		// queue, so it has its own zipper.
+		batchZip := t.newZipper()
 		d.batches = newBatchLine(e.Endpoint, logger, d.queue.ForceFlush, func(ctx context.Context, items [][]byte) error {
 			body := appendBatch(nil, written, items)
-			return sendWithRetry(ctx, t, records, body, timing.Timeout)
+			return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
 		}, func(b Batch, attrs []attribute.KeyValue) []byte {
 			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
 		})

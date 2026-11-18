@@ -38,14 +38,14 @@ func (b busy) Error() string { return b.err.Error() }
 // sendWithRetry sends body, and tries again while the collector is busy and
 // the send's time allows: first after about a second, then at most every
 // few seconds, or later when the collector asks.
-func sendWithRetry(ctx context.Context, t *httpTransport, k kind, body []byte, timeout time.Duration) error {
+func sendWithRetry(ctx context.Context, t *httpTransport, k kind, z *zipper, body []byte, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	backoff := retryFirst
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
 	for {
-		err := t.post(ctx, k, body)
+		err := t.post(ctx, k, z, body)
 		var b busy
 		if err == nil || !errors.As(err, &b) {
 			return err
@@ -71,15 +71,40 @@ type httpTransport struct {
 	urls    [2]string
 	headers map[string]string
 	agent   string
-	gzip    bool
-	// zips are a gzip writer and its output for each kind, each used by
-	// one queue's sends, one at a time.
-	zips [2]zipper
+	// gzip says the destination gzips: each sender then zips with its
+	// own zipper, from newZipper.
+	gzip bool
 }
 
+// zipper is a gzip writer and its output. Each sender owns one, as it owns
+// its body buffer, since its sends come one at a time: the record queue,
+// the span queue and the ledger's batch line each have their own. Two
+// sends through one zipper at once mix their bodies, or crash.
 type zipper struct {
 	out bytes.Buffer
 	w   *gzip.Writer
+}
+
+// newZipper is a zipper for one sender, or nil when the destination does
+// not gzip.
+func (t *httpTransport) newZipper() *zipper {
+	if !t.gzip {
+		return nil
+	}
+	z := &zipper{}
+	// BestSpeed is a valid level, so there is no error to handle.
+	z.w, _ = gzip.NewWriterLevel(&z.out, gzip.BestSpeed)
+	return z
+}
+
+// zip is body gzipped, in the zipper's output, until its next zip.
+func (z *zipper) zip(body []byte) []byte {
+	z.out.Reset()
+	z.w.Reset(&z.out)
+	// Writes to a bytes.Buffer do not fail.
+	_, _ = z.w.Write(body)
+	_ = z.w.Close()
+	return z.out.Bytes()
 }
 
 func newHTTPTransport(e config.Exporter, tlsConfig *tls.Config, version string) *httpTransport {
@@ -90,9 +115,6 @@ func newHTTPTransport(e config.Exporter, tlsConfig *tls.Config, version string) 
 		headers: e.Headers,
 		agent:   "hotline-proxy/" + version,
 		gzip:    e.Gzip,
-	}
-	for i := range t.zips {
-		t.zips[i].w, _ = gzip.NewWriterLevel(&t.zips[i].out, gzip.BestSpeed)
 	}
 	return t
 }
@@ -116,21 +138,16 @@ func httpClient(e config.Exporter, tlsConfig *tls.Config) *http.Client {
 	return &http.Client{Transport: rt}
 }
 
-func (t *httpTransport) post(ctx context.Context, k kind, body []byte) error {
-	if t.gzip {
-		z := &t.zips[k]
-		z.out.Reset()
-		z.w.Reset(&z.out)
-		// Writes to a bytes.Buffer do not fail.
-		_, _ = z.w.Write(body)
-		_ = z.w.Close()
-		body = z.out.Bytes()
+// post sends body, gzipped with z unless z is nil.
+func (t *httpTransport) post(ctx context.Context, k kind, z *zipper, body []byte) error {
+	if z != nil {
+		body = z.zip(body)
 	}
 	// The config has checked the URL, the only thing that could fail here.
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, t.urls[k], bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	req.Header.Set("User-Agent", t.agent)
-	if t.gzip {
+	if z != nil {
 		req.Header.Set("Content-Encoding", "gzip")
 	}
 	for name, value := range t.headers {

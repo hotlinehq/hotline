@@ -257,12 +257,13 @@ func (q *queue[T]) Shutdown(ctx context.Context) error {
 
 // newItemQueue is the queue of one kind of written items for one
 // destination. A send writes the waiting items into one request, in a
-// buffer the queue keeps, since its sends come one at a time.
+// buffer and a zipper the queue keeps, since its sends come one at a time.
 func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
 	var body []byte
+	z := t.newZipper()
 	send := func(ctx context.Context, items [][]byte) error {
 		body = appendBatch(body[:0], resource, items)
-		return sendWithRetry(ctx, t, k, body, timeout)
+		return sendWithRetry(ctx, t, k, z, body, timeout)
 	}
 	// The destination closes the transport once both queues are done.
 	return newQueue(what, send, func(context.Context) error { return nil }, s)
