@@ -2,7 +2,7 @@
 
 module go.opentelemetry.io/collector/cmd/builder
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/petercipov/hotline/otel-hotline v0.0.0
