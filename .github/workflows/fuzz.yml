@@ -62,7 +62,22 @@ jobs:
           TAGS: ${{ matrix.tags }}
           TARGET: ${{ matrix.target }}
           PACKAGE: ${{ matrix.package }}
-        run: go test -tags "$TAGS" -run '^$' -fuzz "^${TARGET}\$" -fuzztime "$FUZZTIME" "$PACKAGE"
+        # go test's own -timeout does not cover fuzzing, so timeout stops a
+        # run that is still going 3 minutes after its fuzz time. SIGQUIT
+        # makes Go print where every goroutine waits before it exits.
+        run: |
+          if [[ ! "$FUZZTIME" =~ ^([0-9]+)([smh])$ ]]; then
+            echo "fuzztime must be a number and s, m or h, such as 5m" >&2
+            exit 2
+          fi
+          number="${BASH_REMATCH[1]}"
+          case "${BASH_REMATCH[2]}" in
+            s) seconds=$((10#$number)) ;;
+            m) seconds=$((10#$number * 60)) ;;
+            h) seconds=$((10#$number * 3600)) ;;
+          esac
+          timeout --signal=QUIT --kill-after=30s "$((seconds + 180))s" \
+            go test -tags "$TAGS" -run '^$' -fuzz "^${TARGET}\$" -fuzztime "$FUZZTIME" "$PACKAGE"
       - name: save the input that broke a rule
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

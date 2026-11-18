@@ -130,6 +130,8 @@ type receiver struct {
 
 	mu      sync.Mutex
 	records []receivedRecord
+	// taken counts every call record ever got, also those forget dropped.
+	taken   int
 	batches []receivedRecord
 	// down refuses every log export, until it is back.
 	down bool
@@ -306,6 +308,8 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					// The ledger's batch records are kept apart, so the
 					// scenarios about calls see only the calls' records.
 					list = &r.batches
+				} else {
+					r.taken++
 				}
 				*list = append(*list, receivedRecord{
 					eventName:      lr.GetEventName(),
@@ -490,7 +494,24 @@ func (r *receiver) countRefused(encoding string, data []byte) {
 func (r *receiver) callsMade() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.records) + r.refused
+	return r.taken + r.refused
+}
+
+// takenCalls counts every call record the receiver ever got, also those
+// forget dropped since.
+func (r *receiver) takenCalls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.taken
+}
+
+// forget drops what the receiver kept, so a long fuzz run does not fill
+// the memory. It keeps the counts.
+func (r *receiver) forget() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records, r.batches, r.counts, r.points = nil, nil, nil, nil
+	r.otherMetric, r.spanList, r.seen = nil, nil, nil
 }
 
 func (r *receiver) ledger() []receivedRecord {

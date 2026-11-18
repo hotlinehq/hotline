@@ -76,9 +76,25 @@ func (w *world) stillWell(t *testing.T, took time.Duration) {
 		t.Fatalf("the proxy panicked over the input:\n%s", logs)
 	}
 	w.logs.Reset()
+	w.forget()
 	w.resp = nil
 	if err := w.call("GET", "https://api.talon.one/v1/status"); err != nil || w.resp == nil {
 		t.Fatalf("a normal call after the input got no answer: %v %v\n%s", err, w.respErr, w.logs.String())
+	}
+}
+
+// forget drops what the fakes kept about the calls so far. A fuzz run sends
+// hundreds of thousands of inputs, and keeping them all filled the memory
+// until the machine slowed down so much that the proxy seemed slow
+// (fuzz run of 2026-11-18).
+func (w *world) forget() {
+	for _, v := range w.vendors {
+		v.forget()
+	}
+	for _, r := range append(w.receivers, w.telemetry) {
+		if r != nil {
+			r.forget()
+		}
 	}
 }
 
@@ -230,11 +246,11 @@ func FuzzReply(f *testing.F) {
 }
 
 // recordTime is how long after start the record of every call sent so far
-// arrived, its spec check included; a wait cut off at fuzzWait counts as
-// longer.
+// arrived, its spec check included, counting the records forget dropped; a
+// wait cut off at fuzzWait counts as longer.
 func (w *world) recordTime(start time.Time) time.Duration {
 	for {
-		if records, _ := w.receivers[0].got(); len(records) >= w.sent {
+		if w.receivers[0].takenCalls() >= w.sent {
 			return time.Since(start)
 		}
 		if time.Since(start) > fuzzWait {
