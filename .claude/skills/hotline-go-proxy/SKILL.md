@@ -179,6 +179,7 @@ These protect the customer's traffic. Breaking one is a bug even if tests pass.
 - The test cases were listed first, and each new behaviour has a test that failed first.
 - Any new module is named and justified.
 - No secret or body value can reach a log, error or record.
+- The architecture pictures still match. When a change adds, removes or renames a part of the proxy, an ingress, an exporter or something outside it talks to, update `docs/architecture/hotline.c4` (the C4 model) and `docs/architecture/hotline-proxy.svg` in the same pull request, make `hotline-proxy.png` again from the SVG, and run `npx likec4@1.60.0 validate docs/architecture`. Draw only what is built. See [docs/architecture/README.md](../../../docs/architecture/README.md).
 
 ### When asking Peter a question
 

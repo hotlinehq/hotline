@@ -1,5 +1,9 @@
 # Hotline docs
 
+## Architecture
+
+- [Architecture pictures](architecture/README.md): the proxy at a glance, and the C4 model in LikeC4 format.
+
 ## Running the proxy
 
 - [The hotline-proxy program](proxy-program.md): commands, flags, stopping, exit codes.

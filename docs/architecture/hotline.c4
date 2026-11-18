@@ -1,0 +1,134 @@
+// Hotline C4 model, drawn only from the hotline repo (code, README.md, memory.md, docs/).
+// It shows what is built today. Views: index = system context, containers = inside Hotline,
+// proxy = the parts of hotline-proxy run.
+// Colours match the hand-drawn picture docs/architecture/hotline-proxy.svg. Change both together.
+
+specification {
+  color hotline #7C3AED
+  color customer #64748B
+  color vendor #F97316
+  color people #0E7490
+
+  element person {
+    style { shape person; color people; size small }
+  }
+  element system {
+    style { color customer; size small }
+  }
+  element external {
+    style { color vendor; size small }
+  }
+  element container {
+    style { color hotline; size medium }
+  }
+  element component {
+    style { shape component; color hotline; size small }
+  }
+  element store {
+    style { shape cylinder; color hotline; size small }
+  }
+}
+
+model {
+  operator = person 'Operator' 'Writes the config and vendor specs, runs the proxy'
+
+  apps = system 'Your services' 'Call vendor APIs over HTTP, with no code change'
+  redirect = system 'Network redirect' 'Sends plain http calls to the proxy (transparent ingress)'
+  macApps = system 'Mac apps' 'Programs on a Mac that cannot be told about a proxy'
+  captureHelper = system 'Hotline Capture' 'macOS system extension, built in its own project'
+  runner = system 'Kubernetes or other runner' 'Starts the proxy and asks if it is healthy'
+  otlpBackend = system 'OTLP backend' 'OpenTelemetry Collector, Grafana Cloud or similar'
+  terminal = system 'Terminal' 'Standard output of the proxy'
+  vendors = external 'Vendor APIs' 'Payments, AWS, booking, anything over HTTP'
+
+  hotline = system 'Hotline' 'Checks, times and records every vendor call' {
+    style { color hotline; size large }
+
+    proxy = container 'hotline-proxy run' {
+      technology 'Go program, src/hotline-proxy'
+      icon tech:go
+      description 'Forwards each vendor call unchanged and records how it went'
+
+      ingress = component 'Ingress finder' {
+        description 'Six ingresses: forward_proxy, url_in_path, host_header, connect, transparent, capture. Finds the integration and the vendor api'
+      }
+      forwarder = component 'Forwarder' {
+        technology 'internal/forward'
+        description 'Calls the vendor with the bytes unchanged, times DNS, connect, TLS and first byte'
+      }
+      guard = component 'Address guard' 'Refuses loopback and private addresses unless allowInternalIPs'
+      tap = component 'Body tap' 'Passes bodies straight on, keeps a copy up to 2 MiB'
+      checker = component 'Spec checks' {
+        technology 'internal/spec, one worker per core'
+        description 'Checks each side against the OpenAPI spec beside the call; waiting copies capped by specChecks.queueMemory'
+      }
+      recorder = component 'Record builder' 'Redacts secrets, builds the record and trace, hashes the record with SHA-256'
+      ledger = component 'Evidence ledger' {
+        technology 'internal/ledger'
+        description 'One chain per integration; a batch every 10 seconds, signed with Ed25519'
+      }
+      exporters = component 'Exporters' {
+        technology 'internal/export'
+        description 'otlp, file and console; one bounded queue each'
+      }
+      configLoader = component 'Config loader' {
+        technology 'internal/config'
+        description 'Reads the config, specs and certs; reloads within 5 seconds or on kill -HUP'
+      }
+      admin = component 'Admin port' '/livez and /readyz, optional pprof pages'
+      telemetry = component 'Own telemetry' 'The proxy\'s own numbers, sent if telemetry is set'
+
+      ingress -> forwarder 'call, integration'
+      forwarder -> guard 'dials'
+      forwarder -> tap 'bodies'
+      tap -> checker 'body copies'
+      checker -> recorder 'check results'
+      forwarder -> recorder 'step timings'
+      recorder -> ledger 'record hash'
+      recorder -> exporters 'record, trace'
+      ledger -> exporters 'signed batch'
+      configLoader -> ingress 'listeners, integrations'
+      configLoader -> checker 'specs, overlays'
+      configLoader -> admin 'ready or not'
+    }
+
+    verify = container 'hotline-proxy verify' {
+      technology 'Same Go program'
+      description 'Checks a records folder: hashes, chains and signatures, with no config, key or network'
+    }
+
+    config = store 'Config and specs' 'hotline-proxy.yaml, vendor OpenAPI specs, overlays, certs'
+    folder = store 'Records folder' 'File exporter output: every call as a line of JSON'
+  }
+
+  apps -> hotline.proxy.ingress 'vendor calls: HTTP proxy, CONNECT, URL in path, Host header'
+  apps -> redirect 'plain http to the vendor name'
+  redirect -> hotline.proxy.ingress 'redirected connections'
+  macApps -> captureHelper 'chosen apps\' connections'
+  captureHelper -> hotline.proxy.ingress 'CONNECT over a socket file'
+  hotline.proxy.guard -> vendors 'calls, unchanged, HTTPS'
+  hotline.proxy.configLoader -> hotline.config 'reads, watches'
+  hotline.proxy.exporters -> otlpBackend 'records, traces, metrics, OTLP'
+  hotline.proxy.exporters -> hotline.folder 'JSON lines'
+  hotline.proxy.exporters -> terminal 'two lines per call'
+  hotline.proxy.telemetry -> otlpBackend 'own metrics, OTLP'
+  runner -> hotline.proxy.admin 'health checks'
+  operator -> hotline.config 'writes'
+  operator -> hotline.verify 'runs'
+  hotline.verify -> hotline.folder 'reads'
+}
+
+views {
+  view index {
+    title 'System context'
+    include *
+  }
+  view containers of hotline {
+    title 'Containers'
+    include *
+  }
+  view proxy of hotline.proxy {
+    title 'hotline-proxy run, its parts'
+    include *
+  }
+}

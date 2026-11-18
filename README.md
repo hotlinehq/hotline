@@ -1,5 +1,7 @@
 # Hotline
 
+![The Hotline proxy: the ingresses, the call path to the vendor, the checks beside it, and where records go](docs/architecture/hotline-proxy.png)
+
 Hotline keeps track of the third-party APIs your apps call: payments, AWS, booking, anything over HTTP.
 
 The Hotline proxy sits between your apps and those vendors. For every call it:
@@ -10,6 +12,8 @@ The Hotline proxy sits between your apps and those vendors. For every call it:
 - sends it all over OTLP (the OpenTelemetry protocol) to the tools you already use, such as Grafana.
 
 Apps reach the proxy through the ingress that suits them: as an HTTP proxy, with `CONNECT`, with the vendor address in the path, by Host header, or by a transparent redirect. Signed AWS calls stay valid.
+
+The same parts as a C4 model, with a view of the system, its containers and the proxy's parts: [docs/architecture/](docs/architecture/README.md).
 
 ## Status
 
