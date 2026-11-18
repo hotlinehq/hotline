@@ -113,6 +113,14 @@ Feature: The hotline-proxy program
     And standard error says "INFO  config is valid  config=hotline-proxy.yaml"
     And nothing listens on the config's proxy address
 
+  Scenario: A config name that is not UTF-8 is escaped in the log line
+    A file name may hold any bytes. A byte that is not UTF-8 could change
+    the terminal, so the log line shows it as an escape.
+    Given a valid config file named hotline, the byte FF and .yaml
+    When hotline-proxy validates that config
+    Then it exits with code 0
+    And standard error says "config="hotline\xff.yaml""
+
   Scenario: validate --format json writes JSON
     Given a valid config file
     When hotline-proxy is run with "validate --format json --config hotline-proxy.yaml"

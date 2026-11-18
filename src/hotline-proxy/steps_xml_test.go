@@ -41,6 +41,13 @@ func xmlSteps(sc *godog.ScenarioContext, w *world) {
 		w.filesAnswer(status, "application/xml", b.String())
 		return nil
 	})
+	sc.Step(`^the files vendor answers (\d+) with a list nested (\d+) elements deep$`, func(status, depth int) error {
+		// The root and Owner, then elements Owner holds, each inside the last.
+		body := "<ListBucketResult><Name>shop-invoices</Name><KeyCount>0</KeyCount><Owner>" +
+			strings.Repeat("<a>", depth-2) + strings.Repeat("</a>", depth-2) + "</Owner></ListBucketResult>"
+		w.filesAnswer(status, "application/xml", body)
+		return nil
+	})
 	sc.Step(`^the app sends (GET|POST|PUT) (\S+) to the files vendor(?: with the (\S+) body (.*))?$`, func(method, path, mediaType, body string) error {
 		var headers []string
 		if w.appID != "" {

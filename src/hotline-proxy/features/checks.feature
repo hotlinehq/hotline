@@ -149,6 +149,23 @@ Feature: Checking calls against the vendor's spec
       When the app sends POST /payments and the form body amount=5&currency=eur&metadata[order]=6735&items[0][price]=p1&items[0][quantity]=2
       Then the record has no request results
 
+    Scenario: A form body whose names are all numbers is still an object
+      Found by fuzzing (2026-11-18): such a body stopped the whole proxy.
+      When the app sends POST /payments and the form body 0=x&1=y
+      Then the request results are body $.amount required; body $.currency required
+
+    Scenario Outline: A form field nested more than 64 names deep is not read
+      A field such as metadata[a][a]...[a] is read only up to 64 names, so a
+      small body cannot make the proxy build a huge tree (security scan,
+      2026-11-18).
+      When the app sends POST /payments and a form body whose metadata field is <names> names deep
+      Then the request results are <results>
+
+      Examples:
+        | names | results                      |
+        | 64    | body $.metadata.a type string |
+        | 65    | body $ form                  |
+
   Rule: Formats are checked
 
     Scenario Outline: A wrong format is reported

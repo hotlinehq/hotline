@@ -282,6 +282,15 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		p.writeConfig(p.config(true))
 		return nil
 	})
+	sc.Step(`^a valid config file named hotline, the byte FF and \.yaml$`, func() error {
+		return os.WriteFile(filepath.Join(p.dir, "hotline\xff.yaml"), []byte(p.config(true)), 0o600)
+	})
+	sc.Step(`^hotline-proxy validates that config$`, func() error {
+		if err := p.startProcess("validate", "--config", "hotline\xff.yaml"); err != nil {
+			return err
+		}
+		return p.waitForExit(10 * time.Second)
+	})
 	sc.Step(`^a config file with no listeners and no exporters$`, func() error {
 		p.writeConfig(fmt.Sprintf("admin:\n  address: %q\n", "tcp://"+p.adminAddr))
 		return nil

@@ -67,6 +67,10 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		pad := strings.Repeat("x", mib<<20)
 		return w.shopCall("POST", "/orders", true, headers, "json", `{"item":"`+pad+`","quantity":1}`)
 	})
+	sc.Step(`^the app sends POST /payments and a form body whose metadata field is (\d+) names deep$`, func(names int) error {
+		body := "amount=5&currency=eur&metadata" + strings.Repeat("[a]", names-1) + "=1"
+		return w.shopCall("POST", "/payments", true, "", "form", body)
+	})
 	sc.Step(`^the app sends POST /orders with "([^"]*)" and an order with (\d+) lines without a sku$`, func(headers string, n int) error {
 		lines := strings.TrimSuffix(strings.Repeat(`{},`, n), ",")
 		return w.shopCall("POST", "/orders", true, headers, "json", `{"item":"A1","quantity":1,"lines":[`+lines+`]}`)

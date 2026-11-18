@@ -20,6 +20,7 @@ One step, driven by S3 in the invoice example (Peter, 2026-10-31). It builds thr
    - Comments, and the `<?xml …?>` line at the top.
 8. **Safe reading.** A body with `<!DOCTYPE` (the part of XML that defines shortcuts, used to blow a tiny body up to gigabytes) is `body $ xml` and isn't read further. The proxy never fetches anything an XML body points to.
 9. **Size.** XML follows the body size limit; a larger body is skipped as `body_too_large`.
+   **Depth.** An element nested more than 64 deep, the root counted, makes the body `body $ xml`. Each level costs memory as it is read, so without a limit a 2 MB body nested very deep took about 180 MB (security scan, 2026-11-18).
 10. **No new library.** Go's own XML reader.
 
 ## 2. Routes picked by a query word

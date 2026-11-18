@@ -1,6 +1,7 @@
 package read
 
 import (
+	"errors"
 	"maps"
 	"net/url"
 	"slices"
@@ -17,8 +18,23 @@ func Form(data []byte) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	for key := range values {
+		// Each "[" starts one more name.
+		if strings.Count(key, "[") >= maxDepth {
+			return nil, errTooDeep
+		}
+	}
 	return nest(values), nil
 }
+
+// maxDepth is how deep a body is read: names in a form field, or elements
+// in XML, the root counted. Reading goes one level deeper in memory for
+// each, so without a limit a 2 MB body nested very deep took some 300 MB
+// (security scan, 2026-11-18). Real bodies stay far below it.
+const maxDepth = 64
+
+// errTooDeep marks a form body with a field nested deeper than maxDepth.
+var errTooDeep = errors.New("a form field is nested too deep")
 
 // nest reads bracketed names into objects and lists. A name with no
 // brackets keeps its first value.
@@ -30,7 +46,13 @@ func nest(values url.Values) map[string]any {
 			put(root, path, value)
 		}
 	}
-	return lists(root).(map[string]any)
+	// The body itself is always an object, even when all its names are
+	// numbers; only the objects inside it may become lists. Turning the
+	// body into a list stopped the proxy (found by fuzzing, 2026-11-18).
+	for key, child := range root {
+		root[key] = lists(child)
+	}
+	return root
 }
 
 func splitBrackets(key string) []string {
@@ -81,9 +103,6 @@ func lists(v any) any {
 			return m
 		}
 		indexes = append(indexes, i)
-	}
-	if len(indexes) == 0 {
-		return m
 	}
 	sort.Ints(indexes)
 	list := make([]any, len(indexes))
