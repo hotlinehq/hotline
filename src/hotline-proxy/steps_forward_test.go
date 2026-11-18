@@ -223,6 +223,19 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		_, err = io.ReadFull(reader, w.respBody)
 		return err
 	})
+	sc.Step(`^a shop spec where GET /orders answers 101 Switching Protocols$`, func() error {
+		w.addIntegration(integration("talon-shop-a", w.specAPI("api.shop.test", websocketSpec, "")))
+		return nil
+	})
+	sc.Step(`^the proxy's HTTP server logged nothing$`, func() error {
+		w.settle()
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, `msg="http server"`) {
+				return failf("the proxy's HTTP server logged %s", line)
+			}
+		}
+		return nil
+	})
 	sc.Step(`^the shop vendor accepts a WebSocket upgrade, sends "(\w+)" and closes at once$`, func(message string) error {
 		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Connection", "Upgrade")
@@ -718,3 +731,13 @@ func (w *world) websocketOnce(target, message string) error {
 	}
 	return nil
 }
+
+// websocketSpec is a shop api whose GET /orders switches to a WebSocket.
+const websocketSpec = `openapi: 3.1.0
+info: { title: shop live orders, version: "1" }
+paths:
+  /orders:
+    get:
+      responses:
+        "101": { description: switched to a WebSocket }
+`
