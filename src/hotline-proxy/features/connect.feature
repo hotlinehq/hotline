@@ -113,9 +113,9 @@ Feature: The CONNECT ingress, with interception
     And the record is minimal with hotline.ingress connect, http.response.status_code 400 and error.type http_request_error
 
     Examples:
-      | target         |
-      | api.talon.one  |
-      | :443           |
+      | target        |
+      | api.talon.one |
+      | :443          |
 
   Scenario: CONNECT over HTTP/2
     Over HTTP/2 a tunnel is one stream of a shared connection: the app's
@@ -175,14 +175,14 @@ Feature: The CONNECT ingress, with interception
     Then the config is refused with a message naming the problem
 
     Examples:
-      | problem                                                  |
-      | the connect part cert is not a certificate authority's certificate     |
-      | the connect part key does not belong to its certificate |
-      | the connect part certificate authority has already expired            |
-      | the connect part has a cert file but no key file           |
-      | the connect part names the cert "missing", which is not in certs |
-      | a certificate authority is written with no files                       |
-      | the connect part names no cert                           |
+      | problem                                                            |
+      | the connect part cert is not a certificate authority's certificate |
+      | the connect part key does not belong to its certificate            |
+      | the connect part certificate authority has already expired         |
+      | the connect part has a cert file but no key file                   |
+      | the connect part names the cert "missing", which is not in certs   |
+      | a certificate authority is written with no files                   |
+      | the connect part names no cert                                     |
 
   Scenario: A cert nothing signs with need not be a certificate authority
     Whether a cert may sign is checked where it is used (Peter, 2026-11-13).

@@ -187,11 +187,11 @@ Feature: The proxy's own telemetry
     Then hotline.app_tls.failures counts 1 with error.type <type> and hotline.ingress <ingress>
 
     Examples:
-      | does                                             | type                 | ingress   |
-      | that does not trust the proxy opens TLS          | tls_untrusted_by_app | none      |
-      | sends plain HTTP to the TLS port                 | plain_http           | none      |
-      | that allows only TLS 1.1 opens TLS               | tls_version          | none      |
-      | that does not trust the certificate authority opens a tunnel    | tls_untrusted_by_app | connect   |
+      | does                                                         | type                 | ingress |
+      | that does not trust the proxy opens TLS                      | tls_untrusted_by_app | none    |
+      | sends plain HTTP to the TLS port                             | plain_http           | none    |
+      | that allows only TLS 1.1 opens TLS                           | tls_version          | none    |
+      | that does not trust the certificate authority opens a tunnel | tls_untrusted_by_app | connect |
 
   Scenario: The Go runtime, five numbers
     go.memory.limit is the fifth, sent only when a memory limit is set
@@ -213,18 +213,18 @@ Feature: The proxy's own telemetry
     Then the telemetry receiver gets <name> with unit "<unit>" and a description
 
     Examples:
-      | name                          | unit         |
-      | http.server.active_requests   | {request}    |
-      | http.server.request.duration  | s            |
-      | hotline.exporter.up           |              |
-      | hotline.exporter.queue.size   | {item}       |
-      | hotline.exporter.sent         | {item}       |
-      | hotline.config.reload_failed  |              |
-      | hotline.config.restart_needed |              |
-      | hotline.certificate.not_after | s            |
-      | go.memory.used                | By           |
-      | go.goroutine.count            | {goroutine}  |
-      | go.memory.allocated           | By           |
+      | name                          | unit        |
+      | http.server.active_requests   | {request}   |
+      | http.server.request.duration  | s           |
+      | hotline.exporter.up           |             |
+      | hotline.exporter.queue.size   | {item}      |
+      | hotline.exporter.sent         | {item}      |
+      | hotline.config.reload_failed  |             |
+      | hotline.config.restart_needed |             |
+      | hotline.certificate.not_after | s           |
+      | go.memory.used                | By          |
+      | go.goroutine.count            | {goroutine} |
+      | go.memory.allocated           | By          |
 
   Scenario: Failed TLS setups have their unit and a description
     Given the proxy port takes TLS

@@ -88,11 +88,11 @@ Feature: How OpenTelemetry data is sent
     And every request to the receiver came over <version>
 
     Examples:
-      | over     | offers      | sets             | version  |
-      | over TLS | HTTP/2      | does not set h2c | HTTP/2.0 |
-      | over TLS | HTTP/1.1    | does not set h2c | HTTP/1.1 |
-      | plain    | h2c         | does not set h2c | HTTP/1.1 |
-      | plain    | h2c         | sets h2c to true | HTTP/2.0 |
+      | over     | offers   | sets             | version  |
+      | over TLS | HTTP/2   | does not set h2c | HTTP/2.0 |
+      | over TLS | HTTP/1.1 | does not set h2c | HTTP/1.1 |
+      | plain    | h2c      | does not set h2c | HTTP/1.1 |
+      | plain    | h2c      | sets h2c to true | HTTP/2.0 |
 
   Scenario: A collector without h2c gets nothing
     Given a receiver plain that offers HTTP/1.1

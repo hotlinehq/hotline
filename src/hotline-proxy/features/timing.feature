@@ -100,11 +100,11 @@ Feature: Each call's timings are a trace
       And no span has an error.type
 
       Examples:
-        | failure                  | step                 | missing       |
-        | DNS fails                | dns lookup           | tcp connect   |
-        | the TLS handshake fails  | vendor tls handshake | send call     |
-        | the vendor never answers | wait for vendor      | receive response |
-        | the app's body breaks off | send call           | wait for vendor |
+        | failure                   | step                 | missing          |
+        | DNS fails                 | dns lookup           | tcp connect      |
+        | the TLS handshake fails   | vendor tls handshake | send call        |
+        | the vendor never answers  | wait for vendor      | receive response |
+        | the app's body breaks off | send call            | wait for vendor  |
 
     Scenario Outline: The app hangs up before it has the whole response
       The vendor did nothing wrong, so "vendor call" is not marked. The
@@ -117,9 +117,9 @@ Feature: Each call's timings are a trace
       And the record says hotline.client.cancelled true
 
       Examples:
-        | vendor                                                                  |
+        | vendor                                                                         |
         | a vendor that answers after 300 milliseconds and a vendorTimeout of 10 seconds |
-        | a vendor that sends half of its response, and the rest 300 milliseconds later |
+        | a vendor that sends half of its response, and the rest 300 milliseconds later  |
 
     Scenario: A refused call has only the call span
       When an app sends "GET /v2/x" with "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"

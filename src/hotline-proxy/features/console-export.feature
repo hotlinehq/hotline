@@ -119,11 +119,11 @@ Feature: Printing every call to the console
     Then the console <has> colour
 
     Examples:
-      | color  | where                           | has    |
-      | always | not a terminal                  | has    |
-      | never  | a terminal 100 columns wide     | has no |
-      | auto   | a terminal 100 columns wide     | has    |
-      | auto   | a terminal 0 columns wide       | has    |
+      | color  | where                       | has    |
+      | always | not a terminal              | has    |
+      | never  | a terminal 100 columns wide | has no |
+      | auto   | a terminal 100 columns wide | has    |
+      | auto   | a terminal 0 columns wide   | has    |
 
   Scenario Outline: The method and status are coloured, as mitmdump does
     Given standard output is a terminal 100 columns wide
@@ -153,9 +153,9 @@ Feature: Printing every call to the console
     Then the check status <status> is <colour>
 
     Examples:
-      | answer                                                         | call                                                                                 | status  | colour |
-      | 201                                                            | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | green  |
-      | 400                                                            | GET /orders?limit=abc                                                                | invalid | red    |
+      | answer                                                          | call                                                                                 | status  | colour |
+      | 201                                                             | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | green  |
+      | 400                                                             | GET /orders?limit=abc                                                                | invalid | red    |
       | 200 with "Content-Type: text/event-stream" and the body data: x | GET /orders                                                                          | skipped | dim    |
 
   Scenario: The findings are dim, with the side in red
@@ -202,9 +202,9 @@ Feature: Printing every call to the console
     And the console holds no character that could change the terminal
 
     Examples:
-      | what                       | shown  |
-      | the control character 9B   | \u009b |
-      | the byte FF, not UTF-8     | �      |
+      | what                        | shown  |
+      | the control character 9B    | \u009b |
+      | the byte FF, not UTF-8      | �      |
       | the right-to-left mark 202E | \u202e |
 
   Scenario Outline: With --format json, characters that could change the terminal are escaped

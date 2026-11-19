@@ -8,12 +8,12 @@ Feature: Forwarding a call to the vendor
     Then the proxy calls the vendor over <scheme> on port <port>
 
     Examples:
-      | settings                                            | address                     | scheme | port |
-      | an api with TLS origination on, the default         | https://api.talon.one/v2/x  | https  | 443  |
-      | an api with TLS origination on, the default         | http://api.talon.one/v2/x   | https  | 443  |
-      | an api with tlsOrigination set to false             | http://api.talon.one/v2/x   | http   | 80   |
-      | a not-passed call with the built-in settings        | http://api.x.com/a          | https  | 443  |
-      | a not-passed entry with tlsOrigination set to false | http://api.x.com/a          | http   | 80   |
+      | settings                                            | address                    | scheme | port |
+      | an api with TLS origination on, the default         | https://api.talon.one/v2/x | https  | 443  |
+      | an api with TLS origination on, the default         | http://api.talon.one/v2/x  | https  | 443  |
+      | an api with tlsOrigination set to false             | http://api.talon.one/v2/x  | http   | 80   |
+      | a not-passed call with the built-in settings        | http://api.x.com/a         | https  | 443  |
+      | a not-passed entry with tlsOrigination set to false | http://api.x.com/a         | http   | 80   |
 
   Scenario: Upgrading an address with an explicit port
     Given an api with TLS origination on, the default
@@ -43,9 +43,9 @@ Feature: Forwarding a call to the vendor
     Then <result>
 
     Examples:
-      | quiet | result                                                                         |
-      | 9     | the app gets the whole response and the record has no error.type                  |
-      | 10    | the response to the app breaks off and the record says http_response_incomplete   |
+      | quiet | result                                                                          |
+      | 9     | the app gets the whole response and the record has no error.type                |
+      | 10    | the response to the app breaks off and the record says http_response_incomplete |
 
   Scenario: The vendor answers before the app has finished sending
     Given a vendor that answers 413 without reading the body
@@ -161,9 +161,9 @@ Feature: Forwarding a call to the vendor
     Then the proxy talks <to vendor> to the vendor and <to app> to the app
 
     Examples:
-      | app                    | vendor                  | to vendor | to app   |
-      | an app using HTTP/1.1  | HTTP/2 and HTTP/1.1     | HTTP/2    | HTTP/1.1 |
-      | an app using HTTP/1.1  | HTTP/1.1 only           | HTTP/1.1  | HTTP/1.1 |
+      | app                   | vendor              | to vendor | to app   |
+      | an app using HTTP/1.1 | HTTP/2 and HTTP/1.1 | HTTP/2    | HTTP/1.1 |
+      | an app using HTTP/1.1 | HTTP/1.1 only       | HTTP/1.1  | HTTP/1.1 |
 
   Scenario: A trusted certificate is accepted
     Given a vendor whose certificate authority is in the system trust store
@@ -176,9 +176,9 @@ Feature: Forwarding a call to the vendor
     Then the app gets 502 with "Proxy-Status: hotline; error=tls_certificate_error"
 
     Examples:
-      | problem              |
-      | self-signed          |
-      | expired              |
+      | problem               |
+      | self-signed           |
+      | expired               |
       | for another host name |
 
   Scenario: The certificate check cannot be turned off
@@ -193,16 +193,16 @@ Feature: Forwarding a call to the vendor
     And the record's error.type is <error>
 
     Examples:
-      | situation                                                    | status | error                 |
-      | a vendor host that does not exist                            | 502    | dns_error             |
-      | a DNS lookup that takes too long                             | 504    | dns_timeout           |
-      | a vendor that refuses the connection                         | 502    | connection_refused    |
-      | a vendor that takes too long to connect                      | 504    | connection_timeout    |
-      | a TLS handshake that fails for a reason other than the certificate | 502 | tls_protocol_error |
-      | a vendor slower than vendorTimeout                           | 504    | http_response_timeout |
-      | a vendor whose network cannot be reached                     | 502    | destination_unavailable |
-      | a TLS handshake that takes too long                          | 504    | connection_timeout    |
-      | a vendor that closes the connection before answering         | 502    | http_response_incomplete |
+      | situation                                                          | status | error                    |
+      | a vendor host that does not exist                                  | 502    | dns_error                |
+      | a DNS lookup that takes too long                                   | 504    | dns_timeout              |
+      | a vendor that refuses the connection                               | 502    | connection_refused       |
+      | a vendor that takes too long to connect                            | 504    | connection_timeout       |
+      | a TLS handshake that fails for a reason other than the certificate | 502    | tls_protocol_error       |
+      | a vendor slower than vendorTimeout                                 | 504    | http_response_timeout    |
+      | a vendor whose network cannot be reached                           | 502    | destination_unavailable  |
+      | a TLS handshake that takes too long                                | 504    | connection_timeout       |
+      | a vendor that closes the connection before answering               | 502    | http_response_incomplete |
 
   Scenario: The vendor breaks off mid-response
     Given a vendor that stops after sending half of its response

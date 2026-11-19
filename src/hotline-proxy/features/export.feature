@@ -49,9 +49,9 @@ Feature: Sending OpenTelemetry data
     Then the totals are <kind>
 
     Examples:
-      | sets                       | kind       |
-      | does not set temporality   | cumulative |
-      | sets temporality to delta  | delta      |
+      | sets                      | kind       |
+      | does not set temporality  | cumulative |
+      | sets temporality to delta | delta      |
 
   Scenario: How often each exporter sends, by default
     Counts go out once a minute: one data point a minute is what Grafana

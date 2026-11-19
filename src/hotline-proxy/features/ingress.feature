@@ -11,11 +11,11 @@ Feature: Finding the ingress
     And the vendor is <host> on port <port>
 
     Examples:
-      | address                                    | host          | port |
+      | address                                      | host          | port |
       | https://api.talon.one/v2/customer_sessions/1 | api.talon.one | 443  |
       | http://api.talon.one/v2/customer_sessions/1  | api.talon.one | 443  |
-      | https://api.talon.one:8443/v2/x            | api.talon.one | 8443 |
-      | HTTPS://API.TALON.ONE/v2/x                 | api.talon.one | 443  |
+      | https://api.talon.one:8443/v2/x              | api.talon.one | 8443 |
+      | HTTPS://API.TALON.ONE/v2/x                   | api.talon.one | 443  |
 
   Scenario: The request line wins over the Host header
     Given the proxy is running
@@ -37,9 +37,9 @@ Feature: Finding the ingress
     And nothing is sent to any vendor
 
     Examples:
-      | address                    |
-      | ftp://files.example/a.txt  |
-      | https:///v1/no-host        |
+      | address                   |
+      | ftp://files.example/a.txt |
+      | https:///v1/no-host       |
 
   Scenario Outline: Refused calls are still recorded
     Every request the proxy reads and refuses gets a minimal record and is
@@ -50,6 +50,6 @@ Feature: Finding the ingress
     And hotline.requests goes up by one
 
     Examples:
-      | request                                               | status | ingress       |
-      | "GET ftp://files.example/a.txt"                       | 400    | forward_proxy |
-      | "GET https:///v1/no-host"                             | 400    | forward_proxy |
+      | request                         | status | ingress       |
+      | "GET ftp://files.example/a.txt" | 400    | forward_proxy |
+      | "GET https:///v1/no-host"       | 400    | forward_proxy |

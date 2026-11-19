@@ -73,9 +73,9 @@ Feature: Building the request record
     And hotline.integration.id is <id>
 
     Examples:
-      | call                                                | id           |
-      | a call without Proxy-Authorization                  | not-passed   |
-      | a call with the unknown ID talon-shop-x             | not-passed   |
+      | call                                                         | id           |
+      | a call without Proxy-Authorization                           | not-passed   |
+      | a call with the unknown ID talon-shop-x                      | not-passed   |
       | a call from talon-shop-a to api.stripe.com, outside its apis | talon-shop-a |
 
   Scenario: A minimal record leaves out url.full unless it is switched on

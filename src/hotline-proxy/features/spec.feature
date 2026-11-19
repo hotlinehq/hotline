@@ -59,13 +59,13 @@ Feature: Reading the vendor spec
     Then <result>
 
     Examples:
-      | parameter                | marked                         | result                                         |
-      | a path parameter         | marked x-hotline-redact false  | its value is to be kept                        |
-      | a query parameter        | marked x-hotline-redact false  | its value is to be kept                        |
-      | a header parameter       | marked x-hotline-redact true   | its name is kept and its value redacted        |
-      | a header parameter       | marked x-hotline-redact false  | its value is to be kept                        |
-      | any parameter            | not marked                     | it counts as not marked                        |
-      | a declared response header  | marked x-hotline-redact false  | its value is to be kept                        |
+      | parameter                  | marked                        | result                                  |
+      | a path parameter           | marked x-hotline-redact false | its value is to be kept                 |
+      | a query parameter          | marked x-hotline-redact false | its value is to be kept                 |
+      | a header parameter         | marked x-hotline-redact true  | its name is kept and its value redacted |
+      | a header parameter         | marked x-hotline-redact false | its value is to be kept                 |
+      | any parameter              | not marked                    | it counts as not marked                 |
+      | a declared response header | marked x-hotline-redact false | its value is to be kept                 |
 
   Scenario: A method's own parameter entry wins
     Given a spec that lists the query parameter page for the whole route as not marked
@@ -84,12 +84,12 @@ Feature: Reading the vendor spec
     Then <secret> is a secret
 
     Examples:
-      | scheme                                   | secret                              |
-      | an http bearer scheme                    | the Authorization header            |
-      | an http basic scheme                     | the Authorization header            |
+      | scheme                                                         | secret                   |
+      | an http bearer scheme                                          | the Authorization header |
+      | an http basic scheme                                           | the Authorization header |
       | an apiKey scheme in the Authorization header, as Talon.One has | the Authorization header |
-      | an apiKey scheme in the query named key  | the query parameter key             |
-      | an apiKey scheme in a cookie named sid   | the cookie sid                      |
+      | an apiKey scheme in the query named key                        | the query parameter key  |
+      | an apiKey scheme in a cookie named sid                         | the cookie sid           |
 
   Scenario: Secrets from one operation are added
     Given a spec where one operation has its own security section with an apiKey header X-Op-Key

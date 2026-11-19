@@ -43,16 +43,16 @@ Feature: Records a third party can trust
       Then the hash no longer checks out
 
       Examples:
-        | change                                 |
-        | http.response.status_code is changed   |
-        | url.full is changed                    |
-        | the trace_id is changed                |
-        | the timestamp is changed               |
-        | hotline.request.body.hash is changed   |
-        | hotline.trace.hash is changed          |
-        | hotline.batch.index is changed         |
-        | an attribute is added                  |
-        | an attribute is removed                |
+        | change                               |
+        | http.response.status_code is changed |
+        | url.full is changed                  |
+        | the trace_id is changed              |
+        | the timestamp is changed             |
+        | hotline.request.body.hash is changed |
+        | hotline.trace.hash is changed        |
+        | hotline.batch.index is changed       |
+        | an attribute is added                |
+        | an attribute is removed              |
 
     Scenario: A changed record whose hash was recomputed no longer fits its batch
       When the app sends GET /orders

@@ -116,11 +116,11 @@ Feature: Writing every call to a local file
     Then the line has hotline.content.<side>.header.<name> REDACTED
 
     Examples:
-      | spec                                                | header        | value  | side     | name          |
-      | security section names X-Api-Key                    | X-Api-Key     | k-123  | request  | x-api-key     |
-      | header X-Debug-Token is marked x-hotline-redact true | X-Debug-Token | dbg-1  | request  | x-debug-token |
-      | response header Request-Id is marked x-hotline-redact true | Request-Id | req-9 | response | request-id    |
-      | security section names X-Api-Key                    | Cookie        | sid=1  | request  | cookie        |
+      | spec                                                       | header        | value | side     | name          |
+      | security section names X-Api-Key                           | X-Api-Key     | k-123 | request  | x-api-key     |
+      | header X-Debug-Token is marked x-hotline-redact true       | X-Debug-Token | dbg-1 | request  | x-debug-token |
+      | response header Request-Id is marked x-hotline-redact true | Request-Id    | req-9 | response | request-id    |
+      | security section names X-Api-Key                           | Cookie        | sid=1 | request  | cookie        |
 
   Scenario: A secret query word is hidden in the address under full content
     Given the integration has content full and a spec whose security section names the query word key
@@ -195,9 +195,9 @@ Feature: Writing every call to a local file
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting             | problem                       |
-      | content everything  | content must be records or full |
-      | maxBodySize lots    | maxBodySize must be a size      |
+      | setting            | problem                         |
+      | content everything | content must be records or full |
+      | maxBodySize lots   | maxBodySize must be a size      |
 
   Scenario Outline: Wrong file exporter settings
     Given the file exporter is set with <setting>
@@ -205,9 +205,9 @@ Feature: Writing every call to a local file
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting                 | problem                                   |
-      | maxFiles 0              | maxFiles must be at least 1               |
-      | compression zip         | compression must be gzip or none          |
-      | no path                 | a file exporter needs a path              |
+      | setting                  | problem                                          |
+      | maxFiles 0               | maxFiles must be at least 1                      |
+      | compression zip          | compression must be gzip or none                 |
+      | no path                  | a file exporter needs a path                     |
       | an otlp endpoint as well | an exporter is only one of otlp, file or console |
-      | nothing in it           | an exporter must be otlp, file or console |
+      | nothing in it            | an exporter must be otlp, file or console        |

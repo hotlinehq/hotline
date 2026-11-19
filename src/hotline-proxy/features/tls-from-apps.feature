@@ -45,9 +45,9 @@ Feature: TLS from apps to the proxy
     And the proxy logs the failure at debug level
 
     Examples:
-      | app                                         |
-      | an app that does not trust the test certificate authority  |
-      | an app that allows only TLS 1.1             |
+      | app                                                       |
+      | an app that does not trust the test certificate authority |
+      | an app that allows only TLS 1.1                           |
 
   Scenario Outline: TLS versions the proxy accepts
     Given an app that trusts the test certificate authority and allows only <version>
@@ -66,12 +66,12 @@ Feature: TLS from apps to the proxy
     Then the config is refused with a message naming the problem
 
     Examples:
-      | problem                                        |
-      | the cert file does not exist                   |
-      | the key file holds no key                      |
-      | the key does not belong to the certificate     |
-      | the certificate has already expired            |
-      | the tls part has a cert file but no key file     |
+      | problem                                      |
+      | the cert file does not exist                 |
+      | the key file holds no key                    |
+      | the key does not belong to the certificate   |
+      | the certificate has already expired          |
+      | the tls part has a cert file but no key file |
 
   Scenario: A renewed certificate is used without a restart
     Given an app that trusts the test certificate authority

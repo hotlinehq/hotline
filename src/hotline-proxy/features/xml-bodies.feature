@@ -27,16 +27,16 @@ Feature: Checking XML bodies
       Then the response results are <results>
 
       Examples:
-        | status | body                                                                                                                                                  | results                                  |
-        | 200    | <ListBucketResult><Name>other</Name><KeyCount>0</KeyCount></ListBucketResult>                                                                          | body $.Name const shop-invoices          |
-        | 200    | <ListBucketResult><Name>shop-invoices</Name></ListBucketResult>                                                                                         | body $.KeyCount required                 |
-        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>two</KeyCount></ListBucketResult>                                                                 | body $.KeyCount type integer             |
-        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><IsTruncated>maybe</IsTruncated></ListBucketResult>                                  | body $.IsTruncated type boolean          |
-        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><Contents><Key>A-1001.pdf</Key></Contents></ListBucketResult>                         | body $.Contents[0].Size required         |
+        | status | body                                                                                                                                                                                                 | results                                                                               |
+        | 200    | <ListBucketResult><Name>other</Name><KeyCount>0</KeyCount></ListBucketResult>                                                                                                                        | body $.Name const shop-invoices                                                       |
+        | 200    | <ListBucketResult><Name>shop-invoices</Name></ListBucketResult>                                                                                                                                      | body $.KeyCount required                                                              |
+        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>two</KeyCount></ListBucketResult>                                                                                                              | body $.KeyCount type integer                                                          |
+        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><IsTruncated>maybe</IsTruncated></ListBucketResult>                                                                                | body $.IsTruncated type boolean                                                       |
+        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><Contents><Key>A-1001.pdf</Key></Contents></ListBucketResult>                                                                      | body $.Contents[0].Size required                                                      |
         | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>2</KeyCount><Contents><Key>A-1001.pdf</Key><Size>1</Size></Contents><Contents><Key>notes.txt</Key><Size>0</Size></Contents></ListBucketResult> | body $.Contents[1].Key pattern ^[A-Z]-[0-9]+\.pdf$; body $.Contents[1].Size minimum 1 |
-        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><Contents><Key>A-1.pdf</Key><Size>1</Size><LastModified>yesterday</LastModified></Contents></ListBucketResult> | body $.Contents[0].LastModified format date-time |
-        | 403    | <Error><Message>no</Message></Error>                                                                                                                    | body $.Code required                     |
-        | 403    | <Error><Code>Denied</Code><Cause><Message>no</Message></Cause></Error>                                                                                 | body $.Cause.Code required               |
+        | 200    | <ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><Contents><Key>A-1.pdf</Key><Size>1</Size><LastModified>yesterday</LastModified></Contents></ListBucketResult>                     | body $.Contents[0].LastModified format date-time                                      |
+        | 403    | <Error><Message>no</Message></Error>                                                                                                                                                                 | body $.Code required                                                                  |
+        | 403    | <Error><Code>Denied</Code><Cause><Message>no</Message></Cause></Error>                                                                                                                               | body $.Cause.Code required                                                            |
 
     Scenario Outline: A mistake in an XML call is reported at its place
       Given the files vendor answers 200 with the application/xml body <DeleteResult/>
@@ -45,12 +45,12 @@ Feature: Checking XML bodies
       And the record has no response results
 
       Examples:
-        | body                                                                                                           | results                           |
-        | <Delete><Quiet>true</Quiet></Delete>                                                                           | body $.Object required            |
-        | <Delete><Quiet>yes</Quiet><Object><Key>a</Key></Object></Delete>                                               | body $.Quiet type boolean         |
-        | <Delete><Object><Key>a</Key></Object><Object><Key>b</Key></Object><Object><Key>c</Key></Object><Object><Key>d</Key></Object></Delete> | body $.Object maxItems 3 |
-        | <Delete><Object/></Delete>                                                                                      | body $.Object[0].Key required     |
-        | <Delete><Object><Key>a</Key></Object><Extra>x</Extra></Delete>                                                 | body $.Extra additionalProperties |
+        | body                                                                                                                                  | results                           |
+        | <Delete><Quiet>true</Quiet></Delete>                                                                                                  | body $.Object required            |
+        | <Delete><Quiet>yes</Quiet><Object><Key>a</Key></Object></Delete>                                                                      | body $.Quiet type boolean         |
+        | <Delete><Object><Key>a</Key></Object><Object><Key>b</Key></Object><Object><Key>c</Key></Object><Object><Key>d</Key></Object></Delete> | body $.Object maxItems 3          |
+        | <Delete><Object/></Delete>                                                                                                            | body $.Object[0].Key required     |
+        | <Delete><Object><Key>a</Key></Object><Extra>x</Extra></Delete>                                                                        | body $.Extra additionalProperties |
 
     Scenario: A valid XML call has no results
       Given the files vendor answers 200 with the application/xml body <DeleteResult><Deleted><Key>a</Key></Deleted></DeleteResult>
@@ -83,10 +83,10 @@ Feature: Checking XML bodies
       Then the request results are <results>
 
       Examples:
-        | body                                                                                     | results                       |
-        | <shipment><parcels><parcel><weightGrams>1</weightGrams></parcel></parcels></shipment>     | body $.reference required     |
-        | <shipment reference="A-1"><parcel><weightGrams>1</weightGrams></parcel></shipment>        | body $.parcels required       |
-        | <shipment reference="A-1"><parcels></parcels></shipment>                                  | body $.parcels minItems 1     |
+        | body                                                                                                                         | results                     |
+        | <shipment><parcels><parcel><weightGrams>1</weightGrams></parcel></parcels></shipment>                                        | body $.reference required   |
+        | <shipment reference="A-1"><parcel><weightGrams>1</weightGrams></parcel></shipment>                                           | body $.parcels required     |
+        | <shipment reference="A-1"><parcels></parcels></shipment>                                                                     | body $.parcels minItems 1   |
         | <shipment reference="A-1"><parcels><parcel><weightGrams>1</weightGrams></parcel></parcels><express>soon</express></shipment> | body $.express type boolean |
 
     Scenario: A renamed field is read by its element name
@@ -107,13 +107,13 @@ Feature: Checking XML bodies
       Then the response results are <results>
 
       Examples:
-        | body                                                                                                    | results                                  |
-        | <Error><Code>NoSuchBucket</Code></Error>                                                                | body $ xml_root ListBucketResult         |
-        | <ListBucketResult><Name>shop-invoices                                                                   | body $ xml                               |
-        | <ListBucketResult/><ListBucketResult/>                                                                  | body $ xml                               |
-        | not xml at all                                                                                          | body $ xml                               |
-        | <!-- nothing here -->                                                                                   | body $ xml                               |
-        | <!DOCTYPE l [<!ENTITY a "shop-invoices">]><ListBucketResult><Name>&a;</Name><KeyCount>0</KeyCount></ListBucketResult> | body $ xml       |
+        | body                                                                                                                  | results                          |
+        | <Error><Code>NoSuchBucket</Code></Error>                                                                              | body $ xml_root ListBucketResult |
+        | <ListBucketResult><Name>shop-invoices                                                                                 | body $ xml                       |
+        | <ListBucketResult/><ListBucketResult/>                                                                                | body $ xml                       |
+        | not xml at all                                                                                                        | body $ xml                       |
+        | <!-- nothing here -->                                                                                                 | body $ xml                       |
+        | <!DOCTYPE l [<!ENTITY a "shop-invoices">]><ListBucketResult><Name>&a;</Name><KeyCount>0</KeyCount></ListBucketResult> | body $ xml                       |
 
     Scenario Outline: XML nested more than 64 elements deep is not read
       Elements are read only up to 64 deep, the root counted, so a small
@@ -124,9 +124,9 @@ Feature: Checking XML bodies
       Then <outcome>
 
       Examples:
-        | depth | outcome                            |
-        | 64    | the record has no response results    |
-        | 65    | the response results are body $ xml   |
+        | depth | outcome                             |
+        | 64    | the record has no response results  |
+        | 65    | the response results are body $ xml |
 
     Scenario: A root element named by the xml notes
       Given the files vendor answers 201 with the application/xml body <label><trackingId>T-1</trackingId></label>
@@ -139,8 +139,8 @@ Feature: Checking XML bodies
       Then <outcome>
 
       Examples:
-        | body                 | outcome                             |
-        | <note>               | the request results are body $ xml  |
+        | body                  | outcome                            |
+        | <note>                | the request results are body $ xml |
         | <note>anything</note> | the record has no request results  |
 
     Scenario: A body over the copy limit is skipped

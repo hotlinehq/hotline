@@ -20,5 +20,5 @@ Feature: The CONNECT ingress, end to end
 
     Examples:
       | setup                                | proxy address |
-      | the connect part                       | an http one   |
-      | the connect part and TLS on its port   | an https one  |
+      | the connect part                     | an http one   |
+      | the connect part and TLS on its port | an https one  |

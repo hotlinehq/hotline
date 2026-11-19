@@ -32,9 +32,9 @@ Feature: AWS SQS through the proxy
       And url.full and url.template are left out
 
       Examples:
-        | header                                 |
-        | without X-Amz-Target                   |
-        | with "X-Amz-Target: AmazonSQS.Teleport" |
+        | header                                     |
+        | without X-Amz-Target                       |
+        | with "X-Amz-Target: AmazonSQS.Teleport"    |
         | with "X-Amz-Target: amazonsqs.sendmessage" |
 
     Scenario: AWS's JSON content type is read as JSON, as the spec marks it
@@ -127,15 +127,15 @@ Feature: AWS SQS through the proxy
       Then the request results are <results>
 
       Examples:
-        | message | results |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId required |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":1001,"templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId type string |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"a-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId pattern ^[A-Z]-[0-9]+$ |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.templateId required |
-        | {"schemaVersion":1,"eventId":"42","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.eventId format uuid |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"fr","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.language enum en, de, sk, cs |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","priority":"high"} | body $.MessageBody.priority additionalProperties |
-        | order 42 paid | body $.MessageBody json |
+        | message                                                                                                                                                                                           | results                                           |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                      | body $.MessageBody.orderId required               |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":1001,"templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                       | body $.MessageBody.orderId type string            |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"a-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                   | body $.MessageBody.orderId pattern ^[A-Z]-[0-9]+$ |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                                      | body $.MessageBody.templateId required            |
+        | {"schemaVersion":1,"eventId":"42","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                                     | body $.MessageBody.eventId format uuid            |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"fr","requestedAt":"2026-10-30T19:30:00Z"}                   | body $.MessageBody.language enum en, de, sk, cs   |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","priority":"high"} | body $.MessageBody.priority additionalProperties  |
+        | order 42 paid                                                                                                                                                                                     | body $.MessageBody json                           |
 
     Scenario: A message sent to another queue is reported
       When the app sends SendMessage to https://sqs.eu-west-1.amazonaws.com/192325781350/refunds with the message {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}

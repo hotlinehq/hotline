@@ -42,9 +42,9 @@ Feature: Reloading the config without a restart
     And the proxy logs a warning that the reload failed, naming <named>
 
     Examples:
-      | problem                               | named              |
-      | it is not valid YAML                  | is not valid YAML  |
-      | talon-shop-a's spec file is missing   | cannot be read     |
+      | problem                             | named             |
+      | it is not valid YAML                | is not valid YAML |
+      | talon-shop-a's spec file is missing | cannot be read    |
 
   Scenario: A fixed config after a broken one is used
     When the config file changes so that it is not valid YAML
@@ -83,13 +83,13 @@ Feature: Reloading the config without a restart
     And record 1 has url.template /v2/customer_sessions/{customerSessionId}
 
     Examples:
-      | change                                   | setting             |
-      | the proxy listener moves to another port | listener proxy      |
-      | the admin port moves to another port     | admin               |
-      | the admin section is removed             | admin               |
-      | there is one more exporter               | exporters           |
-      | the tls part is added                    | listener proxy      |
-      | the connect part is added                | listener proxy      |
-      | the transparent listener is added        | listener transparent  |
-      | the capture listener is added            | listener capture    |
-      | telemetry.pprof is turned on          | telemetry.pprof |
+      | change                                   | setting              |
+      | the proxy listener moves to another port | listener proxy       |
+      | the admin port moves to another port     | admin                |
+      | the admin section is removed             | admin                |
+      | there is one more exporter               | exporters            |
+      | the tls part is added                    | listener proxy       |
+      | the connect part is added                | listener proxy       |
+      | the transparent listener is added        | listener transparent |
+      | the capture listener is added            | listener capture     |
+      | telemetry.pprof is turned on             | telemetry.pprof      |

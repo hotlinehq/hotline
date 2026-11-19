@@ -31,16 +31,16 @@ Feature: Calling through the proxy, end to end
     Then the app gets the test vendor's status, headers and body unchanged
 
     Examples:
-      | client | case | how                                                            |
-      | Node   | 1    | POST https://… with http.request and a full URL as the path    |
-      | Node   | 2    | POST http://… with http.request                                |
+      | client | case | how                                                         |
+      | Node   | 1    | POST https://… with http.request and a full URL as the path |
+      | Node   | 2    | POST http://… with http.request                             |
 
   Scenario Outline: Failures end to end
     When the Go client calls <target>
     Then <result>
 
     Examples:
-      | target                                      | result                                                                                   |
+      | target                                      | result                                                                                  |
       | a vendor with an untrusted certificate      | the app gets 502 with Proxy-Status and the record's error.type is tls_certificate_error |
       | a host that does not exist                  | the app gets 502 with Proxy-Status and the record's error.type is dns_error             |
       | the test vendor without Proxy-Authorization | the call reaches the vendor and the record is minimal with ID not-passed                |

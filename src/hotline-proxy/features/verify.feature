@@ -140,9 +140,9 @@ Feature: Checking records with hotline-proxy verify
       And it prints that the trace of the record with that span id does not match its hotline.trace.hash
 
       Examples:
-        | field          | id                                  |
-        | span_id        | the same id in capital letters      |
-        | parent_span_id | zeros, which stand for no span      |
+        | field          | id                             |
+        | span_id        | the same id in capital letters |
+        | parent_span_id | zeros, which stand for no span |
 
     Scenario: A span removed from a call's trace
       Given the folder calls from a stopped proxy, with 3 calls
@@ -222,9 +222,9 @@ Feature: Checking records with hotline-proxy verify
       And it prints <message>
 
       Examples:
-        | body      | span             | message                           |
-        | calls     | 00f067aa0ba902b7 | that the body cannot be read      |
-        | response.json | 0000000000000000 | that no record has that span id  |
+        | body          | span             | message                         |
+        | calls         | 00f067aa0ba902b7 | that the body cannot be read    |
+        | response.json | 0000000000000000 | that no record has that span id |
 
     Scenario: A body kept whole in a full record is checked by itself
       Given the integration has content full and maxBodySize 1MiB
@@ -288,17 +288,17 @@ Feature: Checking records with hotline-proxy verify
       And ok is false and the problems hold one with code <code>, the batch, and the file and line where it was found
 
       Examples:
-        | change                                                         | code                    |
-        | http.response.status_code is changed in a record               | record_hash_mismatch    |
-        | a span's end is changed in a record's trace                    | trace_hash_mismatch     |
-        | a record is changed and its hash recomputed                    | batch_root_mismatch     |
-        | a record is deleted                                            | record_missing          |
-        | hotline.batch.records is changed in a batch record             | batch_signature_invalid |
-        | the batch record with sequence 1 is deleted                    | batch_missing           |
-        | batch 2's hotline.batch.previous is changed                    | chain_broken            |
-        | a record's hotline.batch.index is changed to 99                | record_extra            |
-        | batch 0 is in the file twice                                   | chain_broken            |
-        | batch 0 names a batch before it                                | chain_broken            |
+        | change                                             | code                    |
+        | http.response.status_code is changed in a record   | record_hash_mismatch    |
+        | a span's end is changed in a record's trace        | trace_hash_mismatch     |
+        | a record is changed and its hash recomputed        | batch_root_mismatch     |
+        | a record is deleted                                | record_missing          |
+        | hotline.batch.records is changed in a batch record | batch_signature_invalid |
+        | the batch record with sequence 1 is deleted        | batch_missing           |
+        | batch 2's hotline.batch.previous is changed        | chain_broken            |
+        | a record's hotline.batch.index is changed to 99    | record_extra            |
+        | batch 0 is in the file twice                       | chain_broken            |
+        | batch 0 names a batch before it                    | chain_broken            |
 
     Scenario Outline: A changed full record has its own code
       Given the integration has content full and maxBodySize 1MiB
@@ -310,9 +310,9 @@ Feature: Checking records with hotline-proxy verify
       And ok is false and the problems hold one with code <code>, the batch, and the file and line where it was found
 
       Examples:
-        | change                                      | code                  |
-        | the kept url.full is changed in the record  | content_hash_mismatch |
-        | the kept request body is changed            | body_hash_mismatch    |
+        | change                                     | code                  |
+        | the kept url.full is changed in the record | content_hash_mismatch |
+        | the kept request body is changed           | body_hash_mismatch    |
 
     Scenario: A batch record without a sequence is named by its id
       Given the folder calls from a stopped proxy
@@ -327,10 +327,10 @@ Feature: Checking records with hotline-proxy verify
       Then the run or batch has the note <note>
 
       Examples:
-        | situation                                              | note              |
-        | the folder calls from a proxy that was killed          | no_last_batch     |
-        | the file exporter dropped one record of batch 0        | records_dropped   |
-        | a kept body was cut short by maxBodySize               | body_not_checked  |
+        | situation                                       | note             |
+        | the folder calls from a proxy that was killed   | no_last_batch    |
+        | the file exporter dropped one record of batch 0 | records_dropped  |
+        | a kept body was cut short by maxBodySize        | body_not_checked |
 
     Scenario: A problem that comes from the input cannot break the JSON
       Given a record whose url.full holds a quote, a newline and the character U+009B
@@ -357,11 +357,11 @@ Feature: Checking records with hotline-proxy verify
       And it prints <message>
 
       Examples:
-        | input                         | message                                   |
-        | a folder that does not exist  | that the folder does not exist            |
-        | a file that is not JSON lines | the file and line it could not read       |
-        | a batch record of format v9   | that hotline.batch.v9 is not a known format |
-        | a line with no time           | that line 1 has no time                   |
-        | a compressed file that is not gzip | that the compressed file is not gzip |
-        | a cut-off compressed file     | that the compressed file ends too soon    |
-        | a rotated file that is a folder | that the rotated file cannot be read    |
+        | input                              | message                                     |
+        | a folder that does not exist       | that the folder does not exist              |
+        | a file that is not JSON lines      | the file and line it could not read         |
+        | a batch record of format v9        | that hotline.batch.v9 is not a known format |
+        | a line with no time                | that line 1 has no time                     |
+        | a compressed file that is not gzip | that the compressed file is not gzip        |
+        | a cut-off compressed file          | that the compressed file ends too soon      |
+        | a rotated file that is a folder    | that the rotated file cannot be read        |

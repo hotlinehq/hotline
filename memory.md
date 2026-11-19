@@ -43,6 +43,7 @@ The proxy is built in small slices, tests first. Each item, with its decisions i
 ## Earlier decisions
 
 - Say "ingress", never "door", for the ways apps reach the proxy (Peter, 2026-10-29).
+- Breaking changes to the config and the records are allowed (Peter, 2026-11-19).
 - The load test uses k6 (Peter, 2026-10-27).
 
 ## Decisions by topic
@@ -59,6 +60,7 @@ Open only the file for the topic at hand.
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
+- Glossary words (certificate authority, transparent, response, exporter): [docs/decisions/glossary.md](docs/decisions/glossary.md)
 - WebSockets: [docs/decisions/websockets.md](docs/decisions/websockets.md)
 - Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)

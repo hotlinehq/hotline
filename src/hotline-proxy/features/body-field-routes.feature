@@ -23,11 +23,11 @@ Feature: Routes picked by a body field
       And the record has no request results
 
       Examples:
-        | kind | body                                                 | template           |
-        | form | Action=Publish&TopicArn=order-paid&Message=hello     | /#Action=Publish   |
-        | form | Message=hello&Action=Publish&TopicArn=order-paid     | /#Action=Publish   |
-        | form | Action=ListTopics                                    | /#Action=ListTopics |
-        | json | {"Action":"Publish","TopicArn":"order-paid","Message":"hello"} | /#Action=Publish |
+        | kind | body                                                           | template            |
+        | form | Action=Publish&TopicArn=order-paid&Message=hello               | /#Action=Publish    |
+        | form | Message=hello&Action=Publish&TopicArn=order-paid               | /#Action=Publish    |
+        | form | Action=ListTopics                                              | /#Action=ListTopics |
+        | json | {"Action":"Publish","TopicArn":"order-paid","Message":"hello"} | /#Action=Publish    |
 
     Scenario: The body is checked against the route the field picked
       When the app sends the form body Action=Publish&TopicArn=order-paid
@@ -48,15 +48,15 @@ Feature: Routes picked by a body field
       And url.full and url.template are left out
 
       Examples:
-        | call                                                    |
-        | the form body TopicArn=order-paid&Message=hello         |
-        | the form body Action=MadeUp                             |
-        | the form body Action=publish                            |
-        | the json body {"Request":{"Action":"Publish"}}          |
-        | the json body ["Action","Publish"]                      |
-        | the form body Action=Publish&Message=100%               |
-        | the text body Action=Publish                            |
-        | a form body of 3 MiB that starts with Action=Publish    |
+        | call                                                 |
+        | the form body TopicArn=order-paid&Message=hello      |
+        | the form body Action=MadeUp                          |
+        | the form body Action=publish                         |
+        | the json body {"Request":{"Action":"Publish"}}       |
+        | the json body ["Action","Publish"]                   |
+        | the form body Action=Publish&Message=100%            |
+        | the text body Action=Publish                         |
+        | a form body of 3 MiB that starts with Action=Publish |
 
   Rule: A spec names its routes' field, and only one way to name the action
 
@@ -66,10 +66,10 @@ Feature: Routes picked by a body field
       Then the config is refused with a message naming "<mark>" and "<route>"
 
       Examples:
-        | route            | marks                                                                     | mark                    |
-        | /#Action=Publish | no action mark                                                            | x-hotline-action-field  |
-        | /#Target=Publish | x-hotline-action-field: Action                                            | x-hotline-action-field  |
-        | /#Action=Publish | x-hotline-action-field: Action and x-hotline-action-header: X-Amz-Target  | x-hotline-action-header |
+        | route            | marks                                                                    | mark                    |
+        | /#Action=Publish | no action mark                                                           | x-hotline-action-field  |
+        | /#Target=Publish | x-hotline-action-field: Action                                           | x-hotline-action-field  |
+        | /#Action=Publish | x-hotline-action-field: Action and x-hotline-action-header: X-Amz-Target | x-hotline-action-header |
 
   Rule: The proxy keeps 2 MiB of a body for its checks
 

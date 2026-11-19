@@ -174,7 +174,7 @@ Feature: The capture ingress
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | ports | problem                                                 |
+        | ports | problem                                                       |
         | 0     | listener capture: capture: port 0 must be from 1 to 65535     |
         | 70000 | listener capture: capture: port 70000 must be from 1 to 65535 |
 
@@ -186,14 +186,14 @@ Feature: The capture ingress
       And the record says hotline.ingress capture and ID not-passed
 
       Examples:
-        | headers                                |
-        | an unknown capture version             |
+        | headers                                        |
+        | an unknown capture version                     |
         | capture version 1, from before the socket file |
-        | a process number that is not a number  |
-        | process number 0                       |
-        | the capture header twice               |
-        | two process numbers                    |
-        | a program path over 4096 bytes         |
+        | a process number that is not a number          |
+        | process number 0                               |
+        | the capture header twice                       |
+        | two process numbers                            |
+        | a program path over 4096 bytes                 |
 
     Scenario: Capture headers on the proxy port are ignored
       Only the socket file is for captured connections, so no other program
@@ -272,12 +272,12 @@ Feature: The capture ingress
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | setting                                         | problem                                                                       |
-        | names no cert                                   | listener capture: capture needs a cert, as cert: name, on it or on the listener        |
-        | names a cert that is not in certs               | listener capture: capture names the cert gone, which is not in certs                   |
-        | lists a passthrough pattern that is not a name  | listener capture: capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
-        | is a path of 120 bytes                          | listener capture: the path is longer than 103 bytes                                    |
-        | is a relative path                              | listener capture: a socket file must be an absolute path or start with ~/              |
+        | setting                                        | problem                                                                                     |
+        | names no cert                                  | listener capture: capture needs a cert, as cert: name, on it or on the listener             |
+        | names a cert that is not in certs              | listener capture: capture names the cert gone, which is not in certs                        |
+        | lists a passthrough pattern that is not a name | listener capture: capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
+        | is a path of 120 bytes                         | listener capture: the path is longer than 103 bytes                                         |
+        | is a relative path                             | listener capture: a socket file must be an absolute path or start with ~/                   |
 
     Scenario: A path starting with ~/ is in the home folder
       Given the capture listener is ~/hotline/capture.sock

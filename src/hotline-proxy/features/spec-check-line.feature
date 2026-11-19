@@ -53,13 +53,13 @@ Feature: Spec checks wait in a line capped by memory
     Then the proxy <starts>
 
     Examples:
-      | value  | starts                                                                   |
-      | 64MiB  | starts                                                                   |
-      | 512KiB | starts                                                                   |
-      | 1GiB   | starts                                                                   |
-      | 1000   | starts                                                                   |
-      | 0      | refuses the config: specChecks.queueMemory must be at least 1 byte       |
-      | lots   | refuses the config: specChecks.queueMemory must be a size such as 64MiB  |
+      | value  | starts                                                                  |
+      | 64MiB  | starts                                                                  |
+      | 512KiB | starts                                                                  |
+      | 1GiB   | starts                                                                  |
+      | 1000   | starts                                                                  |
+      | 0      | refuses the config: specChecks.queueMemory must be at least 1 byte      |
+      | lots   | refuses the config: specChecks.queueMemory must be a size such as 64MiB |
 
   Scenario: A smaller cap applies on reload
     Given specChecks.queueMemory is 64MiB

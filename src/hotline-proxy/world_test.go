@@ -55,8 +55,7 @@ type world struct {
 	talker *talker
 	// receivers are the OTLP exporters, in the order of the config.
 	receivers []*receiver
-	// telemetry, when set, is where the proxy's own health
-	// data.
+	// telemetry, when set, is where the proxy's own health data goes.
 	telemetry *receiver
 	// telemetryDisable are the metrics the telemetry section turns off.
 	telemetryDisable []string

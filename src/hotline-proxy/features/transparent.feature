@@ -120,8 +120,8 @@ Feature: The transparent ingress
       Then the transparent record has hotline.ingress transparent, server.address <host>, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
       Examples:
-        | listed             | host                |
-        | pinned.example.com | pinned.example.com  |
+        | listed             | host                    |
+        | pinned.example.com | pinned.example.com      |
         | *.example.com      | deep.pinned.example.com |
 
     Scenario: A host that is not listed is still intercepted
@@ -158,18 +158,18 @@ Feature: The transparent ingress
       Then the transparent record has hotline.ingress transparent and error.type <error>
 
       Examples:
-        | bytes                                                   | error               |
-        | a handshake message that is not a hello                 | not_tls             |
-        | a record larger than TLS allows                         | not_tls             |
-        | an empty record                                         | not_tls             |
-        | a record cut short                                      | not_tls             |
-        | a hello that ends after its random bytes                | not_tls             |
-        | a hello cut inside its session ID                       | not_tls             |
-        | a hello whose extension overruns it                     | not_tls             |
-        | a hello with no extensions                              | no_sni              |
-        | a hello with a site name too short to read              | no_sni              |
-        | a hello with a site name longer than its extension      | no_sni              |
-        | a hello with an extensions length that stops early      | tls_handshake_failed |
+        | bytes                                              | error                |
+        | a handshake message that is not a hello            | not_tls              |
+        | a record larger than TLS allows                    | not_tls              |
+        | an empty record                                    | not_tls              |
+        | a record cut short                                 | not_tls              |
+        | a hello that ends after its random bytes           | not_tls              |
+        | a hello cut inside its session ID                  | not_tls              |
+        | a hello whose extension overruns it                | not_tls              |
+        | a hello with no extensions                         | no_sni               |
+        | a hello with a site name too short to read         | no_sni               |
+        | a hello with a site name longer than its extension | no_sni               |
+        | a hello with an extensions length that stops early | tls_handshake_failed |
 
   Rule: Relays and the listener
 
@@ -182,9 +182,9 @@ Feature: The transparent ingress
       And the proxy opens no connection
 
       Examples:
-        | host setup                                         | error                     |
+        | host setup                                              | error                     |
         | the vendor name pinned.example.com resolves to 10.0.0.5 | destination_ip_prohibited |
-        | the name pinned.example.com has no address         | destination_unavailable   |
+        | the name pinned.example.com has no address              | destination_unavailable   |
 
     Scenario: A relay gives an address that never answers only its share of the wait
       A relay has no vendorTimeout, only the time its connect may take. That
@@ -247,9 +247,9 @@ Feature: The transparent ingress
       Then the config is refused with a message naming the problem
 
       Examples:
-        | problem                                              |
-        | the transparent listener names a cert that is not in certs   |
-        | the transparent listener names no cert                       |
-        | the transparent listener has no address                      |
-        | the transparent listener lists an ech.relay name that is not a host name |
+        | problem                                                                                |
+        | the transparent listener names a cert that is not in certs                             |
+        | the transparent listener names no cert                                                 |
+        | the transparent listener has no address                                                |
+        | the transparent listener lists an ech.relay name that is not a host name               |
         | the transparent listener lists a passthrough pattern that is not a name or a *. suffix |

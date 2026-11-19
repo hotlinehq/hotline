@@ -20,13 +20,13 @@ Feature: The level of each record
       Then the record's level is <level>
 
       Examples:
-        | case                         | answer                                                       | call                                                                                  | level |
-        | a call that matches the spec | 201                                                          | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | INFO  |
-        | a call that breaks the spec  | 200 and the json body {"orders":[]}                          | GET /orders?limit=abc                                                                 | WARN  |
-        | a response that breaks the spec | 200 and the json body {"item":"A1","quantity":1}             | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                                      | WARN  |
-        | the vendor refuses the call  | 400                                                          | GET /orders                                                                           | WARN  |
-        | the vendor fails             | 503 and the json body {"message":"down"}                     | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                                      | ERROR |
-        | the vendor fails and the call breaks the spec | 503 and the json body {"message":"down"}    | GET /orders/1234                                                                      | ERROR |
+        | case                                          | answer                                           | call                                                                                 | level |
+        | a call that matches the spec                  | 201                                              | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | INFO  |
+        | a call that breaks the spec                   | 200 and the json body {"orders":[]}              | GET /orders?limit=abc                                                                | WARN  |
+        | a response that breaks the spec               | 200 and the json body {"item":"A1","quantity":1} | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                                     | WARN  |
+        | the vendor refuses the call                   | 400                                              | GET /orders                                                                          | WARN  |
+        | the vendor fails                              | 503 and the json body {"message":"down"}         | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                                     | ERROR |
+        | the vendor fails and the call breaks the spec | 503 and the json body {"message":"down"}         | GET /orders/1234                                                                     | ERROR |
 
   Rule: A call that fails in the proxy is ERROR
 

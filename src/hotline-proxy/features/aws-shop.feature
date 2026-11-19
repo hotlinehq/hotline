@@ -27,12 +27,12 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | item | results |
-        | {"orderId":{"S":"A-1001"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total required |
-        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N required; body $.Item.total.S additionalProperties |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.5"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N pattern ^[0-9]+\.[0-9]{2}$ |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"GBP"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.currency.S enum EUR, CZK, USD |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note additionalProperties |
+        | item                                                                                                                                                 | results                                                                |
+        | {"orderId":{"S":"A-1001"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                                        | body $.Item.total required                                             |
+        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                  | body $.Item.total.N required; body $.Item.total.S additionalProperties |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.5"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                   | body $.Item.total.N pattern ^[0-9]+\.[0-9]{2}$                         |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"GBP"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                  | body $.Item.currency.S enum EUR, CZK, USD                              |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note additionalProperties                                  |
 
     Scenario: A row for another table is reported
       Given AWS answers 200 with the json body {}
@@ -73,10 +73,10 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | data | results |
-        | {"type":"order-paid","orderId":"A-1001"} | body $.Data.at required |
+        | data                                                                    | results                                        |
+        | {"type":"order-paid","orderId":"A-1001"}                                | body $.Data.at required                        |
         | {"type":"order-shipped","orderId":"A-1001","at":"2026-11-01T10:00:00Z"} | body $.Data.type enum order-paid, invoice-made |
-        | order A-1001 paid | body $.Data json |
+        | order A-1001 paid                                                       | body $.Data json                               |
 
     Scenario: Data that is not base64 is reported
       When the app calls Kinesis_20131202.PutRecord with the json body {"StreamName":"shop-events","PartitionKey":"A-1001","Data":"not base64!"}
@@ -116,11 +116,11 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | api                     | action                         | body | results |
-        | aws-secrets-payment     | secretsmanager.GetSecretValue  | {"SecretId":"shop/other"} | body $.SecretId const shop/payment-key |
-        | aws-ssm-shop            | AmazonSSM.GetParameter         | {"Name":"/shop/other"} | body $.Name const /shop/invoices/default-template |
-        | aws-kms-invoice-signing | TrentService.Sign              | {"KeyId":"alias/other","Message":"AAAA","MessageType":"DIGEST","SigningAlgorithm":"ECDSA_SHA_256"} | body $.KeyId const alias/invoice-signing |
-        | aws-logs-shop           | Logs_20140328.PutLogEvents     | {"logGroupName":"/shop/aws-shop","logStreamName":"payments","logEvents":[{"timestamp":1793527200000,"message":"hello"}]} | body $.logStreamName enum checkout, invoices, mailer, refunds |
+        | api                     | action                        | body                                                                                                                     | results                                                       |
+        | aws-secrets-payment     | secretsmanager.GetSecretValue | {"SecretId":"shop/other"}                                                                                                | body $.SecretId const shop/payment-key                        |
+        | aws-ssm-shop            | AmazonSSM.GetParameter        | {"Name":"/shop/other"}                                                                                                   | body $.Name const /shop/invoices/default-template             |
+        | aws-kms-invoice-signing | TrentService.Sign             | {"KeyId":"alias/other","Message":"AAAA","MessageType":"DIGEST","SigningAlgorithm":"ECDSA_SHA_256"}                       | body $.KeyId const alias/invoice-signing                      |
+        | aws-logs-shop           | Logs_20140328.PutLogEvents    | {"logGroupName":"/shop/aws-shop","logStreamName":"payments","logEvents":[{"timestamp":1793527200000,"message":"hello"}]} | body $.logStreamName enum checkout, invoices, mailer, refunds |
 
   Rule: Checkout publishes the invoice job on the order-paid topic, in SNS's form body
 

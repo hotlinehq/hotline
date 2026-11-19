@@ -34,12 +34,12 @@ Feature: Checking calls against the vendor's spec
       And the "response spec check" span ends with status <response>
 
       Examples:
-        | answer                                                         | call                                                                                 | status  | request | response |
-        | 201                                                            | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | ok      | ok    |
-        | 400                                                            | GET /orders?limit=abc                                                                | invalid | error   | ok    |
-        | 418                                                            | GET /orders                                                                          | invalid | ok      | error |
-        | 201                                                            | POST /orders with "Idempotency-Key: k1" and a json body of 3 MiB                     | skipped | unset   | ok    |
-        | 200 with "Content-Type: text/event-stream" and the body data: x | GET /orders                                                                          | skipped | ok      | unset |
+        | answer                                                          | call                                                                                 | status  | request | response |
+        | 201                                                             | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | ok      | ok       |
+        | 400                                                             | GET /orders?limit=abc                                                                | invalid | error   | ok       |
+        | 418                                                             | GET /orders                                                                          | invalid | ok      | error    |
+        | 201                                                             | POST /orders with "Idempotency-Key: k1" and a json body of 3 MiB                     | skipped | unset   | ok       |
+        | 200 with "Content-Type: text/event-stream" and the body data: x | GET /orders                                                                          | skipped | ok      | unset    |
 
     Scenario: A call that got no response has no response check
       Given the vendor refuses the connection
@@ -75,19 +75,19 @@ Feature: Checking calls against the vendor's spec
       Then the request results are <results>
 
       Examples:
-        | call                                                                    | results                              |
-        | GET /orders?limit=abc                                                   | query limit type integer             |
-        | GET /orders?limit=500                                                   | query limit maximum 100              |
-        | GET /orders?lmit=5                                                      | query lmit not_in_spec               |
-        | GET /orders?tag=new&tag=old                                             | query tag[1] enum new, paid          |
-        | GET /orders?filter[status]=lost                                         | query filter.status enum open, closed |
-        | GET /orders with "Cookie: session=abc"                                  | cookie session type integer          |
-        | GET /orders/1234                                                        | path orderId format uuid             |
-        | POST /orders and the json body {"item":"A1","quantity":2}               | header Idempotency-Key required      |
-        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} | body $.quantity required             |
-        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":0} | body $.quantity minimum 1 |
-        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"note":"x"} | body $.note additionalProperties |
-        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"lines":[{"sku":"a"},{}]} | body $.lines[1].sku required |
+        | call                                                                                                          | results                               |
+        | GET /orders?limit=abc                                                                                         | query limit type integer              |
+        | GET /orders?limit=500                                                                                         | query limit maximum 100               |
+        | GET /orders?lmit=5                                                                                            | query lmit not_in_spec                |
+        | GET /orders?tag=new&tag=old                                                                                   | query tag[1] enum new, paid           |
+        | GET /orders?filter[status]=lost                                                                               | query filter.status enum open, closed |
+        | GET /orders with "Cookie: session=abc"                                                                        | cookie session type integer           |
+        | GET /orders/1234                                                                                              | path orderId format uuid              |
+        | POST /orders and the json body {"item":"A1","quantity":2}                                                     | header Idempotency-Key required       |
+        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"}                                       | body $.quantity required              |
+        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":0}                          | body $.quantity minimum 1             |
+        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"note":"x"}               | body $.note additionalProperties      |
+        | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":1,"lines":[{"sku":"a"},{}]} | body $.lines[1].sku required          |
 
     Scenario: Results never hold values from the call
       When the app sends GET /orders?limit=secret-value&filter[status]=other-secret
@@ -140,9 +140,9 @@ Feature: Checking calls against the vendor's spec
       Then the request results are <results>
 
       Examples:
-        | body                                                    | results                               |
-        | amount=abc&currency=eur&metadata[order]=6735            | body $.amount type integer            |
-        | amount=5                                                | body $.currency required              |
+        | body                                                          | results                               |
+        | amount=abc&currency=eur&metadata[order]=6735                  | body $.amount type integer            |
+        | amount=5                                                      | body $.currency required              |
         | amount=5&currency=eur&items[0][price]=p1&items[1][quantity]=x | body $.items[1].quantity type integer |
 
     Scenario: A valid form body has no results
@@ -162,9 +162,9 @@ Feature: Checking calls against the vendor's spec
       Then the request results are <results>
 
       Examples:
-        | names | results                      |
+        | names | results                       |
         | 64    | body $.metadata.a type string |
-        | 65    | body $ form                  |
+        | 65    | body $ form                   |
 
   Rule: Formats are checked
 
@@ -173,16 +173,16 @@ Feature: Checking calls against the vendor's spec
       Then the request results are query <name> format <name>
 
       Examples:
-        | name      | wrong               |
+        | name      | wrong                |
         | date-time | 2026-13-45T00:00:00Z |
-        | date      | yesterday           |
-        | email     | not-an-email        |
-        | uuid      | 1234                |
-        | uri       | no-scheme           |
-        | ipv4      | 300.1.1.1           |
-        | ipv6      | zz::1               |
-        | int32     | 3000000000          |
-        | int64     | 9223372036854775808 |
+        | date      | yesterday            |
+        | email     | not-an-email         |
+        | uuid      | 1234                 |
+        | uri       | no-scheme            |
+        | ipv4      | 300.1.1.1            |
+        | ipv6      | zz::1                |
+        | int32     | 3000000000           |
+        | int64     | 9223372036854775808  |
 
     Scenario Outline: Other formats are ignored
       When the app sends GET /formats?<name>=<value>
@@ -267,15 +267,15 @@ Feature: Checking calls against the vendor's spec
       And the record says hotline.schema.status=valid
 
       Examples:
-        | left out      | picked                                                       | answer                                              | call                                                                    |
-        | path          | [query, headers, cookies, body, status, response-headers, response-body] | 200 with "X-Request-Id: r1" and the json body {"item":"A1","quantity":1} | GET /orders/1234 |
-        | query         | [path, headers, cookies, body, status, response-headers, response-body] | 200                                                 | GET /orders?limit=abc                                                   |
-        | headers       | [path, query, cookies, body, status, response-headers, response-body] | 201                                                 | POST /orders and the json body {"item":"A1","quantity":2}               |
-        | cookies       | [path, query, headers, body, status, response-headers, response-body] | 200                                                 | GET /orders with "Cookie: session=abc"                                  |
-        | body          | [path, query, headers, cookies, status, response-headers, response-body] | 201                                                 | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} |
-        | status        | [path, query, headers, cookies, body, response-headers, response-body] | 418                                                 | GET /orders                                                             |
-        | response-headers | [path, query, headers, cookies, body, status, response-body]    | 200 and the json body {"item":"A1","quantity":1}    | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
-        | response-body    | [path, query, headers, cookies, body, status, response-headers] | 200 with "X-Request-Id: r1" and the json body {"item":"A1"} | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d |
+        | left out         | picked                                                                   | answer                                                                   | call                                                                    |
+        | path             | [query, headers, cookies, body, status, response-headers, response-body] | 200 with "X-Request-Id: r1" and the json body {"item":"A1","quantity":1} | GET /orders/1234                                                        |
+        | query            | [path, headers, cookies, body, status, response-headers, response-body]  | 200                                                                      | GET /orders?limit=abc                                                   |
+        | headers          | [path, query, cookies, body, status, response-headers, response-body]    | 201                                                                      | POST /orders and the json body {"item":"A1","quantity":2}               |
+        | cookies          | [path, query, headers, body, status, response-headers, response-body]    | 200                                                                      | GET /orders with "Cookie: session=abc"                                  |
+        | body             | [path, query, headers, cookies, status, response-headers, response-body] | 201                                                                      | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} |
+        | status           | [path, query, headers, cookies, body, response-headers, response-body]   | 418                                                                      | GET /orders                                                             |
+        | response-headers | [path, query, headers, cookies, body, status, response-body]             | 200 and the json body {"item":"A1","quantity":1}                         | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
+        | response-body    | [path, query, headers, cookies, body, status, response-headers]          | 200 with "X-Request-Id: r1" and the json body {"item":"A1"}              | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
 
     Scenario: A part in the list is still checked
       Given the shop spec with checks [query]

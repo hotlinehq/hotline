@@ -156,25 +156,25 @@ Feature: Listeners
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | listener                                                               | problem                                                                       |
-        | apps: { address: "127.0.0.1:{apps}" }                                  | listener apps: address 127.0.0.1                                              |
-        | apps: { address: "tcp://127.0.0.1" }                                   | listener apps: address tcp://127.0.0.1 must be tcp://host:port                |
-        | apps:                                                                  | listener apps needs an address                                                |
-        | apps: { address: "tcp://{apps}", protocol: udp }                       | listener apps: protocol must be http or tcp                                   |
-        | apps: { address: "tcp://{apps}", protocol: tcp }                       | listener apps: protocol tcp is only for transparent and capture listeners     |
-        | apps: { address: "tcp://{apps}", tls: { cert: shop } }                 | listener apps: tls: cert shop is a certificate authority; write mode: sign    |
-        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: sign } }     | listener apps: tls: cert team is not a certificate authority, so it cannot sign |
-        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: show } }     | listener apps: tls: mode must be serve or sign                                |
-        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: serve } } | listener apps: connect always signs a certificate for each site               |
-        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: copy } }  | listener apps: connect: mode must be sign                                     |
-        | apps: { address: "tcp://{apps}", connect: yes }                        | listener apps: connect: write its settings as key: value                      |
-        | apps: { address: "tcp://{apps}", connect: { passthrough: x } }         | listener apps: connect: yaml                                                  |
-        | apps: { address: "tcp://{apps}", tls: { cert: team }, transparent: { cert: shop } } | transparent and capture each need a listener of their own             |
-        | apps: { address: "unix:///tmp/x.sock", transparent: { cert: shop } }   | listener apps: transparent needs a tcp:// address                             |
-        | apps: { address: "tcp://{apps}", capture: { cert: shop } }             | listener apps: capture needs a unix:// socket file                            |
-        | apps: { address: "tcp://{apps}", protocol: tcp, transparent: { cert: shop } } | listener apps: with protocol tcp nothing is read                       |
-        | apps: { address: "tcp://{apps}" }\nother: { address: "tcp://{apps}" }  | listener apps and listener other both use the address                         |
-        | apps: { address: "tcp://{admin}" }                                     | admin and listener apps both use the address                                  |
+        | listener                                                                            | problem                                                                         |
+        | apps: { address: "127.0.0.1:{apps}" }                                               | listener apps: address 127.0.0.1                                                |
+        | apps: { address: "tcp://127.0.0.1" }                                                | listener apps: address tcp://127.0.0.1 must be tcp://host:port                  |
+        | apps:                                                                               | listener apps needs an address                                                  |
+        | apps: { address: "tcp://{apps}", protocol: udp }                                    | listener apps: protocol must be http or tcp                                     |
+        | apps: { address: "tcp://{apps}", protocol: tcp }                                    | listener apps: protocol tcp is only for transparent and capture listeners       |
+        | apps: { address: "tcp://{apps}", tls: { cert: shop } }                              | listener apps: tls: cert shop is a certificate authority; write mode: sign      |
+        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: sign } }                  | listener apps: tls: cert team is not a certificate authority, so it cannot sign |
+        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: show } }                  | listener apps: tls: mode must be serve or sign                                  |
+        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: serve } }             | listener apps: connect always signs a certificate for each site                 |
+        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: copy } }              | listener apps: connect: mode must be sign                                       |
+        | apps: { address: "tcp://{apps}", connect: yes }                                     | listener apps: connect: write its settings as key: value                        |
+        | apps: { address: "tcp://{apps}", connect: { passthrough: x } }                      | listener apps: connect: yaml                                                    |
+        | apps: { address: "tcp://{apps}", tls: { cert: team }, transparent: { cert: shop } } | transparent and capture each need a listener of their own                       |
+        | apps: { address: "unix:///tmp/x.sock", transparent: { cert: shop } }                | listener apps: transparent needs a tcp:// address                               |
+        | apps: { address: "tcp://{apps}", capture: { cert: shop } }                          | listener apps: capture needs a unix:// socket file                              |
+        | apps: { address: "tcp://{apps}", protocol: tcp, transparent: { cert: shop } }       | listener apps: with protocol tcp nothing is read                                |
+        | apps: { address: "tcp://{apps}" }\nother: { address: "tcp://{apps}" }               | listener apps and listener other both use the address                           |
+        | apps: { address: "tcp://{admin}" }                                                  | admin and listener apps both use the address                                    |
 
     Scenario Outline: Settings a listener does not use start with a warning
       Given the listeners are:
@@ -185,8 +185,8 @@ Feature: Listeners
       Then the proxy starts and logs a warning naming <name>
 
       Examples:
-        | listener                                                      | name                                 |
-        | apps: { address: "tcp://{apps}", cert: customer }             | cert is not used                     |
+        | listener                                                                          | name                            |
+        | apps: { address: "tcp://{apps}", cert: customer }                                 | cert is not used                |
         | apps: { address: "tcp://{apps}", connect: { cert: customer, passthru: [a.com] } } | field passthru is not a setting |
 
     Scenario: The admin address is checked like a listener's
