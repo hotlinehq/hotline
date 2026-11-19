@@ -163,7 +163,7 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li
 		h.serveSource(conn, reader, src, start)
 	case !startsHTTP(reader):
 		// A wrong port list shows in the records instead of being hidden.
-		h.interceptRecord(src, conn, start, "", "not_http")
+		h.transparentRecord(src, conn, start, "", "not_http")
 		_ = conn.Close()
 	case c.Passthrough.Passes(t.host):
 		h.relay(src, inner, start, t.host, "passthrough")

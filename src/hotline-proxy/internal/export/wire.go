@@ -2,7 +2,7 @@ package export
 
 // The proxy writes its two busiest messages, the call record and the call's
 // spans, straight into OTLP protobuf bytes (docs/otlp-encoder-scope.md).
-// Each is written once, for every destination, and a send only places the
+// Each is written once, for every exporter, and a send only places the
 // written items behind a short header. Field numbers are those of
 // opentelemetry-proto: logs/v1, trace/v1, common/v1 and resource/v1.
 

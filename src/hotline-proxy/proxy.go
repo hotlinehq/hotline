@@ -59,12 +59,12 @@ type Options struct {
 	ConfigPath string
 	Resolver   Resolver
 	Dialer     Dialer
-	// RootCAs are the trusted certificate issuers, for vendors and for
+	// RootCAs are the trusted certificate authorities, for vendors and for
 	// collectors over TLS: the system's own and any extra ones.
 	RootCAs *x509.CertPool
 	Clock   Clock
 	Logger  *slog.Logger
-	// ExportTimeout is how long one send to a destination may take,
+	// ExportTimeout is how long one send to an exporter may take,
 	// retries included.
 	ExportTimeout time.Duration
 	Version       string
@@ -75,7 +75,7 @@ type Options struct {
 	// CheckWorkers is how many spec checks run at once: by default one
 	// per processor core the proxy may use.
 	CheckWorkers int
-	// OriginalDestination reads where a connection on listen.intercept was
+	// OriginalDestination reads where a connection on a transparent listener was
 	// first sent, before the firewall redirected it. Without it, calls
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination
@@ -118,7 +118,7 @@ type Proxy struct {
 	tunnelServer *http.Server
 	handler      *handler
 	transports   []*http.Transport
-	sink         *export.Sink
+	exporters    *export.Exporters
 	// telemetry sends the proxy's own numbers.
 	telemetry    *export.Own
 	tunnelServed chan struct{}
@@ -161,8 +161,8 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	service := export.Service{Version: o.Version, InstanceID: o.InstanceID}
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
-	sink, err := export.New(export.Setup{
-		Exporters: cfg.Exporters, Files: cfg.FileExporters, Console: cfg.Console, Out: o.Console.export(o.LookupEnv),
+	exporters, err := export.New(export.Setup{
+		OTLP: cfg.Exporters, Files: cfg.FileExporters, Console: cfg.Console, Out: o.Console.export(o.LookupEnv),
 		Roots: o.RootCAs, Service: service, Timing: timing, Logger: o.Logger, Meter: telemetry.Meter(),
 	})
 	if err != nil {
@@ -171,14 +171,14 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		return nil, err
 	}
 	h := &handler{
-		clock:  o.Clock,
-		logger: o.Logger,
-		sink:   sink,
-		own:    newOwn(telemetry.Meter()),
+		clock:     o.Clock,
+		logger:    o.Logger,
+		exporters: exporters,
+		own:       newOwn(telemetry.Meter()),
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
-	h.book = newBook(o.Clock, sink, cfg, o.InstanceID, o.Version, h.cfg.Load)
+	h.book = newBook(o.Clock, exporters, cfg, o.InstanceID, o.Version, h.cfg.Load)
 	o.Logger.Info("ledger batches", "every", cfg.Ledger.Every.String(), "max_records", cfg.Ledger.MaxRecords)
 	workers := o.CheckWorkers
 	if workers == 0 {
@@ -197,7 +197,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		handler:      h,
 		tunnelServer: newServer(h),
 		transports:   []*http.Transport{h.transport, h.internal},
-		sink:         sink,
+		exporters:    exporters,
 		telemetry:    telemetry,
 		tunnelServed: make(chan struct{}),
 	}
@@ -350,7 +350,7 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	// Every record is in, so each chain ends with its last batch.
 	p.handler.book.stop()
 	// The proxy's own numbers go last, so they count the final sends.
-	err = errors.Join(err, p.sink.Shutdown(ctx), p.telemetry.Shutdown(ctx))
+	err = errors.Join(err, p.exporters.Shutdown(ctx), p.telemetry.Shutdown(ctx))
 	if p.admin != nil {
 		_ = p.admin.Close()
 		<-p.adminServed

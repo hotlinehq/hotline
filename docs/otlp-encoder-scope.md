@@ -14,7 +14,7 @@ Today each call goes through these steps: the proxy builds a list of attributes,
 
 Write the two hot messages, the call record and the call's trace, straight into OTLP protobuf bytes, once, into reused buffers. The queue then holds ready bytes instead of library objects. A send joins the waiting bytes into one request, compresses it and posts it. The wire format stays standard OTLP, so every collector keeps working.
 
-Why joining bytes works: an OTLP request is a resource (the sender's labels), holding one scope (the sending code's name), holding a repeated list of records. In protobuf, a repeated field is just the same field written again and again, so already encoded records can be placed one after another behind a small header. A record is encoded once, and every destination reuses the same bytes. Only the header differs, because each destination has its own resource labels, and that header is made once per destination.
+Why joining bytes works: an OTLP request is a resource (the sender's labels), holding one scope (the sending code's name), holding a repeated list of records. In protobuf, a repeated field is just the same field written again and again, so already encoded records can be placed one after another behind a small header. A record is encoded once, and every exporter reuses the same bytes. Only the header differs, because each exporter has its own resource labels, and that header is made once per exporter.
 
 ## In scope
 
@@ -26,7 +26,7 @@ Why joining bytes works: an OTLP request is a resource (the sender's labels), ho
 
 ## Out of scope
 
-- The counter `hotline.requests` and the proxy's own numbers for the `telemetry` destination. They stay on the normal OpenTelemetry metrics library, as do startup and admin messages. OpenTelemetry stays the facade (the front door of the code) for everything except these two hot messages. If the counter shows up in the profile after the rest is fixed, it gets its own proposal.
+- The counter `hotline.requests` and the proxy's own numbers for the `telemetry` section. They stay on the normal OpenTelemetry metrics library, as do startup and admin messages. OpenTelemetry stays the facade (the front door of the code) for everything except these two hot messages. If the counter shows up in the profile after the rest is fixed, it gets its own proposal.
 - Any config change, any change of a field or its meaning, any change of the signature rules.
 - Making the trace optional. A product choice for Peter, listed below. The encoder keeps it a simple on or off switch, but the switch is not built here.
 - Grafana Alloy, or any sidecar that does the encoding for us.
@@ -51,7 +51,7 @@ A guess, to be replaced by the spike's numbers: the log copy and checks (10%) an
 - **Silent difference in meaning** from the library, such as how it maps a value or limits attributes. Mitigation: the decoded comparison above.
 - **Buffer reuse bugs**: a buffer given back while still queued corrupts another call's record. Mitigation: the queue owns the bytes until sent; race test.
 - **More code to maintain** in place of a library others maintain. About 600 to 900 lines estimated. Worth it only if the gain clears the bar below.
-- **Memory**: 10 000 queued encoded records per destination is about 10 MB at 1 KB each, probably less than the objects held today; measured in the spike.
+- **Memory**: 10 000 queued encoded records per exporter is about 10 MB at 1 KB each, probably less than the objects held today; measured in the spike.
 
 ## Spike plan
 
@@ -76,7 +76,7 @@ If the answer is go, the real work follows the TDD loop of the repo: the compati
 
 ## Spike results (2026-11-08)
 
-Throwaway code, since replaced: an encoder package and the encoder wired in for HTTP destinations only, with no retries, no TLS and always gzip at the fastest level.
+Throwaway code, since replaced: an encoder package and the encoder wired in for HTTP exporters only, with no retries, no TLS and always gzip at the fastest level.
 
 - **Same as the library.** The official OTLP types decode the same records and spans from both paths, lists of maps included (a spike test, since removed with the old path). 837 of the 845 behaviour scenarios pass unchanged; the 8 that fail test exactly what the spike left out (TLS, no compression, retries, the warnings and counts of a failed send).
 - **Encoder alone** (a spike benchmark, one call's record and 11 spans, batch sends over HTTP included, processor time of the whole test process): about 75 to 84 microseconds per call today, about 13 to 15 with the new path at the fastest gzip level, 16 to 19 at the default level. Memory handed out: about 33 KB per call today, 1.2 KB with the new path. `klauspost/compress` saved under 1 microsecond more, so it is not worth a new dependency.

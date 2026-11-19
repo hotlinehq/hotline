@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Telemetry is the destination of the proxy's own numbers, and the metrics
+// Telemetry says where the proxy's own numbers go, and the metrics
 // turned off by name.
 type Telemetry struct {
 	Exporter Exporter
@@ -61,12 +61,12 @@ func (l *loader) telemetry(f *telemetryFile, now time.Time) *Telemetry {
 		return nil
 	}
 	t := &Telemetry{Exporter: l.exporter(*f.OTLP, now), Disable: f.Disable}
-	// The destination gets only metrics.
+	// The exporter gets only metrics.
 	if f.OTLP.LogInterval != nil {
-		l.warnings = append(l.warnings, "telemetry.otlp.logInterval is ignored: the telemetry destination gets only metrics")
+		l.warnings = append(l.warnings, "telemetry.otlp.logInterval is ignored: the telemetry section gets only metrics")
 	}
 	if f.OTLP.TraceInterval != nil {
-		l.warnings = append(l.warnings, "telemetry.otlp.traceInterval is ignored: the telemetry destination gets only metrics")
+		l.warnings = append(l.warnings, "telemetry.otlp.traceInterval is ignored: the telemetry section gets only metrics")
 	}
 	for _, name := range f.Disable {
 		if !slices.ContainsFunc(OwnMetrics(), func(metric string) bool { return Matches(name, metric) }) {

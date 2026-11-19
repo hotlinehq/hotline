@@ -1,6 +1,6 @@
 Feature: Printing every call to the console
   A console exporter prints each call to standard output as two short
-  lines, like mitmdump: the request, then the reply under it. An invalid
+  lines, like mitmdump: the request, then the response under it. An invalid
   call gets a third line with what the checks found. The lines are
   coloured on a terminal. With --format json, each call is one line of
   JSON instead, the line a file exporter writes (Peter, 2026-11-12). The
@@ -11,7 +11,7 @@ Feature: Printing every call to the console
     Given the shop spec
     And a console exporter
 
-  Scenario: A call is a request line and a reply line
+  Scenario: A call is a request line and a response line
     Given the vendor answers 201
     When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
     Then the console has 2 lines
@@ -26,7 +26,7 @@ Feature: Printing every call to the console
     And the second line ends with "invalid"
     And the third line is "request: query limit type integer", starting under the method
 
-  Scenario: A call that got no reply shows why
+  Scenario: A call that got no response shows why
     Given the vendor refuses the connection
     When the app sends GET /orders
     Then the console has 2 lines
@@ -119,11 +119,11 @@ Feature: Printing every call to the console
     Then the console <has> colour
 
     Examples:
-      | color  | where                           | has    |
-      | always | not a terminal                  | has    |
-      | never  | a terminal 100 columns wide     | has no |
-      | auto   | a terminal 100 columns wide     | has    |
-      | auto   | a terminal 0 columns wide       | has    |
+      | color  | where                       | has    |
+      | always | not a terminal              | has    |
+      | never  | a terminal 100 columns wide | has no |
+      | auto   | a terminal 100 columns wide | has    |
+      | auto   | a terminal 0 columns wide   | has    |
 
   Scenario Outline: The method and status are coloured, as mitmdump does
     Given standard output is a terminal 100 columns wide
@@ -153,9 +153,9 @@ Feature: Printing every call to the console
     Then the check status <status> is <colour>
 
     Examples:
-      | answer                                                         | call                                                                                 | status  | colour |
-      | 201                                                            | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | green  |
-      | 400                                                            | GET /orders?limit=abc                                                                | invalid | red    |
+      | answer                                                          | call                                                                                 | status  | colour |
+      | 201                                                             | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | green  |
+      | 400                                                             | GET /orders?limit=abc                                                                | invalid | red    |
       | 200 with "Content-Type: text/event-stream" and the body data: x | GET /orders                                                                          | skipped | dim    |
 
   Scenario: The findings are dim, with the side in red
@@ -172,10 +172,10 @@ Feature: Printing every call to the console
 
   Scenario: A slow call's time is yellow
     Given standard output is a terminal 100 columns wide
-    And the shop vendor sends half of its reply, and the rest 1100 milliseconds later
+    And the shop vendor sends half of its response, and the rest 1100 milliseconds later
     When the app sends GET /orders
     Then the time the call took is yellow
-    And the second line has the reply size 2.0 KiB
+    And the second line has the response size 2.0 KiB
 
   Scenario Outline: A long address is cut to the terminal's width, as mitmdump does
     The address may take the width less 25 characters, and at least 50.
@@ -202,9 +202,9 @@ Feature: Printing every call to the console
     And the console holds no character that could change the terminal
 
     Examples:
-      | what                       | shown  |
-      | the control character 9B   | \u009b |
-      | the byte FF, not UTF-8     | �      |
+      | what                        | shown  |
+      | the control character 9B    | \u009b |
+      | the byte FF, not UTF-8      | �      |
       | the right-to-left mark 202E | \u202e |
 
   Scenario Outline: With --format json, characters that could change the terminal are escaped

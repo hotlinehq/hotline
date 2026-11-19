@@ -281,9 +281,9 @@ var _ = Describe("The aws-shop program", func() {
 	)
 })
 
-// fakeGemini is a Gemini Live server that answers any question with reply,
+// fakeGemini is a Gemini Live server that answers any question with response,
 // in one model turn.
-func fakeGemini(reply string) *httptest.Server {
+func fakeGemini(response string) *httptest.Server {
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -298,7 +298,7 @@ func fakeGemini(reply string) *httptest.Server {
 		if _, _, err := conn.ReadMessage(); err != nil { // the question
 			return
 		}
-		answer, _ := json.Marshal(map[string]any{"serverContent": map[string]any{"modelTurn": map[string]any{"parts": []any{map[string]any{"text": reply}}}}})
+		answer, _ := json.Marshal(map[string]any{"serverContent": map[string]any{"modelTurn": map[string]any{"parts": []any{map[string]any{"text": response}}}}})
 		_ = conn.WriteMessage(websocket.TextMessage, answer)
 		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"serverContent":{"turnComplete":true}}`))
 		_, _, _ = conn.ReadMessage() // until the app closes

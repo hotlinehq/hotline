@@ -37,7 +37,7 @@ func specSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^a spec where (a path parameter|a query parameter|a header parameter|any parameter|a declared reply header) is (marked x-hotline-redact true|marked x-hotline-redact false|not marked)$`, func(parameter, marked string) error {
+	sc.Step(`^a spec where (a path parameter|a query parameter|a header parameter|any parameter|a declared response header) is (marked x-hotline-redact true|marked x-hotline-redact false|not marked)$`, func(parameter, marked string) error {
 		mark := map[string]string{
 			"marked x-hotline-redact true":  ", x-hotline-redact: true",
 			"marked x-hotline-redact false": ", x-hotline-redact: false",
@@ -56,14 +56,14 @@ paths:
         "200":
           description: ok
           headers:
-            X-Reply: { schema: { type: string }%s }
+            X-Response: { schema: { type: string }%s }
 `, only(parameter, "a path parameter", mark), only(parameter, "a query parameter", mark),
-			only(parameter, "a header parameter", mark), only(parameter, "a declared reply header", mark)))
+			only(parameter, "a header parameter", mark), only(parameter, "a declared response header", mark)))
 		return nil
 	})
 	sc.Step(`^the spec is read$`, func() error {
 		w.vendor("api.x.com").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
-			rw.Header().Set("X-Reply", "R-1")
+			rw.Header().Set("X-Response", "R-1")
 		})
 		return w.call("GET", "https://api.x.com/v1/things/T-1?q=Q-1&key=K-1",
 			"X-Param: H-1", "X-Op-Key: O-1", "Authorization: Bearer A-1", "Cookie: sid=C-1")
@@ -81,7 +81,7 @@ paths:
 		case "a header parameter":
 			return has(record, "http.request.header.x-param", []string{"H-1"})
 		}
-		return has(record, "http.response.header.x-reply", []string{"R-1"})
+		return has(record, "http.response.header.x-response", []string{"R-1"})
 	})
 	sc.Step(`^its name is kept and its value redacted$`, func() error {
 		return w.lastHas("http.request.header.x-param", []string{"REDACTED"})
@@ -94,7 +94,7 @@ paths:
 		if err := has(record, "url.full", "https://api.x.com/v1/things/REDACTED?q=REDACTED&key=REDACTED"); err != nil {
 			return err
 		}
-		return hasNo(record, "http.request.header.x-param", "http.response.header.x-reply")
+		return hasNo(record, "http.request.header.x-param", "http.response.header.x-response")
 	})
 	sc.Step(`^a spec that lists the query parameter page for the whole route as not marked$`, func() error {
 		return nil

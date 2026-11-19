@@ -152,8 +152,8 @@ func clientHello(host string) []byte {
 // capture socket file: the TLS hello, or whatever stands in its place.
 func FuzzFirstBytes(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{issuer: "customer"}
+		w.useAuthority(newAuthority())
+		w.transparent = &transparentConf{authority: "customer"}
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	})
 	f.Add(clientHello("api.talon.one"))
@@ -161,7 +161,7 @@ func FuzzFirstBytes(f *testing.F) {
 	f.Add([]byte("GET / HTTP/1.1\r\nHost: api.talon.one\r\n\r\n"))
 	f.Add([]byte{0x16, 3, 1, 0, 0})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.interceptAddr, data) })
+		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.transparentAddr, data) })
 		connect := "CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" +
 			"Hotline-Capture: 2\r\nHotline-Capture-Pid: 42\r\nHotline-Capture-Program: /usr/bin/app\r\n\r\n"
 		w.tryTwice(t, func() time.Duration { return sendRaw(t, "unix", w.captureFile, append([]byte(connect), data...)) })
@@ -172,7 +172,7 @@ func FuzzFirstBytes(f *testing.F) {
 // Host, Proxy-Authorization and the rest, CONNECT included.
 func FuzzRequest(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
-		w.useIssuer(newIssuer())
+		w.useAuthority(newAuthority())
 		w.listenConnect = "  connect: { cert: customer }\n"
 	})
 	login := basic("talon-shop-a:x")
@@ -230,9 +230,9 @@ func (w *world) sendBody(kind uint8, body []byte) {
 	}
 }
 
-// FuzzReply has the vendor answer with a made-up content type and body,
+// FuzzResponse has the vendor answer with a made-up content type and body,
 // which the proxy checks against the spec. The record must arrive in time.
-func FuzzReply(f *testing.F) {
+func FuzzResponse(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
 		files, err := os.ReadFile(filepath.Join("testdata", "xml", "files.openapi.yaml"))
 		if err != nil {

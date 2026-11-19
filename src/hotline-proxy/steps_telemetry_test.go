@@ -20,11 +20,11 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.telemetry = newReceiver()
 		return nil
 	})
-	sc.Step(`^the telemetry destination does not set metricInterval$`, func() error {
+	sc.Step(`^the telemetry section does not set metricInterval$`, func() error {
 		w.unsetOwnInterval = true
 		return nil
 	})
-	sc.Step(`^the telemetry destination sets (logInterval|traceInterval)$`, func(name string) error {
+	sc.Step(`^the telemetry section sets (logInterval|traceInterval)$`, func(name string) error {
 		w.telemetryExtra = "    " + name + ": 5s\n"
 		return nil
 	})
@@ -238,7 +238,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a product destination over HTTP that refuses every log export with 400$`, func() error {
+	sc.Step(`^a product exporter over HTTP that refuses every log export with 400$`, func() error {
 		w.receivers[0].stop()
 		w.receivers[0] = newReceiverWith(receiverSetup{})
 		for range 100 {
@@ -246,13 +246,13 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a product destination that is down$`, func() error {
+	sc.Step(`^a product exporter that is down$`, func() error {
 		w.receivers[0].stop()
 		// Nothing listens there yet.
 		w.receivers[0] = &receiver{endpoint: "http://" + freePort()}
 		return nil
 	})
-	sc.Step(`^the destination comes back and another call ends$`, func() error {
+	sc.Step(`^the exporter comes back and another call ends$`, func() error {
 		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(w.receivers[0].endpoint, "http://"))
 		if err != nil {
 			return err
@@ -271,14 +271,14 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 
 	sc.Step(`^the proxy port takes TLS(?: with a certificate that expires in (\d+) days)?$`, func(days string) error {
 		n, _ := strconv.Atoi(days)
-		w.proxyCert = w.issuer.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
+		w.proxyCert = w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
 		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		w.appTLS = w.appTLSConfig()
 		return nil
 	})
 	sc.Step(`^the cert and key files are replaced with a certificate that expires in (\d+) days$`, func(days int) error {
-		renewed := w.issuer.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
+		renewed := w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
 		w.renewed = &renewed
 		w.replaceKeyPair(renewed, renewed)
 		return nil
@@ -289,11 +289,11 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
 		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*w.renewed))
 	})
-	sc.Step(`^CONNECT is an ingress with an issuer that expires in (\d+) days$`, func(days int) error {
-		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
+	sc.Step(`^CONNECT is an ingress with a certificate authority that expires in (\d+) days$`, func(days int) error {
+		w.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
 		return nil
 	})
-	sc.Step(`^hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect$`, func() error {
+	sc.Step(`^hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect$`, func() error {
 		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(w.interception.cert.NotAfter.Unix()))
 	})
 
@@ -309,8 +309,8 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.appTLS = nil
 		return w.defaultCall()
 	})
-	sc.Step(`^an app that does not trust the issuer opens a tunnel$`, func() error {
-		w.useInterceptionIssuer(newIssuer())
+	sc.Step(`^an app that does not trust the certificate authority opens a tunnel$`, func() error {
+		w.useInterceptionAuthority(newAuthority())
 		w.tunnelRoots = x509.NewCertPool()
 		return w.openTunnel("api.talon.one", "443", "talon-shop-a")
 	})

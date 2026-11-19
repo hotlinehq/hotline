@@ -37,4 +37,4 @@ More examples, for AWS only for now (Peter, 2026-11-01): DynamoDB, EventBridge, 
 
 ## Still to come
 
-Bedrock, on plain REST. Not in step 3: SNS calls other than `Publish`, STS calls other than `AssumeRole`, SES templates and bulk sending, and Lambda's streamed replies.
+Bedrock, on plain REST. Not in step 3: SNS calls other than `Publish`, STS calls other than `AssumeRole`, SES templates and bulk sending, and Lambda's streamed responses.

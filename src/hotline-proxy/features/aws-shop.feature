@@ -27,12 +27,12 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | item | results |
-        | {"orderId":{"S":"A-1001"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total required |
-        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N required; body $.Item.total.S additionalProperties |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.5"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.total.N pattern ^[0-9]+\.[0-9]{2}$ |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"GBP"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}} | body $.Item.currency.S enum EUR, CZK, USD |
-        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note additionalProperties |
+        | item                                                                                                                                                 | results                                                                |
+        | {"orderId":{"S":"A-1001"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                                        | body $.Item.total required                                             |
+        | {"orderId":{"S":"A-1001"},"total":{"S":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                  | body $.Item.total.N required; body $.Item.total.S additionalProperties |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.5"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                   | body $.Item.total.N pattern ^[0-9]+\.[0-9]{2}$                         |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"GBP"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}                  | body $.Item.currency.S enum EUR, CZK, USD                              |
+        | {"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"},"note":{"S":"x"}} | body $.Item.note additionalProperties                                  |
 
     Scenario: A row for another table is reported
       Given AWS answers 200 with the json body {}
@@ -43,13 +43,13 @@ Feature: The shop's AWS apis through the proxy
       Given AWS answers 200 with the json body {"Item":{"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}}
       When the app calls DynamoDB_20120810.GetItem with the json body {"TableName":"orders","Key":{"orderId":{"S":"A-1001"}}}
       Then the record has no request results
-      And the reply results are body $.Item.language required
+      And the response results are body $.Item.language required
 
-    Scenario: DynamoDB's "already there" reply is a normal error reply
+    Scenario: DynamoDB's "already there" response is a normal error response
       Given AWS answers 400 with the json body {"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException","message":"The conditional request failed"}
       When the app calls DynamoDB_20120810.PutItem with the json body {"TableName":"orders","Item":{"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}},"ConditionExpression":"attribute_not_exists(orderId)"}
       Then the record has no request results
-      And the record has no reply results
+      And the record has no response results
 
     Scenario: Results never hold values from the row
       Given AWS answers 200 with the json body {}
@@ -73,10 +73,10 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | data | results |
-        | {"type":"order-paid","orderId":"A-1001"} | body $.Data.at required |
+        | data                                                                    | results                                        |
+        | {"type":"order-paid","orderId":"A-1001"}                                | body $.Data.at required                        |
         | {"type":"order-shipped","orderId":"A-1001","at":"2026-11-01T10:00:00Z"} | body $.Data.type enum order-paid, invoice-made |
-        | order A-1001 paid | body $.Data json |
+        | order A-1001 paid                                                       | body $.Data json                               |
 
     Scenario: Data that is not base64 is reported
       When the app calls Kinesis_20131202.PutRecord with the json body {"StreamName":"shop-events","PartitionKey":"A-1001","Data":"not base64!"}
@@ -107,7 +107,7 @@ Feature: The shop's AWS apis through the proxy
       Given the shop api aws-sqs-mail
       And AWS answers 200 with the json body {"Messages":[{"MessageId":"m-1","ReceiptHandle":"r-1","MD5OfBody":"x","Body":"{\"detail-type\":\"InvoiceReady\",\"source\":\"shop.invoices\",\"detail\":{\"orderId\":\"A-1001\",\"eventId\":\"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10\",\"language\":\"en\",\"createdAt\":\"2026-11-01T10:00:00Z\"}}"}]}
       When the app calls AmazonSQS.ReceiveMessage with the json body {"QueueUrl":"https://sqs.eu-west-1.amazonaws.com/192325781350/mail"}
-      Then the reply results are body $.Messages[0].Body.detail.file required
+      Then the response results are body $.Messages[0].Body.detail.file required
 
     Scenario Outline: Each app reads only its own secret, setting and key
       Given the shop api <api>
@@ -116,11 +116,11 @@ Feature: The shop's AWS apis through the proxy
       Then the request results are <results>
 
       Examples:
-        | api                     | action                         | body | results |
-        | aws-secrets-payment     | secretsmanager.GetSecretValue  | {"SecretId":"shop/other"} | body $.SecretId const shop/payment-key |
-        | aws-ssm-shop            | AmazonSSM.GetParameter         | {"Name":"/shop/other"} | body $.Name const /shop/invoices/default-template |
-        | aws-kms-invoice-signing | TrentService.Sign              | {"KeyId":"alias/other","Message":"AAAA","MessageType":"DIGEST","SigningAlgorithm":"ECDSA_SHA_256"} | body $.KeyId const alias/invoice-signing |
-        | aws-logs-shop           | Logs_20140328.PutLogEvents     | {"logGroupName":"/shop/aws-shop","logStreamName":"payments","logEvents":[{"timestamp":1793527200000,"message":"hello"}]} | body $.logStreamName enum checkout, invoices, mailer, refunds |
+        | api                     | action                        | body                                                                                                                     | results                                                       |
+        | aws-secrets-payment     | secretsmanager.GetSecretValue | {"SecretId":"shop/other"}                                                                                                | body $.SecretId const shop/payment-key                        |
+        | aws-ssm-shop            | AmazonSSM.GetParameter        | {"Name":"/shop/other"}                                                                                                   | body $.Name const /shop/invoices/default-template             |
+        | aws-kms-invoice-signing | TrentService.Sign             | {"KeyId":"alias/other","Message":"AAAA","MessageType":"DIGEST","SigningAlgorithm":"ECDSA_SHA_256"}                       | body $.KeyId const alias/invoice-signing                      |
+        | aws-logs-shop           | Logs_20140328.PutLogEvents    | {"logGroupName":"/shop/aws-shop","logStreamName":"payments","logEvents":[{"timestamp":1793527200000,"message":"hello"}]} | body $.logStreamName enum checkout, invoices, mailer, refunds |
 
   Rule: Checkout publishes the invoice job on the order-paid topic, in SNS's form body
 
@@ -135,7 +135,7 @@ Feature: The shop's AWS apis through the proxy
       When the app publishes {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-11-01T10:00:00Z"} to the topic arn:aws:sns:eu-west-1:192325781350:order-paid
       Then the record has url.template /#Action=Publish
       And the record has no request results
-      And the record has no reply results
+      And the record has no response results
       And the record holds messaging.destination.name = arn:aws:sns:eu-west-1:192325781350:order-paid
       And the record holds messaging.operation.name = Publish
 
@@ -147,11 +147,11 @@ Feature: The shop's AWS apis through the proxy
       When the app publishes {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-11-01T10:00:00Z"} to the topic arn:aws:sns:eu-west-1:192325781350:other
       Then the request results are body $.TopicArn const arn:aws:sns:eu-west-1:192325781350:order-paid
 
-    Scenario: SNS's error reply is a normal error reply
+    Scenario: SNS's error response is a normal error response
       Given AWS answers 403 and the xml body <ErrorResponse><Error><Type>Sender</Type><Code>AuthorizationError</Code><Message>no</Message></Error><RequestId>r-1</RequestId></ErrorResponse>
       When the app publishes {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-11-01T10:00:00Z"} to the topic arn:aws:sns:eu-west-1:192325781350:order-paid
       Then the record has no request results
-      And the record has no reply results
+      And the record has no response results
 
   Rule: The invoices worker takes on the invoice-worker role through STS
 
@@ -163,7 +163,7 @@ Feature: The shop's AWS apis through the proxy
       When the app takes on the role arn:aws:iam::192325781350:role/invoice-worker
       Then the record has url.template /#Action=AssumeRole
       And the record has no request results
-      And the record has no reply results
+      And the record has no response results
       And the record holds rpc.method = AssumeRole
       And no record and no span holds ASIAFAKEROLEKEY00001 or fake-role-secret-key or fake-role-session-token
 
@@ -181,7 +181,7 @@ Feature: The shop's AWS apis through the proxy
       When the app sends AWS POST /2015-03-31/functions/payment-qr/invocations with the application/octet-stream body {"orderId":"A-1001","amount":"10.00","currency":"EUR"}
       Then the record has url.template /2015-03-31/functions/{FunctionName}/invocations
       And the record has no request results
-      And the record has no reply results
+      And the record has no response results
       And the record's url.full ends with /2015-03-31/functions/payment-qr/invocations
 
     Scenario: A mistake in the input is reported at its place
@@ -192,8 +192,8 @@ Feature: The shop's AWS apis through the proxy
     Scenario: A failing function is reported, and its error header kept
       Given AWS answers 200 with "X-Amz-Function-Error: Unhandled" and the json body {"errorMessage":"boom","errorType":"ValueError"}
       When the app sends AWS POST /2015-03-31/functions/payment-qr/invocations with the application/octet-stream body {"orderId":"A-1001","amount":"10.00","currency":"EUR"}
-      Then the reply results are body $.qrText required
-      And the record keeps the reply header X-Amz-Function-Error as Unhandled
+      Then the response results are body $.qrText required
+      And the record keeps the response header X-Amz-Function-Error as Unhandled
 
     Scenario: Calling another function is reported
       Given AWS answers 200 and the json body {"qrText":"x"}
@@ -252,5 +252,5 @@ Feature: The shop's AWS apis through the proxy
       When checkout publishes the text {"orderId":"A-1001"} to the order-paid topic
       And the invoices app tries its queue once
       Then the checkout record for /#Action=Publish has the request results body $.Message.eventId required; body $.Message.language required; body $.Message.requestedAt required; body $.Message.schemaVersion required; body $.Message.templateId required
-      And the invoices record for /#X-Amz-Target=AmazonSQS.ReceiveMessage has the reply results body $.Messages[0].Body.eventId required; body $.Messages[0].Body.language required; body $.Messages[0].Body.requestedAt required; body $.Messages[0].Body.schemaVersion required; body $.Messages[0].Body.templateId required
+      And the invoices record for /#X-Amz-Target=AmazonSQS.ReceiveMessage has the response results body $.Messages[0].Body.eventId required; body $.Messages[0].Body.language required; body $.Messages[0].Body.requestedAt required; body $.Messages[0].Body.schemaVersion required; body $.Messages[0].Body.templateId required
       And the invoices queue still holds the job

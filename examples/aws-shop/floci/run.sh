@@ -63,8 +63,8 @@ if [[ -n "${GRAFANA_OTLP_ENDPOINT:-}" && -n "${GRAFANA_OTLP_AUTHORIZATION:-}" ]]
 fi
 
 # The proxy trusts the fake Gemini Live's TLS front, and the shop trusts
-# the proxy's issuer for CONNECT: both are up.sh's test issuer, on top of
-# this machine's own issuers (Grafana Cloud needs those).
+# the proxy's certificate authority for CONNECT: both are up.sh's test certificate authority, on top of
+# this machine's own certificate authorities (Grafana Cloud needs those).
 cat /etc/ssl/certs/ca-certificates.crt out/tls/ca.pem >out/tls/trusted.pem
 export SSL_CERT_FILE="$PWD/out/tls/trusted.pem"
 

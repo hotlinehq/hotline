@@ -160,7 +160,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 }
 
 // fullForThird fills the file exporter's queue for the third call only: the
-// queue holds 10KiB, and the vendor's third reply has a header of 20KiB,
+// queue holds 10KiB, and the vendor's third response has a header of 20KiB,
 // which the record keeps, so that record alone does not fit.
 // fileExporterOnce adds a file exporter when the scenario has none yet.
 func (w *world) fileExporterOnce() {

@@ -14,7 +14,7 @@ import (
 )
 
 // own are the numbers the proxy keeps about itself, for the telemetry
-// destination: calls in flight, how long calls take, failed TLS setups with
+// exporter: calls in flight, how long calls take, failed TLS setups with
 // apps, config reloads and certificates. No number is split by
 // integration, vendor, host, URL or route, so they stay few however many
 // integrations a proxy serves (Peter, 2026-10-31). Each has a description
@@ -69,7 +69,7 @@ func (o *own) observe(p *Proxy) {
 			"a restart to take effect, else 0."))
 	notAfter, _ := o.meter.Int64ObservableGauge("hotline.certificate.not_after", metric.WithUnit("s"),
 		metric.WithDescription("When a certificate of the proxy's own expires, in seconds since 1970, by where it is used: "+
-			"apps.tls is the tls certificate of the listener apps, apps.connect the issuer of its CONNECT tunnels, "+
+			"apps.tls is the tls certificate of the listener apps, apps.connect the certificate authority of its CONNECT tunnels, "+
 			"admin.tls the admin port's. Once it expires, apps stop trusting the proxy."))
 	memory, _ := o.meter.Int64ObservableUpDownCounter("hotline.spec_check.queue.memory.usage", metric.WithUnit("By"),
 		metric.WithDescription("Memory the bodies of spec checks waiting for a worker hold now. "+

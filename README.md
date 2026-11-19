@@ -6,7 +6,7 @@ Hotline keeps track of the third-party APIs your apps call: payments, AWS, booki
 
 The Hotline proxy sits between your apps and those vendors. For every call it:
 
-- checks the request and the reply against the vendor's OpenAPI spec (path, query, headers, cookies, and JSON or XML bodies);
+- checks the request and the response against the vendor's OpenAPI spec (path, query, headers, cookies, and JSON or XML bodies);
 - times each step (DNS lookup, connect, TLS, waiting for the vendor) as an OpenTelemetry trace;
 - writes a record of the call, with secrets taken out, signed so it can't be quietly changed later;
 - sends it all over OTLP (the OpenTelemetry protocol) to the tools you already use, such as Grafana.

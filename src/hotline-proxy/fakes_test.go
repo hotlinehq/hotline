@@ -23,18 +23,18 @@ import (
 
 var errUnreachable = errors.New("fake network: no route to host")
 
-// issuer is a test certificate authority: the one the proxy trusts.
-type issuer struct {
+// certificate authority is a test certificate authority: the one the proxy trusts.
+type authority struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
 	pool *x509.CertPool
 }
 
-func newIssuer() *issuer {
+func newAuthority() *authority {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "hotline test issuer"},
+		Subject:               pkix.Name{CommonName: "hotline test certificate authority"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,
@@ -45,12 +45,12 @@ func newIssuer() *issuer {
 	cert, _ := x509.ParseCertificate(der)
 	pool := x509.NewCertPool()
 	pool.AddCert(cert)
-	return &issuer{cert: cert, key: key, pool: pool}
+	return &authority{cert: cert, key: key, pool: pool}
 }
 
 // leaf makes a certificate for host, for a server or a client. With signer nil it signs
-// itself, so no issuer vouches for it.
-func (i *issuer) leaf(host string, notAfter time.Time, selfSigned bool) tls.Certificate {
+// itself, so no certificate authority vouches for it.
+func (i *authority) leaf(host string, notAfter time.Time, selfSigned bool) tls.Certificate {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),

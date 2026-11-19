@@ -244,7 +244,7 @@ responses: {}
 			})
 		})
 
-		Describe("Checking the reply", func() {
+		Describe("Checking the response", func() {
 			doc := Route(`responses:
   2XX:
     description: Fine
@@ -256,9 +256,9 @@ responses: {}
 			It("matches a range of statuses and checks the headers", func() {
 				got := parsed(doc).Check(spec.Exchange{
 					Method: "GET", EscapedPath: "/a", Status: 204,
-					ReplyHeader: http.Header{"X-Count": {"many"}},
+					ResponseHeader: http.Header{"X-Count": {"many"}},
 				})
-				Expect(Written(got.Reply)).To(Equal("header X-Count type integer"))
+				Expect(Written(got.Response)).To(Equal("header X-Count type integer"))
 			})
 		})
 
@@ -319,9 +319,9 @@ responses: {}
 				Expect(err).NotTo(MatchError(ContainSubstring("exists")))
 			})
 
-			It("reports a broken schema of a reply header", func() {
+			It("reports a broken schema of a response header", func() {
 				_, err := spec.Parse("test.yaml", []byte(Route("responses:\n  \"200\":\n    description: Fine\n    headers:\n      X-Count: { schema: { type: integr } }\n")), newEngine)
-				Expect(err).To(MatchError(ContainSubstring("the schema of the 200 reply header X-Count cannot be used")))
+				Expect(err).To(MatchError(ContainSubstring("the schema of the 200 response header X-Count cannot be used")))
 			})
 
 			It("refuses a broken shared schema no route uses", func() {
@@ -331,13 +331,13 @@ responses: {}
 		})
 
 		// The request is checked while the proxy waits for the vendor, and the
-		// reply once it has arrived, so each side can be checked on its own
+		// response once it has arrived, so each side can be checked on its own
 		// (Peter, 2026-10-31).
 		Describe("Checking each side on its own", func() {
 			var s *spec.Spec
 			e := spec.Exchange{
 				Method: "GET", EscapedPath: "/a", RawQuery: "n=x",
-				Status: 418, ReplyHeader: http.Header{},
+				Status: 418, ResponseHeader: http.Header{},
 			}
 			BeforeEach(func() {
 				s = parsed(Route("parameters:\n  - { name: n, in: query, schema: { type: integer } }\nresponses:\n  \"200\": { description: ok }\n"))
@@ -346,25 +346,25 @@ responses: {}
 			It("checks only the request", func() {
 				got := s.CheckRequest(s.Find(e), e)
 				Expect(Written(got.Request)).To(Equal("query n type integer"))
-				Expect(got.Reply).To(BeEmpty())
+				Expect(got.Response).To(BeEmpty())
 			})
 
-			It("checks only the reply", func() {
-				got := s.CheckReply(s.Find(e), e)
+			It("checks only the response", func() {
+				got := s.CheckResponse(s.Find(e), e)
 				Expect(got.Request).To(BeEmpty())
-				Expect(Written(got.Reply)).To(Equal("status 418 not_in_spec"))
+				Expect(Written(got.Response)).To(Equal("status 418 not_in_spec"))
 			})
 
 			It("checks both sides together", func() {
 				got := s.Check(e)
 				Expect(Written(got.Request)).To(Equal("query n type integer"))
-				Expect(Written(got.Reply)).To(Equal("status 418 not_in_spec"))
+				Expect(Written(got.Response)).To(Equal("status 418 not_in_spec"))
 			})
 
 			It("says a call with no route was skipped, on each side", func() {
 				other := spec.Exchange{Method: "GET", EscapedPath: "/b", Status: 200}
 				Expect(s.CheckRequest(s.Find(other), other).Skipped).To(Equal("no_spec_route"))
-				Expect(s.CheckReply(s.Find(other), other).Skipped).To(Equal("no_spec_route"))
+				Expect(s.CheckResponse(s.Find(other), other).Skipped).To(Equal("no_spec_route"))
 			})
 
 			It("keeps the request's reason when both sides skipped part", func() {
@@ -372,7 +372,7 @@ responses: {}
 				got := s.Check(spec.Exchange{
 					Method: "GET", EscapedPath: "/a",
 					Header: http.Header{"Content-Type": {"application/json"}}, Body: spec.Body{TooLarge: true},
-					Status: 200, ReplyHeader: http.Header{"Content-Type": {"text/event-stream"}},
+					Status: 200, ResponseHeader: http.Header{"Content-Type": {"text/event-stream"}},
 				})
 				Expect(got.Skipped).To(Equal("body_too_large"))
 			})
@@ -380,7 +380,7 @@ responses: {}
 	})
 }
 
-// Route is a spec with one GET /a route, its parameters, body and replies
+// Route is a spec with one GET /a route, its parameters, body and responses
 // written in YAML under it.
 func Route(operation string) string {
 	return "openapi: 3.1.0\npaths:\n  /a:\n    get:\n" + indent(operation, "      ")

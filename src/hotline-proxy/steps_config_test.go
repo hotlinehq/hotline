@@ -224,7 +224,7 @@ func configSteps(sc *godog.ScenarioContext, w *world) {
 		if err := w.call("PUT", "https://api.talon.one/v9/other/1"); err != nil {
 			return err
 		}
-		// A record is made just after its reply, so the two may arrive in
+		// A record is made just after its response, so the two may arrive in
 		// either order.
 		templates := map[any]any{}
 		for _, r := range w.records() {

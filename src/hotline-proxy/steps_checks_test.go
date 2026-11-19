@@ -27,7 +27,7 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		w.problem = "unknown check " + `"` + name + `"`
 		return w.shopSpecChecks("[path, " + name + "]")
 	})
-	sc.Step(`^the record has no request or reply results$`, func() error {
+	sc.Step(`^the record has no request or response results$`, func() error {
 		record, err := w.record()
 		if err != nil {
 			return err
@@ -35,7 +35,7 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		if err := hasNo(record, resultsKey("request")); err != nil {
 			return err
 		}
-		return hasNo(record, resultsKey("reply"))
+		return hasNo(record, resultsKey("response"))
 	})
 	sc.Step(`^the vendor refuses the connection$`, func() error {
 		l := listenLocal()
@@ -85,14 +85,14 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the record has no (request|reply) results$`, func(side string) error {
+	sc.Step(`^the record has no (request|response) results$`, func(side string) error {
 		record, err := w.record()
 		if err != nil {
 			return err
 		}
 		return hasNo(record, resultsKey(side))
 	})
-	sc.Step(`^the (request|reply) results are (.+)$`, func(side, want string) error {
+	sc.Step(`^the (request|response) results are (.+)$`, func(side, want string) error {
 		got, err := w.results(side)
 		if err != nil {
 			return err
@@ -171,8 +171,8 @@ func splitHeaders(headers string) []string {
 
 func resultsKey(side string) string {
 	return map[string]string{
-		"request": "hotline.schema.request.errors",
-		"reply":   "hotline.schema.response.errors",
+		"request":  "hotline.schema.request.errors",
+		"response": "hotline.schema.response.errors",
 	}[side]
 }
 

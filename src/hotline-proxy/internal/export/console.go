@@ -38,10 +38,10 @@ type Console struct {
 // consoleQueueSize is how many calls wait for the console at most.
 const consoleQueueSize = 1000
 
-// consoleDestination prints each call as two lines, or three for an
+// consoleExporter prints each call as two lines, or three for an
 // invalid call, like mitmdump (Peter, 2026-11-11).
-type consoleDestination struct {
-	fileDestination
+type consoleExporter struct {
+	fileExporter
 	out   Console
 	color bool
 	// columns is the width the lines are cut to. The terminal is asked
@@ -53,9 +53,9 @@ type consoleDestination struct {
 // newConsole starts the console's queue. Colour is used when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
-func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleDestination {
+func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleExporter {
 	width, terminal := out.Terminal()
-	c := &consoleDestination{out: out, color: coloured(e, terminal, out.LookupEnv)}
+	c := &consoleExporter{out: out, color: coloured(e, terminal, out.LookupEnv)}
 	c.columns.Store(int64(c.width(width, terminal)))
 	write := func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
@@ -78,7 +78,7 @@ func coloured(e *config.ConsoleExporter, terminal bool, lookupEnv func(string) (
 // width is the terminal's width, else COLUMNS, else 80, as mitmdump
 // reads it. Some terminals, often in containers and CI, say they are 0
 // columns wide: that counts as not knowing the width.
-func (c *consoleDestination) width(width int, terminal bool) int {
+func (c *consoleExporter) width(width int, terminal bool) int {
 	if terminal && width > 0 {
 		return width
 	}
@@ -100,7 +100,7 @@ const (
 	cyan    = "36"
 )
 
-// consoleLines writes one call: the request, the reply under it and, for
+// consoleLines writes one call: the request, the response under it and, for
 // an invalid call, what the checks found.
 type consoleLines struct {
 	b     bytes.Buffer
@@ -129,7 +129,7 @@ func (l *consoleLines) word(text string, codes ...string) {
 
 // lines writes the call, or the end of a WebSocket session. Every value
 // that came with the call is escaped, so it cannot change the terminal.
-func (c *consoleDestination) lines(call Call) []byte {
+func (c *consoleExporter) lines(call Call) []byte {
 	if call.Event == SessionEvent {
 		return c.sessionLines(call)
 	}
@@ -162,7 +162,7 @@ func (c *consoleDestination) lines(call Call) []byte {
 		case "hotline.schema.request.errors":
 			found = append(found, side("request", kv.Value))
 		case "hotline.schema.response.errors":
-			found = append(found, side("reply", kv.Value))
+			found = append(found, side("response", kv.Value))
 		}
 	}
 	at := call.At.Local().Format("15:04:05.000")
@@ -182,11 +182,11 @@ func (c *consoleDestination) lines(call Call) []byte {
 	under := strings.Repeat(" ", utf8.RuneCountInString(at)+1+utf8.RuneCountInString(id)+2)
 	l.b.WriteString(under[3:])
 	l.style("<<", bold)
-	reply := ""
+	response := ""
 	if status > 0 {
-		reply = strconv.FormatInt(status, 10) + " " + http.StatusText(int(status))
+		response = strconv.FormatInt(status, 10) + " " + http.StatusText(int(status))
 	}
-	l.word(reply, bold, statusColour(status))
+	l.word(response, bold, statusColour(status))
 	l.word(failure, bold, red)
 	shown := ""
 	if size >= 0 {
@@ -216,7 +216,7 @@ func (c *consoleDestination) lines(call Call) []byte {
 // sessionLines writes the end of a WebSocket session in the call's two
 // lines: who and where, then the bytes the app sent and received after the
 // 101, and how long the session was open.
-func (c *consoleDestination) sessionLines(call Call) []byte {
+func (c *consoleExporter) sessionLines(call Call) []byte {
 	l := &consoleLines{color: c.color}
 	var id, host string
 	var sent, received, open int64

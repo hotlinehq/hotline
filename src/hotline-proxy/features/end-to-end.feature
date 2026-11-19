@@ -2,7 +2,7 @@
 Feature: Calling through the proxy, end to end
   A real client calls the real hotline-proxy program, which calls a local
   TLS test vendor; a fake OTLP receiver collects what the program sends.
-  The program trusts the test vendor's issuer through --trust-file. The Go
+  The program trusts the test vendor's certificate authority through --trust-file. The Go
   client cases are copied from the research folder (matrix-clients/go);
   case numbers are those in egress-proxy-options.md. Only cases 1, 2, 4 and
   5 put a full address in the request line. The Node, Java and Rust clients
@@ -31,16 +31,16 @@ Feature: Calling through the proxy, end to end
     Then the app gets the test vendor's status, headers and body unchanged
 
     Examples:
-      | client | case | how                                                            |
-      | Node   | 1    | POST https://… with http.request and a full URL as the path    |
-      | Node   | 2    | POST http://… with http.request                                |
+      | client | case | how                                                         |
+      | Node   | 1    | POST https://… with http.request and a full URL as the path |
+      | Node   | 2    | POST http://… with http.request                             |
 
   Scenario Outline: Failures end to end
     When the Go client calls <target>
     Then <result>
 
     Examples:
-      | target                                      | result                                                                                   |
+      | target                                      | result                                                                                  |
       | a vendor with an untrusted certificate      | the app gets 502 with Proxy-Status and the record's error.type is tls_certificate_error |
       | a host that does not exist                  | the app gets 502 with Proxy-Status and the record's error.type is dns_error             |
       | the test vendor without Proxy-Authorization | the call reaches the vendor and the record is minimal with ID not-passed                |

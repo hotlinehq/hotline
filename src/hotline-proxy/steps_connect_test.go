@@ -26,20 +26,20 @@ import (
 )
 
 func connectSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^an interception issuer named customer in certs, which the connect part picks$`, func() error {
-		w.useInterceptionIssuer(newIssuer())
+	sc.Step(`^an interception certificate authority named customer in certs, which the connect part picks$`, func() error {
+		w.useInterceptionAuthority(newAuthority())
 		return nil
 	})
-	sc.Step(`^an interception issuer valid for two years$`, func() error {
-		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-time.Hour), time.Now().Add(2*365*24*time.Hour)))
+	sc.Step(`^an interception certificate authority valid for two years$`, func() error {
+		w.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(2*365*24*time.Hour)))
 		return nil
 	})
-	sc.Step(`^an app that trusts the interception issuer$`, func() error {
+	sc.Step(`^an app that trusts the interception certificate authority$`, func() error {
 		w.tunnelRoots = x509.NewCertPool()
 		w.tunnelRoots.AddCert(w.interception.cert)
 		return nil
 	})
-	sc.Step(`^an app that does not trust the interception issuer$`, func() error {
+	sc.Step(`^an app that does not trust the interception certificate authority$`, func() error {
 		w.tunnelRoots = x509.NewCertPool()
 		return nil
 	})
@@ -169,10 +169,10 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 			length:  len(signedBody),
 		})
 	})
-	sc.Step(`^the files of the issuer named customer are replaced with a second issuer$`, func() error {
-		second := newIssuer()
-		w.replaceFile("ca/cert.pem", issuerCertPEM(second))
-		w.replaceFile("ca/key.pem", issuerKeyPEM(second))
+	sc.Step(`^the files of the certificate authority named customer are replaced with a second certificate authority$`, func() error {
+		second := newAuthority()
+		w.replaceFile("ca/cert.pem", authorityCertPEM(second))
+		w.replaceFile("ca/key.pem", authorityKeyPEM(second))
 		w.tunnelRoots.AddCert(second.cert)
 		w.second = second
 		return nil
@@ -246,7 +246,7 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the app sees a certificate for (\S+) signed by the (interception|second) issuer$`, func(host, which string) error {
+	sc.Step(`^the app sees a certificate for (\S+) signed by the (interception|second) certificate authority$`, func(host, which string) error {
 		signer := w.interception
 		if which == "second" {
 			signer = w.second
@@ -290,62 +290,62 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^the connect part cert is not an issuer certificate$`, func() error {
+	sc.Step(`^the connect part cert is not a certificate authority's certificate$`, func() error {
 		w.problem = "is not a certificate authority, so it cannot sign"
-		leaf := w.issuer.leaf("not-an-issuer", time.Now().Add(24*time.Hour), false)
+		leaf := w.authority.leaf("not-a-certificate-authority", time.Now().Add(24*time.Hour), false)
 		w.writeFile("ca/cert.pem", certPEM(leaf))
 		w.writeFile("ca/key.pem", keyPEM(leaf))
 		return nil
 	})
 	sc.Step(`^the connect part key does not belong to its certificate$`, func() error {
 		w.problem = "not a matching certificate and key"
-		w.writeFile("ca/key.pem", issuerKeyPEM(newIssuer()))
+		w.writeFile("ca/key.pem", authorityKeyPEM(newAuthority()))
 		return nil
 	})
-	sc.Step(`^the connect part issuer has already expired$`, func() error {
+	sc.Step(`^the connect part certificate authority has already expired$`, func() error {
 		w.problem = "expired"
-		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour)))
+		w.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-48*time.Hour), time.Now().Add(-time.Hour)))
 		return nil
 	})
 	sc.Step(`^the connect part has a cert file but no key file$`, func() error {
 		w.problem = "cert customer needs both cert and key"
 		w.listenConnect = "  connect: { cert: customer }\n"
-		w.issuersSection = "certs:\n  customer: { cert: ./ca/cert.pem }\n"
+		w.certEntries = "certs:\n  customer: { cert: ./ca/cert.pem }\n"
 		return nil
 	})
 	sc.Step(`^the connect part names the cert "([^"]*)", which is not in certs$`, func(name string) error {
 		w.problem = "names the cert " + name + ", which is not in certs"
-		w.useInterceptionIssuer(newIssuer())
+		w.useInterceptionAuthority(newAuthority())
 		w.listenConnect = "  connect: { cert: " + name + " }\n"
 		return nil
 	})
-	sc.Step(`^an issuer is written with no files$`, func() error {
+	sc.Step(`^a certificate authority is written with no files$`, func() error {
 		w.problem = "cert customer needs both cert and key"
-		w.useInterceptionIssuer(newIssuer())
-		w.issuersSection = "certs:\n  customer:\n"
+		w.useInterceptionAuthority(newAuthority())
+		w.certEntries = "certs:\n  customer:\n"
 		return nil
 	})
 	sc.Step(`^the connect part names no cert$`, func() error {
 		w.problem = "connect needs a cert, as cert: name, on it or on the listener"
-		w.useInterceptionIssuer(newIssuer())
+		w.useInterceptionAuthority(newAuthority())
 		w.listenConnect = "  connect: {}\n"
 		return nil
 	})
 	sc.Step(`^a cert that nothing signs with is not a certificate authority$`, func() error {
-		w.useInterceptionIssuer(newIssuer())
-		leaf := w.issuer.leaf("not-an-issuer", time.Now().Add(24*time.Hour), false)
+		w.useInterceptionAuthority(newAuthority())
+		leaf := w.authority.leaf("not-a-certificate-authority", time.Now().Add(24*time.Hour), false)
 		w.writeFile("ca/other-cert.pem", certPEM(leaf))
 		w.writeFile("ca/other-key.pem", keyPEM(leaf))
-		w.issuersSection += "  unused: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
+		w.certEntries += "  unused: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
 		return nil
 	})
-	sc.Step(`^the proxy logs a warning that the interception issuer is valid for more than a year$`, func() error {
+	sc.Step(`^the proxy logs a warning that the interception certificate authority is valid for more than a year$`, func() error {
 		for _, line := range strings.Split(w.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "valid for more than a year") {
 				return nil
 			}
 		}
-		return failf("no warning about the issuer; the log is %s", w.logs.String())
+		return failf("no warning about the certificate authority; the log is %s", w.logs.String())
 	})
 }
 
@@ -368,18 +368,18 @@ func signedHeaders() []string {
 	}
 }
 
-// useInterceptionIssuer writes an issuer to the connect part files.
-func (w *world) useInterceptionIssuer(i *issuer) {
-	w.useIssuer(i)
+// useInterceptionAuthority writes a certificate authority to the connect part files.
+func (w *world) useInterceptionAuthority(i *authority) {
+	w.useAuthority(i)
 	w.listenConnect = "  connect: { cert: customer }\n"
 }
 
-// useIssuer writes an issuer to the files of the issuer named customer.
-func (w *world) useIssuer(i *issuer) {
+// useAuthority writes a certificate authority to the files of the certificate authority named customer.
+func (w *world) useAuthority(i *authority) {
 	w.interception = i
-	w.writeFile("ca/cert.pem", issuerCertPEM(i))
-	w.writeFile("ca/key.pem", issuerKeyPEM(i))
-	w.issuersSection = "certs:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
+	w.writeFile("ca/cert.pem", authorityCertPEM(i))
+	w.writeFile("ca/key.pem", authorityKeyPEM(i))
+	w.certEntries = "certs:\n  customer: { cert: ./ca/cert.pem, key: ./ca/key.pem }\n"
 }
 
 // callThroughProxy makes the app's call the way an app with HTTPS_PROXY
@@ -397,7 +397,7 @@ func (w *world) callThroughProxy(proxyScheme, host, id string) error {
 		proxyURL.User = url.UserPassword(id, "x")
 	}
 	roots := w.tunnelRoots.Clone()
-	roots.AddCert(w.issuer.cert)
+	roots.AddCert(w.authority.cert)
 	transport := &http.Transport{
 		Proxy: http.ProxyURL(proxyURL),
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -459,7 +459,7 @@ func (w *world) openTunnel(host, port, id string) error {
 // openTunnelHTTP2 opens a tunnel the way it is done over HTTP/2: CONNECT
 // as one stream of a connection to the proxy, shared by every tunnel the
 // app opens this way. The app writes into the stream's request body and
-// reads its reply.
+// reads its response.
 func (w *world) openTunnelHTTP2(host, port, id string) error {
 	if err := w.start(); err != nil {
 		return err
@@ -483,11 +483,11 @@ func (w *world) openTunnelHTTP2(host, port, id string) error {
 	if id != "" {
 		req.Header.Set("Proxy-Authorization", strings.TrimPrefix(basic(id+":x"), "Proxy-Authorization: "))
 	}
-	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the reply is the tunnel, closed with it
+	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the response is the tunnel, closed with it
 	if err != nil {
 		return err
 	}
-	conn := &streamConn{reply: resp.Body, body: app}
+	conn := &streamConn{response: resp.Body, body: app}
 	w.tunnels = append(w.tunnels, conn)
 	if resp.StatusCode != http.StatusOK {
 		return failf("the proxy answered CONNECT with %d", resp.StatusCode)
@@ -515,21 +515,21 @@ func (w *world) secureTunnel(conn net.Conn, host, port string) {
 }
 
 // streamConn is the app's end of a tunnel opened over HTTP/2.
-// A read deadline that passes ends the reply, as a stream has none.
+// A read deadline that passes ends the response, as a stream has none.
 type streamConn struct {
-	reply io.ReadCloser
-	body  *io.PipeWriter
-	timer *time.Timer
+	response io.ReadCloser
+	body     *io.PipeWriter
+	timer    *time.Timer
 }
 
-func (c *streamConn) Read(p []byte) (int, error)  { return c.reply.Read(p) }
+func (c *streamConn) Read(p []byte) (int, error)  { return c.response.Read(p) }
 func (c *streamConn) Write(p []byte) (int, error) { return c.body.Write(p) }
 func (c *streamConn) Close() error {
-	return errors.Join(c.body.Close(), c.reply.Close())
+	return errors.Join(c.body.Close(), c.response.Close())
 }
 
 // CloseWrite ends the request body, which tells the proxy the app sends
-// nothing more, and keeps reading the reply.
+// nothing more, and keeps reading the response.
 func (c *streamConn) CloseWrite() error             { return c.body.Close() }
 func (c *streamConn) LocalAddr() net.Addr           { return &net.TCPAddr{} }
 func (c *streamConn) RemoteAddr() net.Addr          { return &net.TCPAddr{} }
@@ -539,7 +539,7 @@ func (c *streamConn) SetReadDeadline(t time.Time) error {
 		c.timer.Stop()
 	}
 	if !t.IsZero() {
-		c.timer = time.AfterFunc(time.Until(t), func() { _ = c.reply.Close() })
+		c.timer = time.AfterFunc(time.Until(t), func() { _ = c.response.Close() })
 	}
 	return nil
 }
@@ -561,12 +561,12 @@ func (w *world) callInTunnel(headers ...string) error {
 	})
 }
 
-// newIssuerValid is a test certificate authority valid between two times.
-func newIssuerValid(notBefore, notAfter time.Time) *issuer {
+// newAuthorityValid is a test certificate authority valid between two times.
+func newAuthorityValid(notBefore, notAfter time.Time) *authority {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(time.Now().UnixNano()),
-		Subject:               pkix.Name{CommonName: "hotline interception test issuer"},
+		Subject:               pkix.Name{CommonName: "hotline interception test certificate authority"},
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
 		IsCA:                  true,
@@ -577,14 +577,14 @@ func newIssuerValid(notBefore, notAfter time.Time) *issuer {
 	cert, _ := x509.ParseCertificate(der)
 	pool := x509.NewCertPool()
 	pool.AddCert(cert)
-	return &issuer{cert: cert, key: key, pool: pool}
+	return &authority{cert: cert, key: key, pool: pool}
 }
 
-func issuerCertPEM(i *issuer) string {
+func authorityCertPEM(i *authority) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: i.cert.Raw}))
 }
 
-func issuerKeyPEM(i *issuer) string {
+func authorityKeyPEM(i *authority) string {
 	der, _ := x509.MarshalPKCS8PrivateKey(i.key)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 }

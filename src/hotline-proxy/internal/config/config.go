@@ -171,7 +171,7 @@ type Trace struct {
 	Forward bool
 }
 
-// TLS is a certificate the proxy shows apps, or the issuer it signs them
+// TLS is a certificate the proxy shows apps, or the certificate authority it signs them
 // with: the files it comes from, and the pair they held when the config
 // was loaded.
 type TLS struct {
@@ -180,17 +180,17 @@ type TLS struct {
 	Certificate *tls.Certificate
 }
 
-// Exporter is one OTLP destination.
+// Exporter is the setup of one otlp exporter.
 type Exporter struct {
-	// Endpoint is the destination as the config names it.
+	// Endpoint is the collector's address as the config names it.
 	Endpoint string
 	// URL is where to send. Its scheme is https for TLS, else http. Its
 	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
 	URL *url.URL
-	// CAs are PEM certificates of issuers to trust on top of the proxy's
+	// CAs are PEM certificates of certificate authorities to trust on top of the proxy's
 	// own, for TLS.
 	CAs []byte
-	// Certificate, when set, is shown to the destination in mutual TLS.
+	// Certificate, when set, is shown to the exporter in mutual TLS.
 	Certificate *tls.Certificate
 	// Headers go with every request, login headers among them.
 	Headers map[string]string
@@ -199,7 +199,7 @@ type Exporter struct {
 	// (Peter, 2026-11-08).
 	H2C   bool
 	Delta bool
-	// QueueSize is how many records wait for the destination at most.
+	// QueueSize is how many records wait for the exporter at most.
 	QueueSize int
 	// MetricInterval, LogInterval and TraceInterval are how often counts,
 	// records and spans are sent. Records and spans also go sooner once a
@@ -208,7 +208,7 @@ type Exporter struct {
 	LogInterval    time.Duration
 	TraceInterval  time.Duration
 	// Resource are labels that describe where the proxy runs, sent to this
-	// destination only. They may change service.name and
+	// exporter only. They may change service.name and
 	// service.instance.id, never service.version.
 	Resource map[string]string
 }
@@ -233,7 +233,7 @@ type API struct {
 
 // file is the config file's layout.
 type file struct {
-	// Listen and Issuers are the old way to write ports and issuers, read
+	// Listen and Certificate authorities are the old way to write ports and certificate authorities, read
 	// only to say they are ignored.
 	Listen     yaml.Node                `yaml:"listen"`
 	Issuers    yaml.Node                `yaml:"issuers"`
@@ -295,7 +295,7 @@ type fileExporterFile struct {
 	QueueMemory string `yaml:"queueMemory"`
 }
 
-// exporterFile is one OTLP destination as the config writes it.
+// exporterFile is one OTLP exporter as the config writes it.
 type exporterFile struct {
 	Endpoint    string            `yaml:"endpoint"`
 	Headers     map[string]secret `yaml:"headers"`
@@ -703,7 +703,7 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 			l.problem("%s: tls needs an https:// endpoint", label)
 		}
 		if t.CA != "" {
-			e.CAs = l.issuers(label+": tls.ca", t.CA)
+			e.CAs = l.authorities(label+": tls.ca", t.CA)
 		}
 		if (t.Cert == "") != (t.Key == "") {
 			l.problem("%s: tls needs both cert and key, or neither", label)
@@ -764,8 +764,8 @@ func (l *loader) secret(label string, s secret) string {
 	return value
 }
 
-// issuers reads a PEM file of certificates.
-func (l *loader) issuers(label, path string) []byte {
+// certificate authorities reads a PEM file of certificates.
+func (l *loader) authorities(label, path string) []byte {
 	l.read[l.path(path)] = true
 	data, err := os.ReadFile(l.path(path)) //nolint:gosec // the config names its certificate files
 	if err != nil {
@@ -843,7 +843,7 @@ func (l *loader) checks(label string, f *[]string) Parts {
 	for _, name := range *f {
 		part, known := partNamed(name)
 		if !known {
-			l.problem("%s: unknown check %q; the checks are path, query, headers, cookies, body, status, reply-headers and reply-body", label, name)
+			l.problem("%s: unknown check %q; the checks are path, query, headers, cookies, body, status, response-headers and response-body", label, name)
 		}
 		p |= part
 	}

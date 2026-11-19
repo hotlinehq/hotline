@@ -19,7 +19,7 @@ const whole = "$"
 // partBody is the part of the results about a body.
 const partBody = "body"
 
-// param is a parameter or reply header with its compiled schema, nil
+// param is a parameter or response header with its compiled schema, nil
 // when the spec gives none.
 type param struct {
 	spec.Param
@@ -40,7 +40,7 @@ type requestCheck struct {
 	body   []content
 }
 
-// responseCheck checks one reply, a spec.ResponseCheck.
+// responseCheck checks one response, a spec.ResponseCheck.
 type responseCheck struct {
 	headers []param
 	body    []content
@@ -53,7 +53,7 @@ func (e *Engine) Request(r spec.RequestSpec) (spec.RequestCheck, error) {
 	return &requestCheck{params: params, body: body}, errors.Join(paramsErr, bodyErr)
 }
 
-// Response builds the check of one reply the spec lists.
+// Response builds the check of one response the spec lists.
 func (e *Engine) Response(r spec.ResponseSpec) (spec.ResponseCheck, error) {
 	headers, headersErr := e.params(r.Headers)
 	body, bodyErr := e.contents(r.Body)

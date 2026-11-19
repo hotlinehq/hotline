@@ -147,13 +147,13 @@ func (a App) paymentText(ctx context.Context, job invoice.Job) (string, error) {
 	if out.FunctionError != nil {
 		return "", fmt.Errorf("%w: %s", errFunctionFailed, out.Payload)
 	}
-	var reply struct {
+	var response struct {
 		QRText string `json:"qrText"`
 	}
-	if err := json.Unmarshal(out.Payload, &reply); err != nil || reply.QRText == "" {
+	if err := json.Unmarshal(out.Payload, &response); err != nil || response.QRText == "" {
 		return "", fmt.Errorf("%w: no qrText in %s", errFunctionFailed, out.Payload)
 	}
-	return reply.QRText, nil
+	return response.QRText, nil
 }
 
 // Status tells what the invoices table holds for the order.

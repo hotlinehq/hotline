@@ -5,7 +5,7 @@
 # floci/out/calls/calls.jsonl, and, when run.sh finds Grafana Cloud settings,
 # a second exporter that sends the usual records to Grafana Cloud. The
 # shop's assistant reaches the fake Gemini Live through the CONNECT ingress,
-# with the test issuer up.sh makes in out/tls.
+# with the test certificate authority up.sh makes in out/tls.
 
 admin:
   address: tcp://:8081

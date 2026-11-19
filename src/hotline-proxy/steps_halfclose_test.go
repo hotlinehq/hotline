@@ -27,7 +27,7 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^pinned.example.com answers only after the app stops sending$`, func() error {
 		w.startTalker("pinned.example.com", func(c *tls.Conn, _ chan<- string) {
 			got, _ := io.ReadAll(c)
-			_, _ = io.WriteString(c, "REPLY to "+string(got))
+			_, _ = io.WriteString(c, "RESPONSE to "+string(got))
 		})
 		return nil
 	})
@@ -113,7 +113,7 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 // startTalker makes host a talker on port 443, which runs talk on the one
 // connection it takes, over TLS.
 func (w *world) startTalker(host string, talk func(c *tls.Conn, got chan<- string)) {
-	cert := w.issuer.leaf(host, time.Now().Add(24*time.Hour), false)
+	cert := w.authority.leaf(host, time.Now().Add(24*time.Hour), false)
 	w.startPlainTalker(host, "443", func(raw net.Conn, got chan<- string) {
 		c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		defer func() { _ = c.Close() }()
@@ -177,7 +177,7 @@ func (w *world) relayedTunnel(kind, host string) (*tls.Conn, error) {
 		return nil, failf("the proxy answered CONNECT with %d", w.resp.StatusCode)
 	}
 	roots := x509.NewCertPool()
-	roots.AddCert(w.issuer.cert)
+	roots.AddCert(w.authority.cert)
 	app := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: host, MinVersion: tls.VersionTLS12})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -198,12 +198,12 @@ func (w *world) streamTunnel(authority string) (net.Conn, error) {
 	}
 	body, app := io.Pipe()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodConnect, "http://"+authority, body)
-	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the reply is the tunnel, closed with it
+	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the response is the tunnel, closed with it
 	if err != nil {
 		return nil, err
 	}
 	w.resp = resp
-	return &streamConn{reply: resp.Body, body: app}, nil
+	return &streamConn{response: resp.Body, body: app}, nil
 }
 
 // stopSending tells the other side nothing more comes, at the TLS level

@@ -1,7 +1,7 @@
 // Package forward passes one call from an app on to its vendor, and the
-// vendor's reply back to the app. It does what httputil.ReverseProxy does for
+// vendor's response back to the app. It does what httputil.ReverseProxy does for
 // the proxy, but copies the request once instead of five times (Peter,
-// 2026-11-09), and fixes three of its bugs with trailers and early replies.
+// 2026-11-09), and fixes three of its bugs with trailers and early responses.
 package forward
 
 import (
@@ -18,7 +18,7 @@ import (
 	"sync"
 )
 
-// Forwarder passes one call on to the vendor and the reply back to the app.
+// Forwarder passes one call on to the vendor and the response back to the app.
 //
 // The app's request is never changed: the outgoing request is one shallow
 // copy of it with a header map filled once, leaving out what must not travel
@@ -29,11 +29,11 @@ import (
 // One Forwarder serves every call: what differs between calls comes in as
 // Forward's parameters.
 type Forwarder struct {
-	// Buffers lends the buffer the reply body is copied through.
+	// Buffers lends the buffer the response body is copied through.
 	Buffers httputil.BufferPool
 }
 
-// Switcher is a reply writer that is told when an upgraded connection,
+// Switcher is a response writer that is told when an upgraded connection,
 // such as a WebSocket, starts: Forward calls Switched once the app has the
 // 101, before any byte passes either way after it (Peter, 2026-11-18).
 type Switcher interface {
@@ -43,7 +43,7 @@ type Switcher interface {
 // Errors that Forward returns, wrapped with detail.
 var (
 	errBrokenProtocol = errors.New("forward: a protocol name that is not plain text")
-	errUnwritable     = errors.New("forward: an upgrade reply without a writable body")
+	errUnwritable     = errors.New("forward: an upgrade response without a writable body")
 	errUnasked        = errors.New("forward: the vendor switched to a protocol the app did not ask for")
 )
 
@@ -82,10 +82,10 @@ func forbiddenTrailer(name string) bool {
 }
 
 // Forward sends in to the vendor through vendor, with the context ctx, which
-// carries the call's cancel signal and any trace hooks, and writes the reply
+// carries the call's cancel signal and any trace hooks, and writes the response
 // to w. vendor also sets what the outgoing request needs before it sends it:
 // the vendor address, Host and any header the proxy adds. Forward never
-// changes in. It returns an error only when no reply reached the app;
+// changes in. It returns an error only when no response reached the app;
 // the caller then answers the app itself.
 func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http.Request, vendor http.RoundTripper) error {
 	var (
@@ -99,7 +99,7 @@ func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http
 			if done {
 				return nil
 			}
-			// Hop-by-hop headers go no further on an early reply either
+			// Hop-by-hop headers go no further on an early response either
 			// (Go issue 81319).
 			dropHop(http.Header(header))
 			h := w.Header()
@@ -156,7 +156,7 @@ func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http
 	h := w.Header()
 	for k, v := range res.Header {
 		if len(h[k]) == 0 {
-			h[k] = v // shared, as the reply is ours
+			h[k] = v // shared, as the response is ours
 		} else {
 			h[k] = append(h[k], v...)
 		}
@@ -181,7 +181,7 @@ func (f *Forwarder) Forward(ctx context.Context, w http.ResponseWriter, in *http
 	err = f.copy(w, rc, res.Body)
 	_ = res.Body.Close()
 	if err != nil {
-		// Part of the reply is gone; the app must see a broken reply, not a
+		// Part of the response is gone; the app must see a broken response, not a
 		// short one that looks whole.
 		if in.Context().Value(http.ServerContextKey) != nil {
 			panic(http.ErrAbortHandler)
@@ -267,9 +267,9 @@ func hasToken(values []string, token string) bool {
 	return false
 }
 
-// streamed says the reply's headers go to the app before its body: events,
-// or a reply whose length is not known, may be slow to send their first
-// part. Any other reply's headers go with its first part, in one network
+// streamed says the response's headers go to the app before its body: events,
+// or a response whose length is not known, may be slow to send their first
+// part. Any other response's headers go with its first part, in one network
 // write instead of two, as with Go's ReverseProxy; a vendor slow to start
 // the body holds them back too.
 func streamed(res *http.Response) bool {
@@ -277,7 +277,7 @@ func streamed(res *http.Response) bool {
 	return kind == "text/event-stream" || res.ContentLength < 0
 }
 
-// copy writes the reply body, flushing after every part: the app gets each
+// copy writes the response body, flushing after every part: the app gets each
 // part as it comes, and the last one without waiting for the vendor to
 // close the body.
 func (f *Forwarder) copy(w io.Writer, rc *http.ResponseController, src io.Reader) error {

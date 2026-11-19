@@ -90,7 +90,7 @@ Feature: The Host header ingress
 
   Scenario: An app that offers HTTP/2 over TLS gets HTTP/2
     Given the proxy port uses TLS with a certificate the app trusts
-    And an app that trusts the test issuer and offers HTTP/2 and HTTP/1.1
+    And an app that trusts the test certificate authority and offers HTTP/2 and HTTP/1.1
     When the app sends "GET /v2/x" with ":authority api.talon.one" over TLS to the proxy
     Then the connection uses HTTP/2
     And the app gets the vendor's status, headers and body unchanged

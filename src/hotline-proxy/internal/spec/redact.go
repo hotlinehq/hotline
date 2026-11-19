@@ -11,11 +11,11 @@ import (
 type Call struct {
 	// Origin is the vendor address up to the path, such as
 	// https://api.talon.one or http://api.x.com:8080.
-	Origin       string
-	EscapedPath  string
-	RawQuery     string
-	Header       http.Header
-	ReplyHeaders http.Header
+	Origin          string
+	EscapedPath     string
+	RawQuery        string
+	Header          http.Header
+	ResponseHeaders http.Header
 }
 
 // Route is the spec's route for one call, found once by Find and handed to
@@ -36,10 +36,10 @@ func (s *Spec) Find(e Exchange) Route {
 // Template are empty when the spec has no route for the call: without a
 // route, the proxy cannot tell values from fixed parts of the path.
 type Redacted struct {
-	URLFull      string
-	Template     string
-	Header       map[string][]string
-	ReplyHeaders map[string][]string
+	URLFull         string
+	Template        string
+	Header          map[string][]string
+	ResponseHeaders map[string][]string
 }
 
 const redacted = "REDACTED"
@@ -51,8 +51,8 @@ const redacted = "REDACTED"
 func (s *Spec) Redact(found Route, c Call) Redacted {
 	r := found.r
 	redacted := Redacted{
-		Header:       s.headers(c.Header, r.marks["header"]),
-		ReplyHeaders: s.headers(c.ReplyHeaders, r.marks["reply"]),
+		Header:          s.headers(c.Header, r.marks["header"]),
+		ResponseHeaders: s.headers(c.ResponseHeaders, r.marks["response"]),
 	}
 	if r.segments == nil {
 		return redacted
@@ -77,7 +77,7 @@ func (s *Spec) Redact(found Route, c Call) Redacted {
 func Hide(s *Spec, found Route, c Call) Call {
 	r := found.r
 	c.Header = hideHeaders(s, c.Header, r.marks["header"])
-	c.ReplyHeaders = hideHeaders(s, c.ReplyHeaders, r.marks["reply"])
+	c.ResponseHeaders = hideHeaders(s, c.ResponseHeaders, r.marks["response"])
 	if s == nil {
 		return c
 	}

@@ -163,7 +163,7 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 		w.consoleClosed = true
 		return nil
 	})
-	sc.Step(`^the shop vendor sends half of its reply, and the rest (\d+) milliseconds later$`, func(after int) error {
+	sc.Step(`^the shop vendor sends half of its response, and the rest (\d+) milliseconds later$`, func(after int) error {
 		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Content-Length", "2048")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 1024))
@@ -222,7 +222,7 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the second line ends with "([^"]*)"$`, func(want string) error {
 		return w.consoleLine(1, ` `+regexp.QuoteMeta(want)+`$`)
 	})
-	sc.Step(`^the second line has the reply size (.+)$`, func(want string) error {
+	sc.Step(`^the second line has the response size (.+)$`, func(want string) error {
 		return w.consoleLine(1, ` `+regexp.QuoteMeta(want)+` `)
 	})
 	sc.Step(`^the second line has no check status$`, func() error {

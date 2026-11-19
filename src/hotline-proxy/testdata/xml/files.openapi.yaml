@@ -1,5 +1,5 @@
 # A vendor that speaks XML, shaped like S3: a list of files, deleting
-# several at once, and an error reply. Plus a shipment, to show the xml
+# several at once, and an error response. Plus a shipment, to show the xml
 # notes S3 doesn't use: an attribute and a list with an outer element.
 openapi: 3.1.0
 info: { title: Files, version: "1" }

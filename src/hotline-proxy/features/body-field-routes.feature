@@ -9,7 +9,7 @@ Feature: Routes picked by a body field
 
   The field is read once the whole body has arrived, from the copy of up to
   2 MiB the proxy keeps for its checks, at the top level of a form or JSON
-  body. That one value picks the route for the request check, the reply
+  body. That one value picks the route for the request check, the response
   check and the record.
 
   Rule: The action field picks the route
@@ -23,20 +23,20 @@ Feature: Routes picked by a body field
       And the record has no request results
 
       Examples:
-        | kind | body                                                 | template           |
-        | form | Action=Publish&TopicArn=order-paid&Message=hello     | /#Action=Publish   |
-        | form | Message=hello&Action=Publish&TopicArn=order-paid     | /#Action=Publish   |
-        | form | Action=ListTopics                                    | /#Action=ListTopics |
-        | json | {"Action":"Publish","TopicArn":"order-paid","Message":"hello"} | /#Action=Publish |
+        | kind | body                                                           | template            |
+        | form | Action=Publish&TopicArn=order-paid&Message=hello               | /#Action=Publish    |
+        | form | Message=hello&Action=Publish&TopicArn=order-paid               | /#Action=Publish    |
+        | form | Action=ListTopics                                              | /#Action=ListTopics |
+        | json | {"Action":"Publish","TopicArn":"order-paid","Message":"hello"} | /#Action=Publish    |
 
     Scenario: The body is checked against the route the field picked
       When the app sends the form body Action=Publish&TopicArn=order-paid
       Then the request results are body $.Message required
 
-    Scenario: The reply is checked against the same route
+    Scenario: The response is checked against the same route
       Given SNS answers 200 with the xml body <PublishResponse><PublishResult></PublishResult></PublishResponse>
       When the app sends the form body Action=Publish&TopicArn=order-paid&Message=hello
-      Then the reply results are body $.PublishResult.MessageId required
+      Then the response results are body $.PublishResult.MessageId required
 
     Scenario: The body reaches the vendor byte for byte
       When the app sends the form body Action=Publish&TopicArn=order-paid&Message=hello
@@ -48,15 +48,15 @@ Feature: Routes picked by a body field
       And url.full and url.template are left out
 
       Examples:
-        | call                                                    |
-        | the form body TopicArn=order-paid&Message=hello         |
-        | the form body Action=MadeUp                             |
-        | the form body Action=publish                            |
-        | the json body {"Request":{"Action":"Publish"}}          |
-        | the json body ["Action","Publish"]                      |
-        | the form body Action=Publish&Message=100%               |
-        | the text body Action=Publish                            |
-        | a form body of 3 MiB that starts with Action=Publish    |
+        | call                                                 |
+        | the form body TopicArn=order-paid&Message=hello      |
+        | the form body Action=MadeUp                          |
+        | the form body Action=publish                         |
+        | the json body {"Request":{"Action":"Publish"}}       |
+        | the json body ["Action","Publish"]                   |
+        | the form body Action=Publish&Message=100%            |
+        | the text body Action=Publish                         |
+        | a form body of 3 MiB that starts with Action=Publish |
 
   Rule: A spec names its routes' field, and only one way to name the action
 
@@ -66,10 +66,10 @@ Feature: Routes picked by a body field
       Then the config is refused with a message naming "<mark>" and "<route>"
 
       Examples:
-        | route            | marks                                                                     | mark                    |
-        | /#Action=Publish | no action mark                                                            | x-hotline-action-field  |
-        | /#Target=Publish | x-hotline-action-field: Action                                            | x-hotline-action-field  |
-        | /#Action=Publish | x-hotline-action-field: Action and x-hotline-action-header: X-Amz-Target  | x-hotline-action-header |
+        | route            | marks                                                                    | mark                    |
+        | /#Action=Publish | no action mark                                                           | x-hotline-action-field  |
+        | /#Target=Publish | x-hotline-action-field: Action                                           | x-hotline-action-field  |
+        | /#Action=Publish | x-hotline-action-field: Action and x-hotline-action-header: X-Amz-Target | x-hotline-action-header |
 
   Rule: The proxy keeps 2 MiB of a body for its checks
 

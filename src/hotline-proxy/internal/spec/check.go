@@ -41,37 +41,37 @@ type Exchange struct {
 	// Action is what the request body names as the action, from
 	// BodyAction, for a spec that picks routes by a body field.
 	Action string
-	// Status is 0 when no reply came.
-	Status      int
-	ReplyHeader http.Header
-	ReplyBody   Body
+	// Status is 0 when no response came.
+	Status         int
+	ResponseHeader http.Header
+	ResponseBody   Body
 }
 
 // Checked is what the checks found on each side, and why some checks were
 // left out, if any were.
 type Checked struct {
-	Request []Result
-	Reply   []Result
-	Skipped string
+	Request  []Result
+	Response []Result
+	Skipped  string
 	// Copied are the marked fields of both bodies.
 	Copied []Field
 }
 
 // checks are what the spec says about one route: its parameters, who may
-// call it, its body and its replies.
+// call it, its body and its responses.
 type checks struct {
 	params []param
 	// security lists the ways to log in, any one of which is enough. Nil
 	// or a way with no credentials means none is needed.
 	security [][]credential
 	body     *bodySpec
-	// replies are by status: "200", "2XX" or "default". Nil when the spec
-	// lists none, so replies are not checked.
-	replies map[string]*reply
+	// responses are by status: "200", "2XX" or "default". Nil when the spec
+	// lists none, so responses are not checked.
+	responses map[string]*response
 	// request checks the parameters, login and body against the schemas.
 	request RequestCheck
 	// marks hold the x-hotline-redact marks by where the value lives
-	// ("path", "query", "header" and "reply") and then by name. Header
+	// ("path", "query", "header" and "response") and then by name. Header
 	// names are lower case.
 	marks map[string]map[string]mark
 }
@@ -114,7 +114,7 @@ type content struct {
 	fields []field
 }
 
-type reply struct {
+type response struct {
 	headers []param
 	body    *bodySpec
 	// check checks the headers and body against the schemas.
@@ -132,15 +132,15 @@ const (
 // no route is not checked.
 func (s *Spec) Check(e Exchange) Checked {
 	found := s.Find(e)
-	return s.CheckRequest(found, e).With(s.CheckReply(found, e))
+	return s.CheckRequest(found, e).With(s.CheckResponse(found, e))
 }
 
-// With joins the check of a request with the check of its reply. When both
+// With joins the check of a request with the check of its response. When both
 // left part out, the request's reason is kept.
-func (c Checked) With(reply Checked) Checked {
-	c.Reply = reply.Reply
-	c.Copied = append(c.Copied, reply.Copied...)
-	c.Skipped = cmp.Or(c.Skipped, reply.Skipped)
+func (c Checked) With(response Checked) Checked {
+	c.Response = response.Response
+	c.Copied = append(c.Copied, response.Copied...)
+	c.Skipped = cmp.Or(c.Skipped, response.Skipped)
 	return c
 }
 
@@ -172,42 +172,42 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	return c
 }
 
-// CheckReply checks the reply side of a call, on the route Find found: its
-// status, headers and body. It can run as soon as the reply has arrived
+// CheckResponse checks the response side of a call, on the route Find found: its
+// status, headers and body. It can run as soon as the response has arrived
 // (Peter, 2026-10-31).
-func (s *Spec) CheckReply(found Route, e Exchange) Checked {
+func (s *Spec) CheckResponse(found Route, e Exchange) Checked {
 	r := found.r
 	if r.segments == nil {
 		return Checked{Skipped: "no_spec_route"}
 	}
 	var c Checked
-	if e.Status == 0 || r.checks.replies == nil {
+	if e.Status == 0 || r.checks.responses == nil {
 		return c
 	}
-	rp := r.checks.reply(e.Status)
+	rp := r.checks.response(e.Status)
 	if rp == nil {
-		c.Reply = []Result{{Part: partStatus, Place: strconv.Itoa(e.Status), Rule: "not_in_spec"}}
+		c.Response = []Result{{Part: partStatus, Place: strconv.Itoa(e.Status), Rule: "not_in_spec"}}
 		return c
 	}
-	c.Reply = rp.check.Meta(e.ReplyHeader)
-	if mt, _, _ := mime.ParseMediaType(e.ReplyHeader.Get("Content-Type")); mt == "text/event-stream" {
+	c.Response = rp.check.Meta(e.ResponseHeader)
+	if mt, _, _ := mime.ParseMediaType(e.ResponseHeader.Get("Content-Type")); mt == "text/event-stream" {
 		c.Skipped = "streaming"
 		return c
 	}
-	results, skipped, content, reads := rp.body.gate(e.ReplyHeader.Get("Content-Type"), e.ReplyBody)
-	c.Reply = append(c.Reply, results...)
+	results, skipped, content, reads := rp.body.gate(e.ResponseHeader.Get("Content-Type"), e.ResponseBody)
+	c.Response = append(c.Response, results...)
 	c.Skipped = skipped
 	if reads != 0 {
-		results, copied := rp.check.Body(content, reads, e.ReplyBody.Data)
-		c.Reply = append(c.Reply, results...)
+		results, copied := rp.check.Body(content, reads, e.ResponseBody.Data)
+		c.Response = append(c.Response, results...)
 		c.Copied = copied
 	}
 	return c
 }
 
-func (c *checks) reply(status int) *reply {
+func (c *checks) response(status int) *response {
 	for _, key := range []string{strconv.Itoa(status), fmt.Sprintf("%dXX", status/100), "default"} {
-		if rp, ok := c.replies[key]; ok {
+		if rp, ok := c.responses[key]; ok {
 			return rp
 		}
 	}

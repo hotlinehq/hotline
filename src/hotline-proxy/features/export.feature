@@ -49,9 +49,9 @@ Feature: Sending OpenTelemetry data
     Then the totals are <kind>
 
     Examples:
-      | sets                       | kind       |
-      | does not set temporality   | cumulative |
-      | sets temporality to delta  | delta      |
+      | sets                      | kind       |
+      | does not set temporality  | cumulative |
+      | sets temporality to delta | delta      |
 
   Scenario: How often each exporter sends, by default
     Counts go out once a minute: one data point a minute is what Grafana
@@ -96,11 +96,11 @@ Feature: Sending OpenTelemetry data
   Scenario: A full queue refuses the newest record
     A full queue keeps what waits and refuses what is new, for records and
     spans alike (Peter, 2026-11-09). Drops are counted in a warning log
-    line, at most once a minute per destination (Peter, 2026-10-28).
-    Given an exporter with queueSize 3 whose destination is busy with the first record
+    line, at most once a minute per exporter (Peter, 2026-10-28).
+    Given an exporter with queueSize 3 whose exporter is busy with the first record
     When 4 more calls end
-    Then the destination gets records 1, 2, 3 and 4
-    And the proxy logs a warning that 1 record was dropped for that destination
+    Then the exporter gets records 1, 2, 3 and 4
+    And the proxy logs a warning that 1 record was dropped for that exporter
     And no call was blocked or slowed
 
   Scenario: A full queue refuses a whole call's spans
@@ -111,15 +111,15 @@ Feature: Sending OpenTelemetry data
     Given an exporter with queueSize 20 that sends only on shutdown
     When 2 calls end
     And the proxy shuts down
-    Then the destination gets every span of the first call
+    Then the exporter gets every span of the first call
     And it gets no span of the second call
-    And the proxy logs a warning that spans of 1 call were dropped for that destination
+    And the proxy logs a warning that spans of 1 call were dropped for that exporter
 
   Scenario: A call with more spans than the queue holds is dropped
     Given an exporter with queueSize 5 that sends only on shutdown
     When a call ends
     And the proxy shuts down
-    Then the destination gets no span
+    Then the exporter gets no span
 
   Scenario: Flushing on shutdown
     Given records waiting in the queue

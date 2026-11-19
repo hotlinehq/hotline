@@ -21,7 +21,7 @@ import (
 // HOTLINE_FEATURES narrows the run while working on one part, to save the
 // minute and a half the whole suite takes: a feature file, or one scenario
 // by its line, several separated by commas. For example
-// HOTLINE_FEATURES=features/intercept.feature:179 go test -run TestFeatures .
+// HOTLINE_FEATURES=features/transparent.feature:179 go test -run TestFeatures .
 // Empty, as in CI, runs every feature.
 func TestFeatures(t *testing.T) {
 	paths := []string{"features"}
@@ -60,7 +60,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 			// Every goroutine the proxy started must be gone once it has
 			// shut down.
 			// net/http keeps a closed connection's goroutine for half a
-			// second, to let the other side read the reply; it is not ours.
+			// second, to let the other side read the response; it is not ours.
 			opts := []goleak.Option{before, goleak.IgnoreAnyFunction("net/http.(*conn).closeWriteAndWait")}
 			err = goleak.Find(opts...)
 			// A stop with no time left leaves the check of the large body
@@ -102,7 +102,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	guardSteps(sc, w)
 	hostHeaderSteps(sc, w)
 	connectSteps(sc, w)
-	interceptSteps(sc, w)
+	transparentSteps(sc, w)
 	captureSteps(sc, w)
 	captureSocketSteps(sc, w)
 	halfCloseSteps(sc, w)

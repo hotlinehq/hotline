@@ -19,7 +19,7 @@ listeners:
       ech: { relay: [outer.example.net] }                            # ECH outer names relayed untouched, empty by default
 ```
 
-A missing address, a missing cert or a cert name that is not in `certs` stops the start. Calls here say `hotline.ingress=transparent`. Adding or moving the listener needs a restart; a renewed issuer is picked up by the config reload.
+A missing address, a missing cert or a cert name that is not in `certs` stops the start. Calls here say `hotline.ingress=transparent`. Adding or moving the listener needs a restart; a renewed certificate authority is picked up by the config reload.
 
 ## How a connection is handled
 
@@ -28,7 +28,7 @@ A missing address, a missing cert or a cert name that is not in `certs` stops th
 3. ECH with an outer name in `ech.relay`: relayed untouched. Other ECH: the proxy answers as the outer name and offers no ECH keys, so a client that follows the ECH standard retries without it. The first try gets a minimal record `error.type=ech_rejected`.
 4. A site name in `passthrough`: relayed untouched, dialed by name (never by the address the program chose), through the internal address guard. The record is minimal with `hotline.intercept.mode=passthrough` and `hotline.intercept.reason` (`passthrough` or `ech`), written when the relay ends.
 5. No site name: the host is the original destination IP (on a CONNECT or captured tunnel, the address in the CONNECT). It is checked against `passthrough` like a site name, so a listed host is relayed even when the handshake names no site (Peter, 2026-11-12). If there is no such address, closed with `error.type=no_sni`.
-6. Otherwise the proxy shows a certificate for the host, signed by the named issuer, and hands the connection to the same server as a CONNECT tunnel. Each call is `hotline.ingress=intercept`; a `Host` for another host gets 421.
+6. Otherwise the proxy shows a certificate for the host, signed by the named certificate authority, and hands the connection to the same server as a CONNECT tunnel. Each call is `hotline.ingress=intercept`; a `Host` for another host gets 421.
 
 The target port is the original port when the proxy can read it, else 443.
 
@@ -42,4 +42,4 @@ The port is an ordinary TCP port that expects TLS, so a program can also be sent
 
 ## Not built here
 
-The firewall rules (the GitHub Action and the setup guide do that), IPv6 original destinations, and a certificate expiry gauge for this issuer.
+The firewall rules (the GitHub Action and the setup guide do that), IPv6 original destinations, and a certificate expiry gauge for this certificate authority.

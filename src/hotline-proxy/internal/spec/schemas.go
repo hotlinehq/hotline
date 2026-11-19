@@ -1,7 +1,7 @@
 package spec
 
 // What spec hands a schema engine: the shared schemas, and the plain
-// description of each route and reply, with every OpenAPI $ref already
+// description of each route and response, with every OpenAPI $ref already
 // turned into a JSON Schema one.
 
 import (
@@ -68,8 +68,8 @@ func (b *builder) requestCheck(c *checks, segments []string, where string) Reque
 	return check
 }
 
-// responseCheck builds the check of one reply.
-func (b *builder) responseCheck(rp *reply, where string) ResponseCheck {
+// responseCheck builds the check of one response.
+func (b *builder) responseCheck(rp *response, where string) ResponseCheck {
 	if b.engine == nil {
 		return nil
 	}

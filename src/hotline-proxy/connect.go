@@ -63,7 +63,7 @@ func (p process) attributes() []attribute.KeyValue {
 
 // connect opens a tunnel for an app. The proxy answers 200, then sets up
 // TLS inside the tunnel itself, showing a certificate for the host the
-// tunnel names, signed by the interception issuer. A tunnel whose first
+// tunnel names, signed by the interception certificate authority. A tunnel whose first
 // byte is not TLS carries plain HTTP. Either way the tunnel is then handed
 // to the HTTP server like any other app connection, and each call in it is
 // a call on the CONNECT ingress.
@@ -142,10 +142,10 @@ func open(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 }
 
 // stream carries a tunnel in a CONNECT's HTTP/2 stream: the app's bytes
-// come in the request body and the proxy's go out in the reply. Each
+// come in the request body and the proxy's go out in the response. Each
 // direction is a pipe of its own, so the app ending its body ends only what
-// the tunnel reads, and the reply goes on. The other way round is not
-// possible: the reply ends only when the whole stream does, after which
+// the tunnel reads, and the response goes on. The other way round is not
+// possible: the response ends only when the whole stream does, after which
 // the body cannot be read. So the stream ends once the tunnel is closed.
 func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 	w.WriteHeader(http.StatusOK)
@@ -161,7 +161,7 @@ func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) 
 	go func() {
 		defer close(done)
 		_, _ = io.Copy(flushWriter{w: w, rc: rc}, toApp)
-		// A reply the app no longer takes fails the tunnel's next write.
+		// A response the app no longer takes fails the tunnel's next write.
 		_ = toApp.Close()
 	}()
 	// The pipes have no address of their own: calls inside the tunnel come
@@ -172,7 +172,7 @@ func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) 
 
 // streamTunnel is a tunnel over an HTTP/2 stream, with the app's address.
 // It reads from one pipe and writes to another, so the app can stop
-// sending while the reply goes on.
+// sending while the response goes on.
 type streamTunnel struct {
 	in, out net.Conn
 	remote  net.Addr
@@ -204,7 +204,7 @@ func (f flushWriter) Write(p []byte) (int, error) {
 }
 
 // tunnelFailed records a tunnel in which TLS failed to set up, with what
-// the CONNECT said, so the record tells which app is missing the issuer.
+// the CONNECT said, so the record tells which app is missing the certificate authority.
 func (h *handler) tunnelFailed(r *http.Request, start time.Time, cfg *config.Config, t *tunnel, a *appConn, err error) {
 	h.logger.Debug("app TLS setup inside a tunnel failed", "host", t.host, "reason", err.Error())
 	h.own.tlsFailed(err, attribute.String("hotline.ingress", "connect"))
@@ -268,16 +268,16 @@ const (
 )
 
 // interceptor makes the certificates the proxy shows apps inside tunnels:
-// one per vendor host, signed by the interception issuer, kept in memory
-// only and reused until shortly before it ends or the issuer changes.
+// one per vendor host, signed by the interception certificate authority, kept in memory
+// only and reused until shortly before it ends or the certificate authority changes.
 type interceptor struct {
-	issuer *certHolder
-	clock  Clock
-	logger *slog.Logger
-	seed   maphash.Seed
+	authority *certHolder
+	clock     Clock
+	logger    *slog.Logger
+	seed      maphash.Seed
 
 	mu sync.Mutex
-	// signer is the issuer the kept certificates were signed with.
+	// signer is the certificate authority the kept certificates were signed with.
 	signer *tls.Certificate
 	leaves map[uint64]leafSlot
 }
@@ -290,24 +290,24 @@ type leafSlot struct {
 
 func newInterceptor(t *config.TLS, clock Clock, logger *slog.Logger) *interceptor {
 	i := &interceptor{
-		issuer: newCertHolder(t, logger, "new interception issuer in use"),
-		clock:  clock,
-		logger: logger,
-		seed:   maphash.MakeSeed(),
-		signer: t.Certificate,
-		leaves: map[uint64]leafSlot{},
+		authority: newCertHolder(t, logger, "new interception certificate authority in use"),
+		clock:     clock,
+		logger:    logger,
+		seed:      maphash.MakeSeed(),
+		signer:    t.Certificate,
+		leaves:    map[uint64]leafSlot{},
 	}
 	i.checkLife(t.Certificate)
 	return i
 }
 
-// checkLife warns about an issuer valid for more than a year: whoever
+// checkLife warns about a certificate authority valid for more than a year: whoever
 // holds its key can pose as any website to every app that trusts it, so
 // it is best kept short-lived.
-func (i *interceptor) checkLife(issuer *tls.Certificate) {
-	if issuer.Leaf.NotAfter.Sub(issuer.Leaf.NotBefore) > 365*24*time.Hour {
-		i.logger.Warn("the interception issuer is valid for more than a year; a shorter one limits the harm if its key leaks",
-			"not_after", issuer.Leaf.NotAfter)
+func (i *interceptor) checkLife(authority *tls.Certificate) {
+	if authority.Leaf.NotAfter.Sub(authority.Leaf.NotBefore) > 365*24*time.Hour {
+		i.logger.Warn("the interception certificate authority is valid for more than a year; a shorter one limits the harm if its key leaks",
+			"not_after", authority.Leaf.NotAfter)
 	}
 }
 
@@ -325,19 +325,19 @@ func (i *interceptor) tlsConfig(host string) *tls.Config {
 
 // leaf is the certificate for host, made on first use.
 func (i *interceptor) leaf(host string) (*tls.Certificate, error) {
-	issuer := i.issuer.get()
+	authority := i.authority.get()
 	now := i.clock.Now()
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if issuer != i.signer {
-		i.checkLife(issuer)
-		i.signer, i.leaves = issuer, map[uint64]leafSlot{}
+	if authority != i.signer {
+		i.checkLife(authority)
+		i.signer, i.leaves = authority, map[uint64]leafSlot{}
 	}
 	slot := maphash.String(i.seed, host) % leafSlots
 	if kept := i.leaves[slot]; kept.host == host && now.Before(kept.cert.Leaf.NotAfter.Add(-leafRenew)) {
 		return kept.cert, nil
 	}
-	cert, err := sign(issuer, host, now)
+	cert, err := sign(authority, host, now)
 	if err == nil {
 		i.leaves[slot] = leafSlot{host: host, cert: cert}
 	}
@@ -345,16 +345,16 @@ func (i *interceptor) leaf(host string) (*tls.Certificate, error) {
 }
 
 // sign makes a certificate for host, valid from an hour ago, to allow for
-// clocks that differ a little, for leafLife, and never beyond the issuer.
+// clocks that differ a little, for leafLife, and never beyond the certificate authority.
 // Its key is new and never leaves memory.
-func sign(issuer *tls.Certificate, host string, now time.Time) (*tls.Certificate, error) {
+func sign(authority *tls.Certificate, host string, now time.Time) (*tls.Certificate, error) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader) // crypto/rand never fails
 	serial := make([]byte, 16)
 	_, _ = rand.Read(serial) // crypto/rand never fails
 	tmpl := &x509.Certificate{
 		SerialNumber: new(big.Int).SetBytes(serial),
 		NotBefore:    now.Add(-time.Hour),
-		NotAfter:     slices.MinFunc([]time.Time{now.Add(leafLife), issuer.Leaf.NotAfter}, time.Time.Compare),
+		NotAfter:     slices.MinFunc([]time.Time{now.Add(leafLife), authority.Leaf.NotAfter}, time.Time.Compare),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -363,7 +363,7 @@ func sign(issuer *tls.Certificate, host string, now time.Time) (*tls.Certificate
 	} else {
 		tmpl.DNSNames = []string{host}
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, issuer.Leaf, &key.PublicKey, issuer.PrivateKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, authority.Leaf, &key.PublicKey, authority.PrivateKey)
 	leaf, _ := x509.ParseCertificate(der) // nil when signing failed
-	return &tls.Certificate{Certificate: append([][]byte{der}, issuer.Certificate...), PrivateKey: key, Leaf: leaf}, err
+	return &tls.Certificate{Certificate: append([][]byte{der}, authority.Certificate...), PrivateKey: key, Leaf: leaf}, err
 }

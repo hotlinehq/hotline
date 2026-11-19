@@ -1520,7 +1520,7 @@ components:
                 $ref: '#/components/schemas/QueueAttributeName'
             type: array
         AwsJsonError:
-            description: 'The body of every AWS JSON error reply: __type names the error.'
+            description: 'The body of every AWS JSON error response: __type names the error.'
             properties:
                 __type:
                     type: string

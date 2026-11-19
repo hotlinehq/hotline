@@ -1,6 +1,6 @@
-# Intercept ingress decisions (Peter, 2026-11-08)
+# Transparent ingress decisions (Peter, 2026-11-08)
 
-Full wording in [docs/proxy-intercept.md](../proxy-intercept.md).
+Full wording in [docs/proxy-transparent.md](../proxy-transparent.md).
 
 1. A port of its own, `listen.intercept`, with `address`, `issuer` (a name from `issuers`), `integration` (default not-passed), `passthrough` and `ech.relay` (both empty by default).
 2. The target is the site name in the handshake, else the original destination IP; port is the original port, else 443.

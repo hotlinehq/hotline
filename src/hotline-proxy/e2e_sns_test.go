@@ -52,7 +52,7 @@ func snsScenario(sc *godog.ScenarioContext, p *program, app *exampleApp) {
 		return ctx, err
 	})
 	sc.Step(`^a fake SNS whose order-paid topic feeds the invoices queue$`, func() error {
-		sns = newFakeSNS(p.issuer.leaf("localhost", time.Now().Add(24*time.Hour), false))
+		sns = newFakeSNS(p.authority.leaf("localhost", time.Now().Add(24*time.Hour), false))
 		return nil
 	})
 	sc.Step(`^the hotline-proxy program runs with the shop's hotline-proxy.yaml$`, func() error {

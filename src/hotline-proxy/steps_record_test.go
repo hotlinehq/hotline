@@ -123,12 +123,12 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a call without Proxy-Authorization, a (\d+) byte request body and a (\d+) byte reply$`, func(sent, reply int) error {
+	sc.Step(`^a call without Proxy-Authorization, a (\d+) byte request body and a (\d+) byte response$`, func(sent, response int) error {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI("")))
 		w.appID = ""
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
-			_, _ = rw.Write([]byte(strings.Repeat("r", reply)))
+			_, _ = rw.Write([]byte(strings.Repeat("r", response)))
 		})
 		w.pending = &request{method: "PUT", target: w.target, length: sent, body: strings.NewReader(strings.Repeat("q", sent))}
 		return nil
@@ -243,7 +243,7 @@ components:
 		w.appTook = time.Since(started)
 		return err
 	})
-	sc.Step(`^the app gets the reply without waiting for the record$`, func() error {
+	sc.Step(`^the app gets the response without waiting for the record$`, func() error {
 		if w.resp == nil || w.appTook > time.Second {
 			return failf("the app got %v after %v", w.resp, w.appTook)
 		}

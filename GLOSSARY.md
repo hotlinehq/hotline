@@ -35,12 +35,12 @@ _Avoid_: unknown, default integration, anonymous
 ## Calls and how apps reach the proxy
 
 **Call**:
-One request from an app to a vendor and the vendor's reply, as it passes through the proxy.
-_Avoid_: request (that is only the app's half), transaction, exchange (the name of the spec package's type)
+One request from an app to a vendor and the vendor's response, as it passes through the proxy.
+_Avoid_: request (that is only the app's half; the vendor's half is the response), transaction, exchange (the name of the spec package's type)
 
-**Reply**:
-The vendor's answer to a call. OpenTelemetry attribute names keep their standard word, `response`.
-_Avoid_: response (in prose), answer
+**Response**:
+The vendor's answer to a call, the same word HTTP, Go, OpenTelemetry and OpenAPI use.
+_Avoid_: reply, answer
 
 **Ingress**:
 A way an app reaches the proxy. There are six: forward proxy, vendor URL in path, Host header, CONNECT, transparent, and capture.
@@ -64,7 +64,7 @@ _Avoid_: tunnel ingress, HTTPS proxy
 
 **Transparent ingress**:
 Connections that a firewall or network rule sends to the proxy without the app knowing, which carry no `CONNECT`. Handled on a listener with the `transparent` part.
-_Avoid_: intercept ingress, `listen.intercept` (the old name), transparent redirect (the older plain-HTTP form of it)
+_Avoid_: intercept ingress, `listen.intercept` and the Go type `Intercept` (the old names), transparent redirect (the older plain-HTTP form of it)
 
 **Capture ingress**:
 Connections that the macOS helper, Hotline Capture, picks out of chosen Mac apps and hands to the proxy as a `CONNECT` over a socket file, with the capture headers. Handled on a listener with the `capture` part.
@@ -114,7 +114,7 @@ _Avoid_: management port, metrics port
 
 **Cert**:
 A named certificate and key pair under `certs`. Where it is used, `mode` says whether it is shown as it is (`serve`) or used as a certificate authority (`sign`): a certificate whose key signs a new certificate for each vendor name, which the apps must trust.
-_Avoid_: issuer (the old section name), CA cert, keypair
+_Avoid_: issuer, in both its meanings: our signing pair (the old `issuers` section) and the authority that signed a vendor's certificate. Say "certificate authority", with "our" or "the vendor's" in front. Also avoid: CA cert, keypair
 
 **Config reload**:
 Reading the config, specs, overlays, keys and certs again while running, every few seconds or at once on a `HUP` signal, without dropping calls.
@@ -122,7 +122,7 @@ _Avoid_: hot reload, refresh, restart
 
 **Own telemetry**:
 Numbers about the proxy itself (calls in flight, queue lengths, drops), sent only when the `telemetry` section names a collector.
-_Avoid_: proxy metrics (the `hotline.requests` counter is about calls, not the proxy), internal metrics, self-monitoring
+_Avoid_: proxy metrics (the `hotline.requests` counter is about calls, not the proxy), internal metrics, self-monitoring, "the `telemetry` destination" (say "the `telemetry` section": it is not an exporter)
 
 ## Checking calls against the vendor's spec
 
@@ -147,11 +147,11 @@ For vendors that send every call to the same path, such as AWS's older APIs, the
 _Avoid_: operation, command
 
 **Spec check**:
-Checking one side of a call, the request or the reply, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, reply headers, reply body.
+Checking one side of a call, the request or the response, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, response headers, response body.
 _Avoid_: validation (used for the config, by `hotline-proxy validate`), verification (used for the ledger), schema check
 
 **Body copy**:
-The copy of a request or reply body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
+The copy of a request or response body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
 _Avoid_: buffer, captured body
 
 **Spec check line**:
@@ -198,7 +198,7 @@ _Avoid_: debug mode, raw dump, full record (that is a different thing)
 
 **Exporter**:
 One place that records, traces and counts are sent to, listed under `exporters`: `otlp`, `file` or `console`. Each has its own queue, so a slow one never holds up the calls or the others.
-_Avoid_: sink, destination (in prose), output, backend, collector (that is the server an `otlp` exporter sends to)
+_Avoid_: sink (the group of all exporters is `export.Exporters`), destination (in prose and in code names, such as `fileDestination`), output, backend, collector (that is the server an `otlp` exporter sends to)
 
 ## Evidence ledger
 

@@ -8,22 +8,22 @@ Feature: Choosing headers for the record
     Then the record has "<attribute>"
 
     Examples:
-      | header                     | attribute                                          |
+      | header                         | attribute                                           |
       | Content-Type: application/json | http.request.header.content-type = application/json |
-      | Content-Length: 24         | http.request.header.content-length = 24            |
-      | Date: Tue, 27 Oct 2026     | http.response.header.date = Tue, 27 Oct 2026       |
-      | Retry-After: 5             | http.response.header.retry-after = 5               |
-      | Request-Id: req_1          | http.response.header.request-id = req_1            |
-      | X-Request-Id: req-5521     | http.response.header.x-request-id = req-5521       |
-      | RateLimit-Remaining: 9     | http.response.header.ratelimit-remaining = 9       |
-      | Stripe-Version: 2024-06-20 | http.request.header.stripe-version = 2024-06-20    |
+      | Content-Length: 24             | http.request.header.content-length = 24             |
+      | Date: Tue, 27 Oct 2026         | http.response.header.date = Tue, 27 Oct 2026        |
+      | Retry-After: 5                 | http.response.header.retry-after = 5                |
+      | Request-Id: req_1              | http.response.header.request-id = req_1             |
+      | X-Request-Id: req-5521         | http.response.header.x-request-id = req-5521        |
+      | RateLimit-Remaining: 9         | http.response.header.ratelimit-remaining = 9        |
+      | Stripe-Version: 2024-06-20     | http.request.header.stripe-version = 2024-06-20     |
 
   Scenario: A header value that is not UTF-8 is recorded with the broken byte replaced
     OTLP text must be UTF-8, and a collector refuses a send that holds
     anything else, losing every record in it. So each byte that is not
     UTF-8 becomes the replacement character (found by fuzzing, 2026-11-18).
     Given the Stripe spec
-    When a reply carries Request-Id with the byte FF in it, which is not UTF-8
+    When a response carries Request-Id with the byte FF in it, which is not UTF-8
     Then the record has "http.response.header.request-id = req�1"
 
   Scenario: A header marked true keeps its name only
@@ -38,9 +38,9 @@ Feature: Choosing headers for the record
     When a call carries "X-Debug-Token: abc"
     Then the record has "http.request.header.x-debug-token = REDACTED"
 
-  Scenario: A reply header marked true behind a $ref keeps its name only
-    Given a spec whose reply header Request-Id is a $ref to a header marked x-hotline-redact true
-    When a reply carries "Request-Id: user@example.com"
+  Scenario: A response header marked true behind a $ref keeps its name only
+    Given a spec whose response header Request-Id is a $ref to a header marked x-hotline-redact true
+    When a response carries "Request-Id: user@example.com"
     Then the record has "http.response.header.request-id = REDACTED"
 
   Scenario: Other headers are left out
@@ -50,7 +50,7 @@ Feature: Choosing headers for the record
 
   Scenario: Several values
     Given the Stripe spec
-    When a reply carries "RateLimit-Policy" twice
+    When a response carries "RateLimit-Policy" twice
     Then the record has both values as a list
 
   Scenario Outline: Secrets are never recorded
@@ -59,10 +59,10 @@ Feature: Choosing headers for the record
     Then the record has no value for it
 
     Examples:
-      | spec                                                   | header                     |
-      | a spec that marks Authorization x-hotline-redact false | Authorization: Bearer sk_1 |
-      | the Stripe spec                                        | authorization: Bearer sk_1 |
-      | the Stripe spec                                        | Proxy-Authorization: Basic dGFsb24= |
-      | the Stripe spec                                        | Cookie: sid=1              |
-      | the Stripe spec                                        | Set-Cookie: sid=1          |
-      | a spec whose security section names X-Api-Key, also marked x-hotline-redact false | X-Api-Key: k1 |
+      | spec                                                                              | header                              |
+      | a spec that marks Authorization x-hotline-redact false                            | Authorization: Bearer sk_1          |
+      | the Stripe spec                                                                   | authorization: Bearer sk_1          |
+      | the Stripe spec                                                                   | Proxy-Authorization: Basic dGFsb24= |
+      | the Stripe spec                                                                   | Cookie: sid=1                       |
+      | the Stripe spec                                                                   | Set-Cookie: sid=1                   |
+      | a spec whose security section names X-Api-Key, also marked x-hotline-redact false | X-Api-Key: k1                       |

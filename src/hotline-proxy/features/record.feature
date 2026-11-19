@@ -1,5 +1,5 @@
 Feature: Building the request record
-  One OpenTelemetry log record per call, built after the reply has gone
+  One OpenTelemetry log record per call, built after the response has gone
   back to the app. Field names follow proxy-spec.md section 4.1.
 
   Scenario: Full record for a known integration
@@ -55,13 +55,13 @@ Feature: Building the request record
   Scenario: A minimal record counts the bytes that passed in both bodies
     Body sizes are on minimal records too, counted as the bodies stream
     through, never kept (Peter, 2026-11-08).
-    Given a call without Proxy-Authorization, a 40 byte request body and a 120 byte reply
+    Given a call without Proxy-Authorization, a 40 byte request body and a 120 byte response
     When the call ends
     Then http.request.body.size is 40
     And http.response.body.size is 120
 
-  Scenario: A minimal record of a call and a reply with no body has size 0
-    Given a call without Proxy-Authorization, a 0 byte request body and a 0 byte reply
+  Scenario: A minimal record of a call and a response with no body has size 0
+    Given a call without Proxy-Authorization, a 0 byte request body and a 0 byte response
     When the call ends
     Then http.request.body.size is 0
     And http.response.body.size is 0
@@ -73,9 +73,9 @@ Feature: Building the request record
     And hotline.integration.id is <id>
 
     Examples:
-      | call                                                | id           |
-      | a call without Proxy-Authorization                  | not-passed   |
-      | a call with the unknown ID talon-shop-x             | not-passed   |
+      | call                                                         | id           |
+      | a call without Proxy-Authorization                           | not-passed   |
+      | a call with the unknown ID talon-shop-x                      | not-passed   |
       | a call from talon-shop-a to api.stripe.com, outside its apis | talon-shop-a |
 
   Scenario: A minimal record leaves out url.full unless it is switched on
@@ -172,4 +172,4 @@ Feature: Building the request record
   Scenario: The record never slows the call
     Given an OTLP receiver that takes 2 seconds to take each export
     When an app makes a call
-    Then the app gets the reply without waiting for the record
+    Then the app gets the response without waiting for the record

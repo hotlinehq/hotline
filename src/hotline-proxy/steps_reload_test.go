@@ -139,7 +139,7 @@ func (w *world) changeConfig(change string) error {
 	case "there is one more exporter":
 		w.downEndpoints = append(w.downEndpoints, "http://"+freePort())
 	case "the tls part is added":
-		cert := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		cert := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(cert, cert)
 		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 	case "the telemetry section turns off go.*":
@@ -147,12 +147,12 @@ func (w *world) changeConfig(change string) error {
 	case "telemetry.pprof is turned on":
 		w.telemetryPprof = true
 	case "the transparent listener is added":
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
+		w.useAuthority(newAuthority())
+		w.transparent = &transparentConf{address: freePort(), authority: "customer"}
 	case "the connect part is added":
-		w.useInterceptionIssuer(newIssuer())
+		w.useInterceptionAuthority(newAuthority())
 	case "the capture listener is added":
-		w.useInterceptionIssuer(newIssuer())
+		w.useInterceptionAuthority(newAuthority())
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	default:
 		return godog.ErrPending

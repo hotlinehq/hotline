@@ -71,7 +71,7 @@ type httpTransport struct {
 	urls    [2]string
 	headers map[string]string
 	agent   string
-	// gzip says the destination gzips: each sender then zips with its
+	// gzip says the exporter gzips: each sender then zips with its
 	// own zipper, from newZipper.
 	gzip bool
 }
@@ -85,7 +85,7 @@ type zipper struct {
 	w   *gzip.Writer
 }
 
-// newZipper is a zipper for one sender, or nil when the destination does
+// newZipper is a zipper for one sender, or nil when the exporter does
 // not gzip.
 func (t *httpTransport) newZipper() *zipper {
 	if !t.gzip {
@@ -119,7 +119,7 @@ func newHTTPTransport(e config.Exporter, tlsConfig *tls.Config, version string) 
 	return t
 }
 
-// httpClient is the HTTP client of one destination: HTTP/2 over TLS when
+// httpClient is the HTTP client of one exporter: HTTP/2 over TLS when
 // the collector offers it, and h2c to a plain endpoint when set.
 func httpClient(e config.Exporter, tlsConfig *tls.Config) *http.Client {
 	rt := &http.Transport{
@@ -158,7 +158,7 @@ func (t *httpTransport) post(ctx context.Context, k kind, z *zipper, body []byte
 		// The collector could not be reached: it may be starting.
 		return busy{err: fmt.Errorf("%w: %w", ErrRefused, err)}
 	}
-	// Reading the reply keeps the connection for the next send. Its
+	// Reading the response keeps the connection for the next send. Its
 	// partial success, if any, is not acted on.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()

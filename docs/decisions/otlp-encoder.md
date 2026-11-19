@@ -2,7 +2,7 @@
 
 Scope, spike and numbers: [docs/otlp-encoder-scope.md](../otlp-encoder-scope.md). How it is sent: [docs/proxy-otlp-protocols.md](../proxy-otlp-protocols.md), points 10 to 16.
 
-1. The call record and the call's spans are written as standard OTLP protobuf by the proxy itself, once for every destination. The OpenTelemetry log and trace exporters are gone.
+1. The call record and the call's spans are written as standard OTLP protobuf by the proxy itself, once for every exporter. The OpenTelemetry log and trace exporters are gone.
 2. The counter `hotline.requests` and the proxy's own numbers stay on the OpenTelemetry metrics library.
 3. The bar was at least 15% less proxy processor time on the small call at 5000 a second, and no worse on large calls. The spike met it.
 4. gzip at its fastest level. `klauspost/compress` saved too little to add a module.

@@ -32,20 +32,20 @@ Feature: AWS SQS through the proxy
       And url.full and url.template are left out
 
       Examples:
-        | header                                 |
-        | without X-Amz-Target                   |
-        | with "X-Amz-Target: AmazonSQS.Teleport" |
+        | header                                     |
+        | without X-Amz-Target                       |
+        | with "X-Amz-Target: AmazonSQS.Teleport"    |
         | with "X-Amz-Target: amazonsqs.sendmessage" |
 
     Scenario: AWS's JSON content type is read as JSON, as the spec marks it
       When the app sends SendMessage with the json body {"MessageBody":"hello","DelaySeconds":"soon"}
       Then the request results are body $.DelaySeconds type integer; body $.QueueUrl required
 
-    Scenario: AWS's error reply is checked, and its headers are recorded
+    Scenario: AWS's error response is checked, and its headers are recorded
       Given SQS answers 400 with "x-amzn-RequestId: req-1; x-amzn-query-error: AWS.SimpleQueueService.NonExistentQueue;Sender" and the json body {"__type":"com.amazonaws.sqs#QueueDoesNotExist","message":"no queue"}
       When the app sends SendMessage with the json body {"QueueUrl":"https://sqs.eu-west-1.amazonaws.com/192325781350/orders","MessageBody":"hello"}
-      Then the record has no reply results
-      And the record keeps the reply headers x-amzn-requestid and x-amzn-query-error
+      Then the record has no response results
+      And the record keeps the response headers x-amzn-requestid and x-amzn-query-error
 
   Rule: Signed calls stay valid
 
@@ -119,7 +119,7 @@ Feature: AWS SQS through the proxy
       When the app sends SendMessage to the invoices queue with the message {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","sendTo":"customer@example.com"}
       Then the record has url.template /#X-Amz-Target=AmazonSQS.SendMessage
       And the record has no request results
-      And the record has no reply results
+      And the record has no response results
 
     Scenario Outline: A mistake in the job is reported at its place inside MessageBody
       Given SQS answers 200 with the json body {}
@@ -127,15 +127,15 @@ Feature: AWS SQS through the proxy
       Then the request results are <results>
 
       Examples:
-        | message | results |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId required |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":1001,"templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId type string |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"a-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.orderId pattern ^[A-Z]-[0-9]+$ |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.templateId required |
-        | {"schemaVersion":1,"eventId":"42","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.eventId format uuid |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"fr","requestedAt":"2026-10-30T19:30:00Z"} | body $.MessageBody.language enum en, de, sk, cs |
-        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","priority":"high"} | body $.MessageBody.priority additionalProperties |
-        | order 42 paid | body $.MessageBody json |
+        | message                                                                                                                                                                                           | results                                           |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                      | body $.MessageBody.orderId required               |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":1001,"templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                       | body $.MessageBody.orderId type string            |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"a-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                   | body $.MessageBody.orderId pattern ^[A-Z]-[0-9]+$ |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                                      | body $.MessageBody.templateId required            |
+        | {"schemaVersion":1,"eventId":"42","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}                                                     | body $.MessageBody.eventId format uuid            |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"fr","requestedAt":"2026-10-30T19:30:00Z"}                   | body $.MessageBody.language enum en, de, sk, cs   |
+        | {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","priority":"high"} | body $.MessageBody.priority additionalProperties  |
+        | order 42 paid                                                                                                                                                                                     | body $.MessageBody json                           |
 
     Scenario: A message sent to another queue is reported
       When the app sends SendMessage to https://sqs.eu-west-1.amazonaws.com/192325781350/refunds with the message {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z"}
@@ -144,7 +144,7 @@ Feature: AWS SQS through the proxy
     Scenario: A bad message is also reported when the worker receives it
       Given SQS answers 200 with one received message {"schemaVersion":1,"orderId":"A-1001"}
       When the app sends ReceiveMessage with the json body {"QueueUrl":"https://sqs.eu-west-1.amazonaws.com/192325781350/invoices"}
-      Then the reply results are body $.Messages[0].Body.eventId required; body $.Messages[0].Body.language required; body $.Messages[0].Body.requestedAt required; body $.Messages[0].Body.templateId required
+      Then the response results are body $.Messages[0].Body.eventId required; body $.Messages[0].Body.language required; body $.Messages[0].Body.requestedAt required; body $.Messages[0].Body.templateId required
 
     Scenario: Results never hold values from the message
       When the app sends SendMessage to the invoices queue with the message {"schemaVersion":1,"eventId":"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10","orderId":"A-1001","templateId":"invoice-standard-v2","language":"en","requestedAt":"2026-10-30T19:30:00Z","sendTo":"secret-at-example"}

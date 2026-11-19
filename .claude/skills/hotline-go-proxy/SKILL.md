@@ -5,7 +5,7 @@ description: How to write Go code for the Hotline proxy - layout, tests first wi
 
 # Writing the Hotline proxy in Go
 
-The proxy sits between a customer's apps and their vendors. It forwards each call, measures it, checks the bodies against the vendor's OpenAPI spec after the reply has gone back, and sends what it found as OpenTelemetry data.
+The proxy sits between a customer's apps and their vendors. It forwards each call, measures it, checks the bodies against the vendor's OpenAPI spec after the response has gone back, and sends what it found as OpenTelemetry data.
 
 **The spec is the source of truth:** `proxy-spec.md` in the `petercipov/hotline-strategic` repo. This skill says *how* to code it; the spec says *what* to build. If they disagree, the spec wins; say so and stop rather than guess.
 
@@ -19,7 +19,7 @@ The approach follows [Unit testing: values and principles](https://medium.com/co
 
 - **The unit is a behaviour, not a function or a struct.** The system under test (the thing a test drives and checks) is a part of the proxy that gives value on its own. For the proxy that is mostly the proxy itself: an app sends a call, the proxy forwards it, a vendor answers, and a record goes out. Functions and types are only the way in, never the subject.
 - **Test from the outside in.** A test acts like a user of the proxy: it sends a call the way an app does and looks only at what can be seen from outside: what the app gets back, what the vendor received, what the OTLP receiver got. It knows as little as possible about how the proxy works inside.
-- **Fakes only at the edges.** The outside world is replaced at the proxy's boundary: vendors are local servers from `net/http/httptest` (with TLS: `httptest.NewTLSServer`), the OTLP destination is a fake receiver, and the clock and DNS come in through the constructor. Inside the boundary the real parts work together; never stub or mock one part of the proxy to test another. A failure should say what went wrong for the user ("the record kept the customer ID"), not that a mock was not called.
+- **Fakes only at the edges.** The outside world is replaced at the proxy's boundary: vendors are local servers from `net/http/httptest` (with TLS: `httptest.NewTLSServer`), the OTLP exporter is a fake receiver, and the clock and DNS come in through the constructor. Inside the boundary the real parts work together; never stub or mock one part of the proxy to test another. A failure should say what went wrong for the user ("the record kept the customer ID"), not that a mock was not called.
 - **No shared constants between code and tests.** Tests write the expected values out in full (`"http.request.method"`, `"REDACTED"`, `"forward_proxy"`), so a wrong constant in the code is caught instead of copied.
 - **Fuzz tests straight at the parsers are the one exception (Peter, 2026-11-18).** They may call inner functions, but only in files built with the `fuzz` tag, run only by the nightly fuzz workflow, never counted for coverage, and every input they find gets a behaviour test with its fix. Fuzz tests through the ways in are ordinary tests. See [docs/decisions/fuzzing.md](../../../docs/decisions/fuzzing.md).
 - **Small solitary tests only when they pay.** A part with a stable interface and many cases of its own (for example matching a path to a route template) may get its own small Ginkgo test as well. Do this only when driving every case through the whole proxy would be slow or awkward.
@@ -110,10 +110,10 @@ The proxy is a small core with the outside world kept behind interfaces (often c
 2. **Forwarder:** our own, in `internal/forward`, in place of `httputil.ReverseProxy` (Peter, 2026-11-09), with its own `http.Transport`. It copies the request once and never changes the app's own request. It makes the call to the vendor, with TLS origination when set, and times each phase with `httptrace` (DNS, connect, TLS, first byte). On failure it answers with `502` or `504` and `Proxy-Status`.
 3. **Body tap:** wraps the request and response bodies, passes every byte straight on, and keeps a copy of at most 1 MiB for later.
 
-**After the reply has gone back:**
+**After the response has gone back:**
 
 4. **Checker workers:** a fixed number of background workers fed by a bounded queue. Each takes a finished call and checks the bodies against the spec, redacts, makes the fingerprints and builds the record. If the queue is full, the call is recorded with `hotline.schema.skipped=overloaded` instead of waiting.
-5. **Exporters:** one bounded queue and sender per destination. When a queue is full the oldest record is dropped and counted.
+5. **Exporters:** one bounded queue and sender per exporter. When a queue is full the oldest record is dropped and counted.
 
 **Around the call:**
 
@@ -121,7 +121,7 @@ The proxy is a small core with the outside world kept behind interfaces (often c
 7. **Admin server:** `/livez` and `/readyz` on the admin port only.
 8. **Own health data:** calls in flight, queue lengths, dropped records, config version, sent only to the `telemetry` exporter.
 
-**Ports** (interfaces the core uses; each has a real adapter and a test fake): a record sink (exporters), a config source (files), a clock, and the vendor transport (`http.RoundTripper`). Add a new port only when a test needs to replace something real.
+**Ports** (interfaces the core uses; each has a real adapter and a test fake): the exporters, a config source (files), a clock, and the vendor transport (`http.RoundTripper`). Add a new port only when a test needs to replace something real.
 
 `main` builds the adapters, connects them to the core, starts everything, and on shutdown stops in reverse order: stop accepting calls, let calls in flight finish, drain the checker queue, flush the exporters, then exit.
 
@@ -144,11 +144,11 @@ The proxy is a small core with the outside world kept behind interfaces (often c
 
 These protect the customer's traffic. Breaking one is a bug even if tests pass.
 
-- **Never slow or change the call.** Bodies stream through untouched. Body checks, fingerprints and exports run *after* the reply has gone back, off the call's goroutine.
+- **Never slow or change the call.** Bodies stream through untouched. Body checks, fingerprints and exports run *after* the response has gone back, off the call's goroutine.
 - **Body copy is capped at 1 MiB** per call. Above it, the call passes and the record says `hotline.schema.skipped=body_too_large`.
 - **Under load, skip, don't wait.** If checks fall behind, skip them (`hotline.schema.skipped=overloaded`). Export queues are bounded (default 10 000); when full, drop the oldest and count it. Never block on a full queue.
 - **No retries.** The app's own retry logic is in charge.
-- **Streaming and WebSockets:** pass each piece on at once (flush), never buffer the whole reply.
+- **Streaming and WebSockets:** pass each piece on at once (flush), never buffer the whole response.
 - **Always check the vendor's TLS certificate.** No setting turns it off.
 - **Remove `Proxy-Authorization`** before calling the vendor. `Authorization`, cookies and secrets are never recorded.
 - **Admin endpoints only on the admin port**, never on the proxy port.
@@ -223,7 +223,7 @@ Use this when asked to review a change, your own or someone else's. For a plain 
 
 - Nothing slows or changes the call: no check, fingerprint or export runs on the call's goroutine.
 - Body copies stop at 1 MiB; queues are bounded and drop instead of block; there are no retries.
-- Streaming replies are flushed piece by piece.
+- Streaming responses are flushed piece by piece.
 - TLS certificates are always checked; `Proxy-Authorization` is removed before the vendor call.
 - No secret, header value or body byte can reach a log, error text or record.
 

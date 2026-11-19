@@ -19,7 +19,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 	}
 	// overTLS starts a receiver over TLS, with a certificate for localhost
 	// from signer.
-	overTLS := func(signer *issuer, change func(*tls.Config)) {
+	overTLS := func(signer *authority, change func(*tls.Config)) {
 		cfg := &tls.Config{
 			Certificates: []tls.Certificate{signer.leaf("localhost", time.Now().Add(24*time.Hour), false)},
 			MinVersion:   tls.VersionTLS12,
@@ -70,10 +70,10 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no record came to %s; the receiver got %v", path, w.receivers[0].requests())
 	})
 
-	sc.Step(`^a receiver over TLS whose issuer only tls.ca trusts$`, func() error {
-		other := newIssuer()
+	sc.Step(`^a receiver over TLS whose certificate authority only tls.ca trusts$`, func() error {
+		other := newAuthority()
 		overTLS(other, nil)
-		ca := w.writeFile("otlp/ca.crt", issuerCertPEM(other))
+		ca := w.writeFile("otlp/ca.crt", authorityCertPEM(other))
 		w.exporterExtra = []string{"      tls:\n        ca: " + ca + "\n"}
 		return nil
 	})
@@ -88,8 +88,8 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a receiver over TLS whose issuer nobody trusts$`, func() error {
-		overTLS(newIssuer(), nil)
+	sc.Step(`^a receiver over TLS whose certificate authority nobody trusts$`, func() error {
+		overTLS(newAuthority(), nil)
 		// Each send is tried again until its time runs out.
 		w.exportTimeout = 300 * time.Millisecond
 		return nil
@@ -111,11 +111,11 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no warning about the failed send; the log is %s", w.logs.String())
 	})
 	sc.Step(`^a receiver over TLS that asks for a client certificate$`, func() error {
-		overTLS(w.issuer, func(cfg *tls.Config) {
+		overTLS(w.authority, func(cfg *tls.Config) {
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
-			cfg.ClientCAs = w.issuer.pool
+			cfg.ClientCAs = w.authority.pool
 		})
-		client := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		client := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		cert := w.writeFile("otlp/client.crt", certPEM(client))
 		key := w.writeFile("otlp/client.key", keyPEM(client))
 		w.exporterExtra = []string{"      tls:\n        cert: " + cert + "\n        key: " + key + "\n"}
@@ -245,7 +245,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		setup := receiverSetup{http2: offers == "HTTP/2", h2c: offers == "h2c"}
 		if over == "over TLS" {
 			setup.tls = &tls.Config{
-				Certificates: []tls.Certificate{w.issuer.leaf("localhost", time.Now().Add(24*time.Hour), false)},
+				Certificates: []tls.Certificate{w.authority.leaf("localhost", time.Now().Add(24*time.Hour), false)},
 				MinVersion:   tls.VersionTLS12,
 			}
 		}

@@ -32,7 +32,7 @@ type listening struct {
 	// capture.
 	signs string
 	// server serves a forward or capture listener; a transparent one is
-	// served by serveIntercept.
+	// served by serveTransparent.
 	server *http.Server
 	served chan struct{}
 }
@@ -62,8 +62,8 @@ func (h *handler) newListening(c *config.Listener, l net.Listener, newServer fun
 	if c.TLS != nil {
 		li.tls = newTLSHolder(c.TLS, h.clock, h.logger)
 	}
-	if part, issuer := signing(c); issuer != nil {
-		li.signer, li.signs = newInterceptor(issuer, h.clock, h.logger), part
+	if part, authority := signing(c); authority != nil {
+		li.signer, li.signs = newInterceptor(authority, h.clock, h.logger), part
 	}
 	switch {
 	case c.Transparent != nil:
@@ -79,18 +79,18 @@ func (h *handler) newListening(c *config.Listener, l net.Listener, newServer fun
 }
 
 // signing names the part of a listener that signs certificates for apps,
-// connect, transparent or capture, and the issuer it signs with; no issuer
+// connect, transparent or capture, and the certificate authority it signs with; no certificate authority
 // when the listener has none of them, or relays with protocol tcp. It is
 // the one place that asks which part a listener has for signing (Peter,
 // 2026-11-16, from the decomplect review).
 func signing(c *config.Listener) (string, *config.TLS) {
 	switch {
 	case c.Connect != nil:
-		return "connect", c.Connect.Issuer
+		return "connect", c.Connect.Authority
 	case c.Transparent != nil:
-		return "transparent", c.Transparent.Issuer
+		return "transparent", c.Transparent.Authority
 	case c.Capture != nil:
-		return "capture", c.Capture.Issuer
+		return "capture", c.Capture.Authority
 	}
 	return "", nil
 }
@@ -106,7 +106,7 @@ func (li *listening) serve(h *handler, where OriginalDestination, o Options) {
 	go func() {
 		defer close(li.served)
 		if li.server == nil {
-			h.serveIntercept(port, where, li)
+			h.serveTransparent(port, where, li)
 			return
 		}
 		_ = li.server.Serve(port)
@@ -149,8 +149,8 @@ func (li *listening) reload(c *config.Listener) {
 	if li.tls != nil {
 		li.tls.set(c.TLS)
 	}
-	if _, issuer := signing(c); issuer != nil {
-		li.signer.issuer.set(issuer)
+	if _, authority := signing(c); authority != nil {
+		li.signer.authority.set(authority)
 	}
 }
 
@@ -197,7 +197,7 @@ func (t *tlsHolder) set(c *config.ListenerTLS) {
 		t.shown.set(c.Cert)
 		return
 	}
-	t.signer.issuer.set(c.Cert)
+	t.signer.authority.set(c.Cert)
 }
 
 // notAfter is when the certificate shown, or the one signing, expires.
@@ -205,7 +205,7 @@ func (t *tlsHolder) notAfter() time.Time {
 	if t.shown != nil {
 		return t.shown.get().Leaf.NotAfter
 	}
-	return t.signer.issuer.get().Leaf.NotAfter
+	return t.signer.authority.get().Leaf.NotAfter
 }
 
 // newHTTPServer is the HTTP server of a forward or capture listener, and of
@@ -239,7 +239,7 @@ func (p *Proxy) certificates() map[string]time.Time {
 			at[li.name+".tls"] = li.tls.notAfter()
 		}
 		if li.signer != nil {
-			at[li.name+"."+li.signs] = li.signer.issuer.get().Leaf.NotAfter
+			at[li.name+"."+li.signs] = li.signer.authority.get().Leaf.NotAfter
 		}
 	}
 	return at

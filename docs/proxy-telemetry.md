@@ -4,7 +4,7 @@ Agreed with Peter on 2026-10-31, reworked with him on 2026-11-01 (from 27 metric
 
 ## What it does
 
-The proxy sends numbers about itself as OpenTelemetry metrics (numbers sent once a minute, or as often as `telemetry.otlp.metricInterval` says) to the `telemetry` destination, and nowhere else: never mixed with the records and counts of vendor calls. An operator builds a Grafana board and alerts on them, such as "an exporter has been down for 5 minutes", "a reload failed" or "the certificate expires within 7 days". This replaces a detail page on `/readyz` (health checks, decision 5).
+The proxy sends numbers about itself as OpenTelemetry metrics (numbers sent once a minute, or as often as `telemetry.otlp.metricInterval` says) to the collector the `telemetry` section names, and nowhere else: never mixed with the records and counts of vendor calls. An operator builds a Grafana board and alerts on them, such as "an exporter has been down for 5 minutes", "a reload failed" or "the certificate expires within 7 days". This replaces a detail page on `/readyz` (health checks, decision 5).
 
 ```yaml
 telemetry:
@@ -33,7 +33,7 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `hotline.exporter.dropped` | count | `{item}` | `hotline.exporter`, `hotline.signal`, `hotline.drop.reason` (`queue_full`, `send_failed`) | records, spans or counts lost: the queue overflowed, or the receiver refused the send or could not be reached | `hotline_exporter_dropped_total` |
 | `hotline.config.reload_failed` | gauge, 1 or 0 | none | none | 1 while the last reload failed and the proxy still runs the config before it | `hotline_config_reload_failed` |
 | `hotline.config.restart_needed` | gauge, 1 or 0 | none | none | 1 while a changed listen address, exporter or telemetry setting waits for a restart | `hotline_config_restart_needed` |
-| `hotline.certificate.not_after` | gauge | `s` | `hotline.certificate.use` (`<listener>.<part>`, such as `apps.tls`, `apps.connect` or `admin.tls`) | when the proxy's own certificate or the CONNECT issuer expires, in seconds since 1970 | `hotline_certificate_not_after_seconds` |
+| `hotline.certificate.not_after` | gauge | `s` | `hotline.certificate.use` (`<listener>.<part>`, such as `apps.tls`, `apps.connect` or `admin.tls`) | when the proxy's own certificate or the CONNECT certificate authority expires, in seconds since 1970 | `hotline_certificate_not_after_seconds` |
 | `hotline.spec_check.queue.memory.usage` | up and down count | `By` | none | memory the bodies of spec checks waiting for a worker hold now; at most `specChecks.queueMemory` | `hotline_spec_check_queue_memory_usage_bytes` |
 | `hotline.spec_check.queue.size` | up and down count | `{check}` | none | spec checks waiting for a worker now | `hotline_spec_check_queue_size` |
 | `hotline.spec_check.dropped` | count | `{check}` | none | spec checks skipped because the line was full; their records say `hotline.schema.skipped=overloaded` | `hotline_spec_check_dropped_total` |
@@ -58,7 +58,7 @@ The first set had 27 metrics, many overlapping. Reworked to 14:
 - **`http.server.active_requests` stays,** by ingress only: it shows calls stuck on a vendor that hangs, which the duration histogram only sees once they end.
 - **`http.server.request.duration`** is split by ingress, status code and error type only; method and scheme are gone.
 - **`hotline.proxy.overhead` is gone:** every record and trace already carries the proxy's own time on each call.
-- **The ten `otel.sdk.*` metrics and `hotline.destination.state` are replaced by four `hotline.exporter.*` ones,** named after the config's word, `exporters`, all with the same exporter label, so one exporter's numbers line up on one board row. The queue's capacity is gone: it is the `queueSize` setting.
+- **The ten `otel.sdk.*` metrics and `hotline.exporter.state` are replaced by four `hotline.exporter.*` ones,** named after the config's word, `exporters`, all with the same exporter label, so one exporter's numbers line up on one board row. The queue's capacity is gone: it is the `queueSize` setting.
 - **Config is two 1 or 0 gauges,** `hotline.config.reload_failed` and `hotline.config.restart_needed`. `hotline.config.info`, `hotline.config.reloads` and `hotline.config.reload.last_success` are gone, and so are the TLS and CONNECT flags, which are in the config.
 - **Five Go numbers,** not eight: `go.memory.allocated` was added on 2026-11-02 for the load test. `go.memory.allocations`, `go.processor.limit` and `go.config.gogc` are not sent.
 - **Every metric has a description and a unit** Grafana can chart.
@@ -67,13 +67,13 @@ The first set had 27 metrics, many overlapping. Reworked to 14:
 
 Changed by the rework above where they name metrics: decisions 1, 2, 3, 5 and 8.
 
-1. **A destination's state is a 1 or 0 gauge,** next to the counts of sent and lost records, like HAProxy's server state and Envoy's `server.live`. No time of the last good send.
+1. **An exporter's state is a 1 or 0 gauge,** next to the counts of sent and lost records, like HAProxy's server state and Envoy's `server.live`. No time of the last good send.
 2. **The queue and send numbers use OpenTelemetry's SDK metric names,** though the standard still marks them "development". If the standard renames them, we follow and say so in the release notes. Numbers with no standard name use `hotline.`.
 3. **The config's state is a count plus two 1 or 0 gauges:** `hotline.config.reloads`, `hotline.config.reload.last_success` (as Prometheus does) and `hotline.config.restart_needed`. A change put back as it was clears `restart_needed`, as it is compared with the config the proxy started with.
 4. **Without a `telemetry` section nothing of the proxy's own is measured or sent,** and the proxy logs one warning at start, like a missing admin port.
 5. **The proxy's own time is a small histogram,** `hotline.proxy.overhead`, by ingress only, in seconds (Peter first asked for microseconds, then for seconds so it reads like the standard histograms on one board).
 6. **Each call's total time is the standard `http.server.request.duration`,** in seconds, with the standard's labels. `http.route` is left out on purpose: for the proxy it is the vendor's route, and grows with apis.
-7. **The warnings about dropped records stay** (once a minute per destination, and once at shutdown), so `kubectl logs` still shows a problem when the telemetry receiver is down or not set up. So do the reload warnings.
+7. **The warnings about dropped records stay** (once a minute per exporter, and once at shutdown), so `kubectl logs` still shows a problem when the telemetry receiver is down or not set up. So do the reload warnings.
 8. **The Go runtime numbers are sent,** from `go.opentelemetry.io/contrib/instrumentation/runtime` (Apache-2.0, the OpenTelemetry project).
 9. **Every metric can be turned off on its own** with `telemetry.disable`: exact names, or a name ending in `*` for every name that starts with what is before it. A turned off metric is not measured or sent. A name that matches none of ours is a config warning, so a typo is seen.
 10. **`telemetry` changes only on a restart,** like exporters; a change is logged as `telemetry changed and needs a restart` and sets `hotline.config.restart_needed`.

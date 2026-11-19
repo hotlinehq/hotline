@@ -18,7 +18,7 @@ import (
 )
 
 // certHolder is a certificate the proxy shows: its own, from listen.tls,
-// or the issuer it signs certificates for vendor hosts with, from
+// or the certificate authority it signs certificates for vendor hosts with, from
 // listen.connect. A reload puts a new one in; new connections get it, and
 // connections already open keep the old one.
 type certHolder struct {

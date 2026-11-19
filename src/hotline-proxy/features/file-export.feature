@@ -96,7 +96,7 @@ Feature: Writing every call to a local file
     Given the integration has content full
     When a call with a JSON body and an Authorization header ends
     Then the line's hotline.content.request.body decodes to the exact body sent
-    And the line's hotline.content.response.body decodes to the vendor's reply
+    And the line's hotline.content.response.body decodes to the vendor's response
     And the line has hotline.content.request.header.authorization REDACTED
     And the line has hotline.content.response.header.x-request-id req-5521
     And the line's hotline.content.url.full is the address as sent
@@ -116,11 +116,11 @@ Feature: Writing every call to a local file
     Then the line has hotline.content.<side>.header.<name> REDACTED
 
     Examples:
-      | spec                                                | header        | value  | side     | name          |
-      | security section names X-Api-Key                    | X-Api-Key     | k-123  | request  | x-api-key     |
-      | header X-Debug-Token is marked x-hotline-redact true | X-Debug-Token | dbg-1  | request  | x-debug-token |
-      | reply header Request-Id is marked x-hotline-redact true | Request-Id | req-9 | response | request-id    |
-      | security section names X-Api-Key                    | Cookie        | sid=1  | request  | cookie        |
+      | spec                                                       | header        | value | side     | name          |
+      | security section names X-Api-Key                           | X-Api-Key     | k-123 | request  | x-api-key     |
+      | header X-Debug-Token is marked x-hotline-redact true       | X-Debug-Token | dbg-1 | request  | x-debug-token |
+      | response header Request-Id is marked x-hotline-redact true | Request-Id    | req-9 | response | request-id    |
+      | security section names X-Api-Key                           | Cookie        | sid=1 | request  | cookie        |
 
   Scenario: A secret query word is hidden in the address under full content
     Given the integration has content full and a spec whose security section names the query word key
@@ -145,7 +145,7 @@ Feature: Writing every call to a local file
 
   Scenario: A long body is cut and flagged
     Given the integration has content full with maxBodySize 1KiB
-    And the vendor replies with a 5KiB body
+    And the vendor responds with a 5KiB body
     When a call ends
     Then the app gets all 5KiB
     And the line's hotline.content.response.body holds the first 1KiB
@@ -174,7 +174,7 @@ Feature: Writing every call to a local file
     Given the integration has content full
     When a call to a host without an api ends
     Then the line's hotline.content.url.full is the address as sent
-    And the line has the request and reply headers and the reply body
+    And the line has the request and response headers and the response body
 
   Scenario: A failed call under full content
     Given the integration has content full
@@ -195,9 +195,9 @@ Feature: Writing every call to a local file
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting             | problem                       |
-      | content everything  | content must be records or full |
-      | maxBodySize lots    | maxBodySize must be a size      |
+      | setting            | problem                         |
+      | content everything | content must be records or full |
+      | maxBodySize lots   | maxBodySize must be a size      |
 
   Scenario Outline: Wrong file exporter settings
     Given the file exporter is set with <setting>
@@ -205,9 +205,9 @@ Feature: Writing every call to a local file
     Then the proxy refuses the config, saying <problem>
 
     Examples:
-      | setting                 | problem                                   |
-      | maxFiles 0              | maxFiles must be at least 1               |
-      | compression zip         | compression must be gzip or none          |
-      | no path                 | a file exporter needs a path              |
+      | setting                  | problem                                          |
+      | maxFiles 0               | maxFiles must be at least 1                      |
+      | compression zip          | compression must be gzip or none                 |
+      | no path                  | a file exporter needs a path                     |
       | an otlp endpoint as well | an exporter is only one of otlp, file or console |
-      | nothing in it           | an exporter must be otlp, file or console |
+      | nothing in it            | an exporter must be otlp, file or console        |

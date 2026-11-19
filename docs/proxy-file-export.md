@@ -51,7 +51,7 @@ A line looks like this, spread out here to read:
 
 - The attributes are the record every exporter gets, with the same names ([otel-export.md](otel-export.md)): numbers are numbers, header values are lists of text.
 - The names of the line's own fields follow OpenTelemetry's data model for logs and spans. The line is not OTLP's own JSON (`resourceLogs` and so on), so the OpenTelemetry Collector cannot read the file back; the `otlp` exporters are the way to a collector.
-- A line shows up at most 100 ms after the call's record is made, or sooner once 512 wait. The record is made once the reply has gone back to the app and the spec checks have ended, as for every exporter.
+- A line shows up at most 100 ms after the call's record is made, or sooner once 512 wait. The record is made once the response has gone back to the app and the spec checks have ended, as for every exporter.
 
 To follow calls as they come: `tail -f calls/calls.jsonl | jq .`
 
@@ -65,7 +65,7 @@ When the next line would take `calls.jsonl` past `maxFileSize`, the file is rena
 
 Full content goes beside the record, under `hotline.content.*`, and the record's own attributes stay as they are (Peter, 2026-11-16):
 
-- **Every header** of the call and the reply, in `hotline.content.request.header.<name>` and `hotline.content.response.header.<name>`, as sent unless it is secret (below). Other `proxy-` headers are kept as sent.
+- **Every header** of the call and the response, in `hotline.content.request.header.<name>` and `hotline.content.response.header.<name>`, as sent unless it is secret (below). Other `proxy-` headers are kept as sent.
 - **The bodies**, in `hotline.content.request.body` and `hotline.content.response.body`, as base64 of the bytes as they passed: a gzipped body stays gzipped. Each is cut at `maxBodySize`; a cut body has `hotline.content.request.body.truncated` or `hotline.content.response.body.truncated` set to true, and `http.request.body.size` and `http.response.body.size` still hold the real sizes.
 - **`hotline.content.url.full`** is the address as sent, but for secret query words and path values (below).
 - **Secrets are `REDACTED`** (Peter, 2026-11-18), so nobody copies a vendor key out of a file kept for debugging. Secret, always: `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`. With a spec, also the login its security section names (a header such as `X-Api-Key`, or a query word such as `key`), and every header, query word and path value marked `x-hotline-redact: true`. A value the spec does not call secret, marked or not, stays as sent: `content: full` keeps far more than the record. Until 2026-11-18 only `Proxy-Authorization` was hidden.
@@ -85,4 +85,4 @@ The record is the same as every exporter gets, with the same `hotline.record.has
 - **Writing never slows a call.** The file exporter has its own queue, of at most 10 000 calls and `queueMemory` bytes. A full queue refuses the new call, which the usual warning line counts.
 - **A failed write** (a full disk) loses that batch, counted in the same warning, and the next write tries again. If the folder or the current file is deleted or moved away while the proxy runs, the next write makes them again.
 - **Changing a file exporter needs a restart,** as for every exporter ([proxy-config-reload.md](proxy-config-reload.md)); `content` and `maxBodySize` change on a reload.
-- The proxy's own numbers for the `telemetry` destination count each file exporter like any other, named by its folder.
+- The proxy's own numbers for the `telemetry` section count each file exporter like any other, named by its folder.

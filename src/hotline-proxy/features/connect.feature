@@ -4,13 +4,13 @@ Feature: The CONNECT ingress, with interception
   ID in Proxy-Authorization, and the proxy answers 200. The app then sets up
   TLS inside the tunnel, and the proxy answers it itself, posing as the
   vendor: it shows a certificate for that host, made on the fly and signed
-  by the customer's own issuer. The issuer is written once in the certs section, under a name, with two PEM files; the connect part picks it with cert: <name> (Peter, 2026-11-08). Every
+  by the customer's own certificate authority. The certificate authority is written once in the certs section, under a name, with two PEM files; the connect part picks it with cert: <name> (Peter, 2026-11-08). Every
   call inside the tunnel is then handled like a call on any other ingress,
   with hotline.ingress connect (Peter, 2026-10-29).
 
   Background:
-    Given an interception issuer named customer in certs, which the connect part picks
-    And an app that trusts the interception issuer
+    Given an interception certificate authority named customer in certs, which the connect part picks
+    And an app that trusts the interception certificate authority
 
   Scenario: A call through a tunnel reaches the vendor unchanged
     When the app calls https://api.talon.one through the proxy as integration talon-shop-a
@@ -29,7 +29,7 @@ Feature: The CONNECT ingress, with interception
 
   Scenario: The proxy poses as the host the tunnel names
     When the app opens a tunnel to api.stripe.com:443
-    Then the app sees a certificate for api.stripe.com signed by the interception issuer
+    Then the app sees a certificate for api.stripe.com signed by the interception certificate authority
     And it is valid for 24 hours
 
   Scenario: A host's certificate is made once and reused
@@ -83,10 +83,10 @@ Feature: The CONNECT ingress, with interception
     Then the first call's trace has an "app tls handshake" span at the start of "hotline call"
     And the second call's trace has no "app tls handshake" span
 
-  Scenario: An app that does not trust the interception issuer
+  Scenario: An app that does not trust the interception certificate authority
     The proxy has read the CONNECT, so it knows the integration and the
-    host, and the record tells which app is missing the issuer.
-    Given an app that does not trust the interception issuer
+    host, and the record tells which app is missing the certificate authority.
+    Given an app that does not trust the interception certificate authority
     When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a
     Then TLS inside the tunnel fails to set up
     And nothing is sent to any vendor
@@ -100,7 +100,7 @@ Feature: The CONNECT ingress, with interception
   Scenario: CONNECT over a TLS proxy port
     The app reaches the proxy with an https proxy address, so the CONNECT
     request and the integration ID travel encrypted too.
-    Given a proxy certificate for the name hotline-proxy from the test issuer
+    Given a proxy certificate for the name hotline-proxy from the test certificate authority
     And a config file whose tls part points to its cert and key files
     When the app calls https://api.talon.one through an https proxy address as integration talon-shop-a
     Then the app gets the vendor's status, headers and body unchanged
@@ -113,13 +113,13 @@ Feature: The CONNECT ingress, with interception
     And the record is minimal with hotline.ingress connect, http.response.status_code 400 and error.type http_request_error
 
     Examples:
-      | target         |
-      | api.talon.one  |
-      | :443           |
+      | target        |
+      | api.talon.one |
+      | :443          |
 
   Scenario: CONNECT over HTTP/2
     Over HTTP/2 a tunnel is one stream of a shared connection: the app's
-    bytes travel in the stream's request body and the proxy's in its reply.
+    bytes travel in the stream's request body and the proxy's in its response.
     Inside, it works like a tunnel opened over HTTP/1.1 (Peter, 2026-10-30).
     When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a over HTTP/2
     And sends a call inside it with Proxy-Authorization for talon-shop-b
@@ -162,27 +162,27 @@ Feature: The CONNECT ingress, with interception
     When the proxy stops
     Then the tunnel is closed
 
-  Scenario: A renewed issuer is used without a restart
+  Scenario: A renewed certificate authority is used without a restart
     Given the app has opened a tunnel to api.stripe.com:443
-    When the files of the issuer named customer are replaced with a second issuer
+    When the files of the certificate authority named customer are replaced with a second certificate authority
     And the proxy checks its files
     And the app opens a tunnel to api.stripe.com:443
-    Then the app sees a certificate for api.stripe.com signed by the second issuer
+    Then the app sees a certificate for api.stripe.com signed by the second certificate authority
 
-  Scenario Outline: A bad issuer stops the proxy at start
+  Scenario Outline: A bad certificate authority stops the proxy at start
     Given <problem>
     When the proxy loads the config
     Then the config is refused with a message naming the problem
 
     Examples:
-      | problem                                                  |
-      | the connect part cert is not an issuer certificate     |
-      | the connect part key does not belong to its certificate |
-      | the connect part issuer has already expired            |
-      | the connect part has a cert file but no key file           |
-      | the connect part names the cert "missing", which is not in certs |
-      | an issuer is written with no files                       |
-      | the connect part names no cert                           |
+      | problem                                                            |
+      | the connect part cert is not a certificate authority's certificate |
+      | the connect part key does not belong to its certificate            |
+      | the connect part certificate authority has already expired         |
+      | the connect part has a cert file but no key file                   |
+      | the connect part names the cert "missing", which is not in certs   |
+      | a certificate authority is written with no files                   |
+      | the connect part names no cert                                     |
 
   Scenario: A cert nothing signs with need not be a certificate authority
     Whether a cert may sign is checked where it is used (Peter, 2026-11-13).
@@ -190,12 +190,12 @@ Feature: The CONNECT ingress, with interception
     When the proxy loads the config
     Then it is accepted
 
-  Scenario: An issuer is written once and used by name
-    Given an interception issuer named customer in certs, which the connect part picks
+  Scenario: A certificate authority is written once and used by name
+    Given an interception certificate authority named customer in certs, which the connect part picks
     When the proxy starts
     Then the proxy is running
 
-  Scenario: An issuer valid for more than a year gets a warning
-    Given an interception issuer valid for two years
+  Scenario: A certificate authority valid for more than a year gets a warning
+    Given an interception certificate authority valid for two years
     When the proxy starts
-    Then the proxy logs a warning that the interception issuer is valid for more than a year
+    Then the proxy logs a warning that the interception certificate authority is valid for more than a year

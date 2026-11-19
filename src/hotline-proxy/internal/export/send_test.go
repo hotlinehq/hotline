@@ -41,7 +41,7 @@ func (g *gotBodies) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ = Describe("sending over HTTP", func() {
-	// A destination sends records from two places at once: its record
+	// An exporter sends records from two places at once: its record
 	// queue and the ledger's batch line. Sharing one gzip writer between
 	// them mixed their bodies, and could crash the proxy (fuzz run of
 	// 2026-11-18).

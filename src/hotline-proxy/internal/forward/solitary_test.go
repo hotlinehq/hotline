@@ -19,7 +19,7 @@ import (
 	"hotline-proxy/internal/forward"
 )
 
-// fakeVendor answers every call with what reply gives, without a network.
+// fakeVendor answers every call with what response gives, without a network.
 type fakeVendor func(out *http.Request) *http.Response
 
 func (v fakeVendor) RoundTrip(out *http.Request) (*http.Response, error) {
@@ -28,7 +28,7 @@ func (v fakeVendor) RoundTrip(out *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
-func reply(status int, header http.Header, body io.ReadCloser) fakeVendor {
+func response(status int, header http.Header, body io.ReadCloser) fakeVendor {
 	return func(*http.Request) *http.Response {
 		return &http.Response{StatusCode: status, Header: header, Body: body}
 	}
@@ -129,7 +129,7 @@ func switched() http.Header {
 }
 
 var _ = Describe("Forwarding without a server", func() {
-	It("ignores an early reply that comes after the reply", func() {
+	It("ignores an early response that comes after the response", func() {
 		var trace *httptrace.ClientTrace
 		f := forwarder(fakeVendor(func(out *http.Request) *http.Response {
 			trace = httptrace.ContextClientTrace(out.Context())
@@ -142,23 +142,23 @@ var _ = Describe("Forwarding without a server", func() {
 		Expect(w.Header()).NotTo(HaveKey("Link"))
 	})
 
-	It("adds the vendor's values to a header the reply already has", func() {
-		f := forwarder(reply(http.StatusOK, http.Header{"Vary": {"Accept"}}, http.NoBody))
+	It("adds the vendor's values to a header the response already has", func() {
+		f := forwarder(response(http.StatusOK, http.Header{"Vary": {"Accept"}}, http.NoBody))
 		w := httptest.NewRecorder()
 		w.Header().Set("Vary", "Origin")
 		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
 		Expect(w.Header()["Vary"]).To(Equal([]string{"Origin", "Accept"}))
 	})
 
-	It("stops quietly when the vendor breaks off, as there is no server to break the reply", func() {
-		f := forwarder(reply(http.StatusOK, http.Header{}, &brokenBody{}))
+	It("stops quietly when the vendor breaks off, as there is no server to break the response", func() {
+		f := forwarder(response(http.StatusOK, http.Header{}, &brokenBody{}))
 		w := httptest.NewRecorder()
 		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
 		Expect(w.Body.String()).To(Equal("part"))
 	})
 
 	It("stops when the app can no longer be written to", func() {
-		f := forwarder(reply(http.StatusOK, http.Header{}, io.NopCloser(strings.NewReader("body"))))
+		f := forwarder(response(http.StatusOK, http.Header{}, io.NopCloser(strings.NewReader("body"))))
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), writeErr: errAppGone}
 		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
 		Expect(w.Body.String()).To(BeEmpty())
@@ -171,11 +171,11 @@ var _ = Describe("Forwarding without a server", func() {
 		Expect(w.Body.String()).To(Equal("body"))
 	})
 
-	// Flushing sends a network write of its own, so a reply of known length
+	// Flushing sends a network write of its own, so a response of known length
 	// goes out in one go, as Go's own ReverseProxy does.
-	// Flushing sends a network write of its own, so the headers of a reply
+	// Flushing sends a network write of its own, so the headers of a response
 	// of known length go with its first part, as Go's own ReverseProxy does.
-	It("sends the headers of a reply of known length with its first part", func() {
+	It("sends the headers of a response of known length with its first part", func() {
 		f := forwarder(sized(4, http.Header{}, "body"))
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder()}
 		Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
@@ -190,24 +190,24 @@ var _ = Describe("Forwarding without a server", func() {
 			Expect(f.Forward(GinkgoT().Context(), w, appCall())).To(Succeed())
 			Expect(w.flushes).To(Equal(2))
 		},
-		Entry("a reply of unknown length", int64(-1), "application/json"),
+		Entry("a response of unknown length", int64(-1), "application/json"),
 		Entry("events, even with a known length", int64(4), "text/event-stream; charset=utf-8"),
 	)
 })
 
 var _ = Describe("Upgrades without a server", func() {
 	It("refuses a switch when the vendor's connection cannot be written to", func() {
-		f := forwarder(reply(http.StatusSwitchingProtocols, switched(), http.NoBody))
+		f := forwarder(response(http.StatusSwitchingProtocols, switched(), http.NoBody))
 		Expect(f.Forward(GinkgoT().Context(), httptest.NewRecorder(), upgradeCall())).NotTo(Succeed())
 	})
 
 	It("returns an error when the app's connection cannot be taken over", func() {
-		f := forwarder(reply(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("")}))
+		f := forwarder(response(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("")}))
 		Expect(f.Forward(GinkgoT().Context(), httptest.NewRecorder(), upgradeCall())).NotTo(Succeed())
 	})
 
 	It("stops when the app has gone before the switch reaches it", func() {
-		f := forwarder(reply(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("")}))
+		f := forwarder(response(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("")}))
 		app, other := net.Pipe()
 		Expect(other.Close()).To(Succeed())
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), conn: app}
@@ -216,7 +216,7 @@ var _ = Describe("Upgrades without a server", func() {
 	})
 
 	It("tells the writer once the app has the 101, before any byte passes after it", func() {
-		f := forwarder(reply(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("after")}))
+		f := forwarder(response(http.StatusSwitchingProtocols, switched(), pipeBody{strings.NewReader("after")}))
 		app, other := net.Pipe()
 		w := &appWriter{ResponseRecorder: httptest.NewRecorder(), conn: app}
 		read := make(chan string, 1)

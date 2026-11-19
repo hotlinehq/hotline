@@ -93,7 +93,7 @@ func (f *AWS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	w.Header().Set("Content-Type", r.Header.Get("Content-Type"))
-	// DynamoDB's own checksum of the reply, which its SDK checks.
+	// DynamoDB's own checksum of the response, which its SDK checks.
 	w.Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(crc32.ChecksumIEEE(body)), 10))
 	w.WriteHeader(status)
 	_, _ = w.Write(body)

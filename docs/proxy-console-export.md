@@ -1,6 +1,6 @@
 # Printing every call to the console
 
-A console exporter prints each call to the proxy's standard output as two short lines, like `mitmdump` (mitmproxy's command line tool): the request, then the reply under it. An invalid call gets a third line with what the checks found. It is for watching calls go by on a laptop, without a collector. All of it was agreed with Peter on 2026-11-11; the behaviour is written down in `src/hotline-proxy/features/console-export.feature`.
+A console exporter prints each call to the proxy's standard output as two short lines, like `mitmdump` (mitmproxy's command line tool): the request, then the response under it. An invalid call gets a third line with what the checks found. It is for watching calls go by on a laptop, without a collector. All of it was agreed with Peter on 2026-11-11; the behaviour is written down in `src/hotline-proxy/features/console-export.feature`.
 
 ## Config
 
@@ -26,7 +26,7 @@ A console exporter may stand alone or next to `otlp` and `file` exporters. There
 ```
 
 - The request line: the call's time, the integration, the method and the address as the record has it (`url.full`), so a secret in the query is shown as `REDACTED`, as in the record. A call with no spec shows only its host, unless its integration has `urlFull` or `content: full` on (Peter, 2026-11-12).
-- The reply line: `<<` ends just before the method. Then the status and its name, the proxy's failure when there is one (the record's `error.type`), the reply's size, the total time, and the check status when the call has a spec.
+- The response line: `<<` ends just before the method. Then the status and its name, the proxy's failure when there is one (the record's `error.type`), the response's size, the total time, and the check status when the call has a spec.
 - A WebSocket session, when it ends, gets two lines of its own (Peter, 2026-11-18): the time it opened, the integration, `WebSocket` and the host; then `<< ended`, the bytes the app sent and received after the `101`, and how long it was open.
 - The findings line, for an invalid call: what the checks found on each side, written "part place rule expected", never a value from the call.
 - No headers, no bodies, no spans, no metrics. `content: full` never reaches the console.

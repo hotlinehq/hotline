@@ -14,7 +14,7 @@ Decisions already made, so a new session does not have to dig through old thread
 - Every number in a pull request description, commit message or doc is well defined: say what was measured, over what (whole process or proxy only, per call or in total, allocated over time or held at once), how, and its unit (Peter, 2026-11-02).
 - Every `x-hotline-` mark in a vendor spec, with its use and an example: [docs/spec-marks.md](docs/spec-marks.md). A new mark is added only when a real example needs it, and listed there in the same pull request (Peter, 2026-11-01).
 - The proxy's spec and examples: `proxy-spec.md` and `proxy-example/` in the `hotline-strategic` repo.
-- What the proxy sends over OpenTelemetry, field by field: [docs/otel-export.md](docs/otel-export.md). Its own numbers, for the `telemetry` destination: [docs/proxy-telemetry.md](docs/proxy-telemetry.md).
+- What the proxy sends over OpenTelemetry, field by field: [docs/otel-export.md](docs/otel-export.md). Its own numbers, for the `telemetry` section: [docs/proxy-telemetry.md](docs/proxy-telemetry.md).
 
 ## Code layout
 
@@ -36,13 +36,14 @@ Decisions already made, so a new session does not have to dig through old thread
 
 The proxy is built in small slices, tests first. Each item, with its decisions in full: [docs/decisions/slice-plan.md](docs/decisions/slice-plan.md).
 
-- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named issuers and the `checks` list, the intercept ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, the Docker image, the file exporter, the console exporter, and the evidence ledger with `hotline-proxy verify` (which replaced the signatures).
+- Built: slice 1 ([docs/proxy-slice-1.md](docs/proxy-slice-1.md)), the program, TLS from apps, health checks, vendor URL in path, internal address guard, Host header ingress, shared vendor apis, spec checks (with cheap loading of large specs), transparent redirect, AWS and SQS, the SQS example, XML bodies and S3, the shop example steps 1 and 3, CONNECT ingress, named certificate authorities and the `checks` list, the transparent ingress, OTLP protocols, record levels and resource labels, signatures, body fields, overlays, microsecond timings, config reload, proxy telemetry, traces, the Docker image, the file exporter, the console exporter, and the evidence ledger with `hotline-proxy verify` (which replaced the signatures).
 - In progress: the load test with k6, including pooled body buffers and the spec check queue (`specChecks.queueMemory`).
 - Still to come: the Node, Java and Rust clients in the end-to-end tests.
 
 ## Earlier decisions
 
 - Say "ingress", never "door", for the ways apps reach the proxy (Peter, 2026-10-29).
+- Breaking changes to the config and the records are allowed (Peter, 2026-11-19).
 - The load test uses k6 (Peter, 2026-10-27).
 
 ## Decisions by topic
@@ -58,7 +59,8 @@ Open only the file for the topic at hand.
 - Spec checks and shared apis: [docs/decisions/spec-checks.md](docs/decisions/spec-checks.md)
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
-- Intercept ingress: [docs/decisions/intercept.md](docs/decisions/intercept.md)
+- Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
+- Glossary words (certificate authority, transparent, response, exporter): [docs/decisions/glossary.md](docs/decisions/glossary.md)
 - WebSockets: [docs/decisions/websockets.md](docs/decisions/websockets.md)
 - Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)

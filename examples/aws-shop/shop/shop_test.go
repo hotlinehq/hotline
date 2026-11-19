@@ -390,7 +390,7 @@ var _ = Describe("The shop's four apps", func() {
 			Expect(live.answered[0].Response).To(Equal(map[string]any{"status": "not found"}))
 		})
 
-		It("gives the model's reply when it calls no tool", func() {
+		It("gives the model's response when it calls no tool", func() {
 			live := &fakeLive{script: []*genai.LiveServerMessage{
 				text("I can only help with orders. "),
 				text("Which order number?"),

@@ -102,11 +102,11 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return has(attrs, "hotline.content.url.full", full)
 	})
-	sc.Step(`^the vendor replies with a 5KiB body$`, func() error {
+	sc.Step(`^the vendor responds with a 5KiB body$`, func() error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", "text/plain")
-			_, _ = rw.Write(longReply())
+			_, _ = rw.Write(longResponse())
 		})
 		return nil
 	})
@@ -152,7 +152,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			ConfigPath:    w.writeFile("second.yaml", config),
 			Resolver:      w.network,
 			Dialer:        w.network,
-			RootCAs:       w.issuer.pool,
+			RootCAs:       w.authority.pool,
 			Clock:         proxy.SystemClock{},
 			Logger:        slog.New(slog.DiscardHandler),
 			ExportTimeout: time.Second,
@@ -435,11 +435,11 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the line's (\S+) decodes to the exact body sent$`, func(key string) error {
 		return w.lineBody(key, w.sentBody)
 	})
-	sc.Step(`^the line's (\S+) decodes to the vendor's reply$`, func(key string) error {
+	sc.Step(`^the line's (\S+) decodes to the vendor's response$`, func(key string) error {
 		return w.lineBody(key, `{"ok":true}`)
 	})
 	sc.Step(`^the line's hotline.content.response.body holds the first 1KiB$`, func() error {
-		return w.lineBody("hotline.content.response.body", string(longReply()[:1024]))
+		return w.lineBody("hotline.content.response.body", string(longResponse()[:1024]))
 	})
 	sc.Step(`^the line has hotline.content.request.header.(\S+) as sent$`, func(name string) error {
 		attrs, err := w.lineAttrs()
@@ -507,7 +507,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return has(attrs, "hotline.request.body.hash", bodyHash("request", sprint(line["trace_id"]), sprint(line["span_id"]), saved))
 	})
-	sc.Step(`^the line has the request and reply headers and the reply body$`, func() error {
+	sc.Step(`^the line has the request and response headers and the response body$`, func() error {
 		attrs, err := w.lineAttrs()
 		if err != nil {
 			return err
@@ -542,9 +542,9 @@ func (w *world) callWithBody(body string, headers ...string) error {
 	return w.send(request{method: w.method, target: w.target, headers: headers, body: strings.NewReader(body), length: len(body)})
 }
 
-// longReply is a reply of 5 KiB that is not the same all along, so a cut
+// longResponse is a response of 5 KiB that is not the same all along, so a cut
 // in the wrong place shows.
-func longReply() []byte {
+func longResponse() []byte {
 	var b bytes.Buffer
 	for i := 0; b.Len() < 5120; i++ {
 		b.WriteString(strings.Repeat(string(rune('a'+i%26)), 64))
@@ -670,7 +670,7 @@ paths:
       parameters:
         - { name: X-Debug-Token, in: header, x-hotline-redact: true }
 `,
-		"reply header Request-Id is marked x-hotline-redact true": `openapi: 3.1.0
+		"response header Request-Id is marked x-hotline-redact true": `openapi: 3.1.0
 paths:
   /v1/things:
     get:

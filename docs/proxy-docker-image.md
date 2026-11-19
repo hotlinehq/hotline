@@ -8,7 +8,7 @@ One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `li
 
 ## Decisions (Peter, 2026-11-01)
 
-1. **Base image:** Google's distroless static image, `gcr.io/distroless/static-debian13:nonroot`, pinned by digest. Distroless means only the files a program needs: the CA bundle (the trusted issuers for vendor certificates), time zone data, a few files in `/etc` and the `nonroot` user (65532). Chainguard's static image, Alpine (it has a shell and a package manager) and an empty scratch image were looked at and not taken. Dependabot proposes a new digest each week, so Debian's security fixes reach the image.
+1. **Base image:** Google's distroless static image, `gcr.io/distroless/static-debian13:nonroot`, pinned by digest. Distroless means only the files a program needs: the CA bundle (the trusted certificate authorities for vendor certificates), time zone data, a few files in `/etc` and the `nonroot` user (65532). Chainguard's static image, Alpine (it has a shell and a package manager) and an empty scratch image were looked at and not taken. Dependabot proposes a new digest each week, so Debian's security fixes reach the image.
 2. **Static build with Go's own name lookup** (`CGO_ENABLED=0`). Go's resolver reads the same `/etc/resolv.conf`, `/etc/hosts` and `/etc/nsswitch.conf` as Linux, so Kubernetes search domains and `hostAliases` work, and `vendorTimeout` can cut a slow lookup short. Linux's own resolver, from the C library, would only add lookup plugins that containers don't have, and would need a C library in the image and a C compiler for each platform.
 3. **Multi-arch:** `linux/amd64` and `linux/arm64` under one name. Go cross-compiles both on the build machine, with no emulation.
 4. **No vendor specs in the image** (Peter, 2026-11-02; they were in their own layer from 2026-11-01). Specs come with the config, in the same ConfigMap at `/etc/hotline/config/`, and the config points to them by a relative path.
@@ -19,7 +19,7 @@ One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `li
    ```
    cosign verify ghcr.io/hotlinehq/hotline-proxy:0.1.0 \
      --certificate-identity-regexp '^https://github.com/hotlinehq/hotline/' \
-     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+     --certificate-oidc-certificate authority https://token.actions.githubusercontent.com
    ```
 
 ## Inside the image
@@ -34,7 +34,7 @@ One hardened image, `ghcr.io/hotlinehq/hotline-proxy`, for `linux/amd64` and `li
 |---|---|---|
 | `/etc/hotline/config/` | ConfigMap | the config, its vendor specs and overlays, in one ConfigMap so they change in one step |
 | `/etc/hotline/tls/` | Secret, often from cert-manager | the certificate and key of a `tls` part |
-| `/etc/hotline/connect/` | Secret | the issuer of a `connect` part |
+| `/etc/hotline/connect/` | Secret | the certificate authority of a `connect` part |
 
 Each is its own folder, side by side: Kubernetes and Docker can't mount a folder inside a read-only mounted folder. Changed files are picked up within 5 seconds with no restart ([proxy-config-reload.md](proxy-config-reload.md)); values read from `env` change only on a restart.
 

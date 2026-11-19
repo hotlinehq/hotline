@@ -7,7 +7,7 @@ Full wording in [docs/proxy-capture.md](../proxy-capture.md). The macOS side liv
 3. Captured tunnels are served by the existing CONNECT ingress (`listen.connect`) and handled like intercepted connections inside, with `hotline.ingress=capture`.
 4. The app list is not sent to the proxy. Hotline passes it to the helper at start; a new list means a new start. Nothing new in `proxy.Options`.
 5. ~~The capture headers count only from a loopback address.~~ Replaced on 2026-11-12, see 11.
-6. `listen.connect` gets a `passthrough` list, same meaning as for intercept, for captured and ordinary tunnels. Contract: `config.Passthrough` and `Config.ConnectPassthrough`.
+6. `listen.connect` gets a `passthrough` list, same meaning as for the transparent ingress, for captured and ordinary tunnels. Contract: `config.Passthrough` and `Config.ConnectPassthrough`.
 7. Records: `hotline.ingress=capture`, `process.pid`, `process.executable.path`. The extension's User-Agent is not recorded (Peter).
 8. The extension checks every 2 seconds that the proxy answers and captures nothing while it does not. An empty connection makes no record.
 9. One Hotline captures all chosen programs.

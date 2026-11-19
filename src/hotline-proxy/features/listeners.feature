@@ -14,9 +14,9 @@ Feature: Listeners
   may name one cert for all its parts, and a part's own cert wins.
 
   Background:
-    Given an issuer named customer in certs
-    And a proxy certificate for the name hotline-proxy from the test issuer
-    And an app that trusts the interception issuer
+    Given a certificate authority named customer in certs
+    And a proxy certificate for the name hotline-proxy from the test certificate authority
+    And an app that trusts the interception certificate authority
 
   Rule: A config may have several listeners
 
@@ -46,8 +46,8 @@ Feature: Listeners
           tls: { mode: sign }
           connect:
         """
-      When an app that trusts the interception issuer opens TLS to the listener apps asking for the name hotline.local
-      Then the app sees a certificate for hotline.local signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the listener apps asking for the name hotline.local
+      Then the app sees a certificate for hotline.local signed by the interception certificate authority
 
     Scenario: tls with mode sign signs for the address when the app names no site
       Given the certs are:
@@ -60,8 +60,8 @@ Feature: Listeners
           address: tcp://{apps}
           tls: { cert: shop, mode: sign }
         """
-      When an app that trusts the interception issuer opens TLS to the listener apps asking for no name
-      Then the app sees a certificate for the local address 127.0.0.1 signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the listener apps asking for no name
+      Then the app sees a certificate for the local address 127.0.0.1 signed by the interception certificate authority
 
     Scenario: tls with mode sign on a socket file signs for localhost
       Given the certs are:
@@ -76,8 +76,8 @@ Feature: Listeners
           address: unix://{dir}/local.sock
           tls: { cert: shop, mode: sign }
         """
-      When an app that trusts the interception issuer opens TLS to the socket listener local asking for no name
-      Then the app sees a certificate for the name localhost signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the socket listener local asking for no name
+      Then the app sees a certificate for the name localhost signed by the interception certificate authority
 
     Scenario: tls shows a fixed certificate by default
       Given the certs are:
@@ -111,7 +111,7 @@ Feature: Listeners
       When the app sends "PING" to the listener sidecar
       Then the app gets "+PONG" back
       And pinned.example.com got "PING"
-      And the intercept record has hotline.ingress transparent, server.address 192.0.2.250, hotline.intercept.mode passthrough and hotline.intercept.reason tcp
+      And the transparent record has hotline.ingress transparent, server.address 192.0.2.250, hotline.intercept.mode passthrough and hotline.intercept.reason tcp
 
     Scenario: A capture listener with protocol tcp relays every port
       Given the capture listener has protocol tcp and no cert
@@ -156,25 +156,25 @@ Feature: Listeners
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | listener                                                               | problem                                                                       |
-        | apps: { address: "127.0.0.1:{apps}" }                                  | listener apps: address 127.0.0.1                                              |
-        | apps: { address: "tcp://127.0.0.1" }                                   | listener apps: address tcp://127.0.0.1 must be tcp://host:port                |
-        | apps:                                                                  | listener apps needs an address                                                |
-        | apps: { address: "tcp://{apps}", protocol: udp }                       | listener apps: protocol must be http or tcp                                   |
-        | apps: { address: "tcp://{apps}", protocol: tcp }                       | listener apps: protocol tcp is only for transparent and capture listeners     |
-        | apps: { address: "tcp://{apps}", tls: { cert: shop } }                 | listener apps: tls: cert shop is a certificate authority; write mode: sign    |
-        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: sign } }     | listener apps: tls: cert team is not a certificate authority, so it cannot sign |
-        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: show } }     | listener apps: tls: mode must be serve or sign                                |
-        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: serve } } | listener apps: connect always signs a certificate for each site               |
-        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: copy } }  | listener apps: connect: mode must be sign                                     |
-        | apps: { address: "tcp://{apps}", connect: yes }                        | listener apps: connect: write its settings as key: value                      |
-        | apps: { address: "tcp://{apps}", connect: { passthrough: x } }         | listener apps: connect: yaml                                                  |
-        | apps: { address: "tcp://{apps}", tls: { cert: team }, transparent: { cert: shop } } | transparent and capture each need a listener of their own             |
-        | apps: { address: "unix:///tmp/x.sock", transparent: { cert: shop } }   | listener apps: transparent needs a tcp:// address                             |
-        | apps: { address: "tcp://{apps}", capture: { cert: shop } }             | listener apps: capture needs a unix:// socket file                            |
-        | apps: { address: "tcp://{apps}", protocol: tcp, transparent: { cert: shop } } | listener apps: with protocol tcp nothing is read                       |
-        | apps: { address: "tcp://{apps}" }\nother: { address: "tcp://{apps}" }  | listener apps and listener other both use the address                         |
-        | apps: { address: "tcp://{admin}" }                                     | admin and listener apps both use the address                                  |
+        | listener                                                                            | problem                                                                         |
+        | apps: { address: "127.0.0.1:{apps}" }                                               | listener apps: address 127.0.0.1                                                |
+        | apps: { address: "tcp://127.0.0.1" }                                                | listener apps: address tcp://127.0.0.1 must be tcp://host:port                  |
+        | apps:                                                                               | listener apps needs an address                                                  |
+        | apps: { address: "tcp://{apps}", protocol: udp }                                    | listener apps: protocol must be http or tcp                                     |
+        | apps: { address: "tcp://{apps}", protocol: tcp }                                    | listener apps: protocol tcp is only for transparent and capture listeners       |
+        | apps: { address: "tcp://{apps}", tls: { cert: shop } }                              | listener apps: tls: cert shop is a certificate authority; write mode: sign      |
+        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: sign } }                  | listener apps: tls: cert team is not a certificate authority, so it cannot sign |
+        | apps: { address: "tcp://{apps}", tls: { cert: team, mode: show } }                  | listener apps: tls: mode must be serve or sign                                  |
+        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: serve } }             | listener apps: connect always signs a certificate for each site                 |
+        | apps: { address: "tcp://{apps}", connect: { cert: shop, mode: copy } }              | listener apps: connect: mode must be sign                                       |
+        | apps: { address: "tcp://{apps}", connect: yes }                                     | listener apps: connect: write its settings as key: value                        |
+        | apps: { address: "tcp://{apps}", connect: { passthrough: x } }                      | listener apps: connect: yaml                                                    |
+        | apps: { address: "tcp://{apps}", tls: { cert: team }, transparent: { cert: shop } } | transparent and capture each need a listener of their own                       |
+        | apps: { address: "unix:///tmp/x.sock", transparent: { cert: shop } }                | listener apps: transparent needs a tcp:// address                               |
+        | apps: { address: "tcp://{apps}", capture: { cert: shop } }                          | listener apps: capture needs a unix:// socket file                              |
+        | apps: { address: "tcp://{apps}", protocol: tcp, transparent: { cert: shop } }       | listener apps: with protocol tcp nothing is read                                |
+        | apps: { address: "tcp://{apps}" }\nother: { address: "tcp://{apps}" }               | listener apps and listener other both use the address                           |
+        | apps: { address: "tcp://{admin}" }                                                  | admin and listener apps both use the address                                    |
 
     Scenario Outline: Settings a listener does not use start with a warning
       Given the listeners are:
@@ -185,8 +185,8 @@ Feature: Listeners
       Then the proxy starts and logs a warning naming <name>
 
       Examples:
-        | listener                                                      | name                                 |
-        | apps: { address: "tcp://{apps}", cert: customer }             | cert is not used                     |
+        | listener                                                                          | name                            |
+        | apps: { address: "tcp://{apps}", cert: customer }                                 | cert is not used                |
         | apps: { address: "tcp://{apps}", connect: { cert: customer, passthru: [a.com] } } | field passthru is not a setting |
 
     Scenario: The admin address is checked like a listener's
@@ -203,7 +203,7 @@ Feature: Listeners
           connect:
         """
       When the app opens a tunnel to api.stripe.com:443 through the listener apps
-      Then the app sees a certificate for api.stripe.com signed by the interception issuer
+      Then the app sees a certificate for api.stripe.com signed by the interception certificate authority
 
   Rule: A reload changes a listener's settings, not its shape
 
@@ -218,11 +218,11 @@ Feature: Listeners
           address: tcp://{apps}
           tls: { cert: shop, mode: sign }
         """
-      And an app that trusts the interception issuer has opened TLS to the listener apps asking for the name hotline.local
-      When the files of the issuer named customer are replaced with a second issuer
+      And an app that trusts the interception certificate authority has opened TLS to the listener apps asking for the name hotline.local
+      When the files of the certificate authority named customer are replaced with a second certificate authority
       And the proxy checks its files
-      And an app that trusts the interception issuer opens TLS to the listener apps asking for the name hotline.local
-      Then the app sees a certificate for hotline.local signed by the second issuer
+      And an app that trusts the interception certificate authority opens TLS to the listener apps asking for the name hotline.local
+      Then the app sees a certificate for hotline.local signed by the second certificate authority
 
     Scenario: A renewed admin certificate is used without a restart
       Given the certs are:

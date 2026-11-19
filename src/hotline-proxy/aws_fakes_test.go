@@ -62,11 +62,11 @@ func (f *fakeSQS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Like SQS, an empty receive has no Messages at all.
-		reply := map[string]any{}
+		response := map[string]any{}
 		if len(got) > 0 {
-			reply["Messages"] = got
+			response["Messages"] = got
 		}
-		out = reply
+		out = response
 	case "AmazonSQS.DeleteMessage":
 		f.messages = slices.DeleteFunc(f.messages, func(m sqsMessage) bool { return m.receipt == in["ReceiptHandle"] })
 		out = map[string]any{}

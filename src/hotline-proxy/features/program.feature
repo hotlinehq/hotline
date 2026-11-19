@@ -4,7 +4,7 @@ Feature: The hotline-proxy program
   starts the proxy, validate only checks a config, and version prints the
   version. verify checks the records in a file exporter's folder
   (docs/proxy-ledger.md). The config file is given only with --config. --trust-file adds
-  trusted certificate issuers on top of the system's own. The program's own
+  trusted certificate authorities on top of the system's own. The program's own
   log lines go to standard error. Every command takes --format: console,
   the default, writes plain lines for a person, and json writes one JSON
   object per line, for log collectors (Peter, 2026-11-12). Exit codes: 0
@@ -65,11 +65,11 @@ Feature: The hotline-proxy program
     And standard error says "for flag -format: must be console or json"
 
     Examples:
-      | command                                  |
-      | version                                  |
-      | validate --config hotline-proxy.yaml     |
-      | overlay --from from.yaml --to to.yaml    |
-      | verify calls                             |
+      | command                               |
+      | version                               |
+      | validate --config hotline-proxy.yaml  |
+      | overlay --from from.yaml --to to.yaml |
+      | verify calls                          |
 
   Scenario Outline: Help is printed on request
     When hotline-proxy is run with "<command> --help"
@@ -88,17 +88,17 @@ Feature: The hotline-proxy program
     And standard error says "<message>"
 
     Examples:
-      | arguments                                  | message                         |
-      |                                            | usage: hotline-proxy            |
-      | start                                      | unknown command "start"         |
-      | run                                        | --config is required            |
-      | validate                                   | --config is required            |
-      | run --config hotline-proxy.yaml --colour   | flag provided but not defined   |
-      | run --config hotline-proxy.yaml --log-level loud | invalid value "loud"      |
-      | run --config hotline-proxy.yaml extra      | unexpected argument "extra"     |
-      | verify                                     | the folder to verify is required |
-      | verify calls --body reply.json             | --body needs --span and --side  |
-      | verify calls extra                         | unexpected argument "extra"     |
+      | arguments                                        | message                          |
+      |                                                  | usage: hotline-proxy             |
+      | start                                            | unknown command "start"          |
+      | run                                              | --config is required             |
+      | validate                                         | --config is required             |
+      | run --config hotline-proxy.yaml --colour         | flag provided but not defined    |
+      | run --config hotline-proxy.yaml --log-level loud | invalid value "loud"             |
+      | run --config hotline-proxy.yaml extra            | unexpected argument "extra"      |
+      | verify                                           | the folder to verify is required |
+      | verify calls --body response.json                | --body needs --span and --side   |
+      | verify calls extra                               | unexpected argument "extra"      |
 
   Scenario: verify checks a folder and needs no config
     When hotline-proxy is run with "verify calls"
@@ -149,9 +149,9 @@ Feature: The hotline-proxy program
     And standard error says "<message>"
 
     Examples:
-      | command  | trust file                                 | message                     |
-      | validate | no file trust.pem                          | trust file                  |
-      | run      | a file trust.pem that holds no certificate | holds no certificate        |
+      | command  | trust file                                 | message              |
+      | validate | no file trust.pem                          | trust file           |
+      | run      | a file trust.pem that holds no certificate | holds no certificate |
 
   Scenario: run refuses a config with problems
     Given a config file with no listeners and no exporters

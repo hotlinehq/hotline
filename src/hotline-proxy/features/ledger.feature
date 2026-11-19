@@ -43,16 +43,16 @@ Feature: Records a third party can trust
       Then the hash no longer checks out
 
       Examples:
-        | change                                 |
-        | http.response.status_code is changed   |
-        | url.full is changed                    |
-        | the trace_id is changed                |
-        | the timestamp is changed               |
-        | hotline.request.body.hash is changed   |
-        | hotline.trace.hash is changed          |
-        | hotline.batch.index is changed         |
-        | an attribute is added                  |
-        | an attribute is removed                |
+        | change                               |
+        | http.response.status_code is changed |
+        | url.full is changed                  |
+        | the trace_id is changed              |
+        | the timestamp is changed             |
+        | hotline.request.body.hash is changed |
+        | hotline.trace.hash is changed        |
+        | hotline.batch.index is changed       |
+        | an attribute is added                |
+        | an attribute is removed              |
 
     Scenario: A changed record whose hash was recomputed no longer fits its batch
       When the app sends GET /orders
@@ -72,7 +72,7 @@ Feature: Records a third party can trust
       Then hotline.request.body.hash is the body hash of the body the vendor got, with the record's trace id and span id
       And the record holds no A1
 
-    Scenario: The reply's body
+    Scenario: The response's body
       Given the vendor answers 200 and the json body {"orders":[]}
       When the app sends GET /orders
       Then hotline.response.body.hash is the body hash of the body the app got, with the record's trace id and span id
@@ -103,24 +103,24 @@ Feature: Records a third party can trust
       And it has hotline.request.body.hash and hotline.response.body.hash
 
     Scenario: A tunnel relayed untouched is in the ledger, without body hashes
-      Given an interception issuer named customer in certs, which the connect part picks
-      And an app that trusts the interception issuer
+      Given an interception certificate authority named customer in certs, which the connect part picks
+      And an app that trusts the interception certificate authority
       And the connect part lists *.example.com in passthrough
-      And the app also trusts the vendors' own issuer
+      And the app also trusts the vendors' own certificate authority
       When the app opens a tunnel to pinned.example.com:443
       And the app closes its connections
       Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
       And the record has no hotline.request.body.hash or hotline.response.body.hash
 
     Scenario: A failed TLS handshake is in the ledger, without body hashes
-      Given an interception issuer named customer in certs, which the connect part picks
-      And an app that does not trust the interception issuer
+      Given an interception certificate authority named customer in certs, which the connect part picks
+      And an app that does not trust the interception certificate authority
       When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a
       Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
       And the record has no hotline.request.body.hash or hotline.response.body.hash
 
     Scenario: A connection a tcp listener relays is in the ledger, without body hashes
-      Given an issuer named customer in certs
+      Given a certificate authority named customer in certs
       And pinned.example.com on port 6379 answers "+PONG" to what it gets
       And the original destination of the connection is 192.0.2.250:6379
       And the listeners are:
@@ -232,7 +232,7 @@ Feature: Records a third party can trust
       And refunds is removed from the config and reloaded
       Then the refunds chain ends with an empty last batch of the config of the batch before it
 
-    # A record is made after the reply has gone back, so a reload can come
+    # A record is made after the response has gone back, so a reload can come
     # between a call's start and its record. The record goes in a batch of
     # the config the call started with (Peter, 2026-11-16).
     Scenario: A call in flight during a reload is batched with the config it started with
@@ -297,7 +297,7 @@ Feature: Records a third party can trust
       Then the batch after the reload has a different hotline.batch.config
       And it still follows the chain of the batches before
 
-    Scenario: The call and the reply are not changed
+    Scenario: The call and the response are not changed
       When the app sends GET /orders
       Then the vendor got no header it would not have got without the proxy
       And the app got no header it would not have got without the proxy

@@ -6,7 +6,7 @@ Feature: The capture ingress
   version, and the process number and program path of the app. The tunnel
   then carries the app's own bytes, so the proxy serves it like an
   intercepted connection: it reads the site name from the TLS handshake,
-  shows a certificate for it signed by the capture issuer, and handles
+  shows a certificate for it signed by the capture certificate authority, and handles
   each call inside like any other call, with hotline.ingress capture
   (Peter, 2026-11-10).
 
@@ -14,15 +14,15 @@ Feature: The capture ingress
   the capture listener, which only the proxy's user and root can open; the
   extension runs as root. The proxy believes the capture headers only
   there. On the proxy port they are ignored (Peter, 2026-11-12). The
-  socket file has its own issuer and passthrough list, so Hotline on a Mac
+  socket file has its own certificate authority and passthrough list, so Hotline on a Mac
   can take captured connections only, with no port open. The tests need no
   Mac: the test extension is a program that sends the same CONNECT to the
   socket file.
 
   Background:
-    Given an interception issuer named customer in certs, which the connect part picks
-    And the capture listener is a socket file, whose issuer is customer too
-    And an app that trusts the interception issuer
+    Given an interception certificate authority named customer in certs, which the connect part picks
+    And the capture listener is a socket file, whose certificate authority is customer too
+    And an app that trusts the interception certificate authority
 
   Rule: Captured calls are handled like any other call
 
@@ -35,7 +35,7 @@ Feature: The capture ingress
 
     Scenario: The extension names the address, and the certificate names the site in the handshake
       When the extension opens a captured tunnel to the address of api.stripe.com:443 for process 4242 at "/usr/bin/curl" and the app names api.stripe.com in the handshake
-      Then the app sees a certificate for api.stripe.com signed by the interception issuer
+      Then the app sees a certificate for api.stripe.com signed by the interception certificate authority
 
     Scenario: The port in the CONNECT decides where the proxy connects
       Given the capture listener has http ports 443 and 8443
@@ -45,7 +45,7 @@ Feature: The capture ingress
 
     Scenario: A handshake with no site name uses the address in the CONNECT
       When the extension opens a captured tunnel to the address of api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names no site in the handshake
-      Then the app sees a certificate for the IP api.talon.one signed by the interception issuer
+      Then the app sees a certificate for the IP api.talon.one signed by the interception certificate authority
       When the app sends its call
       Then the proxy connected to the address of api.talon.one
       And the record says hotline.ingress capture and ID not-passed
@@ -56,7 +56,7 @@ Feature: The capture ingress
       Given the capture listener lists pinned.example.com in passthrough
       When the extension opens a captured tunnel to the address of pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names pinned.example.com in the handshake
       Then the proxy dialed pinned.example.com by its name, never the address the app chose
-      And the vendor's own certificate reaches the app, not one from the interception issuer
+      And the vendor's own certificate reaches the app, not one from the interception certificate authority
       When the app closes its connections
       Then the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough, hotline.intercept.reason passthrough, process.pid 4242 and process.executable.path /usr/bin/curl
 
@@ -66,7 +66,7 @@ Feature: The capture ingress
       Given the capture listener lists pinned.example.com in passthrough
       When the extension opens a captured tunnel to pinned.example.com:443 for process 4242 at "/usr/bin/curl" and the app names no site in the handshake
       Then the proxy dialed pinned.example.com by its name, never the address the app chose
-      And the vendor's own certificate reaches the app, not one from the interception issuer
+      And the vendor's own certificate reaches the app, not one from the interception certificate authority
       When the app closes its connections
       Then the capture record has hotline.ingress capture, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
@@ -78,9 +78,9 @@ Feature: The capture ingress
 
     Scenario: An ordinary tunnel to a host in the connect part passthrough is relayed
       Given the connect part lists *.example.com in passthrough
-      And the app also trusts the vendors' own issuer
+      And the app also trusts the vendors' own certificate authority
       When the app opens a tunnel to pinned.example.com:443
-      Then the vendor's own certificate reaches the app, not one from the interception issuer
+      Then the vendor's own certificate reaches the app, not one from the interception certificate authority
       When the app closes its connections
       Then the capture record has hotline.ingress connect, server.address pinned.example.com, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
@@ -91,8 +91,8 @@ Feature: The capture ingress
 
   Rule: Connections that cannot be intercepted are recorded with the program
 
-    Scenario: An app that does not trust the issuer
-      Given an app that does not trust the interception issuer
+    Scenario: An app that does not trust the certificate authority
+      Given an app that does not trust the interception certificate authority
       When the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
       Then TLS inside the tunnel fails to set up
       And nothing is sent to any vendor
@@ -174,7 +174,7 @@ Feature: The capture ingress
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | ports | problem                                                 |
+        | ports | problem                                                       |
         | 0     | listener capture: capture: port 0 must be from 1 to 65535     |
         | 70000 | listener capture: capture: port 70000 must be from 1 to 65535 |
 
@@ -186,14 +186,14 @@ Feature: The capture ingress
       And the record says hotline.ingress capture and ID not-passed
 
       Examples:
-        | headers                                |
-        | an unknown capture version             |
+        | headers                                        |
+        | an unknown capture version                     |
         | capture version 1, from before the socket file |
-        | a process number that is not a number  |
-        | process number 0                       |
-        | the capture header twice               |
-        | two process numbers                    |
-        | a program path over 4096 bytes         |
+        | a process number that is not a number          |
+        | process number 0                               |
+        | the capture header twice                       |
+        | two process numbers                            |
+        | a program path over 4096 bytes                 |
 
     Scenario: Capture headers on the proxy port are ignored
       Only the socket file is for captured connections, so no other program
@@ -243,12 +243,12 @@ Feature: The capture ingress
       When the proxy loads the config
       Then the proxy refuses the config, saying listener capture
 
-    Scenario: A renewed issuer is used without a restart
+    Scenario: A renewed certificate authority is used without a restart
       Given the extension has opened a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
-      When the files of the issuer named customer are replaced with a second issuer
+      When the files of the certificate authority named customer are replaced with a second certificate authority
       And the proxy checks its files
       And the extension opens a captured tunnel to api.talon.one:443 for process 4242 at "/usr/bin/curl" and the app names api.talon.one in the handshake
-      Then the app sees a certificate for api.talon.one signed by the second issuer
+      Then the app sees a certificate for api.talon.one signed by the second certificate authority
 
     Scenario: A socket file the config no longer has keeps working until a restart
       Given the proxy starts
@@ -272,12 +272,12 @@ Feature: The capture ingress
       Then the proxy refuses the config, saying <problem>
 
       Examples:
-        | setting                                         | problem                                                                       |
-        | names no cert                                   | listener capture: capture needs a cert, as cert: name, on it or on the listener        |
-        | names a cert that is not in certs               | listener capture: capture names the cert gone, which is not in certs                   |
-        | lists a passthrough pattern that is not a name  | listener capture: capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
-        | is a path of 120 bytes                          | listener capture: the path is longer than 103 bytes                                    |
-        | is a relative path                              | listener capture: a socket file must be an absolute path or start with ~/              |
+        | setting                                        | problem                                                                                     |
+        | names no cert                                  | listener capture: capture needs a cert, as cert: name, on it or on the listener             |
+        | names a cert that is not in certs              | listener capture: capture names the cert gone, which is not in certs                        |
+        | lists a passthrough pattern that is not a name | listener capture: capture: passthrough "api.*.com" must be a host name or "*." and a suffix |
+        | is a path of 120 bytes                         | listener capture: the path is longer than 103 bytes                                         |
+        | is a relative path                             | listener capture: a socket file must be an absolute path or start with ~/                   |
 
     Scenario: A path starting with ~/ is in the home folder
       Given the capture listener is ~/hotline/capture.sock

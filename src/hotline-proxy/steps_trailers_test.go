@@ -12,7 +12,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-// trailerSteps cover what comes after a body, and early replies.
+// trailerSteps cover what comes after a body, and early responses.
 func trailerSteps(sc *godog.ScenarioContext, w *world) {
 	var vendorTrailer chan http.Header
 	sc.Step(`^a vendor that reads the trailers of the request$`, func() error {
@@ -48,7 +48,7 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 	})
 
-	sc.Step(`^a vendor that ends its reply with the trailers "([^"]+)", "([^"]+)" and "([^"]+)"$`, func(a, b, c string) error {
+	sc.Step(`^a vendor that ends its response with the trailers "([^"]+)", "([^"]+)" and "([^"]+)"$`, func(a, b, c string) error {
 		// Over HTTP/1.1, as Go's HTTP/2 server will not send forbidden
 		// trailers at all.
 		v := w.vendor("api.talon.one")
@@ -84,12 +84,12 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	// replies are the status and headers of each reply the app got.
-	type reply struct {
+	// responses are the status and headers of each response the app got.
+	type response struct {
 		status int
 		header http.Header
 	}
-	var replies []reply
+	var responses []response
 	sc.Step(`^a vendor that sends 103 Early Hints with a Link header and Connection, X-Nominated and Keep-Alive headers, then 200$`, func() error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			h := rw.Header()
@@ -105,7 +105,7 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 		})
 		return nil
 	})
-	sc.Step(`^an app calls it through the proxy and reads every reply$`, func() error {
+	sc.Step(`^an app calls it through the proxy and reads every response$`, func() error {
 		if err := w.start(); err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		reader := bufio.NewReader(conn)
-		replies = nil
+		responses = nil
 		for {
 			resp, err := http.ReadResponse(reader, nil)
 			if err != nil {
@@ -129,31 +129,31 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 			}
 			_, _ = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			replies = append(replies, reply{resp.StatusCode, resp.Header})
+			responses = append(responses, response{resp.StatusCode, resp.Header})
 			if resp.StatusCode >= 200 {
 				return nil
 			}
 		}
 	})
 	sc.Step(`^the app gets 103 with the Link header but no Connection, X-Nominated or Keep-Alive header$`, func() error {
-		if len(replies) < 2 || replies[0].status != http.StatusEarlyHints {
-			return failf("the app got %d replies, the first %v", len(replies), replies)
+		if len(responses) < 2 || responses[0].status != http.StatusEarlyHints {
+			return failf("the app got %d responses, the first %v", len(responses), responses)
 		}
-		early := replies[0].header
+		early := responses[0].header
 		if early.Get("Link") == "" {
-			return failf("the early reply lost its Link header: %v", early)
+			return failf("the early response lost its Link header: %v", early)
 		}
 		for _, name := range []string{"Connection", "X-Nominated", "Keep-Alive"} {
 			if early.Get(name) != "" {
-				return failf("the early reply kept %s: %v", name, early)
+				return failf("the early response kept %s: %v", name, early)
 			}
 		}
 		return nil
 	})
 	sc.Step(`^then the app gets (\d+)$`, func(status int) error {
-		last := replies[len(replies)-1]
+		last := responses[len(responses)-1]
 		if last.status != status {
-			return failf("the app's last reply was %d", last.status)
+			return failf("the app's last response was %d", last.status)
 		}
 		return nil
 	})

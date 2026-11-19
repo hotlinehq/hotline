@@ -7,7 +7,7 @@ One step, driven by S3 in the invoice example (Peter, 2026-10-31). It builds thr
 ## 1. XML bodies, for any vendor
 
 1. **Read by the spec's shape** (Peter, 2026-10-31). The proxy reads an XML body into the same tree it gets from JSON, following the schema and its OpenAPI `xml` notes: `name` (the element's name), `attribute` (a value written inside the tag), `wrapped` (a list with an outer element). Without notes, OpenAPI's defaults apply: an element is named after its field, and a list is its item element repeated. XML is not only for AWS: any vendor's spec can use it.
-2. **Then the same checks as JSON.** Same rules, same results, same limit of 20, same `errors_total`, same body-field copying with `x-hotline-record`. Requests and replies both.
+2. **Then the same checks as JSON.** Same rules, same results, same limit of 20, same `errors_total`, same body-field copying with `x-hotline-record`. Requests and responses both.
 3. **Text becomes typed** where the schema asks: `"12"` becomes the number 12, `"true"` becomes true, as form bodies do. A list stays a list even with one item.
 4. **Places look like JSON's:** `body $.Contents[1].Size required`. Never a value from the call.
 5. **Which bodies are XML.** `application/xml`, `text/xml` and any type ending in `+xml`. Any other type is XML only where the spec marks it `x-hotline-body: xml`, as `x-hotline-body: json` does for AWS's JSON type. The mark takes `json` or `xml`; anything else refuses the spec.
@@ -36,16 +36,16 @@ One step, driven by S3 in the invoice example (Peter, 2026-10-31). It builds thr
 2. **One stable spec,** `specs/aws/s3/2006-03-01.openapi.yaml`, with a test that keeps it in step with the tool. Detail: [specs/aws/s3/README.md](../specs/aws/s3/README.md).
 3. **The bucket is in the host name** (`shop-invoices.s3.eu-west-1.amazonaws.com`), so the api names that host, and routes have no bucket.
 4. **`x-id`** (the action name AWS's SDKs add to some calls) is left out of a route unless two actions would share a route without it.
-5. **AWS's error reply** (`<Error><Code>…`) is in the spec for every action's 4xx and 5xx, so it is checked like any reply.
+5. **AWS's error response** (`<Error><Code>…`) is in the spec for every action's 4xx and 5xx, so it is checked like any response.
 6. **File bodies are passed, never read.** They are listed as `*/*` with no schema, so their records say `skipped=unsupported_content_type`.
 
 ## 4. S3 in the invoice story
 
 1. **The worker stores** each PDF in the bucket `shop-invoices` as `A-1001.pdf` (`PutObject`), in place of a local folder.
-2. **The shop fetches it** (`fetch`, `GetObject`). A missing file answers `404` with `<Error><Code>NoSuchKey</Code>`, checked as a normal error reply.
-3. **The shop lists** the invoices (`list`, `ListObjectsV2`): the XML reply is checked (Peter, 2026-10-31).
+2. **The shop fetches it** (`fetch`, `GetObject`). A missing file answers `404` with `<Error><Code>NoSuchKey</Code>`, checked as a normal error response.
+3. **The shop lists** the invoices (`list`, `ListObjectsV2`): the XML response is checked (Peter, 2026-10-31).
 4. **The shop deletes old invoices** in one call (`cleanup --before`, `DeleteObjects`): the XML request is checked (Peter, 2026-10-31).
-5. **One overlay for the bucket**, `src/hotline-proxy/testdata/aws/invoices-bucket.overlay.yaml`, pins `Name` to `shop-invoices` in the list reply, and file names to `^[A-Z]-[0-9]+\.pdf$`.
+5. **One overlay for the bucket**, `src/hotline-proxy/testdata/aws/invoices-bucket.overlay.yaml`, pins `Name` to `shop-invoices` in the list response, and file names to `^[A-Z]-[0-9]+\.pdf$`.
 6. **Signed calls stay valid,** as for SQS. That includes uploads signed in parts (`aws-chunked`) with a checksum sent after the body, which the AWS SDK for Go uses by default.
 
 The S3 scenarios run the example app through the proxy in the test, with a fake network: the bucket is in the host name, which can't point at a local program without changing the computer's name lookup.

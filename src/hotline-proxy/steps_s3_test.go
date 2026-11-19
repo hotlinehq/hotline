@@ -256,7 +256,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		}
 		return hasNo(r, "hotline.schema.request.errors", "hotline.schema.response.errors")
 	})
-	sc.Step(`^the S3 record for (\w+) has url.template (\S+) and (?:no results|the (request|reply) results (.+))$`, func(action, template, side, want string) error {
+	sc.Step(`^the S3 record for (\w+) has url.template (\S+) and (?:no results|the (request|response) results (.+))$`, func(action, template, side, want string) error {
 		r, err := w.s3Record(action)
 		if err != nil {
 			return err

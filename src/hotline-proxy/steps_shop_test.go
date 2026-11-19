@@ -190,13 +190,13 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 		}
 		return nil
 	})
-	sc.Step(`^the record keeps the reply header (\S+) as (\S+)$`, func(name, value string) error {
+	sc.Step(`^the record keeps the response header (\S+) as (\S+)$`, func(name, value string) error {
 		record, err := w.record()
 		if err != nil {
 			return err
 		}
 		if got := fmt.Sprint(record["http.response.header."+strings.ToLower(name)]); !strings.Contains(got, value) {
-			return failf("the record has the reply header %s %s", name, got)
+			return failf("the record has the response header %s %s", name, got)
 		}
 		return nil
 	})
@@ -235,7 +235,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 		}
 		return nil
 	})
-	sc.Step(`^the (checkout|invoices) record for (\S+) has the (request|reply) results (.+)$`, func(id, template, side, want string) error {
+	sc.Step(`^the (checkout|invoices) record for (\S+) has the (request|response) results (.+)$`, func(id, template, side, want string) error {
 		for _, r := range w.records() {
 			if r.attrs["hotline.integration.id"] != id || r.attrs["url.template"] != template {
 				continue

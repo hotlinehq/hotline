@@ -81,11 +81,11 @@ func (f *SQS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			got = append(got, map[string]any{"MessageId": m.id, "ReceiptHandle": m.receipt, "MD5OfBody": md5Hex(m.body), "Body": m.body})
 		}
 		// Like SQS, an empty receive has no Messages at all.
-		reply := map[string]any{}
+		response := map[string]any{}
 		if len(got) > 0 {
-			reply["Messages"] = got
+			response["Messages"] = got
 		}
-		out = reply
+		out = response
 	case "DeleteMessage":
 		for i, m := range f.messages {
 			if m.receipt == in["ReceiptHandle"] {

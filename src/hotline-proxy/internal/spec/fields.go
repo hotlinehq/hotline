@@ -12,7 +12,7 @@ import (
 )
 
 // Field is one body field the spec marks x-hotline-record, copied from a
-// call or a reply: the record attribute's name, and the value as a string,
+// call or a response: the record attribute's name, and the value as a string,
 // bool, int64 or float64.
 type Field struct {
 	Name  string
@@ -159,7 +159,7 @@ func kinds(raw, resolved map[string]any) []string {
 }
 
 // clashes reports a name marked twice on one route: on a header and in the
-// call's body, or in both the call and a reply, since a record holds each
+// call's body, or in both the call and a response, since a record holds each
 // name once.
 func (b *builder) clashes(c *checks, where string) {
 	headers := map[string]bool{}
@@ -176,7 +176,7 @@ func (b *builder) clashes(c *checks, where string) {
 		asked[name] = true
 	}
 	clashing := map[string]bool{}
-	for _, rp := range c.replies {
+	for _, rp := range c.responses {
 		for _, name := range rp.body.names() {
 			if asked[name] {
 				clashing[name] = true
@@ -184,7 +184,7 @@ func (b *builder) clashes(c *checks, where string) {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(clashing)) {
-		b.problem("%s: x-hotline-record names %s in both the call and the reply", where, name)
+		b.problem("%s: x-hotline-record names %s in both the call and the response", where, name)
 	}
 }
 

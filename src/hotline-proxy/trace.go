@@ -32,8 +32,8 @@ const (
 	stepVendorTLS = "vendor tls handshake"
 	stepSend      = "send call"
 	stepWait      = "wait for vendor"
-	stepReceive   = "receive reply"
-	stepReply     = "reply to app"
+	stepReceive   = "receive response"
+	stepResponse  = "response to app"
 )
 
 // phaseStep is a step of the vendor connection, with the phase it is.
@@ -44,7 +44,7 @@ type phaseStep struct {
 
 // spanRoom is the most spans a call's trace holds: the call, app TLS,
 // routing, the vendor call and its connection phases, sending, waiting and
-// receiving, the reply, and two spans for each side's spec check.
+// receiving, the response, and two spans for each side's spec check.
 const spanRoom = 4 + len([3]phaseStep{}) + 3 + 1 + 2*2
 
 // phaseSteps are the steps of the vendor connection, in order.
@@ -71,7 +71,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 		step(call.ID, stepAppTLS, c.appStart, c.appEnd)
 	}
 	step(call.ID, stepRouting, c.start, c.vendorIn)
-	// The reply ends when the vendor's reply ended, or when the call
+	// The response ends when the vendor's response ended, or when the call
 	// failed.
 	out := orTime(c.vendorOut, end)
 	vendor := export.Span{
@@ -105,7 +105,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	if !c.firstByte.IsZero() {
 		step(vendor.ID, stepReceive, c.firstByte, out)
 	}
-	step(call.ID, stepReply, out, end)
+	step(call.ID, stepResponse, out, end)
 	// The app hung up: the vendor did nothing wrong, so only the last step
 	// fails (Peter, 2026-10-31).
 	spans[len(spans)-1].Status = export.FailedIf(c.app.failed())

@@ -37,7 +37,7 @@ type Listener struct {
 	Connect *Connect
 	// Transparent, when set, makes the listener take connections a
 	// firewall sent to it, which carry no CONNECT.
-	Transparent *Intercept
+	Transparent *Transparent
 	// Capture, when set, makes the listener's socket file the ingress of
 	// the macOS capture extension.
 	Capture *Capture
@@ -61,11 +61,11 @@ type ListenerTLS struct {
 	Sign bool
 }
 
-// Connect is the CONNECT part of a listener: the issuer that signs the
+// Connect is the CONNECT part of a listener: the certificate authority that signs the
 // certificate shown for each vendor host inside a tunnel, and the sites
 // relayed untouched.
 type Connect struct {
-	Issuer      *TLS
+	Authority   *TLS
 	Passthrough Passthrough
 }
 
@@ -120,8 +120,8 @@ type connectFile struct {
 	Passthrough []string `yaml:"passthrough"`
 }
 
-// interceptFile is the transparent part of a listener.
-type interceptFile struct {
+// transparentFile is the transparent part of a listener.
+type transparentFile struct {
 	Cert        string   `yaml:"cert"`
 	Mode        string   `yaml:"mode"`
 	Integration string   `yaml:"integration"`
@@ -321,7 +321,7 @@ func (l *loader) listener(label, name string, f *listenerFile, certs map[string]
 	}
 	var tlsF tlsFile
 	var connectF connectFile
-	var transparentF interceptFile
+	var transparentF transparentFile
 	var captureF captureFile
 	hasTLS := l.part(label+": tls", f.TLS, &tlsF)
 	hasConnect := l.part(label+": connect", f.Connect, &connectF)
@@ -343,7 +343,7 @@ func (l *loader) listener(label, name string, f *listenerFile, certs map[string]
 			l.problem("%s: with protocol tcp nothing is read, so cert, ports, passthrough and ech are not settings", label)
 		}
 		if hasTransparent {
-			li.Transparent = &Intercept{Integration: transparentF.Integration}
+			li.Transparent = &Transparent{Integration: transparentF.Integration}
 		}
 		if hasCapture {
 			li.Capture = &Capture{ports: map[string]bool{}}
@@ -359,7 +359,7 @@ func (l *loader) listener(label, name string, f *listenerFile, certs map[string]
 	if hasConnect {
 		l.signs(label+": connect", connectF.Mode)
 		li.Connect = &Connect{
-			Issuer:      l.use(label+": connect", connectF.Cert, f.Cert, true, certs),
+			Authority:   l.use(label+": connect", connectF.Cert, f.Cert, true, certs),
 			Passthrough: l.passthrough(label+": connect", connectF.Passthrough),
 		}
 	}
@@ -372,11 +372,11 @@ func (l *loader) listener(label, name string, f *listenerFile, certs map[string]
 	return li
 }
 
-func (l *loader) transparent(label string, f interceptFile, listenerCert string, certs map[string]*TLS) *Intercept {
+func (l *loader) transparent(label string, f transparentFile, listenerCert string, certs map[string]*TLS) *Transparent {
 	l.signs(label, f.Mode)
-	i := &Intercept{
+	i := &Transparent{
 		Integration: f.Integration,
-		Issuer:      l.use(label, f.Cert, listenerCert, true, certs),
+		Authority:   l.use(label, f.Cert, listenerCert, true, certs),
 		Passthrough: l.passthrough(label, f.Passthrough),
 	}
 	for _, name := range f.ECH.Relay {
@@ -390,7 +390,7 @@ func (l *loader) transparent(label string, f interceptFile, listenerCert string,
 }
 
 // capture reads a capture part: the ports read as calls, 80 and 443 when
-// left out, the issuer, and the sites relayed untouched.
+// left out, the certificate authority, and the sites relayed untouched.
 func (l *loader) capture(label string, f captureFile, listenerCert string, certs map[string]*TLS) *Capture {
 	l.signs(label, f.Mode)
 	ports := []int{80, 443}
@@ -405,7 +405,7 @@ func (l *loader) capture(label string, f captureFile, listenerCert string, certs
 		read[strconv.Itoa(port)] = true
 	}
 	return &Capture{
-		Issuer:      l.use(label, f.Cert, listenerCert, true, certs),
+		Authority:   l.use(label, f.Cert, listenerCert, true, certs),
 		Passthrough: l.passthrough(label, f.Passthrough),
 		ports:       read,
 	}

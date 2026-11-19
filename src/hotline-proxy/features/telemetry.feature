@@ -1,6 +1,6 @@
 Feature: The proxy's own telemetry
   The proxy sends numbers about itself as OpenTelemetry metrics to the
-  telemetry destination only, never mixed with the records of vendor calls:
+  telemetry section only, never mixed with the records of vendor calls:
   calls in flight, how long calls take, failed TLS setups with apps, each
   exporter, config reloads, certificates and the Go runtime: 14 metrics
   (Peter, 2026-11-01). Standard names where OpenTelemetry has one,
@@ -14,7 +14,7 @@ Feature: The proxy's own telemetry
   Background:
     Given a fake OTLP receiver for the proxy's own telemetry
 
-  Scenario: Own data goes only to the telemetry destination
+  Scenario: Own data goes only to the telemetry section
     When a call ends
     Then the telemetry receiver gets the metric http.server.request.duration
     And the telemetry receiver gets no log records
@@ -47,15 +47,15 @@ Feature: The proxy's own telemetry
 
   Scenario: The proxy's own numbers go out once a minute
     As with counts, unless telemetry.otlp.metricInterval says otherwise
-    (Peter, 2026-11-01). The telemetry destination gets only metrics, so a
+    (Peter, 2026-11-01). The telemetry section gets only metrics, so a
     logInterval or traceInterval there is ignored with a warning.
-    Given the telemetry destination does not set metricInterval
+    Given the telemetry section does not set metricInterval
     When a call ends
     Then the telemetry receiver gets no metric within a second
     And the telemetry receiver gets the metric http.server.request.duration once the proxy stops
 
   Scenario Outline: Log and trace intervals mean nothing for telemetry
-    Given the telemetry destination sets <setting>
+    Given the telemetry section sets <setting>
     Then the proxy logs a warning naming telemetry.otlp.<setting>
 
     Examples:
@@ -83,12 +83,12 @@ Feature: The proxy's own telemetry
     Then hotline.exporter.sent counts some for that exporter and hotline.signal count
 
   Scenario: Records dropped from a full queue are counted
-    Given an exporter with queueSize 3 whose destination is busy with the first record
+    Given an exporter with queueSize 3 whose exporter is busy with the first record
     When 4 more calls end
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason queue_full
 
   Scenario: Records lost in a refused send are counted
-    Given a product destination over HTTP that refuses every log export with 400
+    Given a product exporter over HTTP that refuses every log export with 400
     When a call ends
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason send_failed
 
@@ -97,10 +97,10 @@ Feature: The proxy's own telemetry
     Then hotline.exporter.up is 1 for that exporter
 
   Scenario: An exporter that is down shows as down, and up again once it works
-    Given a product destination that is down
+    Given a product exporter that is down
     When a call ends
     Then hotline.exporter.up turns 0 for that exporter
-    When the destination comes back and another call ends
+    When the exporter comes back and another call ends
     Then hotline.exporter.up turns 1 for that exporter
 
   Scenario: The config at start
@@ -152,14 +152,14 @@ Feature: The proxy's own telemetry
     And the proxy checks its files
     Then hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls
 
-  Scenario: The CONNECT issuer
-    Given CONNECT is an ingress with an issuer that expires in 200 days
+  Scenario: The CONNECT certificate authority
+    Given CONNECT is an ingress with a certificate authority that expires in 200 days
     When the proxy starts
-    Then hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect
+    Then hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect
 
   Scenario: Each certificate is named by its listener and part
-    Given an issuer named customer in certs
-    And a proxy certificate for the name hotline-proxy from the test issuer
+    Given a certificate authority named customer in certs
+    And a proxy certificate for the name hotline-proxy from the test certificate authority
     And the certs are:
       """
       shop: { cert: ./ca/cert.pem, key: ./ca/key.pem }
@@ -187,11 +187,11 @@ Feature: The proxy's own telemetry
     Then hotline.app_tls.failures counts 1 with error.type <type> and hotline.ingress <ingress>
 
     Examples:
-      | does                                             | type                 | ingress   |
-      | that does not trust the proxy opens TLS          | tls_untrusted_by_app | none      |
-      | sends plain HTTP to the TLS port                 | plain_http           | none      |
-      | that allows only TLS 1.1 opens TLS               | tls_version          | none      |
-      | that does not trust the issuer opens a tunnel    | tls_untrusted_by_app | connect   |
+      | does                                                         | type                 | ingress |
+      | that does not trust the proxy opens TLS                      | tls_untrusted_by_app | none    |
+      | sends plain HTTP to the TLS port                             | plain_http           | none    |
+      | that allows only TLS 1.1 opens TLS                           | tls_version          | none    |
+      | that does not trust the certificate authority opens a tunnel | tls_untrusted_by_app | connect |
 
   Scenario: The Go runtime, five numbers
     go.memory.limit is the fifth, sent only when a memory limit is set
@@ -213,18 +213,18 @@ Feature: The proxy's own telemetry
     Then the telemetry receiver gets <name> with unit "<unit>" and a description
 
     Examples:
-      | name                          | unit         |
-      | http.server.active_requests   | {request}    |
-      | http.server.request.duration  | s            |
-      | hotline.exporter.up           |              |
-      | hotline.exporter.queue.size   | {item}       |
-      | hotline.exporter.sent         | {item}       |
-      | hotline.config.reload_failed  |              |
-      | hotline.config.restart_needed |              |
-      | hotline.certificate.not_after | s            |
-      | go.memory.used                | By           |
-      | go.goroutine.count            | {goroutine}  |
-      | go.memory.allocated           | By           |
+      | name                          | unit        |
+      | http.server.active_requests   | {request}   |
+      | http.server.request.duration  | s           |
+      | hotline.exporter.up           |             |
+      | hotline.exporter.queue.size   | {item}      |
+      | hotline.exporter.sent         | {item}      |
+      | hotline.config.reload_failed  |             |
+      | hotline.config.restart_needed |             |
+      | hotline.certificate.not_after | s           |
+      | go.memory.used                | By          |
+      | go.goroutine.count            | {goroutine} |
+      | go.memory.allocated           | By          |
 
   Scenario: Failed TLS setups have their unit and a description
     Given the proxy port takes TLS
@@ -232,7 +232,7 @@ Feature: The proxy's own telemetry
     Then the telemetry receiver gets hotline.app_tls.failures with unit "{connection}" and a description
 
   Scenario: Dropped items have their unit and a description
-    Given an exporter with queueSize 3 whose destination is busy with the first record
+    Given an exporter with queueSize 3 whose exporter is busy with the first record
     When 4 more calls end
     Then the telemetry receiver gets hotline.exporter.dropped with unit "{item}" and a description
 

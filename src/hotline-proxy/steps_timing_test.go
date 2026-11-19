@@ -23,7 +23,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a call ends with "([^"]+)"$`, func(header string) error { return w.defaultCall(header) })
 	sc.Step(`^the call ends$`, func() error {
 		if w.resp != nil || w.respErr != nil {
-			return nil //nolint:nilerr // the call already ended; a broken reply is what some scenarios check
+			return nil //nolint:nilerr // the call already ended; a broken response is what some scenarios check
 		}
 		if w.pending != nil {
 			return w.send(*w.pending)
@@ -197,7 +197,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return hasNo(record, "hotline.connection.reused", "dns.question.name")
 	})
 
-	sc.Step(`^the last byte of the reply has gone to the app$`, func() error {
+	sc.Step(`^the last byte of the response has gone to the app$`, func() error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(rw, "first part ")
 			rw.(http.Flusher).Flush()
@@ -215,18 +215,18 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		call := t.call()
-		reply, err := t.one("receive reply")
+		response, err := t.one("receive response")
 		if err != nil {
 			return err
 		}
-		if call.end < reply.start+int64(140*time.Millisecond) || time.Duration(call.end-call.start) > w.appTook {
-			return failf("the call span ends %v after the reply started, and lasts %v; want it after the last part and within the app's %v",
-				time.Duration(call.end-reply.start), time.Duration(call.end-call.start), w.appTook)
+		if call.end < response.start+int64(140*time.Millisecond) || time.Duration(call.end-call.start) > w.appTook {
+			return failf("the call span ends %v after the response started, and lasts %v; want it after the last part and within the app's %v",
+				time.Duration(call.end-response.start), time.Duration(call.end-call.start), w.appTook)
 		}
 		return nil
 	})
-	sc.Step(`^"receive reply" lasts at least as long as the vendor took to send the rest$`, func() error {
-		return w.lasts("receive reply", 140*time.Millisecond, time.Hour)
+	sc.Step(`^"receive response" lasts at least as long as the vendor took to send the rest$`, func() error {
+		return w.lasts("receive response", 140*time.Millisecond, time.Hour)
 	})
 
 	sc.Step(`^a vendor reached over plain http$`, func() error {
@@ -305,7 +305,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^a call reuses it$`, func() error { return w.defaultCall() })
 
-	sc.Step(`^a vendor that sends half of its reply, and the rest (\d+) milliseconds later$`, func(after int) error {
+	sc.Step(`^a vendor that sends half of its response, and the rest (\d+) milliseconds later$`, func(after int) error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Content-Length", "100")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 50))

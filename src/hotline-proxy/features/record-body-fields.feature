@@ -1,7 +1,7 @@
 # Agreed with Peter, 2026-10-31. Detail: docs/proxy-body-fields.md.
 Feature: Marked body fields and headers are copied into the record
   Bodies are never recorded. But a spec can mark a field of a call's or a
-  reply's body with x-hotline-record, giving the name of a record
+  response's body with x-hotline-record, giving the name of a record
   attribute, and the proxy then copies that one field's value into the
   record. For example, SQS's QueueUrl is recorded as
   messaging.destination.name, OpenTelemetry's name for a queue, so a log
@@ -53,12 +53,12 @@ Feature: Marked body fields and headers are copied into the record
       Then the record holds <name> = <value> as a <kind>
 
       Examples:
-        | kind          | field          | name              | value |
-        | true or false | "gift":true    | shop.order.gift   | true  |
-        | number        | "weight":1.5   | shop.order.weight | 1.5   |
-        | whole number  | "weight":3     | shop.order.weight | 3     |
+        | kind          | field        | name              | value |
+        | true or false | "gift":true  | shop.order.gift   | true  |
+        | number        | "weight":1.5 | shop.order.weight | 1.5   |
+        | whole number  | "weight":3   | shop.order.weight | 3     |
 
-    Scenario: A field of the reply
+    Scenario: A field of the response
       Given the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"B2","quantity":1}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
       Then the record holds shop.order.item = B2
@@ -95,13 +95,13 @@ Feature: Marked body fields and headers are copied into the record
       Then the record has no attribute <name>
 
       Examples:
-        | case                                   | body                                    | name              |
-        | the field is missing                   | {"quantity":2}                          | shop.order.item   |
-        | a number is sent for text              | {"item":5,"quantity":2}                 | shop.order.item   |
-        | true is sent for text                  | {"item":true,"quantity":2}              | shop.order.item   |
-        | text is sent for true or false         | {"item":"A1","quantity":2,"gift":"yes"} | shop.order.gift   |
+        | case                                   | body                                      | name              |
+        | the field is missing                   | {"quantity":2}                            | shop.order.item   |
+        | a number is sent for text              | {"item":5,"quantity":2}                   | shop.order.item   |
+        | true is sent for text                  | {"item":true,"quantity":2}                | shop.order.item   |
+        | text is sent for true or false         | {"item":"A1","quantity":2,"gift":"yes"}   | shop.order.gift   |
         | the number is too large for the record | {"item":"A1","quantity":2,"weight":1e400} | shop.order.weight |
-        | the body is not JSON                   | {"item":                                | shop.order.item   |
+        | the body is not JSON                   | {"item":                                  | shop.order.item   |
 
     Scenario: A long text is cut at 256 characters
       Given the vendor answers 201
@@ -169,16 +169,16 @@ Feature: Marked body fields and headers are copied into the record
       Then the config is refused with a message naming "x-hotline-record", "<place>" and "<problem>"
 
       Examples:
-        | case                         | mark                | field                                                                                                                | place                     | problem                  |
-        | A mark on an object          | shop.metadata       | $.paths['/payments'].post.requestBody.content['application/x-www-form-urlencoded'].schema.properties.metadata | properties/metadata       | text, a number           |
-        | A mark on a list             | shop.orders         | $.components.schemas.OrderList.properties.orders                                                                     | OrderList/properties/orders | text, a number         |
-        | A mark that is not a name    | true                | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | must be a name           |
-        | A name with a space          | "shop item"         | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | letters, digits          |
-        | A name the proxy uses itself | http.request.method | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | the proxy's own          |
-        | A hotline name               | hotline.item        | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | the proxy's own          |
-        | A mark on a query parameter  | shop.limit          | $.paths['/orders'].get.parameters[?@.name == 'limit']                                                                | limit                     | only on a header of the call |
-        | A mark on a reply header     | shop.request_id     | $.paths['/orders/{orderId}'].get.responses['200'].headers['X-Request-Id']                                            | X-Request-Id              | only on a header of the call |
-        | A bad name on a header       | "shop key"          | $.paths['/orders'].post.parameters[?@.name == 'Idempotency-Key']                                                     | Idempotency-Key           | letters, digits          |
+        | case                         | mark                | field                                                                                                         | place                       | problem                      |
+        | A mark on an object          | shop.metadata       | $.paths['/payments'].post.requestBody.content['application/x-www-form-urlencoded'].schema.properties.metadata | properties/metadata         | text, a number               |
+        | A mark on a list             | shop.orders         | $.components.schemas.OrderList.properties.orders                                                              | OrderList/properties/orders | text, a number               |
+        | A mark that is not a name    | true                | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | must be a name               |
+        | A name with a space          | "shop item"         | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | letters, digits              |
+        | A name the proxy uses itself | http.request.method | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | the proxy's own              |
+        | A hotline name               | hotline.item        | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | the proxy's own              |
+        | A mark on a query parameter  | shop.limit          | $.paths['/orders'].get.parameters[?@.name == 'limit']                                                         | limit                       | only on a header of the call |
+        | A mark on a response header  | shop.request_id     | $.paths['/orders/{orderId}'].get.responses['200'].headers['X-Request-Id']                                     | X-Request-Id                | only on a header of the call |
+        | A bad name on a header       | "shop key"          | $.paths['/orders'].post.parameters[?@.name == 'Idempotency-Key']                                              | Idempotency-Key             | letters, digits              |
 
     Scenario: A login header can't be copied
       Given the overlay login.overlay.yaml:
@@ -226,7 +226,7 @@ Feature: Marked body fields and headers are copied into the record
       When the proxy loads the config
       Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both a header and the body"
 
-    Scenario: The same name in the call and the reply of one route
+    Scenario: The same name in the call and the response of one route
       Given the overlay clash.overlay.yaml:
         """
         overlay: 1.1.0
@@ -242,7 +242,7 @@ Feature: Marked body fields and headers are copied into the record
         """
       And the shop spec with the overlay clash.overlay.yaml
       When the proxy loads the config
-      Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both the call and the reply"
+      Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both the call and the response"
 
   Rule: SQS calls name their queue and their action
 
@@ -253,10 +253,10 @@ Feature: Marked body fields and headers are copied into the record
       Then the record holds messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices
 
       Examples:
-        | action         | more                                                                                                                                                                                         |
+        | action         | more                                                                                                                                                                                                                   |
         | SendMessage    | ,"MessageBody":"{\"schemaVersion\":1,\"eventId\":\"6f1c2b9e-1d3a-4c5b-8e7f-9a0b1c2d3e4f\",\"orderId\":\"A-1001\",\"templateId\":\"invoice-standard-v2\",\"language\":\"en\",\"requestedAt\":\"2026-10-30T10:00:00Z\"}" |
-        | ReceiveMessage | ,"WaitTimeSeconds":1                                                                                                                                                                         |
-        | DeleteMessage  | ,"ReceiptHandle":"r-1"                                                                                                                                                                       |
+        | ReceiveMessage | ,"WaitTimeSeconds":1                                                                                                                                                                                                   |
+        | DeleteMessage  | ,"ReceiptHandle":"r-1"                                                                                                                                                                                                 |
 
     Scenario Outline: <action> names its action
       Given the SQS spec

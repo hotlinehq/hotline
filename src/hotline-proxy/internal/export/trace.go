@@ -55,10 +55,10 @@ func FailedIf(failed bool) Status {
 }
 
 // trace queues the spans of one call, in the trace sc names, for every
-// OTLP destination. It never blocks: a queue without room for all of the call's
+// OTLP exporter. It never blocks: a queue without room for all of the call's
 // spans refuses them all, so a trace is never split. The spans are written
-// once, into one block that every destination shares.
-func (s *Sink) trace(sc trace.SpanContext, spans []Span) {
+// once, into one block that every exporter shares.
+func (s *Exporters) trace(sc trace.SpanContext, spans []Span) {
 	scratch := s.scratch.Get().(*[]byte)
 	b := (*scratch)[:0]
 	items := make([][]byte, len(spans))
@@ -77,7 +77,7 @@ func (s *Sink) trace(sc trace.SpanContext, spans []Span) {
 		items[i] = written[start:end:end]
 		start = end
 	}
-	for _, d := range s.destinations {
+	for _, d := range s.exporters {
 		d.spans.add(items...)
 	}
 }

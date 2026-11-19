@@ -1,6 +1,6 @@
 // Package export sends records, their traces and the hotline.requests
 // counter over OTLP.
-// Every destination gets its own queue, so one that is down never holds up
+// Every exporter gets its own queue, so one that is down never holds up
 // the others or the calls.
 package export
 
@@ -33,8 +33,8 @@ import (
 	"hotline-proxy/internal/labels"
 )
 
-// Timing says how long one send to a destination may take, retries
-// included. How often each destination is sent to is in its config.
+// Timing says how long one send to an exporter may take, retries
+// included. How often each exporter is sent to is in its config.
 type Timing struct {
 	Timeout time.Duration
 }
@@ -45,15 +45,15 @@ type Service struct {
 	InstanceID string
 }
 
-// Sink takes finished calls and sends them to every destination.
-type Sink struct {
-	destinations []destination
+// Exporters takes finished calls and sends them to every exporter.
+type Exporters struct {
+	exporters []exporter
 	// files are the folders every call is written to, one line per call.
-	files []fileDestination
+	files []fileExporter
 	// console, when set, prints every call to standard output.
-	console *consoleDestination
+	console *consoleExporter
 	// batches hold the ledger's batch records waiting for each
-	// destination that takes records, the OTLP ones first, then the files.
+	// exporter that takes records, the OTLP ones first, then the files.
 	batches []*batchLine
 	// lineResource is the resource every call line carries.
 	lineResource []attribute.KeyValue
@@ -66,8 +66,8 @@ type Sink struct {
 	labels labels.Kept
 }
 
-// destination is one exporter's own pipeline, with its own resource.
-type destination struct {
+// exporter is the pipeline of one otlp exporter, with its own resource.
+type exporter struct {
 	metrics  *sdkmetric.MeterProvider
 	requests metric.Int64Counter
 	// queue holds the written records and spans the written spans, both
@@ -76,17 +76,17 @@ type destination struct {
 	spans     *queue[[]byte]
 	transport *httpTransport
 	// up is 1 while sends work, 0 from a failed send until one works, and
-	// place names the destination in the proxy's own numbers.
+	// place names the exporter in the proxy's own numbers.
 	up    *atomic.Int64
 	place attribute.Set
-	// batches sends the ledger's batch records to the destination, and
+	// batches sends the ledger's batch records to the exporter, and
 	// notes the records its queue dropped.
 	batches *batchLine
 }
 
-// fileDestination is one file exporter's queue of written lines and its
+// fileExporter is one file exporter's queue of written lines and its
 // writer.
-type fileDestination struct {
+type fileExporter struct {
 	queue   *queue[[]byte]
 	writer  *fileWriter
 	up      *atomic.Int64
@@ -110,7 +110,7 @@ type Call struct {
 	// the record: every header and the bodies, under hotline.content.*
 	// names.
 	Content []attribute.KeyValue
-	// Ledger is the record's place in its ledger batch. A destination
+	// Ledger is the record's place in its ledger batch. An exporter
 	// that drops the record lists it there in the batch's record.
 	Ledger Entry
 }
@@ -141,12 +141,13 @@ func counted(kv attribute.KeyValue) bool {
 	return false
 }
 
-// Setup is what New needs: the destinations from the config, where the
+// Setup is what New needs: the exporters from the config, where the
 // console writes, the roots TLS trusts, and how the proxy describes and
 // times itself.
 type Setup struct {
-	Exporters []config.Exporter
-	Files     []config.FileExporter
+	// OTLP are the otlp exporters, Files the file exporters.
+	OTLP  []config.Exporter
+	Files []config.FileExporter
 	// Console is nil when the config has no console exporter.
 	Console *config.ConsoleExporter
 	Out     Console
@@ -157,10 +158,10 @@ type Setup struct {
 	Meter   metric.Meter
 }
 
-// New starts one queue and sender per destination. Nothing is sent to a
-// destination before the first record, so a destination that is down does
-// not stop the proxy from starting. TLS to a destination trusts roots and
-// the destination's own CAs.
+// New starts one queue and sender per exporter. Nothing is sent to a
+// exporter before the first record, so an exporter that is down does
+// not stop the proxy from starting. TLS to an exporter trusts roots and
+// the exporter's own CAs.
 //
 // Only the config says how to send: every option is set here, so the
 // library never falls back to the OTEL_EXPORTER_OTLP_* environment
@@ -168,10 +169,10 @@ type Setup struct {
 //
 // Each file exporter takes its folder's lock, so New fails with
 // ErrFolderTaken when another proxy writes to the same folder.
-func New(setup Setup) (*Sink, error) {
-	exporters, files, console, out := setup.Exporters, setup.Files, setup.Console, setup.Out
+func New(setup Setup) (*Exporters, error) {
+	exporters, files, console, out := setup.OTLP, setup.Files, setup.Console, setup.Out
 	roots, service, timing, logger, meter := setup.Roots, setup.Service, setup.Timing, setup.Logger, setup.Meter
-	s := &Sink{}
+	s := &Exporters{}
 	s.scratch.New = func() any {
 		b := make([]byte, 0, 4096)
 		return &b
@@ -193,7 +194,7 @@ func New(setup Setup) (*Sink, error) {
 			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
 		}
 		write := func(_ context.Context, lines [][]byte) error { return writer.write(lines) }
-		s.files = append(s.files, fileDestination{
+		s.files = append(s.files, fileExporter{
 			queue:  newQueue("records", write, func(context.Context) error { return writer.close() }, setup),
 			writer: writer,
 			up:     up,
@@ -216,7 +217,7 @@ func New(setup Setup) (*Sink, error) {
 		counted := countedMetrics{Exporter: metrics, sent: stats.sent, dropped: stats.dropped, labels: signal(e, "count"), up: up}
 		res := describe(service, e.Resource)
 		written := resourceOf(res.Attributes())
-		d := destination{
+		d := exporter{
 			metrics: sdkmetric.NewMeterProvider(sdkmetric.WithResource(res),
 				sdkmetric.WithReader(sdkmetric.NewPeriodicReader(counted,
 					sdkmetric.WithInterval(e.MetricInterval),
@@ -238,7 +239,7 @@ func New(setup Setup) (*Sink, error) {
 		}, func(b Batch, attrs []attribute.KeyValue) []byte {
 			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
 		})
-		s.destinations = append(s.destinations, d)
+		s.exporters = append(s.exporters, d)
 		s.batches = append(s.batches, d.batches)
 	}
 	for i := range s.files {
@@ -261,26 +262,26 @@ func New(setup Setup) (*Sink, error) {
 			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
 		})
 	}
-	observeDestinations(meter, s.destinations, s.local())
+	observeExporters(meter, s.exporters, s.local())
 	return s, nil
 }
 
-// local are the destinations on this machine: the files and the console.
-func (s *Sink) local() []fileDestination {
+// local are the exporters on this machine: the files and the console.
+func (s *Exporters) local() []fileExporter {
 	if s.console == nil {
 		return s.files
 	}
-	return append(slices.Clip(s.files), s.console.fileDestination)
+	return append(slices.Clip(s.files), s.console.fileExporter)
 }
 
 // closeFiles lets go of the folders taken so far, when New fails.
-func (s *Sink) closeFiles() {
+func (s *Exporters) closeFiles() {
 	for _, f := range s.files {
 		_ = f.queue.Shutdown(context.Background())
 	}
 }
 
-// describe is the resource one destination gets: the proxy's own labels,
+// describe is the resource one exporter gets: the proxy's own labels,
 // with the config's labels on top. The config has refused service.version.
 func describe(service Service, labels map[string]string) *resource.Resource {
 	attrs := []attribute.KeyValue{
@@ -295,14 +296,14 @@ func describe(service Service, labels map[string]string) *resource.Resource {
 	return resource.NewSchemaless(attrs...)
 }
 
-// A busy destination is tried again, first after about a second, then at
+// A busy exporter is tried again, first after about a second, then at
 // most every few seconds, until the send's time is up.
 const (
 	retryFirst = time.Second
 	retryMost  = 5 * time.Second
 )
 
-// metricSender sends a destination's metrics over HTTP.
+// metricSender sends an exporter's metrics over HTTP.
 func metricSender(e config.Exporter, roots *x509.CertPool, timing Timing) sdkmetric.Exporter {
 	temporality := sdkmetric.DefaultTemporalitySelector
 	if e.Delta {
@@ -311,12 +312,12 @@ func metricSender(e config.Exporter, roots *x509.CertPool, timing Timing) sdkmet
 	return httpMetrics(e, tlsFor(e, roots), timing, temporality)
 }
 
-// tlsFor is the TLS setup for a destination, nil for a plain one.
+// tlsFor is the TLS setup for an exporter, nil for a plain one.
 func tlsFor(e config.Exporter, roots *x509.CertPool) *tls.Config {
 	if e.URL.Scheme != "https" {
 		return nil
 	}
-	return destinationTLS(e, roots)
+	return exporterTLS(e, roots)
 }
 
 // httpMetrics sends metrics over HTTP as protobuf, to /v1/metrics after the
@@ -352,13 +353,13 @@ func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
 	return metricdata.DeltaTemporality
 }
 
-// Call queues one call for every destination: its record, its count and
-// its spans for each OTLP destination, one line for each file, and its
+// Call queues one call for every exporter: its record, its count and
+// its spans for each OTLP exporter, one line for each file, and its
 // lines on the console. It never blocks: a full queue refuses what is new,
-// and a destination that keeps the ledger notes the record it dropped, to
+// and an exporter that keeps the ledger notes the record it dropped, to
 // list it in the record of the record's batch.
-func (s *Sink) Call(ctx context.Context, c Call) {
-	if len(s.destinations) > 0 {
+func (s *Exporters) Call(ctx context.Context, c Call) {
+	if len(s.exporters) > 0 {
 		s.record(ctx, c, c.Attrs)
 		s.trace(c.Trace, c.Spans)
 	}
@@ -387,7 +388,7 @@ func (s *Sink) Call(ctx context.Context, c Call) {
 }
 
 // line is the call as one line of JSON.
-func (s *Sink) line(c Call, withContent bool) []byte {
+func (s *Exporters) line(c Call, withContent bool) []byte {
 	buf := s.lines.Get().(*bytes.Buffer)
 	buf.Reset()
 	appendLine(buf, s.lineResource, c, withContent)
@@ -401,9 +402,9 @@ func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
 
 // record queues one log record and counts it when it is a call. It
 // never blocks: a full queue refuses the new record. It adds to taken
-// whether each destination took it.
-// The record is written once, for every destination.
-func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
+// whether each exporter took it.
+// The record is written once, for every exporter.
+func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)
 	b := appendRecord((*scratch)[:0], c.event(), c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
 	written := slices.Clone(b)
@@ -416,10 +417,10 @@ func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 			counter = append(counter, kv)
 		}
 	}
-	// One set for every destination.
+	// One set for every exporter.
 	counts := metric.WithAttributeSet(s.labels.Set(counter...))
 	call := c.event() == CallEvent
-	for _, d := range s.destinations {
+	for _, d := range s.exporters {
 		if !d.queue.add(written) {
 			d.batches.dropped(c.Ledger)
 		}
@@ -429,7 +430,7 @@ func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	}
 }
 
-// level is INFO unless something went wrong: WARN when the call or the reply
+// level is INFO unless something went wrong: WARN when the call or the response
 // broke the spec or the vendor refused the call (a 4xx), ERROR when the
 // vendor failed (a 5xx) or the call failed in the proxy.
 func level(attrs []attribute.KeyValue) log.Severity {
@@ -453,13 +454,13 @@ func level(attrs []attribute.KeyValue) log.Severity {
 }
 
 // Shutdown sends what is still queued, within the time ctx allows.
-func (s *Sink) Shutdown(ctx context.Context) error {
+func (s *Exporters) Shutdown(ctx context.Context) error {
 	var errs []error
 	// The batch records go after the records they cover.
 	for _, b := range s.batches {
 		errs = append(errs, b.shutdown(ctx))
 	}
-	for _, d := range s.destinations {
+	for _, d := range s.exporters {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
 		d.transport.close()
 	}
