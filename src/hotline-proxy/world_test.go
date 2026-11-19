@@ -598,8 +598,13 @@ func (w *world) startOnce() error {
 		w.pickedAddr = true
 	}
 	if w.transparent != nil && w.transparent.address == "" && w.transparent.without != "address" {
-		// Picked as late as possible, so no other scenario takes it first.
+		// Picked as late as possible, so no other scenario takes it first,
+		// and never the proxy port: two ports freed one after the other can
+		// be the same, and the config refuses two listeners on one address.
 		w.transparent.address = freePort()
+		for w.transparent.address == w.addr {
+			w.transparent.address = freePort()
+		}
 		w.transparentAddr = w.transparent.address
 		w.pickedTransparent = true
 	}
