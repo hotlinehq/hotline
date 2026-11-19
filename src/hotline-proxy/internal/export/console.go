@@ -130,8 +130,13 @@ func (l *consoleLines) word(text string, codes ...string) {
 // lines writes the call, or the end of a WebSocket session. Every value
 // that came with the call is escaped, so it cannot change the terminal.
 func (c *consoleExporter) lines(call Call) []byte {
-	if call.Event == SessionEvent {
+	switch call.Event {
+	case SessionEvent:
 		return c.sessionLines(call)
+	case MessageEvent:
+		// A session may send many messages a second, such as audio: the
+		// console shows the session, not each message.
+		return nil
 	}
 	l := &consoleLines{color: c.color}
 	var (

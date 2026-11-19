@@ -33,8 +33,10 @@ func (c *call) finish() {
 	c.mu.Unlock()
 	if switched {
 		// The call was recorded at its 101; what ended now is the session,
-		// which a stop no longer needs to end.
+		// which a stop no longer needs to end. Its wires read what is left
+		// of its messages.
 		c.h.sessions.Delete(c)
+		c.session.endReading()
 		c.h.recordLater(func() finished { return c.sessionRecord(end) })
 		return
 	}
@@ -108,10 +110,10 @@ func (c *call) record(end time.Time) finished {
 		// Each side was checked alongside the call, so its step may end
 		// after the call span (Peter, 2026-10-31).
 		if requested {
-			spans = append(spans, c.checkSpans("request spec check", c.reqCheck, req.Request, req.Skipped)...)
+			spans = append(spans, c.checkSpans("request spec check", c.trace.SpanID(), c.reqCheck, req.Request, req.Skipped)...)
 		}
 		if responded {
-			spans = append(spans, c.checkSpans("response spec check", c.responseCheck, response.Response, response.Skipped)...)
+			spans = append(spans, c.checkSpans("response spec check", c.trace.SpanID(), c.responseCheck, response.Response, response.Skipped)...)
 		}
 	} else {
 		// A minimal record carries the sizes too, counted as the bodies
@@ -228,13 +230,13 @@ func (c *call) sentURL() url.URL {
 	return out
 }
 
-// checkSpans are the step of one side's check, error when that side broke
+// checkSpans are the step of one side's check, under parent, error when that side broke
 // the spec, ok when it passed, unset when part of it was skipped, and under
 // it the wait for a free worker. The wait is an error with error.type
 // overloaded when the check gave way in a full line (Peter, 2026-11-02).
-func (c *call) checkSpans(name string, s *specCheck, found []spec.Result, skipped string) []export.Span {
+func (c *call) checkSpans(name string, parent trace.SpanID, s *specCheck, found []spec.Result, skipped string) []export.Span {
 	check := export.Span{
-		ID: tracectx.NewSpanID(), Parent: c.trace.SpanID(), Name: name, Kind: trace.SpanKindInternal,
+		ID: tracectx.NewSpanID(), Parent: parent, Name: name, Kind: trace.SpanKindInternal,
 		Start: s.start, End: s.end, Status: export.FailedIf(len(found) > 0),
 	}
 	if len(found) == 0 && skipped == "" {
@@ -341,8 +343,9 @@ func (h *handler) recordShort(s short) {
 
 // finished is what a call leaves: its record and its trace.
 type finished struct {
-	// event is the record's event name: empty for a call, or
-	// export.SessionEvent for a WebSocket session.
+	// event is the record's event name: empty for a call,
+	// export.SessionEvent for a WebSocket session, or export.MessageEvent
+	// for one of its messages.
 	event string
 	// cfg is the config the call started with. The ledger puts the record
 	// in a batch of that config, even when a reload came before the

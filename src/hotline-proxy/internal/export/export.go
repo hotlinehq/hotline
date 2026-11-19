@@ -383,7 +383,9 @@ func (s *Exporters) Call(ctx context.Context, c Call) {
 		}
 		s.console.queue.add(terminalSafe(line))
 	default:
-		s.console.queue.add(s.console.lines(c))
+		if lines := s.console.lines(c); lines != nil {
+			s.console.queue.add(lines)
+		}
 	}
 }
 

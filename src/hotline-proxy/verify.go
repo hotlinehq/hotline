@@ -248,7 +248,7 @@ func (v *verifier) readLine(at place, data []byte) error {
 		if v.o.Integration == "" || b.text("hotline.batch.integration") == v.o.Integration {
 			v.batches = append(v.batches, b)
 		}
-	case export.CallEvent, export.SessionEvent:
+	case export.CallEvent, export.SessionEvent, export.MessageEvent:
 		r := &lineRecord{place: at, at: line.Time, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes, spans: line.Spans}
 		r.batchID = r.text("hotline.batch.id")
 		r.hash = r.text("hotline.record.hash")

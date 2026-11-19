@@ -136,6 +136,8 @@ type receiver struct {
 	// sessions are the WebSocket session records, kept apart from the
 	// calls' records, as the batches are.
 	sessions []receivedRecord
+	// messages are the WebSocket message records, kept apart too.
+	messages []receivedRecord
 	// down refuses every log export, until it is back.
 	down bool
 	// refused counts the call records refused while down.
@@ -315,6 +317,8 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					list = &r.batches
 				case "hotline.websocket.session":
 					list = &r.sessions
+				case "hotline.websocket.message":
+					list = &r.messages
 				default:
 					r.taken++
 				}
@@ -437,6 +441,12 @@ func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceSe
 
 // spans are every span the receiver got, in the order they came.
 // sessionRecords are the WebSocket session records the receiver got.
+func (r *receiver) messageRecords() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.messages...)
+}
+
 func (r *receiver) sessionRecords() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -524,7 +534,7 @@ func (r *receiver) takenCalls() int {
 func (r *receiver) forget() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.records, r.batches, r.sessions, r.counts, r.points = nil, nil, nil, nil, nil
+	r.records, r.batches, r.sessions, r.messages, r.counts, r.points = nil, nil, nil, nil, nil, nil
 	r.otherMetric, r.spanList, r.seen = nil, nil, nil
 }
 

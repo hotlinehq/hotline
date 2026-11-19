@@ -843,7 +843,7 @@ func (l *loader) checks(label string, f *[]string) Parts {
 	for _, name := range *f {
 		part, known := partNamed(name)
 		if !known {
-			l.problem("%s: unknown check %q; the checks are path, query, headers, cookies, body, status, response-headers and response-body", label, name)
+			l.problem("%s: unknown check %q; the checks are path, query, headers, cookies, body, status, response-headers, response-body and messages", label, name)
 		}
 		p |= part
 	}

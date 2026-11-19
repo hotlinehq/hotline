@@ -147,12 +147,16 @@ For vendors that send every call to the same path, such as AWS's older APIs, the
 _Avoid_: operation, command
 
 **Spec check**:
-Checking one side of a call, the request or the response, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, response headers, response body.
+Checking one side of a call, the request or the response, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, response headers, response body, and a WebSocket's messages.
 _Avoid_: validation (used for the config, by `hotline-proxy validate`), verification (used for the ledger), schema check
 
 **Body copy**:
 The copy of a request or response body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
 _Avoid_: buffer, captured body
+
+**Message schema**:
+The schema of one kind of WebSocket message, in the spec's `components/schemas`, listed by the `x-hotline-messages` mark on the operation that answers `101`. Its `x-hotline-match` fields name a message.
+_Avoid_: AsyncAPI document (not used), channel, message type
 
 **Spec check line**:
 Where spec checks wait when every worker is busy. Its memory is capped by `specChecks.queueMemory`; past the cap the oldest waiting checks are skipped, never the call.
@@ -173,8 +177,16 @@ The record of every other call: not-passed calls, hosts outside the integration,
 _Avoid_: short record, partial record, empty record
 
 **Session record**:
-The record of a WebSocket session, written when it ends: bytes each way and how long it was open. It is not counted as a call.
+The record of a WebSocket session, written when it ends: bytes each way, how long it was open, and, when its messages are read, how it ended and its pings and pongs. It is not counted as a call.
 _Avoid_: second record
+
+**Message**:
+One WebSocket message after the `101`, which may come in several frames (a frame is one piece of a message, with a short header). Pings, pongs and close messages are control frames, not messages.
+_Avoid_: frame (that is a piece of a message), event, packet
+
+**Message record**:
+The record of one message of a WebSocket session, `hotline.websocket.message`, with its index, direction, name, sizes, ids and spec check. It is not counted as a call.
+_Avoid_: message event, frame record
 
 **Trace**:
 A call's steps as OpenTelemetry spans (DNS, connect, TLS, first byte and the rest), each with its start and end. The timings live here.

@@ -85,7 +85,7 @@ None. All nine were answered; see the decisions below.
 
 ## Which parts run (Peter, 2026-11-08)
 
-`checks` on an api picks the parts to check: `path`, `query`, `headers`, `cookies`, `body` for the request, and `status`, `response-headers`, `response-body` for the response. Finding the route and its template always happens. Leaving `checks` out checks every part; `checks: []` checks none, so the record has the route template but no `hotline.schema.*` attributes and the trace has no spec check spans. An unknown name stops the start. A part left out leaves no result and no skipped reason. A body copy is kept only when `body` (request) or `response-body` is picked; the one exception is a spec that names the route's action in the request body (AWS), which needs that body to find the route. It applies on every ingress.
+`checks` on an api picks the parts to check: `path`, `query`, `headers`, `cookies`, `body` for the request, `status`, `response-headers`, `response-body` for the response, and `messages` for a WebSocket's messages (Peter, 2026-11-19; [spec-marks.md](spec-marks.md), x-hotline-messages). Finding the route and its template always happens. Leaving `checks` out checks every part; `checks: []` checks none, so the record has the route template but no `hotline.schema.*` attributes and the trace has no spec check spans. An unknown name stops the start. A part left out leaves no result and no skipped reason. A body copy is kept only when `body` (request) or `response-body` is picked; the one exception is a spec that names the route's action in the request body (AWS), which needs that body to find the route. It applies on every ingress.
 
 ```yaml
 apis:

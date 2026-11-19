@@ -7,8 +7,9 @@ Feature: WebSocket sessions
   (Peter, 2026-11-18, WebSocket milestone 1).
 
   The session record says how many bytes each side sent after the 101 and
-  how long the session was open. It reads no messages: checking them comes
-  in milestone 2.
+  how long the session was open. The route here lists no messages, so none
+  are read; websocket-messages.feature has the sessions whose messages are
+  checked (slice 2).
 
   Background:
     Given a shop spec where GET /orders answers 101 Switching Protocols

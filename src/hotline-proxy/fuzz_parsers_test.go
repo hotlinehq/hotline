@@ -12,6 +12,7 @@ package proxy //nolint:testpackage // fuzzes inner parsers, by the fuzzing excep
 import (
 	"bufio"
 	"bytes"
+	"io"
 	"testing"
 	"time"
 )
@@ -36,5 +37,35 @@ func FuzzSentID(f *testing.F) {
 	f.Add("basic Og==")
 	f.Fuzz(func(t *testing.T, value string) {
 		_ = sentID(map[string][]string{"Proxy-Authorization": {value}})
+	})
+}
+
+// FuzzWireFrames checks that a WebSocket's frames, read as the wire's
+// reader reads them, never hold more whole messages than the scanner on
+// the bytes' way saw end: the reader takes each message's place from
+// those the scanner saw.
+func FuzzWireFrames(f *testing.F) {
+	f.Add([]byte{0x81, 0x82, 1, 2, 3, 4, 'h', 'i'})
+	f.Add([]byte{0x01, 0x01, 'a', 0x89, 0x00, 0x80, 0x01, 'b'})
+	f.Add([]byte{0x80, 0x02, 'x', 'y', 0x81, 0x7e, 0x00, 0x01, 'z'})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var s scanner
+		seen := 0
+		s.feed(data, time.Time{}, func(time.Time) { seen++ })
+		fr := &frameReader{in: bytes.NewReader(data), control: func(byte, []byte) {}}
+		read := 0
+		for {
+			first, err := fr.message()
+			if err != nil {
+				break
+			}
+			if _, err := io.Copy(io.Discard, &messageBody{fr: fr, fin: first.fin}); err != nil {
+				break
+			}
+			read++
+		}
+		if read > seen {
+			t.Fatalf("the reader read %d messages, the scanner saw %d end", read, seen)
+		}
 	})
 }
