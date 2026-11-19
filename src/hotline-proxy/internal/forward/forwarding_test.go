@@ -232,7 +232,7 @@ var _ = Describe("Forwarding a call", func() {
 		}
 	})
 
-	It("passes a streamed reply on part by part", func() {
+	It("passes a streamed response on part by part", func() {
 		release := make(chan struct{})
 		r := newRig(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, "data: 1\n\n")
@@ -248,7 +248,7 @@ var _ = Describe("Forwarding a call", func() {
 		Expect(line).To(Equal("data: 1\n"))
 	})
 
-	It("breaks the app's reply when the vendor breaks off mid reply", func() {
+	It("breaks the app's response when the vendor breaks off mid response", func() {
 		r := newRig(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Length", "1000")
 			_, _ = io.WriteString(w, "part")
@@ -261,7 +261,7 @@ var _ = Describe("Forwarding a call", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("returns an error when no reply comes, for the caller to answer", func() {
+	It("returns an error when no response comes, for the caller to answer", func() {
 		r := newRig(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		r.vendor.Close()
 		res, err := r.app().Get(r.proxy.URL)
@@ -328,7 +328,7 @@ var _ = Describe("Trailers", func() {
 	})
 })
 
-var _ = Describe("Early replies", func() {
+var _ = Describe("Early responses", func() {
 	It("passes a 103 back without headers for one hop only", func() {
 		r := newRig(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			h := w.Header()
@@ -428,7 +428,7 @@ var _ = Describe("HTTP/2 on both sides", func() {
 		r := newRig(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
 			proto = q.Proto
 			_, _ = io.Copy(io.Discard, q.Body)
-			w.Header().Set("X-Reply", "r")
+			w.Header().Set("X-Response", "r")
 			_, _ = io.WriteString(w, "ok")
 			w.Header().Set(http.TrailerPrefix+"Grpc-Status", "0")
 		}))
@@ -442,7 +442,7 @@ var _ = Describe("HTTP/2 on both sides", func() {
 		Expect(res.Proto).To(Equal("HTTP/2.0"))
 		Expect(proto).To(Equal("HTTP/2.0"))
 		Expect(string(body)).To(Equal("ok"))
-		Expect(res.Header.Get("X-Reply")).To(Equal("r"))
+		Expect(res.Header.Get("X-Response")).To(Equal("r"))
 		Expect(res.Trailer.Get("Grpc-Status")).To(Equal("0"))
 	})
 })

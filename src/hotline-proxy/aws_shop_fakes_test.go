@@ -83,7 +83,7 @@ func (f *fakeShopAWS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// answer is AWS's reply to one call; the caller holds the lock.
+// answer is AWS's response to one call; the caller holds the lock.
 //
 //nolint:cyclop // one case per action, as AWS has
 func (f *fakeShopAWS) answer(target string, in map[string]any) (int, any) {
@@ -138,7 +138,7 @@ func (f *fakeShopAWS) answer(target string, in map[string]any) (int, any) {
 }
 
 // serveQuery answers SNS and STS on AWS's query protocol: a form body
-// naming the action, and an XML reply. Like the topic's subscription with
+// naming the action, and an XML response. Like the topic's subscription with
 // raw delivery, each message published goes, as is, on the invoices queue.
 func (f *fakeShopAWS) serveQuery(w http.ResponseWriter, r *http.Request) {
 	data, _ := io.ReadAll(r.Body)

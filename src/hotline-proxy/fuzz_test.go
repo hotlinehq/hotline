@@ -230,9 +230,9 @@ func (w *world) sendBody(kind uint8, body []byte) {
 	}
 }
 
-// FuzzReply has the vendor answer with a made-up content type and body,
+// FuzzResponse has the vendor answer with a made-up content type and body,
 // which the proxy checks against the spec. The record must arrive in time.
-func FuzzReply(f *testing.F) {
+func FuzzResponse(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
 		files, err := os.ReadFile(filepath.Join("testdata", "xml", "files.openapi.yaml"))
 		if err != nil {

@@ -97,7 +97,7 @@ Feature: The hotline-proxy program
       | run --config hotline-proxy.yaml --log-level loud | invalid value "loud"      |
       | run --config hotline-proxy.yaml extra      | unexpected argument "extra"     |
       | verify                                     | the folder to verify is required |
-      | verify calls --body reply.json             | --body needs --span and --side  |
+      | verify calls --body response.json             | --body needs --span and --side  |
       | verify calls extra                         | unexpected argument "extra"     |
 
   Scenario: verify checks a folder and needs no config

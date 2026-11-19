@@ -201,23 +201,23 @@ func callFor(shape string) (call, error) {
 }
 
 // Scenario says in one line what a run does: the call, the size of the
-// reply, the rate, how long each repeat lasts and how many there are.
+// response, the rate, how long each repeat lasts and how many there are.
 func Scenario(cfg Config) (string, error) {
 	c, err := callFor(cfg.Shape)
 	if err != nil {
 		return "", err
 	}
 	size := len(fakes.Shapes()[cfg.Shape].Body)
-	reply := fmt.Sprintf("%d bytes", (size+50)/100*100)
+	response := fmt.Sprintf("%d bytes", (size+50)/100*100)
 	if size >= 1000 {
-		reply = fmt.Sprintf("%d KB", size/1000)
+		response = fmt.Sprintf("%d KB", size/1000)
 	}
 	repeats := fmt.Sprintf("%d repeats", cfg.Repeats)
 	if cfg.Repeats == 1 {
 		repeats = "1 repeat"
 	}
-	return fmt.Sprintf("scenario: %s (%s, reply about %s), %d calls a second for %s, %s, each direct then through the proxy",
-		cfg.Shape, c.name, reply, cfg.Rate, cfg.Duration, repeats), nil
+	return fmt.Sprintf("scenario: %s (%s, response about %s), %d calls a second for %s, %s, each direct then through the proxy",
+		cfg.Shape, c.name, response, cfg.Rate, cfg.Duration, repeats), nil
 }
 
 // Run does the whole run and returns its folder.

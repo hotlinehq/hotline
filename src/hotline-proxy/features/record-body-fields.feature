@@ -1,7 +1,7 @@
 # Agreed with Peter, 2026-10-31. Detail: docs/proxy-body-fields.md.
 Feature: Marked body fields and headers are copied into the record
   Bodies are never recorded. But a spec can mark a field of a call's or a
-  reply's body with x-hotline-record, giving the name of a record
+  response's body with x-hotline-record, giving the name of a record
   attribute, and the proxy then copies that one field's value into the
   record. For example, SQS's QueueUrl is recorded as
   messaging.destination.name, OpenTelemetry's name for a queue, so a log
@@ -58,7 +58,7 @@ Feature: Marked body fields and headers are copied into the record
         | number        | "weight":1.5   | shop.order.weight | 1.5   |
         | whole number  | "weight":3     | shop.order.weight | 3     |
 
-    Scenario: A field of the reply
+    Scenario: A field of the response
       Given the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"B2","quantity":1}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
       Then the record holds shop.order.item = B2
@@ -177,7 +177,7 @@ Feature: Marked body fields and headers are copied into the record
         | A name the proxy uses itself | http.request.method | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | the proxy's own          |
         | A hotline name               | hotline.item        | $.components.schemas.Order.properties.item                                                                           | Order/properties/item     | the proxy's own          |
         | A mark on a query parameter  | shop.limit          | $.paths['/orders'].get.parameters[?@.name == 'limit']                                                                | limit                     | only on a header of the call |
-        | A mark on a reply header     | shop.request_id     | $.paths['/orders/{orderId}'].get.responses['200'].headers['X-Request-Id']                                            | X-Request-Id              | only on a header of the call |
+        | A mark on a response header     | shop.request_id     | $.paths['/orders/{orderId}'].get.responses['200'].headers['X-Request-Id']                                            | X-Request-Id              | only on a header of the call |
         | A bad name on a header       | "shop key"          | $.paths['/orders'].post.parameters[?@.name == 'Idempotency-Key']                                                     | Idempotency-Key           | letters, digits          |
 
     Scenario: A login header can't be copied
@@ -226,7 +226,7 @@ Feature: Marked body fields and headers are copied into the record
       When the proxy loads the config
       Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both a header and the body"
 
-    Scenario: The same name in the call and the reply of one route
+    Scenario: The same name in the call and the response of one route
       Given the overlay clash.overlay.yaml:
         """
         overlay: 1.1.0
@@ -242,7 +242,7 @@ Feature: Marked body fields and headers are copied into the record
         """
       And the shop spec with the overlay clash.overlay.yaml
       When the proxy loads the config
-      Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both the call and the reply"
+      Then the config is refused with a message naming "x-hotline-record", "shop.order.item" and "both the call and the response"
 
   Rule: SQS calls name their queue and their action
 

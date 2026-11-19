@@ -8,7 +8,7 @@ This page lists every mark, what it is for, and an example. Marks live only in o
 
 | Mark | Where | What it's for |
 |---|---|---|
-| [`x-hotline-redact`](#x-hotline-redact) | a parameter, a reply header | which values may appear in the record |
+| [`x-hotline-redact`](#x-hotline-redact) | a parameter, a response header | which values may appear in the record |
 | [`x-hotline-record`](#x-hotline-record) | a body field, a call header | copy one safe value into the record |
 | [`x-hotline-body`](#x-hotline-body) | a body's media type | read a vendor's own content type as JSON or XML |
 | [`x-hotline-action-header`](#x-hotline-action-header) | the top of the spec | the header that names the action, when every call has the same path |
@@ -34,7 +34,7 @@ paths:
 
 **Rules.**
 
-1. It goes on a path, query or header parameter, or on a reply header. It takes `true` or `false` only.
+1. It goes on a path, query or header parameter, or on a response header. It takes `true` or `false` only.
 2. Path and query values are hidden unless marked `false`.
 3. Headers kept without a mark: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. Any other header is left out, name and all, unless marked `false`. A header marked `true` shows as `REDACTED`.
 4. Never recorded, whatever the mark: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and the login headers and query values named in the spec's security section.
@@ -68,7 +68,7 @@ parameters:
 
 **Rules.**
 
-1. On a body field of the call or the reply (JSON, XML or form bodies), or on a header of the call. Never on a path, query or cookie value, a reply header, or a login header.
+1. On a body field of the call or the response (JSON, XML or form bodies), or on a header of the call. Never on a path, query or cookie value, a response header, or a login header.
 2. Only plain values: text, a number, true or false. Never an object or a list, and never a field inside a list.
 3. The name uses letters, digits, dots and underscores. Names starting like the proxy's own (`hotline.`, `http.`, `url.`, `server.`, `network.`, `error.`, `dns.`, `tls.`, `log.`) are refused. Prefer OpenTelemetry's standard names, such as `messaging.destination.name` or `db.collection.name`.
 4. Text is cut at 256 characters. The value goes into full records only, signed with the rest, never into the counter.
@@ -92,7 +92,7 @@ requestBody:
 
 **Rules.**
 
-1. It goes on a media type of a call or reply body. Any value other than `json` or `xml` is refused.
+1. It goes on a media type of a call or response body. Any value other than `json` or `xml` is refused.
 2. XML bodies are read by the schema's shape and OpenAPI's `xml` notes. A body with a DOCTYPE is refused, and namespaces are ignored.
 
 Detail: [proxy-sqs-example.md](proxy-sqs-example.md), [proxy-xml-bodies.md](proxy-xml-bodies.md).

@@ -2,7 +2,7 @@
 Feature: Checking calls against the vendor's spec
   Every part of a call is checked against our copy of the vendor's OpenAPI
   spec: path values, query values, headers, cookies and the body, and in
-  the reply the status, headers and body. The checks run after the reply
+  the response the status, headers and body. The checks run after the response
   has gone back to the app and never change it.
 
   Each result is a structured entry with the part, the place, the rule and
@@ -10,13 +10,13 @@ Feature: Checking calls against the vendor's spec
   here as "part place rule expected"; several are joined by "; ".
 
   The request is checked as soon as it has been sent, while the proxy
-  waits for the vendor, and the reply as soon as it has arrived, while the
+  waits for the vendor, and the response as soon as it has arrived, while the
   proxy sends it on: never in the call's way (Peter, 2026-10-31).
 
   The check's status, hotline.schema.status, is on the record: valid when
-  nothing was found, invalid when the call or the reply broke the spec,
+  nothing was found, invalid when the call or the response broke the spec,
   and skipped when nothing was found but part of the check did not run.
-  The trace has a "request spec check" and a "reply spec check" span, with
+  The trace has a "request spec check" and a "response spec check" span, with
   no attribute. Each is ok when its side passed and error when it broke
   the spec; a skipped check leaves it unset, since nothing was proven
   (Peter, 2026-10-31).
@@ -31,21 +31,21 @@ Feature: Checking calls against the vendor's spec
       When the app sends <call>
       Then the record says hotline.schema.status=<status>
       And the "request spec check" span ends with status <request>
-      And the "reply spec check" span ends with status <reply>
+      And the "response spec check" span ends with status <response>
 
       Examples:
-        | answer                                                         | call                                                                                 | status  | request | reply |
+        | answer                                                         | call                                                                                 | status  | request | response |
         | 201                                                            | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2} | valid   | ok      | ok    |
         | 400                                                            | GET /orders?limit=abc                                                                | invalid | error   | ok    |
         | 418                                                            | GET /orders                                                                          | invalid | ok      | error |
         | 201                                                            | POST /orders with "Idempotency-Key: k1" and a json body of 3 MiB                     | skipped | unset   | ok    |
         | 200 with "Content-Type: text/event-stream" and the body data: x | GET /orders                                                                          | skipped | ok      | unset |
 
-    Scenario: A call that got no reply has no reply check
+    Scenario: A call that got no response has no response check
       Given the vendor refuses the connection
       When the app sends GET /orders
       Then the "request spec check" span ends with status ok
-      And the trace has no "reply spec check" span
+      And the trace has no "response spec check" span
 
     Scenario Outline: An error answer from the vendor fails no span
       Only a breakdown fails a span: a timeout, a lost connection, a
@@ -68,7 +68,7 @@ Feature: Checking calls against the vendor's spec
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
       Then the app got the vendor's answer
       And the record has no request results
-      And the record has no reply results
+      And the record has no response results
 
     Scenario Outline: A mistake in one part is reported in that part
       When the app sends <call>
@@ -203,33 +203,33 @@ Feature: Checking calls against the vendor's spec
       When the app sends GET /public without the login key
       Then the record has no request results
 
-  Rule: The reply is checked the same way
+  Rule: The response is checked the same way
 
-    Scenario: A reply body that breaks the spec is reported
+    Scenario: A response body that breaks the spec is reported
       Given the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"A1"}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
-      Then the reply results are body $.quantity required
+      Then the response results are body $.quantity required
 
-    Scenario: A missing required reply header is reported
+    Scenario: A missing required response header is reported
       Given the vendor answers 200 and the json body {"item":"A1","quantity":1}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
-      Then the reply results are header X-Request-Id required
+      Then the response results are header X-Request-Id required
 
-    Scenario: A status the spec doesn't list is reported, and the reply is not checked further
+    Scenario: A status the spec doesn't list is reported, and the response is not checked further
       Given the vendor answers 418 and the json body {"nonsense":true}
       When the app sends GET /orders
-      Then the reply results are status 418 not_in_spec
+      Then the response results are status 418 not_in_spec
 
-    Scenario: A default reply matches any status
+    Scenario: A default response matches any status
       Given the vendor answers 503 and the json body {}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
-      Then the reply results are body $.message required
+      Then the response results are body $.message required
 
-    Scenario: A streaming reply is not checked
+    Scenario: A streaming response is not checked
       Given the vendor answers 200 with "Content-Type: text/event-stream" and the body data: x
       When the app sends GET /orders
       Then the record says hotline.schema.skipped=streaming
-      And the record has no reply results
+      And the record has no response results
 
   Rule: At most 20 results each way
 
@@ -253,8 +253,8 @@ Feature: Checking calls against the vendor's spec
   Rule: Which parts run is a list on the api
 
     The api names the parts to check in checks: path, query, headers,
-    cookies and body for the request, and status, reply-headers and
-    reply-body for the reply. Finding the route and its template always
+    cookies and body for the request, and status, response-headers and
+    response-body for the response. Finding the route and its template always
     happens. Leaving checks out checks every part; checks: [] finds the
     route only. A part left out leaves no result and no skipped reason
     (Peter, 2026-11-08).
@@ -263,41 +263,41 @@ Feature: Checking calls against the vendor's spec
       Given the shop spec with checks <picked>
       And the vendor answers <answer>
       When the app sends <call>
-      Then the record has no request or reply results
+      Then the record has no request or response results
       And the record says hotline.schema.status=valid
 
       Examples:
         | left out      | picked                                                       | answer                                              | call                                                                    |
-        | path          | [query, headers, cookies, body, status, reply-headers, reply-body] | 200 with "X-Request-Id: r1" and the json body {"item":"A1","quantity":1} | GET /orders/1234 |
-        | query         | [path, headers, cookies, body, status, reply-headers, reply-body] | 200                                                 | GET /orders?limit=abc                                                   |
-        | headers       | [path, query, cookies, body, status, reply-headers, reply-body] | 201                                                 | POST /orders and the json body {"item":"A1","quantity":2}               |
-        | cookies       | [path, query, headers, body, status, reply-headers, reply-body] | 200                                                 | GET /orders with "Cookie: session=abc"                                  |
-        | body          | [path, query, headers, cookies, status, reply-headers, reply-body] | 201                                                 | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} |
-        | status        | [path, query, headers, cookies, body, reply-headers, reply-body] | 418                                                 | GET /orders                                                             |
-        | reply-headers | [path, query, headers, cookies, body, status, reply-body]    | 200 and the json body {"item":"A1","quantity":1}    | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
-        | reply-body    | [path, query, headers, cookies, body, status, reply-headers] | 200 with "X-Request-Id: r1" and the json body {"item":"A1"} | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d |
+        | path          | [query, headers, cookies, body, status, response-headers, response-body] | 200 with "X-Request-Id: r1" and the json body {"item":"A1","quantity":1} | GET /orders/1234 |
+        | query         | [path, headers, cookies, body, status, response-headers, response-body] | 200                                                 | GET /orders?limit=abc                                                   |
+        | headers       | [path, query, cookies, body, status, response-headers, response-body] | 201                                                 | POST /orders and the json body {"item":"A1","quantity":2}               |
+        | cookies       | [path, query, headers, body, status, response-headers, response-body] | 200                                                 | GET /orders with "Cookie: session=abc"                                  |
+        | body          | [path, query, headers, cookies, status, response-headers, response-body] | 201                                                 | POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1"} |
+        | status        | [path, query, headers, cookies, body, response-headers, response-body] | 418                                                 | GET /orders                                                             |
+        | response-headers | [path, query, headers, cookies, body, status, response-body]    | 200 and the json body {"item":"A1","quantity":1}    | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d                        |
+        | response-body    | [path, query, headers, cookies, body, status, response-headers] | 200 with "X-Request-Id: r1" and the json body {"item":"A1"} | GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d |
 
     Scenario: A part in the list is still checked
       Given the shop spec with checks [query]
       When the app sends GET /orders?limit=abc with "Cookie: session=abc"
       Then the request results are query limit type integer
 
-    Scenario: A reply part in the list is still checked
-      Given the shop spec with checks [reply-body]
+    Scenario: A response part in the list is still checked
+      Given the shop spec with checks [response-body]
       And the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"A1"}
       When the app sends GET /orders/1234
       Then the record has no request results
-      And the reply results are body $.quantity required
+      And the response results are body $.quantity required
 
     Scenario: An empty list finds the route only
       Given the shop spec with checks []
       And the vendor answers 418
       When the app sends POST /orders and the json body {"item":"A1"}
       And the record has url.template /orders
-      And the record has no request or reply results
+      And the record has no request or response results
       And the record has no hotline.schema.status
       And the trace has no "request spec check" span
-      And the trace has no "reply spec check" span
+      And the trace has no "response spec check" span
 
     Scenario: A large body is not even looked at when no body is picked
       A body over 2 MiB is skipped when the body is checked. With no body
@@ -305,11 +305,21 @@ Feature: Checking calls against the vendor's spec
       Given the shop spec with checks [path, query, headers, cookies]
       And the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and a json body of 3 MiB
-      Then the record has no request or reply results
+      Then the record has no request or response results
       And the record has no hotline.schema.skipped
       And the record says hotline.schema.status=valid
 
-    Scenario: An unknown check name stops the proxy at start
-      Given the shop spec with the unknown check "queery"
+    Scenario Outline: An unknown check name stops the proxy at start
+      The old names reply-headers and reply-body are unknown too: since
+      2026-11-19 the checks say response-headers and response-body, and
+      breaking changes are allowed (Peter, 2026-11-19).
+
+      Given the shop spec with the unknown check "<name>"
       When the proxy loads the config
       Then the config is refused with a message naming the problem
+
+      Examples:
+        | name          |
+        | queery        |
+        | reply-headers |
+        | reply-body    |

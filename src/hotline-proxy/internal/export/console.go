@@ -100,7 +100,7 @@ const (
 	cyan    = "36"
 )
 
-// consoleLines writes one call: the request, the reply under it and, for
+// consoleLines writes one call: the request, the response under it and, for
 // an invalid call, what the checks found.
 type consoleLines struct {
 	b     bytes.Buffer
@@ -162,7 +162,7 @@ func (c *consoleDestination) lines(call Call) []byte {
 		case "hotline.schema.request.errors":
 			found = append(found, side("request", kv.Value))
 		case "hotline.schema.response.errors":
-			found = append(found, side("reply", kv.Value))
+			found = append(found, side("response", kv.Value))
 		}
 	}
 	at := call.At.Local().Format("15:04:05.000")
@@ -182,11 +182,11 @@ func (c *consoleDestination) lines(call Call) []byte {
 	under := strings.Repeat(" ", utf8.RuneCountInString(at)+1+utf8.RuneCountInString(id)+2)
 	l.b.WriteString(under[3:])
 	l.style("<<", bold)
-	reply := ""
+	response := ""
 	if status > 0 {
-		reply = strconv.FormatInt(status, 10) + " " + http.StatusText(int(status))
+		response = strconv.FormatInt(status, 10) + " " + http.StatusText(int(status))
 	}
-	l.word(reply, bold, statusColour(status))
+	l.word(response, bold, statusColour(status))
 	l.word(failure, bold, red)
 	shown := ""
 	if size >= 0 {

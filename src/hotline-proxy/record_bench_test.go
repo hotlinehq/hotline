@@ -51,7 +51,7 @@ func benchRecord() (trace.SpanContext, time.Time, []attribute.KeyValue, []export
 			Attrs: []attribute.KeyValue{attribute.String("http.request.method", "PUT"), attribute.Int("http.response.status_code", 200)}},
 		{ID: trace.SpanID{1, 1, 1, 1, 1, 1, 1, 1}, Parent: call, Name: "request spec check", Kind: trace.SpanKindInternal, Start: at, End: at.Add(300 * time.Microsecond), Status: export.StatusOK},
 		{ID: trace.SpanID{2, 2, 2, 2, 2, 2, 2, 2}, Parent: trace.SpanID{1, 1, 1, 1, 1, 1, 1, 1}, Name: "wait for check worker", Kind: trace.SpanKindInternal, Start: at, End: at.Add(5 * time.Microsecond)},
-		{ID: trace.SpanID{3, 3, 3, 3, 3, 3, 3, 3}, Parent: call, Name: "reply spec check", Kind: trace.SpanKindInternal, Start: at, End: at.Add(400 * time.Microsecond), Status: export.StatusOK},
+		{ID: trace.SpanID{3, 3, 3, 3, 3, 3, 3, 3}, Parent: call, Name: "response spec check", Kind: trace.SpanKindInternal, Start: at, End: at.Add(400 * time.Microsecond), Status: export.StatusOK},
 		{ID: trace.SpanID{4, 4, 4, 4, 4, 4, 4, 4}, Parent: trace.SpanID{3, 3, 3, 3, 3, 3, 3, 3}, Name: "wait for check worker", Kind: trace.SpanKindInternal, Start: at, End: at.Add(5 * time.Microsecond)},
 	}
 	return sc, at, attrs, spans

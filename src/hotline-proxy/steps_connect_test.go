@@ -459,7 +459,7 @@ func (w *world) openTunnel(host, port, id string) error {
 // openTunnelHTTP2 opens a tunnel the way it is done over HTTP/2: CONNECT
 // as one stream of a connection to the proxy, shared by every tunnel the
 // app opens this way. The app writes into the stream's request body and
-// reads its reply.
+// reads its response.
 func (w *world) openTunnelHTTP2(host, port, id string) error {
 	if err := w.start(); err != nil {
 		return err
@@ -483,11 +483,11 @@ func (w *world) openTunnelHTTP2(host, port, id string) error {
 	if id != "" {
 		req.Header.Set("Proxy-Authorization", strings.TrimPrefix(basic(id+":x"), "Proxy-Authorization: "))
 	}
-	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the reply is the tunnel, closed with it
+	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the response is the tunnel, closed with it
 	if err != nil {
 		return err
 	}
-	conn := &streamConn{reply: resp.Body, body: app}
+	conn := &streamConn{response: resp.Body, body: app}
 	w.tunnels = append(w.tunnels, conn)
 	if resp.StatusCode != http.StatusOK {
 		return failf("the proxy answered CONNECT with %d", resp.StatusCode)
@@ -515,21 +515,21 @@ func (w *world) secureTunnel(conn net.Conn, host, port string) {
 }
 
 // streamConn is the app's end of a tunnel opened over HTTP/2.
-// A read deadline that passes ends the reply, as a stream has none.
+// A read deadline that passes ends the response, as a stream has none.
 type streamConn struct {
-	reply io.ReadCloser
-	body  *io.PipeWriter
-	timer *time.Timer
+	response io.ReadCloser
+	body     *io.PipeWriter
+	timer    *time.Timer
 }
 
-func (c *streamConn) Read(p []byte) (int, error)  { return c.reply.Read(p) }
+func (c *streamConn) Read(p []byte) (int, error)  { return c.response.Read(p) }
 func (c *streamConn) Write(p []byte) (int, error) { return c.body.Write(p) }
 func (c *streamConn) Close() error {
-	return errors.Join(c.body.Close(), c.reply.Close())
+	return errors.Join(c.body.Close(), c.response.Close())
 }
 
 // CloseWrite ends the request body, which tells the proxy the app sends
-// nothing more, and keeps reading the reply.
+// nothing more, and keeps reading the response.
 func (c *streamConn) CloseWrite() error             { return c.body.Close() }
 func (c *streamConn) LocalAddr() net.Addr           { return &net.TCPAddr{} }
 func (c *streamConn) RemoteAddr() net.Addr          { return &net.TCPAddr{} }
@@ -539,7 +539,7 @@ func (c *streamConn) SetReadDeadline(t time.Time) error {
 		c.timer.Stop()
 	}
 	if !t.IsZero() {
-		c.timer = time.AfterFunc(time.Until(t), func() { _ = c.reply.Close() })
+		c.timer = time.AfterFunc(time.Until(t), func() { _ = c.response.Close() })
 	}
 	return nil
 }

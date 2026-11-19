@@ -1,8 +1,8 @@
-# Agreed with Peter, 2026-11-02. Found by the load test: large replies at
+# Agreed with Peter, 2026-11-02. Found by the load test: large responses at
 # about 450 a second filled every processor core with spec checks, and
 # every call then waited about a second.
 Feature: Spec checks wait in a line capped by memory
-  The proxy checks every request and reply against the spec, as far as it
+  The proxy checks every request and response against the spec, as far as it
   can. The checks run on one worker per processor core, apart from the
   calls, so a call never waits for its check. A check that finds every
   worker busy waits in a line. The line holds the body copies its checks

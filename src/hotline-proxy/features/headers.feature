@@ -23,7 +23,7 @@ Feature: Choosing headers for the record
     anything else, losing every record in it. So each byte that is not
     UTF-8 becomes the replacement character (found by fuzzing, 2026-11-18).
     Given the Stripe spec
-    When a reply carries Request-Id with the byte FF in it, which is not UTF-8
+    When a response carries Request-Id with the byte FF in it, which is not UTF-8
     Then the record has "http.response.header.request-id = req�1"
 
   Scenario: A header marked true keeps its name only
@@ -38,9 +38,9 @@ Feature: Choosing headers for the record
     When a call carries "X-Debug-Token: abc"
     Then the record has "http.request.header.x-debug-token = REDACTED"
 
-  Scenario: A reply header marked true behind a $ref keeps its name only
-    Given a spec whose reply header Request-Id is a $ref to a header marked x-hotline-redact true
-    When a reply carries "Request-Id: user@example.com"
+  Scenario: A response header marked true behind a $ref keeps its name only
+    Given a spec whose response header Request-Id is a $ref to a header marked x-hotline-redact true
+    When a response carries "Request-Id: user@example.com"
     Then the record has "http.response.header.request-id = REDACTED"
 
   Scenario: Other headers are left out
@@ -50,7 +50,7 @@ Feature: Choosing headers for the record
 
   Scenario: Several values
     Given the Stripe spec
-    When a reply carries "RateLimit-Policy" twice
+    When a response carries "RateLimit-Policy" twice
     Then the record has both values as a list
 
   Scenario Outline: Secrets are never recorded

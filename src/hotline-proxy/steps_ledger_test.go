@@ -677,7 +677,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the app got no header it would not have got without the proxy$`, func() error {
 		if w.resp == nil {
-			return failf("the app got no reply")
+			return failf("the app got no response")
 		}
 		for name := range w.resp.Header {
 			if strings.Contains(strings.ToLower(name), "hotline") || strings.Contains(strings.ToLower(name), "signature") {
@@ -887,7 +887,7 @@ func (w *world) callsMade() int {
 }
 
 // waitCalls waits a little until the first receiver has seen n call
-// records. A record is made after the reply, in the background, so time
+// records. A record is made after the response, in the background, so time
 // passed on the proxy's clock right after a call could otherwise close its
 // batch window before the record joined it.
 func (w *world) waitCalls(n int) {

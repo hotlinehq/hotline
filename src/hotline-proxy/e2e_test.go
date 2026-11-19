@@ -108,7 +108,7 @@ type program struct {
 	signalled time.Time
 	exitedAt  time.Time
 
-	// release, when closed, lets a vendor that holds its answer reply.
+	// release, when closed, lets a vendor that holds its answer response.
 	release     chan struct{}
 	releaseOnce sync.Once
 	// arrived gets one value for each call that reaches a holding vendor.

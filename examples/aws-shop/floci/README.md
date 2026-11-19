@@ -31,6 +31,6 @@ When `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set, the proxy
 
 ## Differences from real AWS that Hotline shows
 
-- Floci's SNS and STS replies are not `text/xml`, so Hotline reports `content_type` on their reply. Real AWS does not.
-- Floci's CreateTable reply carries zeros that the DynamoDB spec says are at least 1.
+- Floci's SNS and STS responses are not `text/xml`, so Hotline reports `content_type` on their response. Real AWS does not.
+- Floci's CreateTable response carries zeros that the DynamoDB spec says are at least 1.
 - Floci refuses SESv2's tag lookup used by Terraform's newer SES resource, so the sender is made with the older one.

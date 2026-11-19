@@ -215,7 +215,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	r.mu.Unlock()
 	if refuse != nil {
-		// Reading the body first keeps the connection usable. A reply sent
+		// Reading the body first keeps the connection usable. A response sent
 		// with the body unread makes the HTTP server close the connection
 		// and wait half a second in a goroutine of its own, which outlives
 		// the scenario and fails its check for leftover goroutines.
@@ -239,7 +239,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		body = unzipped
 	}
 	data, _ := io.ReadAll(body)
-	var reply proto.Message
+	var response proto.Message
 	switch {
 	case logs:
 		in := &collogs.ExportLogsServiceRequest{}
@@ -247,26 +247,26 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		reply, _ = r.Export(req.Context(), in)
+		response, _ = r.Export(req.Context(), in)
 	case strings.HasSuffix(req.URL.Path, "/v1/traces"):
 		in := &coltrace.ExportTraceServiceRequest{}
 		if proto.Unmarshal(data, in) != nil {
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		reply, _ = r.exportTraces(req.Context(), in)
+		response, _ = r.exportTraces(req.Context(), in)
 	case strings.HasSuffix(req.URL.Path, "/v1/metrics"):
 		in := &colmetrics.ExportMetricsServiceRequest{}
 		if proto.Unmarshal(data, in) != nil {
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		reply, _ = r.exportMetrics(req.Context(), in)
+		response, _ = r.exportMetrics(req.Context(), in)
 	default:
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
-	out, _ := proto.Marshal(reply)
+	out, _ := proto.Marshal(response)
 	rw.Header().Set("Content-Type", "application/x-protobuf")
 	_, _ = rw.Write(out)
 }

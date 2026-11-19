@@ -11,20 +11,20 @@ A trace is a set of spans; a span is one step with a start time and an end time.
 | `hotline call` | server | the call reached the proxy, or the app TLS handshake started on a connection's first call | its last byte went back to the app |
 | `app tls handshake` | internal | TLS setup with the app started | it ended. First call of a connection only |
 | `routing` | internal | the call reached the proxy | the vendor call started: finding the ingress, the integration and the vendor api |
-| `vendor call` | client | the vendor call started | the vendor's reply ended |
+| `vendor call` | client | the vendor call started | the vendor's response ended |
 | `dns lookup`, under `vendor call` | internal | the lookup started | it ended |
 | `tcp connect`, under `vendor call` | internal | the first try to connect | connected; several addresses tried count once |
 | `vendor tls handshake`, under `vendor call` | internal | TLS setup with the vendor started | it ended |
 | `send call`, under `vendor call` | internal | the call had its connection | the call was fully sent |
-| `wait for vendor`, under `vendor call` | internal | the call was fully sent | the vendor's first reply byte |
-| `receive reply`, under `vendor call` | internal | the first reply byte | the vendor's reply ended |
-| `reply to app` | internal | the vendor's reply ended | the last byte went to the app |
+| `wait for vendor`, under `vendor call` | internal | the call was fully sent | the vendor's first response byte |
+| `receive response`, under `vendor call` | internal | the first response byte | the vendor's response ended |
+| `response to app` | internal | the vendor's response ended | the last byte went to the app |
 | `request spec check` | internal | the call was fully sent | the request's check against the spec ended. Full records only |
-| `reply spec check` | internal | the vendor's reply ended | the reply's check ended. Full records with a reply only |
+| `response spec check` | internal | the vendor's response ended | the response's check ended. Full records with a response only |
 | `wait for check worker`, under each spec check | internal | the check joined the line | a worker took it, or it was skipped as overloaded |
 
 - A step that did not happen has no span: no `dns lookup` for an IP address, no `vendor tls handshake` for plain http, none of the three on a reused connection.
-- Each side is checked against the spec as soon as it is whole, alongside the call: the request while the proxy waits for the vendor, the reply while the proxy sends it on (Peter, 2026-10-31). Both spans sit under `hotline call` and may end after it. A request never sent, such as when the vendor refused the connection, is checked when the call ends. The record waits for both checks, but the app never does.
+- Each side is checked against the spec as soon as it is whole, alongside the call: the request while the proxy waits for the vendor, the response while the proxy sends it on (Peter, 2026-10-31). Both spans sit under `hotline call` and may end after it. A request never sent, such as when the vendor refused the connection, is checked when the call ends. The record waits for both checks, but the app never does.
 - A refused call, and a `CONNECT` tunnel whose TLS setup failed, have only `hotline call` (with `app tls handshake` for the tunnel, when it was timed).
 - Every call gets a trace: there is no sampling, and the app's sampled flag does not change that (Peter, 2026-10-31).
 - Times come from the proxy's clock, the same as the record's.
@@ -38,15 +38,15 @@ Only a breakdown fails a span; the vendor's own answer never does, a 404 or a 50
 | `hotline call` | any span below failed, but for the spec checks, or the proxy refused the call |
 | `app tls handshake` | TLS setup with the app failed |
 | `routing` | never |
-| `reply to app` | the app did not get the whole reply: it hung up, or a write to it failed. `hotline.client.cancelled` on the record says so; `vendor call` stays unset |
+| `response to app` | the app did not get the whole response: it hung up, or a write to it failed. `hotline.client.cancelled` on the record says so; `vendor call` stays unset |
 | `vendor call` | one of its steps failed, or the guard refused an internal address |
 | `dns lookup` | the name could not be looked up |
 | `tcp connect` | no address could be connected to |
 | `vendor tls handshake` | TLS setup with the vendor failed |
 | `send call` | the app's body broke off while it was sent |
 | `wait for vendor` | the vendor did not answer in time |
-| `receive reply` | the vendor's reply broke off |
-| `request spec check`, `reply spec check` | that side broke the spec |
+| `receive response` | the vendor's response broke off |
+| `request spec check`, `response spec check` | that side broke the spec |
 | `wait for check worker` | the line of waiting checks was full and this check gave way; the span has `error.type=overloaded`, and its spec check ends there too, unset (Peter, 2026-11-02) |
 
 A failed step ends at the failure. The two spec checks are the only spans set to ok on purpose: when their side passed. A skipped check leaves it unset, since nothing was proven. The check's status itself is only on the record, as `hotline.schema.status`: `valid`, `invalid` or `skipped`.
@@ -84,7 +84,7 @@ To check a call, take its record and its spans (found by trace id), and rebuild 
 - OTLP traces over HTTP to `/v1/traces`, with each exporter's endpoint, TLS, login headers, gzip, resource labels and timing.
 - Each destination has a queue of spans next to its queue of records, of the same `queueSize`, counted in spans. A call's spans go in together or not at all, so the queue never splits a trace: a queue without room for all of them refuses the whole call, and what waits is kept. A call with more spans than the queue holds is dropped. The warning gives the spans and calls dropped, at most once a minute (Peter, 2026-11-09).
 - The proxy's own telemetry counts them like records, with `hotline.signal=span` on `hotline.exporter.queue.size`, `.sent` and `.dropped`.
-- The proxy's own time is the `routing` plus `reply to app` steps; since 2026-11-01 there is no metric for it, as every trace carries it.
+- The proxy's own time is the `routing` plus `response to app` steps; since 2026-11-01 there is no metric for it, as every trace carries it.
 
 ## Where it lives
 

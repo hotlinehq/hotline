@@ -22,7 +22,7 @@ import (
 	"hotline-proxy/internal/tracectx"
 )
 
-// finish ends the call once the reply has gone back to the app. A side not
+// finish ends the call once the response has gone back to the app. A side not
 // yet checked, such as a request never sent, is checked now, when the call
 // has a spec. The record and trace are made once the checks end, in the
 // background, as for every call.
@@ -43,7 +43,7 @@ func (c *call) finish() {
 		c.mu.Lock()
 		resp := c.resp
 		c.mu.Unlock()
-		c.checkReply(end, resp)
+		c.checkResponse(end, resp)
 	}
 	c.h.recordLater(func() finished { return c.record(end) })
 }
@@ -59,7 +59,7 @@ type failure struct {
 	step      string
 }
 
-// failure is how the call failed: as fail noted, or, for a reply the
+// failure is how the call failed: as fail noted, or, for a response the
 // vendor broke off after it began, in the step that received it. It only
 // reads the call, which is locked.
 func (c *call) failure() failure {
@@ -74,7 +74,7 @@ func (c *call) failure() failure {
 // record builds the call's record and trace, once its checks have ended.
 func (c *call) record(end time.Time) finished {
 	c.reqCheck.wait()
-	replied := c.replyCheck.wait()
+	responded := c.responseCheck.wait()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// A full record holds about 30 attributes; the room is made once, so the
@@ -102,21 +102,21 @@ func (c *call) record(end time.Time) finished {
 	attrs = append(attrs, attribute.Int64("hotline.timing.total_us", micros(opened, end)))
 	spans := c.spans(opened, end, failed)
 	if c.api != nil {
-		req, reply := c.reqCheck.found, c.replyCheck.found
+		req, response := c.reqCheck.found, c.responseCheck.found
 		requested := c.reqCheck.started.Load()
-		attrs = c.full(attrs, req.With(reply), requested || replied)
+		attrs = c.full(attrs, req.With(response), requested || responded)
 		// Each side was checked alongside the call, so its step may end
 		// after the call span (Peter, 2026-10-31).
 		if requested {
 			spans = append(spans, c.checkSpans("request spec check", c.reqCheck, req.Request, req.Skipped)...)
 		}
-		if replied {
-			spans = append(spans, c.checkSpans("reply spec check", c.replyCheck, reply.Reply, reply.Skipped)...)
+		if responded {
+			spans = append(spans, c.checkSpans("response spec check", c.responseCheck, response.Response, response.Skipped)...)
 		}
 	} else {
 		// A minimal record carries the sizes too, counted as the bodies
-		// passed and never kept (Peter, 2026-11-08). The reply's size is there
-		// only when a reply came.
+		// passed and never kept (Peter, 2026-11-08). The response's size is there
+		// only when a response came.
 		sent, _ := c.reqBody.counts()
 		attrs = append(attrs, semconv.HTTPRequestBodySize(int(sent)))
 		if c.respBody != nil {
@@ -132,11 +132,11 @@ func (c *call) record(end time.Time) finished {
 	// Every body that passed has its hash, minimal record or full, an
 	// empty one too, so each is in the ledger (Peter, 2026-11-16).
 	attrs = append(attrs, attribute.String("hotline.request.body.hash", c.reqBody.hashed()))
-	reply := c.h.emptyBodyHash("response", c.trace)
+	response := c.h.emptyBodyHash("response", c.trace)
 	if c.respBody != nil {
-		reply = c.respBody.hashed()
+		response = c.respBody.hashed()
 	}
-	attrs = append(attrs, attribute.String("hotline.response.body.hash", reply))
+	attrs = append(attrs, attribute.String("hotline.response.body.hash", response))
 	var content []attribute.KeyValue
 	if c.integration.Content.Full {
 		content = c.content()
@@ -147,33 +147,33 @@ func (c *call) record(end time.Time) finished {
 }
 
 // content is what content: full adds to the record for the file
-// exporters: url.full as sent and every header of the call and its reply,
+// exporters: url.full as sent and every header of the call and its response,
 // under hotline.content.* names, beside the record, which stays as its
 // hash covers it (Peter, 2026-11-16). Each value that is secret, by the
 // spec or always (Authorization, Proxy-Authorization, Cookie,
 // Set-Cookie), is REDACTED, so no key is copied out of a file kept for
 // debugging (Peter, 2026-11-18). A body cut at maxBodySize is flagged.
 func (c *call) content() []attribute.KeyValue {
-	var reply http.Header
+	var response http.Header
 	if c.resp != nil {
-		reply = c.resp.Header
+		response = c.resp.Header
 	}
 	var api *spec.Spec
 	if c.api != nil {
 		api = c.api.Spec
 	}
 	hidden := spec.Hide(api, c.specRoute(), spec.Call{
-		EscapedPath:  c.target.EscapedPath(),
-		RawQuery:     c.target.RawQuery,
-		Header:       c.in.Header,
-		ReplyHeaders: reply,
+		EscapedPath:     c.target.EscapedPath(),
+		RawQuery:        c.target.RawQuery,
+		Header:          c.in.Header,
+		ResponseHeaders: response,
 	})
-	full := make([]attribute.KeyValue, 0, len(hidden.Header)+len(hidden.ReplyHeaders)+5)
+	full := make([]attribute.KeyValue, 0, len(hidden.Header)+len(hidden.ResponseHeaders)+5)
 	full = append(full, attribute.String("hotline.content.url.full", c.hiddenAddress(hidden)))
 	for name, values := range hidden.Header {
 		full = append(full, attribute.StringSlice("hotline.content.request.header."+strings.ToLower(name), values))
 	}
-	for name, values := range hidden.ReplyHeaders {
+	for name, values := range hidden.ResponseHeaders {
 		full = append(full, attribute.StringSlice("hotline.content.response.header."+strings.ToLower(name), values))
 	}
 	if _, cut := c.reqBody.savedBody(); cut {
@@ -361,7 +361,7 @@ type finished struct {
 }
 
 // recordLater is the one way every call is recorded: in the background,
-// apart from the call, so the app's connection is free as soon as its reply
+// apart from the call, so the app's connection is free as soon as its response
 // is sent (Peter, 2026-11-12). build makes the record and trace, which are
 // then handed to the exporters and measured for the proxy's own numbers.
 // Shutdown waits for it, as for a call in flight. It is only called while
@@ -457,22 +457,22 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 	if c.target.Port() != "" {
 		origin += ":" + c.port
 	}
-	var replyHeaders map[string][]string
+	var responseHeaders map[string][]string
 	if c.resp != nil {
-		replyHeaders = c.resp.Header
+		responseHeaders = c.resp.Header
 	}
 	// record waited for both checks, so the route is found by now.
 	redacted := c.api.Spec.Redact(c.specRoute(), spec.Call{
-		Origin:       origin,
-		EscapedPath:  c.target.EscapedPath(),
-		RawQuery:     c.target.RawQuery,
-		Header:       c.in.Header,
-		ReplyHeaders: replyHeaders,
+		Origin:          origin,
+		EscapedPath:     c.target.EscapedPath(),
+		RawQuery:        c.target.RawQuery,
+		Header:          c.in.Header,
+		ResponseHeaders: responseHeaders,
 	})
 	port, _ := strconv.Atoi(c.port)
 	sent, _ := c.reqBody.counts()
 	// Room for the headers and found fields at once, in the record's own list.
-	attrs = slices.Grow(attrs, 16+len(redacted.Header)+len(redacted.ReplyHeaders)+len(found.Copied))
+	attrs = slices.Grow(attrs, 16+len(redacted.Header)+len(redacted.ResponseHeaders)+len(found.Copied))
 	attrs = append(attrs,
 		semconv.URLScheme(c.scheme),
 		semconv.ServerPort(port),
@@ -497,7 +497,7 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 	for name, values := range redacted.Header {
 		attrs = append(attrs, attribute.StringSlice("http.request.header."+name, values))
 	}
-	for name, values := range redacted.ReplyHeaders {
+	for name, values := range redacted.ResponseHeaders {
 		attrs = append(attrs, attribute.StringSlice("http.response.header."+name, values))
 	}
 	return checked(attrs, found, ran)
@@ -527,7 +527,7 @@ func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribu
 		attrs = append(attrs, attribute.String("hotline.schema.skipped", found.Skipped))
 		status = "skipped"
 	}
-	if len(found.Request) > 0 || len(found.Reply) > 0 {
+	if len(found.Request) > 0 || len(found.Response) > 0 {
 		status = "invalid"
 	}
 
@@ -535,7 +535,7 @@ func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribu
 	sides := [2]struct {
 		name    string
 		results []spec.Result
-	}{{"request", found.Request}, {"response", found.Reply}}
+	}{{"request", found.Request}, {"response", found.Response}}
 	for _, one := range sides {
 		side, results := one.name, one.results
 		if len(results) == 0 {

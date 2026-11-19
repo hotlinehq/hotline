@@ -1,7 +1,7 @@
 # The invoice-worker role on the shared STS spec (specs/aws/sts/2011-06-15.openapi.yaml):
 # when it starts, the invoices worker takes on this role (a set of AWS
 # rights), and STS gives it short-lived keys with only those rights. The keys
-# are in the reply body, which is never recorded.
+# are in the response body, which is never recorded.
 overlay: 1.1.0
 info:
   title: Invoice-worker role

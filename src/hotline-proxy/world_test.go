@@ -146,7 +146,7 @@ type world struct {
 	parameter string
 	// freed, when closed, lets the first of two calls end.
 	freed chan struct{}
-	// quiet, when closed, lets a quiet vendor send the rest of its reply.
+	// quiet, when closed, lets a quiet vendor send the rest of its response.
 	quiet chan struct{}
 	// cutOff is closed when the proxy stops waiting for a quiet vendor.
 	cutOff chan struct{}

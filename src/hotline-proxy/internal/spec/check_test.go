@@ -28,21 +28,21 @@ type accepting struct{}
 
 type acceptRequest struct{}
 
-type acceptReply struct{}
+type acceptResponse struct{}
 
 func acceptAll(map[string]spec.Schema) (spec.Engine, error) { return accepting{}, nil }
 func (accepting) Request(spec.RequestSpec) (spec.RequestCheck, error) {
 	return acceptRequest{}, nil
 }
 func (accepting) Response(spec.ResponseSpec) (spec.ResponseCheck, error) {
-	return acceptReply{}, nil
+	return acceptResponse{}, nil
 }
 func (acceptRequest) Meta(string, string, http.Header) []spec.Result { return nil }
 func (acceptRequest) Body(int, spec.Reads, []byte) ([]spec.Result, []spec.Field) {
 	return nil, nil
 }
-func (acceptReply) Meta(http.Header) []spec.Result { return nil }
-func (acceptReply) Body(int, spec.Reads, []byte) ([]spec.Result, []spec.Field) {
+func (acceptResponse) Meta(http.Header) []spec.Result { return nil }
+func (acceptResponse) Body(int, spec.Reads, []byte) ([]spec.Result, []spec.Field) {
 	return nil, nil
 }
 
@@ -51,7 +51,7 @@ var errNoStart = errors.New("the engine cannot start")
 func failToStart(map[string]spec.Schema) (spec.Engine, error) { return nil, errNoStart }
 
 // told is a schema engine that keeps what spec tells it: the shared
-// schemas, each route and reply, and each body it is asked to check.
+// schemas, each route and response, and each body it is asked to check.
 type told struct {
 	defs      map[string]spec.Schema
 	requests  []spec.RequestSpec
@@ -71,7 +71,7 @@ func (t *told) Request(r spec.RequestSpec) (spec.RequestCheck, error) {
 
 func (t *told) Response(r spec.ResponseSpec) (spec.ResponseCheck, error) {
 	t.responses = append(t.responses, r)
-	return toldReply{t}, nil
+	return toldResponse{t}, nil
 }
 
 // body keeps what a told check was asked to check, and copies one field
@@ -88,10 +88,10 @@ func (c toldRequest) Body(content int, reads spec.Reads, body []byte) ([]spec.Re
 	return c.t.body(content, reads, body)
 }
 
-type toldReply struct{ t *told }
+type toldResponse struct{ t *told }
 
-func (toldReply) Meta(http.Header) []spec.Result { return nil }
-func (c toldReply) Body(content int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (toldResponse) Meta(http.Header) []spec.Result { return nil }
+func (c toldResponse) Body(content int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
 	return c.t.body(content, reads, body)
 }
 
@@ -227,7 +227,7 @@ responses:
 		Expect(body[2].Schema).To(BeNil())
 		Expect(t.responses).To(HaveLen(1))
 		Expect(t.responses[0].Headers).To(Equal([]spec.Param{
-			{Name: "X-Count", In: "header", Required: true, Segment: -1, Schema: spec.Schema{"type": "integer"}, What: "the 200 reply header X-Count"},
+			{Name: "X-Count", In: "header", Required: true, Segment: -1, Schema: spec.Schema{"type": "integer"}, What: "the 200 response header X-Count"},
 		}))
 	})
 
@@ -269,7 +269,7 @@ var _ = Describe("Logging in", func() {
 	})
 })
 
-var _ = Describe("Checking the reply", func() {
+var _ = Describe("Checking the response", func() {
 	doc := spectest.Route(`responses:
   2XX:
     description: Fine
@@ -277,13 +277,13 @@ var _ = Describe("Checking the reply", func() {
       X-Count: { schema: { type: integer } }
 `)
 
-	It("reports a reply body where the spec lists none", func() {
+	It("reports a response body where the spec lists none", func() {
 		got := parsed(doc).Check(spec.Exchange{
 			Method: "GET", EscapedPath: "/a", Status: 200,
-			ReplyHeader: http.Header{"Content-Type": {"application/json"}},
-			ReplyBody:   spec.Body{Data: []byte(`{}`)},
+			ResponseHeader: http.Header{"Content-Type": {"application/json"}},
+			ResponseBody:   spec.Body{Data: []byte(`{}`)},
 		})
-		Expect(spectest.Written(got.Reply)).To(Equal("body $ not_in_spec"))
+		Expect(spectest.Written(got.Response)).To(Equal("body $ not_in_spec"))
 	})
 
 	It("keeps the request's reason when both sides are skipped", func() {
@@ -291,14 +291,14 @@ var _ = Describe("Checking the reply", func() {
 		got := s.Check(spec.Exchange{
 			Method: "GET", EscapedPath: "/a", Header: http.Header{"Content-Type": {"application/json"}},
 			Body: spec.Body{TooLarge: true}, Status: 200,
-			ReplyHeader: http.Header{"Content-Type": {"text/event-stream"}},
+			ResponseHeader: http.Header{"Content-Type": {"text/event-stream"}},
 		})
 		Expect(got.Skipped).To(Equal("body_too_large"))
 	})
 
-	It("does not check the reply when the spec lists no replies", func() {
+	It("does not check the response when the spec lists no responses", func() {
 		got := parsed("openapi: 3.1.0\npaths:\n  /a:\n    get: {}\n").Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 500})
-		Expect(got.Reply).To(BeEmpty())
+		Expect(got.Response).To(BeEmpty())
 	})
 })
 
@@ -322,9 +322,9 @@ var _ = Describe("Specs the proxy cannot use", func() {
 			spectest.Route("responses: {}\n")+"x-limit: .nan\n", "cannot be read as JSON Schema"),
 	)
 
-	It("reads replies written with plain numbers", func() {
+	It("reads responses written with plain numbers", func() {
 		s := parsed(spectest.Route("responses:\n  200:\n    description: Fine\n"))
-		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 200}).Reply).To(BeEmpty())
+		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 200}).Response).To(BeEmpty())
 	})
 
 	It("is refused when the schema engine cannot start", func() {
@@ -349,7 +349,7 @@ var _ = Describe("A route found once", func() {
 		e := spec.Exchange{Method: "GET", EscapedPath: "/a/1", RawQuery: "q=1"}
 		Expect(spectest.Written(s.CheckRequest(s.Find(e), e).Request)).To(Equal("query q not_in_spec"))
 		Expect(s.CheckRequest(b, e).Request).To(BeEmpty())
-		Expect(s.CheckReply(b, e).Skipped).To(BeEmpty())
+		Expect(s.CheckResponse(b, e).Skipped).To(BeEmpty())
 		redacted := s.Redact(b, spec.Call{Origin: "https://x", EscapedPath: "/a/1"})
 		Expect(redacted.Template).To(Equal("/b/{id}"))
 		Expect(redacted.URLFull).To(Equal("https://x/a/REDACTED"))

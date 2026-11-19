@@ -25,7 +25,7 @@ const (
 type Function func(payload []byte) (out []byte, failed bool)
 
 // serveNewer answers SNS and STS, on AWS's query protocol (a form body
-// naming the action, an XML reply), and Lambda and SES, on its REST and
+// naming the action, an XML response), and Lambda and SES, on its REST and
 // JSON protocol. It says false for any other host.
 func (f *AWS) serveNewer(w http.ResponseWriter, r *http.Request) bool {
 	service, _, _ := strings.Cut(r.Host, ".")

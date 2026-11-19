@@ -97,14 +97,14 @@ var _ = Describe("Checking an XML body with santhosh", func() {
 		body := b.String()
 		e := spec.Exchange{Method: "GET", EscapedPath: "/", RawQuery: "list-type=2",
 			Header: http.Header{"Authorization": {"AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261102/eu-west-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=00"}},
-			Status: 200, ReplyHeader: http.Header{"Content-Type": {"application/xml"}}, ReplyBody: spec.Body{Data: []byte(body)}}
-		Expect(s.Check(e).Reply).To(BeEmpty())
+			Status: 200, ResponseHeader: http.Header{"Content-Type": {"application/xml"}}, ResponseBody: spec.Body{Data: []byte(body)}}
+		Expect(s.Check(e).Response).To(BeEmpty())
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
 		got := s.Check(e)
 		runtime.ReadMemStats(&after)
 		Expect(got.Request).To(BeEmpty())
-		Expect(got.Reply).To(BeEmpty())
+		Expect(got.Response).To(BeEmpty())
 		if raceEnabled {
 			// The race detector makes every allocation larger, so the
 			// limit only means something without it.

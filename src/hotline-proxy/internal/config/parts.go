@@ -12,15 +12,15 @@ const (
 	PartCookies
 	PartBody
 	PartStatus
-	PartReplyHeaders
-	PartReplyBody
+	PartResponseHeaders
+	PartResponseBody
 
 	// AllParts is every part, which is what leaving checks out means.
 	AllParts = PartPath | PartQuery | PartHeaders | PartCookies | PartBody |
-		PartStatus | PartReplyHeaders | PartReplyBody
-	// RequestParts and ReplyParts are the parts of each side.
-	RequestParts = PartPath | PartQuery | PartHeaders | PartCookies | PartBody
-	ReplyParts   = PartStatus | PartReplyHeaders | PartReplyBody
+		PartStatus | PartResponseHeaders | PartResponseBody
+	// RequestParts and ResponseParts are the parts of each side.
+	RequestParts  = PartPath | PartQuery | PartHeaders | PartCookies | PartBody
+	ResponseParts = PartStatus | PartResponseHeaders | PartResponseBody
 )
 
 // partNamed finds the part a checks entry names.
@@ -38,10 +38,10 @@ func partNamed(name string) (Parts, bool) {
 		return PartBody, true
 	case "status":
 		return PartStatus, true
-	case "reply-headers":
-		return PartReplyHeaders, true
-	case "reply-body":
-		return PartReplyBody, true
+	case "response-headers":
+		return PartResponseHeaders, true
+	case "response-body":
+		return PartResponseBody, true
 	}
 	return 0, false
 }

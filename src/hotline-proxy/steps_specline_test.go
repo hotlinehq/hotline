@@ -78,7 +78,7 @@ func specLineSteps(sc *godog.ScenarioContext, w *world) {
 		spans := w.receivers[0].spans()
 		checks := 0
 		for _, check := range spans {
-			if check.name != "request spec check" && check.name != "reply spec check" {
+			if check.name != "request spec check" && check.name != "response spec check" {
 				continue
 			}
 			checks++

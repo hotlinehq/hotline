@@ -48,7 +48,7 @@ Feature: WebSocket sessions
 
   Scenario: The opening call ends at the 101 and has no body
     What follows the 101 is the session's, not the call's: the call's
-    reply has no body, and its time ends when the 101 reached the app.
+    response has no body, and its time ends when the 101 reached the app.
     Given the shop vendor accepts a WebSocket upgrade and keeps it open until the app closes
     When an app opens a WebSocket to the shop through the forward_proxy ingress
     And the app keeps the WebSocket open for 300 ms and closes it

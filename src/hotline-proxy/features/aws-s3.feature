@@ -27,15 +27,15 @@ Feature: AWS S3 through the proxy, with the shop example
     And the invoices app works through its queue once, into the bucket
     Then the fake S3 got the PDF in AWS's chunks with a matching checksum, signed by the SDK, over https, without Proxy-Authorization
 
-  Scenario: A missing PDF is a normal error reply
+  Scenario: A missing PDF is a normal error response
     When the invoices app fetches the invoice for A-9999
     Then the app said there is no invoice for A-9999
     And the S3 record for GetObject has status 404 and no results
 
-  Scenario: The shop lists the invoices, and the XML reply is checked
+  Scenario: The shop lists the invoices, and the XML response is checked
     Given the bucket holds A-1001.pdf and notes.txt
     When the invoices app lists the invoices
-    Then the S3 record for ListObjectsV2 has url.template /#?list-type=2 and the reply results body $.Contents[1].Key pattern ^[A-Z]-[0-9]+\.pdf$
+    Then the S3 record for ListObjectsV2 has url.template /#?list-type=2 and the response results body $.Contents[1].Key pattern ^[A-Z]-[0-9]+\.pdf$
 
   Scenario: The shop deletes old invoices in one call, and the XML call is checked
     Given the bucket holds A-1001.pdf and A-1002.pdf, stored on 2026-10-01

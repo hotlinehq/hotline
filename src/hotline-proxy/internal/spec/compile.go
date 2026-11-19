@@ -165,7 +165,7 @@ func (b *builder) checks(template, method, where string) *checks {
 	item, itemPointer := b.object(itemValue, itemPointer, where)
 	opPointer := itemPointer + token(method)
 	op, _ := item[method].(map[string]any)
-	c := &checks{marks: map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "reply": {}}}
+	c := &checks{marks: map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "response": {}}}
 	c.params = b.params(c.marks, where, item["parameters"], itemPointer+"/parameters", op["parameters"], opPointer+"/parameters")
 	c.security = b.security(op)
 	if v, ok := op["requestBody"]; ok {
@@ -176,13 +176,13 @@ func (b *builder) checks(template, method, where string) *checks {
 		}
 	}
 	if responses, ok := op["responses"].(map[string]any); ok {
-		c.replies = map[string]*reply{}
+		c.responses = map[string]*response{}
 		for code, v := range responses {
 			r, pointer := b.object(v, opPointer+"/responses"+token(code), where)
 			if len(code) == 3 && strings.HasSuffix(strings.ToUpper(code), "XX") {
 				code = strings.ToUpper(code)
 			}
-			c.replies[code] = b.reply(c.marks, r, pointer, where, code)
+			c.responses[code] = b.response(c.marks, r, pointer, where, code)
 		}
 	}
 	b.clashes(c, where)
@@ -305,22 +305,22 @@ func (b *builder) bodySpec(m map[string]any, pointer, where, what string) *bodyS
 	return body
 }
 
-func (b *builder) reply(marks map[string]map[string]mark, m map[string]any, pointer, where, code string) *reply {
-	r := &reply{body: b.bodySpec(m, pointer, where, "the "+code+" reply")}
+func (b *builder) response(marks map[string]map[string]mark, m map[string]any, pointer, where, code string) *response {
+	r := &response{body: b.bodySpec(m, pointer, where, "the "+code+" response")}
 	headers, _ := m["headers"].(map[string]any)
 	for _, name := range slices.Sorted(maps.Keys(headers)) {
 		if strings.EqualFold(name, "Content-Type") {
 			continue
 		}
 		h, hp := b.object(headers[name], pointer+"/headers"+token(name), where)
-		b.redactMark(marks, where, "reply", name, h)
+		b.redactMark(marks, where, "response", name, h)
 		if _, marked := h["x-hotline-record"]; marked {
-			b.problem("%s: x-hotline-record on the %s reply header %s: a mark goes only on a header of the call", where, code, name)
+			b.problem("%s: x-hotline-record on the %s response header %s: a mark goes only on a header of the call", where, code, name)
 		}
 		required, _ := h["required"].(bool)
 		r.headers = append(r.headers, param{
 			name: name, in: partHeader, required: required,
-			schema: schemaOf(h, hp, "the "+code+" reply header "+name),
+			schema: schemaOf(h, hp, "the "+code+" response header "+name),
 		})
 	}
 	r.check = b.responseCheck(r, where)

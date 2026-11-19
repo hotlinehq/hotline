@@ -63,7 +63,7 @@ func xmlSteps(sc *godog.ScenarioContext, w *world) {
 	})
 }
 
-// filesAnswer makes the files vendor answer every call with one reply.
+// filesAnswer makes the files vendor answer every call with one response.
 func (w *world) filesAnswer(status int, mediaType, body string) {
 	w.vendor(filesHost).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)

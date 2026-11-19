@@ -1,5 +1,5 @@
 Feature: Forwarding a call to the vendor
-  The forwarder makes the call to the vendor and hands the reply back.
+  The forwarder makes the call to the vendor and hands the response back.
   Tests use local vendors from net/http/httptest, never the real internet.
 
   Scenario Outline: Choosing http or https to the vendor
@@ -35,17 +35,17 @@ Feature: Forwarding a call to the vendor
     And Host is set to the vendor host from the request line
     And the proxy adds no header of its own, such as Accept-Encoding or User-Agent
 
-  Scenario Outline: A vendor reply that goes quiet
-    vendorTimeout also limits how long a reply may go quiet between its
-    parts (Peter, 2026-10-28), so slow replies that keep coming still work.
-    Given a vendor with a vendorTimeout of 10 seconds whose reply goes quiet after its first part
-    When the reply stays quiet for <quiet> seconds
+  Scenario Outline: A vendor response that goes quiet
+    vendorTimeout also limits how long a response may go quiet between its
+    parts (Peter, 2026-10-28), so slow responses that keep coming still work.
+    Given a vendor with a vendorTimeout of 10 seconds whose response goes quiet after its first part
+    When the response stays quiet for <quiet> seconds
     Then <result>
 
     Examples:
       | quiet | result                                                                         |
-      | 9     | the app gets the whole reply and the record has no error.type                  |
-      | 10    | the reply to the app breaks off and the record says http_response_incomplete   |
+      | 9     | the app gets the whole response and the record has no error.type                  |
+      | 10    | the response to the app breaks off and the record says http_response_incomplete   |
 
   Scenario: The vendor answers before the app has finished sending
     Given a vendor that answers 413 without reading the body
@@ -73,7 +73,7 @@ Feature: Forwarding a call to the vendor
 
   Scenario: A WebSocket to a checked api is valid
     After the 101, the connection carries the WebSocket's frames, not a
-    reply body, so the reply check has no body to read. Before, it read the
+    response body, so the response check has no body to read. Before, it read the
     vendor's frames as the body and failed with not_in_spec (found by the
     WebSocket spike, 2026-11-18).
     Given a shop spec where GET /orders answers 101 Switching Protocols
@@ -93,8 +93,8 @@ Feature: Forwarding a call to the vendor
     As a WebSocket ends, the proxy reads the vendor's side to its end
     while the end of the call closes it, both at the same moment. Each
     WebSocket must still give one record, with no unguarded access for the
-    race detector to find when the tests run with it. The shop's reply is checked, so the end also
-    starts the reply check.
+    race detector to find when the tests run with it. The shop's response is checked, so the end also
+    starts the response check.
     Given the shop spec
     And the shop vendor accepts a WebSocket upgrade, sends "bye" and closes at once
     When an app opens a WebSocket to the shop through the proxy, reads "bye" and closes, 20 times
@@ -108,21 +108,21 @@ Feature: Forwarding a call to the vendor
     When an app sends a body in parts with the trailer "X-Checksum: crc32=3610a686"
     Then the vendor gets the trailer "X-Checksum: crc32=3610a686"
 
-  Scenario: Reply trailers pass back, but not fields forbidden after the body
-    gRPC replies end with trailers such as Grpc-Status. Fields that change
-    how a reply is read, such as Content-Type, must never come after the
+  Scenario: Response trailers pass back, but not fields forbidden after the body
+    gRPC responses end with trailers such as Grpc-Status. Fields that change
+    how a response is read, such as Content-Type, must never come after the
     body (RFC 9110, section 6.5.1; Go issues 82649 and 82450).
-    Given a vendor that ends its reply with the trailers "Grpc-Status: 5", "Content-Type: text/evil" and "Www-Authenticate: Basic"
+    Given a vendor that ends its response with the trailers "Grpc-Status: 5", "Content-Type: text/evil" and "Www-Authenticate: Basic"
     When an app calls it through the proxy
     Then the app gets the trailer "Grpc-Status: 5"
     And the app gets no trailer Content-Type or Www-Authenticate
 
-  Scenario: An early reply passes back without headers for one hop only
-    An early reply, such as 103 Early Hints, lets the app start loading
+  Scenario: An early response passes back without headers for one hop only
+    An early response, such as 103 Early Hints, lets the app start loading
     what it will need before the real answer comes. Headers for one hop
-    only are removed from it, as from the final reply (Go issue 81319).
+    only are removed from it, as from the final response (Go issue 81319).
     Given a vendor that sends 103 Early Hints with a Link header and Connection, X-Nominated and Keep-Alive headers, then 200
-    When an app calls it through the proxy and reads every reply
+    When an app calls it through the proxy and reads every response
     Then the app gets 103 with the Link header but no Connection, X-Nominated or Keep-Alive header
     And then the app gets 200
 
@@ -132,17 +132,17 @@ Feature: Forwarding a call to the vendor
     Then the vendor gets no X-Forwarded-For or Via header
 
   Scenario: Large bodies stream both ways
-    Given a vendor that answers slowly with a large reply
+    Given a vendor that answers slowly with a large response
     When an app sends a large request body
     Then the body reaches the vendor before the app has finished sending it
-    And the reply reaches the app before the vendor has finished sending it
+    And the response reaches the app before the vendor has finished sending it
 
   Scenario: No retries
     Given a vendor that fails the first call
     When an app sends one call
     Then the vendor sees exactly one call
 
-  Scenario Outline: Vendor replies pass back unchanged
+  Scenario Outline: Vendor responses pass back unchanged
     Given a vendor that answers <status> with headers and a body
     When an app calls it through the proxy
     Then the app gets <status> with the same headers and body
@@ -204,10 +204,10 @@ Feature: Forwarding a call to the vendor
       | a TLS handshake that takes too long                          | 504    | connection_timeout    |
       | a vendor that closes the connection before answering         | 502    | http_response_incomplete |
 
-  Scenario: The vendor breaks off mid-reply
-    Given a vendor that stops after sending half of its reply
+  Scenario: The vendor breaks off mid-response
+    Given a vendor that stops after sending half of its response
     When an app calls it through the proxy
-    Then the reply to the app is cut
+    Then the response to the app is cut
     And the record's error.type is http_response_incomplete
 
   Scenario: Refused calls never reach the vendor

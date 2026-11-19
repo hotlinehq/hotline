@@ -288,7 +288,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 // closeWrite tells the other side nothing more comes, and keeps reading
 // what it still sends. A connection that cannot say that alone is closed,
 // or the relay would wait for both sides forever: a tunnel over HTTP/2,
-// whose reply ends only with the whole stream.
+// whose response ends only with the whole stream.
 func closeWrite(c net.Conn) {
 	if w, ok := c.(interface{ CloseWrite() error }); ok {
 		_ = w.CloseWrite()

@@ -142,10 +142,10 @@ func open(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 }
 
 // stream carries a tunnel in a CONNECT's HTTP/2 stream: the app's bytes
-// come in the request body and the proxy's go out in the reply. Each
+// come in the request body and the proxy's go out in the response. Each
 // direction is a pipe of its own, so the app ending its body ends only what
-// the tunnel reads, and the reply goes on. The other way round is not
-// possible: the reply ends only when the whole stream does, after which
+// the tunnel reads, and the response goes on. The other way round is not
+// possible: the response ends only when the whole stream does, after which
 // the body cannot be read. So the stream ends once the tunnel is closed.
 func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) {
 	w.WriteHeader(http.StatusOK)
@@ -161,7 +161,7 @@ func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) 
 	go func() {
 		defer close(done)
 		_, _ = io.Copy(flushWriter{w: w, rc: rc}, toApp)
-		// A reply the app no longer takes fails the tunnel's next write.
+		// A response the app no longer takes fails the tunnel's next write.
 		_ = toApp.Close()
 	}()
 	// The pipes have no address of their own: calls inside the tunnel come
@@ -172,7 +172,7 @@ func stream(w http.ResponseWriter, r *http.Request) (net.Conn, <-chan struct{}) 
 
 // streamTunnel is a tunnel over an HTTP/2 stream, with the app's address.
 // It reads from one pipe and writes to another, so the app can stop
-// sending while the reply goes on.
+// sending while the response goes on.
 type streamTunnel struct {
 	in, out net.Conn
 	remote  net.Addr

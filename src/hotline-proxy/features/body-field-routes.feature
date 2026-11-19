@@ -9,7 +9,7 @@ Feature: Routes picked by a body field
 
   The field is read once the whole body has arrived, from the copy of up to
   2 MiB the proxy keeps for its checks, at the top level of a form or JSON
-  body. That one value picks the route for the request check, the reply
+  body. That one value picks the route for the request check, the response
   check and the record.
 
   Rule: The action field picks the route
@@ -33,10 +33,10 @@ Feature: Routes picked by a body field
       When the app sends the form body Action=Publish&TopicArn=order-paid
       Then the request results are body $.Message required
 
-    Scenario: The reply is checked against the same route
+    Scenario: The response is checked against the same route
       Given SNS answers 200 with the xml body <PublishResponse><PublishResult></PublishResult></PublishResponse>
       When the app sends the form body Action=Publish&TopicArn=order-paid&Message=hello
-      Then the reply results are body $.PublishResult.MessageId required
+      Then the response results are body $.PublishResult.MessageId required
 
     Scenario: The body reaches the vendor byte for byte
       When the app sends the form body Action=Publish&TopicArn=order-paid&Message=hello

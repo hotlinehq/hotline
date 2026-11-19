@@ -29,7 +29,7 @@ type Shape struct {
 	Delay       time.Duration
 }
 
-// parameters is the body of an SSM GetParametersByPath reply with n
+// parameters is the body of an SSM GetParametersByPath response with n
 // parameters, each about 290 bytes.
 func parameters(n int) []byte {
 	var b strings.Builder
@@ -44,10 +44,10 @@ func parameters(n int) []byte {
 	return []byte(b.String())
 }
 
-// Shapes are the call shapes by name: a small JSON reply (an SSM
-// GetParameter), JSON replies of about 30 KB, 115 KB and 500 KB (an SSM
-// GetParametersByPath of 105, 400 and 1780 parameters), an XML reply of
-// about 7 KB (an S3 ListObjectsV2 of 50 files), and a small reply after a
+// Shapes are the call shapes by name: a small JSON response (an SSM
+// GetParameter), JSON responses of about 30 KB, 115 KB and 500 KB (an SSM
+// GetParametersByPath of 105, 400 and 1780 parameters), an XML response of
+// about 7 KB (an S3 ListObjectsV2 of 50 files), and a small response after a
 // wait of 50 ms.
 func Shapes() map[string]Shape {
 	const json = "application/x-amz-json-1.1"

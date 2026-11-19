@@ -204,8 +204,8 @@ Feature: Checking records with hotline-proxy verify
 
     Scenario: A body the customer kept matches its record
       Given the vendor answered GET /orders with the json body {"orders":[]}
-      And the body was saved as reply.json
-      When I run hotline-proxy verify calls --body reply.json --span 00f067aa0ba902b7 --side response
+      And the body was saved as response.json
+      When I run hotline-proxy verify calls --body response.json --span 00f067aa0ba902b7 --side response
       Then it exits with 0
       And it prints that the response body matches the record's hotline.response.body.hash
 
@@ -224,7 +224,7 @@ Feature: Checking records with hotline-proxy verify
       Examples:
         | body      | span             | message                           |
         | calls     | 00f067aa0ba902b7 | that the body cannot be read      |
-        | reply.json | 0000000000000000 | that no record has that span id  |
+        | response.json | 0000000000000000 | that no record has that span id  |
 
     Scenario: A body kept whole in a full record is checked by itself
       Given the integration has content full and maxBodySize 1MiB
@@ -340,8 +340,8 @@ Feature: Checking records with hotline-proxy verify
 
     Scenario: A body check in JSON
       Given the vendor answered GET /orders with the json body {"orders":[]}
-      And the body was saved as reply.json
-      When I run hotline-proxy verify calls --body reply.json --span 00f067aa0ba902b7 --side response --format json
+      And the body was saved as response.json
+      When I run hotline-proxy verify calls --body response.json --span 00f067aa0ba902b7 --side response --format json
       Then the JSON has a body entry with span_id 00f067aa0ba902b7, side response and matches true
 
     Scenario: Input that cannot be read is still JSON

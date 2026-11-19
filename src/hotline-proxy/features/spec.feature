@@ -65,7 +65,7 @@ Feature: Reading the vendor spec
       | a header parameter       | marked x-hotline-redact true   | its name is kept and its value redacted        |
       | a header parameter       | marked x-hotline-redact false  | its value is to be kept                        |
       | any parameter            | not marked                     | it counts as not marked                        |
-      | a declared reply header  | marked x-hotline-redact false  | its value is to be kept                        |
+      | a declared response header  | marked x-hotline-redact false  | its value is to be kept                        |
 
   Scenario: A method's own parameter entry wins
     Given a spec that lists the query parameter page for the whole route as not marked

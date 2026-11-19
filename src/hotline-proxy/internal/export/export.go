@@ -429,7 +429,7 @@ func (s *Sink) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	}
 }
 
-// level is INFO unless something went wrong: WARN when the call or the reply
+// level is INFO unless something went wrong: WARN when the call or the response
 // broke the spec or the vendor refused the call (a 4xx), ERROR when the
 // vendor failed (a 5xx) or the call failed in the proxy.
 func level(attrs []attribute.KeyValue) log.Severity {

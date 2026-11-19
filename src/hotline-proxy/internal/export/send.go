@@ -158,7 +158,7 @@ func (t *httpTransport) post(ctx context.Context, k kind, z *zipper, body []byte
 		// The collector could not be reached: it may be starting.
 		return busy{err: fmt.Errorf("%w: %w", ErrRefused, err)}
 	}
-	// Reading the reply keeps the connection for the next send. Its
+	// Reading the response keeps the connection for the next send. Its
 	// partial success, if any, is not acted on.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()

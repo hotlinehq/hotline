@@ -27,7 +27,7 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^pinned.example.com answers only after the app stops sending$`, func() error {
 		w.startTalker("pinned.example.com", func(c *tls.Conn, _ chan<- string) {
 			got, _ := io.ReadAll(c)
-			_, _ = io.WriteString(c, "REPLY to "+string(got))
+			_, _ = io.WriteString(c, "RESPONSE to "+string(got))
 		})
 		return nil
 	})
@@ -198,12 +198,12 @@ func (w *world) streamTunnel(authority string) (net.Conn, error) {
 	}
 	body, app := io.Pipe()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodConnect, "http://"+authority, body)
-	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the reply is the tunnel, closed with it
+	resp, err := w.h2.RoundTrip(req) //nolint:bodyclose // the response is the tunnel, closed with it
 	if err != nil {
 		return nil, err
 	}
 	w.resp = resp
-	return &streamConn{reply: resp.Body, body: app}, nil
+	return &streamConn{response: resp.Body, body: app}, nil
 }
 
 // stopSending tells the other side nothing more comes, at the TLS level

@@ -55,7 +55,7 @@ type route struct {
 	// path.
 	rest bool
 	// marks hold the parameter marks by where the parameter lives
-	// ("path", "query", "header" and "reply") and then by name. Header
+	// ("path", "query", "header" and "response") and then by name. Header
 	// names are lower case.
 	marks map[string]map[string]mark
 	// checks are what a call on this route is checked against.
@@ -73,7 +73,7 @@ type document struct {
 }
 
 // pathItem lists a path's methods. Everything else about a route, its
-// parameters, replies and x-hotline-redact marks included, is read by the
+// parameters, responses and x-hotline-redact marks included, is read by the
 // builder, which follows $ref.
 type pathItem struct {
 	Get     *operation `yaml:"get"`

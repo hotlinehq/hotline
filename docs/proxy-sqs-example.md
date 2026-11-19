@@ -65,8 +65,8 @@ Requirements:
 
 1. **Strings holding JSON are checked** when the spec says `contentMediaType: application/json` with a `contentSchema`. The JSON Schema library the proxy already uses supports this; it only needs turning on. Without these words, a string stays a plain string, as today.
 2. **Places carry on into the inner message.** A missing `orderId` inside the message is reported as `body $.MessageBody.orderId required`. A message that is not valid JSON is `body $.MessageBody json`. As always, results never hold a value from the call.
-3. **The same in replies.** The worker's `ReceiveMessage` reply holds the messages in `Messages[].Body`; our spec marks those the same way, so a bad message is also reported when the worker receives it (`response body $.Messages[0].Body.orderId required`).
-4. **SQS's content type counts as JSON because the spec says so.** SQS sends `Content-Type: application/x-amz-json-1.0`. The proxy itself only reads `application/json`, `…+json` and form bodies, and knows nothing about AWS. The spec marks the media type with `x-hotline-body: json`, next to its schema, and the proxy then reads that body as JSON. The only allowed value is `json`; any other refuses the spec. `tools/aws-openapi` writes the mark on every request and reply (Peter, 2026-10-30).
+3. **The same in responses.** The worker's `ReceiveMessage` response holds the messages in `Messages[].Body`; our spec marks those the same way, so a bad message is also reported when the worker receives it (`response body $.Messages[0].Body.orderId required`).
+4. **SQS's content type counts as JSON because the spec says so.** SQS sends `Content-Type: application/x-amz-json-1.0`. The proxy itself only reads `application/json`, `…+json` and form bodies, and knows nothing about AWS. The spec marks the media type with `x-hotline-body: json`, next to its schema, and the proxy then reads that body as JSON. The only allowed value is `json`; any other refuses the spec. `tools/aws-openapi` writes the mark on every request and response (Peter, 2026-10-30).
 
 ### Three integrations, three message schemas
 
@@ -77,7 +77,7 @@ One thing to know: with SQS's JSON protocol, every call goes to the path `/`. Th
 Requirements:
 
 1. **One shared SQS spec, plus one overlay per queue** (Peter, 2026-10-30). Overlays are built (pull request #35, [proxy-overlays.md](proxy-overlays.md)). An overlay is a short file in the official OpenAPI Overlay 1.1 format; each of its actions says "at this spot in the spec, change this". Each queue's overlay adds two things: its own message schema on `MessageBody`, and its own queue URL on `QueueUrl` (an exact value, `const`). A message sent to the wrong queue is then reported as `body $.QueueUrl const`.
-2. **Where the overlay changes the spec.** `MessageBody` and `QueueUrl` in `SendMessage`, in each entry of `SendMessageBatch`, and `Body` in each message of the `ReceiveMessage` reply; `QueueUrl` also in every other action that names a queue (`ReceiveMessage`, `DeleteMessage`, and so on).
+2. **Where the overlay changes the spec.** `MessageBody` and `QueueUrl` in `SendMessage`, in each entry of `SendMessageBatch`, and `Body` in each message of the `ReceiveMessage` response; `QueueUrl` also in every other action that names a queue (`ReceiveMessage`, `DeleteMessage`, and so on).
 3. **The overlays are written by hand and checked by a test.** Each one is short. The `hotline-proxy overlay` command can also make one from the shared spec and a hand-edited copy. A test loads the example config with `validate`, so an overlay that no longer fits the shared spec (a warning) fails the test.
 
 ```yaml
@@ -120,7 +120,7 @@ actions:
     update: { const: https://sqs.eu-west-1.amazonaws.com/192325781350/invoices }
   - target: $.components.schemas.SendMessageRequest.properties.MessageBody
     update: { contentMediaType: application/json, contentSchema: { $ref: '#/components/schemas/InvoiceJob' } }
-  # … the same for SendMessageBatch entries, the ReceiveMessage reply and QueueUrl elsewhere
+  # … the same for SendMessageBatch entries, the ReceiveMessage response and QueueUrl elsewhere
 ```
 
 ## The complete SQS spec
@@ -128,7 +128,7 @@ actions:
 - **It lives in the new `specs/` folder** at the top of the repo (Peter, 2026-10-30): `specs/aws/sqs/2012-11-05.openapi.yaml`, named after AWS's own version of the SQS api. That folder holds stable vendor specs only; overlays stay with their tests and examples. Its rules are in [specs/README.md](../specs/README.md).
 
 - **All SQS actions**, one route each, in the agreed form `/#X-Amz-Target=AmazonSQS.SendMessage`, with `x-hotline-action-header: X-Amz-Target` at the top. Generated from AWS's Smithy model (AWS's own API description language), since AWS publishes no OpenAPI for SQS.
-- **Every reply** each action can give: `200` with its body, and SQS's error replies (`400` and `500` with `__type` and `message`).
+- **Every response** each action can give: `200` with its body, and SQS's error responses (`400` and `500` with `__type` and `message`).
 - **Login** named in the security section as the `Authorization` header; as always, its value is never read.
 - **Headers to record** marked as agreed: `x-amzn-RequestId` and `x-amzn-query-error` with `x-hotline-redact: false`.
 - **Checked as a valid OpenAPI 3.1 file** by a test, and loaded by the proxy's own `validate` command.
@@ -147,13 +147,13 @@ It sets up the SQS client exactly as the AWS setup guide says. Its own tests use
 
 ## Tests
 
-- `aws-sqs.feature` drives the proxy with a fake SQS: each action is its own route; a call with no or an unknown `X-Amz-Target` has no route; SQS's content type is read as JSON only where the spec marks it `x-hotline-body: json`, and another mark refuses the spec; AWS's error reply is checked and its headers kept; a spec whose routes name a header it doesn't declare is refused; the recorded signed call reaches the vendor with every signed part unchanged, over the forward proxy and the Host header ingress, on HTTP/1.1 and plain HTTP/2; and, with the invoices overlay ([testdata/aws/invoices.overlay.yaml](../src/hotline-proxy/testdata/aws/invoices.overlay.yaml)), each mistake in the job is reported at its place inside `MessageBody`, in the `ReceiveMessage` reply too, a message to another queue is reported, results never hold a value, and the plain spec doesn't check the message.
+- `aws-sqs.feature` drives the proxy with a fake SQS: each action is its own route; a call with no or an unknown `X-Amz-Target` has no route; SQS's content type is read as JSON only where the spec marks it `x-hotline-body: json`, and another mark refuses the spec; AWS's error response is checked and its headers kept; a spec whose routes name a header it doesn't declare is refused; the recorded signed call reaches the vendor with every signed part unchanged, over the forward proxy and the Host header ingress, on HTTP/1.1 and plain HTTP/2; and, with the invoices overlay ([testdata/aws/invoices.overlay.yaml](../src/hotline-proxy/testdata/aws/invoices.overlay.yaml)), each mistake in the job is reported at its place inside `MessageBody`, in the `ReceiveMessage` response too, a message to another queue is reported, results never hold a value, and the plain spec doesn't check the message.
 - `end-to-end-aws.feature` builds the example app and runs it against the real `hotline-proxy` program, started with the test's config ([testdata/aws/hotline-proxy.yaml](../src/hotline-proxy/testdata/aws/hotline-proxy.yaml), only its addresses changed), and a fake SQS over TLS: a job goes there and back with records for `SendMessage`, `ReceiveMessage` and `DeleteMessage` and no results; a broken job is still delivered, and reported.
 
 ## Found while building
 
 - The JSON Schema library can check a string that holds JSON itself, but it reports the wrong place for that string (it points at whichever field was checked last). The proxy does this check itself instead, with the library's support for added keywords, so places are right.
-- SQS leaves `Messages` out of an empty `ReceiveMessage` reply. A fake SQS that sent `"Messages": null` was caught by the reply check, as a real vendor's mistake would be.
+- SQS leaves `Messages` out of an empty `ReceiveMessage` response. A fake SQS that sent `"Messages": null` was caught by the response check, as a real vendor's mistake would be.
 
 ## Open questions and answers
 

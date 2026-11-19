@@ -2,10 +2,10 @@ Feature: A relayed tunnel stops each direction on its own
   A tunnel the proxy relays untouched carries two directions: from the app
   to the vendor, and back. When one side stops sending, the proxy tells the
   other side that nothing more comes from there, and keeps the other
-  direction open. So a reply still on its way, or bytes the app still
+  direction open. So a response still on its way, or bytes the app still
   sends, are never lost (review, Peter 2026-11-12). This holds for ordinary
   tunnels over HTTP/1.1 and for captured tunnels. Over HTTP/2 only the app
-  can stop first: the reply of an HTTP/2 stream ends only with the whole
+  can stop first: the response of an HTTP/2 stream ends only with the whole
   stream, so when the vendor stops first the tunnel ends.
 
   Background:
@@ -14,10 +14,10 @@ Feature: A relayed tunnel stops each direction on its own
     And the connect part lists pinned.example.com in passthrough
     And the capture listener lists pinned.example.com in passthrough
 
-  Scenario Outline: The app stops sending first and still gets the whole reply
+  Scenario Outline: The app stops sending first and still gets the whole response
     Given pinned.example.com answers only after the app stops sending
     When the app sends "REQUEST" through <tunnel> to pinned.example.com, then stops sending
-    Then the app gets "REPLY to REQUEST"
+    Then the app gets "RESPONSE to REQUEST"
 
     Examples:
       | tunnel                        |

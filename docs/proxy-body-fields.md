@@ -18,10 +18,10 @@ QueueUrl:
 
 ## Rules
 
-1. **Where.** The mark goes on a property of a body schema, in the call or the reply, for JSON bodies (and bodies the spec marks `x-hotline-body: json`) and form bodies, the two kinds the proxy reads for its checks. The proxy follows properties through objects and `$ref`.
+1. **Where.** The mark goes on a property of a body schema, in the call or the response, for JSON bodies (and bodies the spec marks `x-hotline-body: json`) and form bodies, the two kinds the proxy reads for its checks. The proxy follows properties through objects and `$ref`.
 2. **Only plain values.** The field must give its type as text (`string`), a number (`number`, `integer`), or true or false (`boolean`); `null` may be listed too. A mark on an object or a list stops the proxy at start.
 3. **Never inside a list.** A field inside a list has many values, so it is not copied. Its mark is still checked.
-4. **The name.** Letters, digits, dots and underscores only. A name that starts like the proxy's own (`hotline.`, `http.`, `url.`, `server.`, `network.`, `error.`, `dns.`, `tls.`, `log.`) stops the proxy at start, so a copied field can never pass for one the proxy wrote. A name marked in both the call's and the reply's body of one route stops the proxy too.
+4. **The name.** Letters, digits, dots and underscores only. A name that starts like the proxy's own (`hotline.`, `http.`, `url.`, `server.`, `network.`, `error.`, `dns.`, `tls.`, `log.`) stops the proxy at start, so a copied field can never pass for one the proxy wrote. A name marked in both the call's and the response's body of one route stops the proxy too.
 5. **Copied only when it fits.** The value is copied only when it is there and has the marked type. Otherwise nothing is recorded, and the checks report the problem as usual. A number too large for the record is left out.
 6. **Text is cut** at 256 characters.
 7. **A promise.** A mark is the spec author's promise that the field holds no secret and no personal data. Mark only fields like queue names, ids of things (not of people) and kinds.
@@ -41,7 +41,7 @@ parameters:
     x-hotline-record: messaging.operation.name
 ```
 
-1. Only headers of the call. A mark on a path, query or cookie parameter, or on a reply header, stops the proxy at start.
+1. Only headers of the call. A mark on a path, query or cookie parameter, or on a response header, stops the proxy at start.
 2. Never a login header: `Authorization`, `Proxy-Authorization`, `Cookie`, or a header the spec's security section names. Such a mark stops the proxy at start.
 3. The value is copied as text, cut at 256 characters. A header sent more than once is joined with ", ". A missing header is not copied.
 4. The name rules are the same as for body fields. A name may not be used on a header and in the call's body of one route.

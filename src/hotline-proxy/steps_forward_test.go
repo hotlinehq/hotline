@@ -60,7 +60,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the proxy adds no header of its own, such as Accept-Encoding or User-Agent$`, func() error {
 		return w.vendorHeaders(nil, []string{"Accept-Encoding", "User-Agent"})
 	})
-	sc.Step(`^a vendor with a vendorTimeout of 10 seconds whose reply goes quiet after its first part$`, func() error {
+	sc.Step(`^a vendor with a vendorTimeout of 10 seconds whose response goes quiet after its first part$`, func() error {
 		w.clock = &fakeClock{}
 		w.addIntegration(integration("talon-shop-a", w.talonAPI("    vendorTimeout: 10s\n")))
 		w.quiet, w.cutOff = make(chan struct{}), make(chan struct{})
@@ -77,7 +77,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		})
 		return nil
 	})
-	sc.Step(`^the reply stays quiet for (\d+) seconds$`, func(seconds int) error {
+	sc.Step(`^the response stays quiet for (\d+) seconds$`, func(seconds int) error {
 		if err := w.start(); err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		w.respBody, w.respErr = first, err
 		return nil
 	})
-	sc.Step(`^the app gets the whole reply and the record has no error.type$`, func() error {
+	sc.Step(`^the app gets the whole response and the record has no error.type$`, func() error {
 		if w.respErr != nil || string(w.respBody) != "first part, last part" {
 			return failf("the app got %q and %v", w.respBody, w.respErr)
 		}
@@ -130,9 +130,9 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return hasNo(record, "error.type")
 	})
-	sc.Step(`^the reply to the app breaks off and the record says http_response_incomplete$`, func() error {
+	sc.Step(`^the response to the app breaks off and the record says http_response_incomplete$`, func() error {
 		if w.respErr == nil {
-			return failf("the app got the whole reply %q", w.respBody)
+			return failf("the app got the whole response %q", w.respBody)
 		}
 		record, err := w.record()
 		if err != nil {
@@ -315,7 +315,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^a vendor that answers slowly with a large reply$`, func() error { return nil })
+	sc.Step(`^a vendor that answers slowly with a large response$`, func() error { return nil })
 	sc.Step(`^an app sends a large request body$`, w.streamBothWays)
 	sc.Step(`^the body reaches the vendor before the app has finished sending it$`, func() error {
 		if !w.stream.bodyEarly.Load() {
@@ -323,8 +323,8 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the reply reaches the app before the vendor has finished sending it$`, func() error {
-		if !w.stream.replyEarly.Load() {
+	sc.Step(`^the response reaches the app before the vendor has finished sending it$`, func() error {
+		if !w.stream.responseEarly.Load() {
 			return failf("the app got nothing before the vendor finished sending")
 		}
 		return nil
@@ -439,7 +439,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the record's error.type is (\S+)$`, w.errorType)
 	sc.Step(`^error.type is (\S+)$`, w.errorType)
 
-	sc.Step(`^a vendor that stops after sending half of its reply$`, func() error {
+	sc.Step(`^a vendor that stops after sending half of its response$`, func() error {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Content-Length", "100")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 50))
@@ -448,9 +448,9 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		})
 		return nil
 	})
-	sc.Step(`^the reply to the app is cut$`, func() error {
+	sc.Step(`^the response to the app is cut$`, func() error {
 		if w.respErr == nil {
-			return failf("the app got a whole reply: %q", w.respBody)
+			return failf("the app got a whole response: %q", w.respBody)
 		}
 		return nil
 	})
@@ -610,20 +610,20 @@ func (w *world) listen(serve func(net.Conn)) {
 
 // stream is what the streaming scenario saw.
 type stream struct {
-	bodyEarly  atomic.Bool
-	replyEarly atomic.Bool
+	bodyEarly     atomic.Bool
+	responseEarly atomic.Bool
 }
 
 // streamBothWays sends a large body in two parts and has the vendor answer
 // in two parts. Each side sends its second part only after the other side
 // got the first, so a proxy that buffers whole bodies makes it stall. The
-// reply has a Content-Length and a small first part, so it also stalls when
+// response has a Content-Length and a small first part, so it also stalls when
 // the proxy holds small writes back instead of passing them on at once.
 func (w *world) streamBothWays() error {
 	gotBody := make(chan struct{})
-	gotReply := make(chan struct{})
+	gotResponse := make(chan struct{})
 	part := bytes.Repeat([]byte("x"), 256*1024)
-	first := []byte("first part of the reply")
+	first := []byte("first part of the response")
 	w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, err := io.ReadFull(r.Body, make([]byte, len(part)))
 		if err == nil {
@@ -634,8 +634,8 @@ func (w *world) streamBothWays() error {
 		_, _ = rw.Write(first)
 		rw.(http.Flusher).Flush()
 		select {
-		case <-gotReply:
-			w.stream.replyEarly.Store(true)
+		case <-gotResponse:
+			w.stream.responseEarly.Store(true)
 		case <-time.After(5 * time.Second):
 		}
 		_, _ = rw.Write(part)
@@ -671,7 +671,7 @@ func (w *world) streamBothWays() error {
 	if _, err := io.ReadFull(resp.Body, make([]byte, len(first))); err != nil {
 		return err
 	}
-	close(gotReply)
+	close(gotResponse)
 	_, err = io.Copy(io.Discard, resp.Body)
 	return err
 }

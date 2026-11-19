@@ -29,7 +29,7 @@ const body = __ENV.METHOD === 'GET' ? null : __ENV.BODY;
 export const options = {
   scenarios: {
     steady: {
-      // Calls keep coming on schedule even when replies slow down, as real
+      // Calls keep coming on schedule even when responses slow down, as real
       // traffic does.
       executor: 'constant-arrival-rate',
       rate: Number(__ENV.RATE), timeUnit: '1s',

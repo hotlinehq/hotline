@@ -66,10 +66,10 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^SQS answers 200 with one received message (.*)$`, func(message string) error {
-		reply, err := json.Marshal(map[string]any{"Messages": []any{map[string]any{
+		response, err := json.Marshal(map[string]any{"Messages": []any{map[string]any{
 			"MessageId": "m-1", "ReceiptHandle": "r-1", "MD5OfBody": "x", "Body": message,
 		}}})
-		w.sqsAnswers(http.StatusOK, "", string(reply))
+		w.sqsAnswers(http.StatusOK, "", string(response))
 		return err
 	})
 	sc.Step(`^the app sends (\w+) with the json body (.*)$`, func(action, body string) error {
@@ -106,7 +106,7 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the record keeps the reply headers (\S+) and (\S+)$`, func(first, second string) error {
+	sc.Step(`^the record keeps the response headers (\S+) and (\S+)$`, func(first, second string) error {
 		record, err := w.record()
 		if err != nil {
 			return err

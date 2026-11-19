@@ -136,33 +136,33 @@ var _ = DescribeTable("A run with the proxy at a tiny rate",
 )
 
 var _ = Describe("The scenario line", func() {
-	It("says which call, how big the reply, how fast and how long", func() {
+	It("says which call, how big the response, how fast and how long", func() {
 		line, err := run.Scenario(run.Config{Shape: "large-json", Rate: 200, Duration: "20s", Repeats: 3})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(line).To(Equal("scenario: large-json (AmazonSSM.GetParametersByPath, reply about 115 KB), " +
+		Expect(line).To(Equal("scenario: large-json (AmazonSSM.GetParametersByPath, response about 115 KB), " +
 			"200 calls a second for 20s, 3 repeats, each direct then through the proxy"))
 	})
 
-	It("gives the medium and huge replies the same call as the large one", func() {
+	It("gives the medium and huge responses the same call as the large one", func() {
 		for shape, size := range map[string]string{"medium-json": "30 KB", "huge-json": "5"} {
 			line, err := run.Scenario(run.Config{Shape: shape, Rate: 100, Duration: "20s", Repeats: 3})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(line).To(ContainSubstring("AmazonSSM.GetParametersByPath"))
-			Expect(line).To(ContainSubstring("reply about " + size))
+			Expect(line).To(ContainSubstring("response about " + size))
 		}
 	})
 
-	It("shows a small reply in bytes", func() {
+	It("shows a small response in bytes", func() {
 		line, err := run.Scenario(run.Config{Shape: "small-json", Rate: 500, Duration: "20s", Repeats: 1})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(line).To(ContainSubstring("AmazonSSM.GetParameter, reply about 200 bytes"))
+		Expect(line).To(ContainSubstring("AmazonSSM.GetParameter, response about 200 bytes"))
 		Expect(line).To(ContainSubstring("1 repeat,"))
 	})
 
-	It("gives the XML reply an S3 listing of a bucket", func() {
+	It("gives the XML response an S3 listing of a bucket", func() {
 		line, err := run.Scenario(run.Config{Shape: "xml", Rate: 500, Duration: "20s", Repeats: 3})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(line).To(Equal("scenario: xml (S3 ListObjectsV2, reply about 7 KB), " +
+		Expect(line).To(Equal("scenario: xml (S3 ListObjectsV2, response about 7 KB), " +
 			"500 calls a second for 20s, 3 repeats, each direct then through the proxy"))
 	})
 

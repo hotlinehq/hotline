@@ -54,7 +54,7 @@ type handler struct {
 	own *own
 	// buffers are the copy buffers calls borrow.
 	buffers bufferPool
-	// forward passes every call on to its vendor and the reply back.
+	// forward passes every call on to its vendor and the response back.
 	forward forward.Forwarder
 	// bodies hold the copies of bodies kept for the checks.
 	bodies bodyPool
@@ -126,24 +126,24 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		transport = h.internal
 	}
 	c := &call{
-		h:           h,
-		cfg:         cfg,
-		integration: integration,
-		start:       start,
-		ingress:     ingress,
-		process:     tunnelProcess(a),
-		target:      target,
-		id:          id,
-		api:         api,
-		scheme:      scheme,
-		host:        host,
-		port:        port,
-		in:          r,
-		timeout:     settings.VendorTimeout,
-		transport:   transport,
-		plan:        planFor(api),
-		reqCheck:    newSpecCheck(),
-		replyCheck:  newSpecCheck(),
+		h:             h,
+		cfg:           cfg,
+		integration:   integration,
+		start:         start,
+		ingress:       ingress,
+		process:       tunnelProcess(a),
+		target:        target,
+		id:            id,
+		api:           api,
+		scheme:        scheme,
+		host:          host,
+		port:          port,
+		in:            r,
+		timeout:       settings.VendorTimeout,
+		transport:     transport,
+		plan:          planFor(api),
+		reqCheck:      newSpecCheck(),
+		responseCheck: newSpecCheck(),
 	}
 	if api != nil && !c.plan.routeInBody {
 		// A search of a few microseconds, even for a spec as large as AWS
@@ -217,10 +217,10 @@ func (p *bufferPool) Get() []byte {
 
 func (p *bufferPool) Put(b []byte) { p.pool.Put(&b) }
 
-// toApp writes the reply to the app and notes whether the app had already
-// gone when a part of the reply was ready for it, or a write to it failed.
+// toApp writes the response to the app and notes whether the app had already
+// gone when a part of the response was ready for it, or a write to it failed.
 // Checking before each write, not at the end, keeps an app that leaves
-// after reading the whole reply from counting as gone.
+// after reading the whole response from counting as gone.
 type toApp struct {
 	http.ResponseWriter
 	appLeft <-chan struct{}
@@ -260,7 +260,7 @@ func (a *toApp) FlushError() error {
 	return err
 }
 
-// failed says the app did not get the whole reply (Peter, 2026-10-31).
+// failed says the app did not get the whole response (Peter, 2026-10-31).
 func (a *toApp) failed() bool { return a.gone || a.err != nil }
 
 func (a *toApp) check() {
@@ -453,10 +453,10 @@ type call struct {
 	session *session
 	// plan is what the call checks and keeps for that.
 	plan checkPlan
-	// reqCheck and replyCheck check each side against the spec as soon as
+	// reqCheck and responseCheck check each side against the spec as soon as
 	// it is whole.
-	reqCheck   *specCheck
-	replyCheck *specCheck
+	reqCheck      *specCheck
+	responseCheck *specCheck
 	// route is the call's route in the spec, found as the call starts,
 	// before any check exists, and never changed. A spec that names its
 	// action in the body has none here: the request's check finds it and
@@ -487,10 +487,10 @@ type call struct {
 type phase string
 
 const (
-	phaseDNS     phase = "dns"
-	phaseConnect phase = "connect"
-	phaseTLS     phase = "tls"
-	phaseReply   phase = "reply"
+	phaseDNS      phase = "dns"
+	phaseConnect  phase = "connect"
+	phaseTLS      phase = "tls"
+	phaseResponse phase = "response"
 )
 
 // RoundTrip makes the vendor call. It waits for the vendor's answer up to
@@ -515,7 +515,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	body := resp.Body
 	if upgrade {
 		// What follows a 101 is the session's, not the call's: the call's
-		// reply has no body, and ends here (Peter, 2026-11-18).
+		// response has no body, and ends here (Peter, 2026-11-18).
 		c.session = c.newSession(resp.Body, toVendor)
 		body = http.NoBody
 	}
@@ -523,11 +523,11 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 		ReadCloser: body,
 		mac:        c.h.bodyHash("response", c.trace),
 		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
-		keeper:     bodyKeeper{limit: c.plan.keepReply, pool: &c.h.bodies, expect: resp.ContentLength},
+		keeper:     bodyKeeper{limit: c.plan.keepResponse, pool: &c.h.bodies, expect: resp.ContentLength},
 		done: func() {
 			out := c.h.clock.Now()
 			c.mark(func() { c.vendorOut = out })
-			c.checkReply(out, resp)
+			c.checkResponse(out, resp)
 		},
 	}
 	c.mark(func() { c.resp = resp; c.status = resp.StatusCode })
@@ -548,7 +548,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 // vendor call goes through its steps.
 func (c *call) clientTrace() *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
-		GetConn:              func(string) { c.mark(func() { c.phase = phaseReply }) },
+		GetConn:              func(string) { c.mark(func() { c.phase = phaseResponse }) },
 		DNSStart:             func(i httptrace.DNSStartInfo) { c.lookup(i.Host) },
 		DNSDone:              func(httptrace.DNSDoneInfo) { c.end(phaseDNS) },
 		ConnectStart:         func(string, string) { c.begin(phaseConnect) },
@@ -561,7 +561,7 @@ func (c *call) clientTrace() *httptrace.ClientTrace {
 	}
 }
 
-// waitForVendor limits one wait for the next part of the reply to
+// waitForVendor limits one wait for the next part of the response to
 // vendorTimeout, so a vendor that goes quiet can't hold the call forever.
 // It returns the function that ends the wait.
 func (c *call) waitForVendor() func() bool {
@@ -612,7 +612,7 @@ func (c *call) end(p phase) {
 
 func (c *call) gotConn(info httptrace.GotConnInfo) {
 	c.mark(func() {
-		c.phase = phaseReply
+		c.phase = phaseResponse
 		c.connected = true
 		c.gotAt = c.h.clock.Now()
 		c.reused = info.Reused
@@ -636,7 +636,7 @@ func (c *call) wroteRequest(info httptrace.WroteRequestInfo) {
 	}
 }
 
-// fail answers the app when the proxy could not get a reply from the
+// fail answers the app when the proxy could not get a response from the
 // vendor, with the RFC 9209 error name in Proxy-Status.
 func (c *call) fail(w http.ResponseWriter, err error) {
 	c.mu.Lock()
@@ -664,7 +664,7 @@ func (c *call) step() string {
 	if c.wrote.IsZero() {
 		return stepSend
 	}
-	// No reply came, or the proxy would not be here.
+	// No response came, or the proxy would not be here.
 	return stepWait
 }
 
@@ -708,17 +708,17 @@ const keptBody = 2 << 20
 // checks and keeps nothing.
 type checkPlan struct {
 	// routeInBody says the spec names the call's action in the body: the
-	// request's check finds the route, and the reply's check waits for it.
+	// request's check finds the route, and the response's check waits for it.
 	routeInBody bool
-	// request and reply say whether each side is checked. The request is
+	// request and response say whether each side is checked. The request is
 	// also read when the route is in its body.
-	request bool
-	reply   bool
-	// keepRequest and keepReply are how much of each body is kept for the
+	request  bool
+	response bool
+	// keepRequest and keepResponse are how much of each body is kept for the
 	// checks: none for a body that is not checked, unless the route is in
 	// the request's.
-	keepRequest int
-	keepReply   int
+	keepRequest  int
+	keepResponse int
 }
 
 func planFor(api *config.API) checkPlan {
@@ -727,14 +727,14 @@ func planFor(api *config.API) checkPlan {
 	}
 	p := checkPlan{
 		routeInBody: api.Spec.NamesActionInBody(),
-		reply:       api.Checks.Any(config.ReplyParts),
+		response:    api.Checks.Any(config.ResponseParts),
 	}
 	p.request = p.routeInBody || api.Checks.Any(config.RequestParts)
 	if p.routeInBody || api.Checks.Has(config.PartBody) {
 		p.keepRequest = keptBody
 	}
-	if api.Checks.Has(config.PartReplyBody) {
-		p.keepReply = keptBody
+	if api.Checks.Has(config.PartResponseBody) {
+		p.keepResponse = keptBody
 	}
 	return p
 }
@@ -749,7 +749,7 @@ func saved(integration *config.Integration) int64 {
 }
 
 // bodyHash hashes a body as it passes, salted with the call's trace id
-// and span id, for every call and reply, minimal or full, so each body is
+// and span id, for every call and response, minimal or full, so each body is
 // in the ledger (Peter, 2026-11-16).
 func (h *handler) bodyHash(side string, sc trace.SpanContext) *ledger.BodyHash {
 	return h.hashes.Body(side, sc.TraceID(), sc.SpanID())

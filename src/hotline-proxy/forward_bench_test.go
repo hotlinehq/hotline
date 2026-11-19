@@ -11,7 +11,7 @@ import (
 
 // BenchmarkCall is one call through the whole proxy: an app on a kept-alive
 // connection sends a POST to a fake vendor over the forward proxy ingress,
-// and reads the reply. App, proxy and vendor run in this one process, so the
+// and reads the response. App, proxy and vendor run in this one process, so the
 // numbers per call are for all three together; a change in the proxy shows
 // as the difference between two runs.
 func BenchmarkCall(b *testing.B) {

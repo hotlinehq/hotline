@@ -30,7 +30,7 @@ type NewEngine func(defs map[string]Schema) (Engine, error)
 type Engine interface {
 	// Request builds the check of one route's request side.
 	Request(r RequestSpec) (RequestCheck, error)
-	// Response builds the check of one reply the spec lists.
+	// Response builds the check of one response the spec lists.
 	Response(r ResponseSpec) (ResponseCheck, error)
 }
 
@@ -48,12 +48,12 @@ type RequestCheck interface {
 	Body(content int, reads Reads, body []byte) ([]Result, []Field)
 }
 
-// ResponseCheck checks one reply the spec lists, the way RequestCheck
+// ResponseCheck checks one response the spec lists, the way RequestCheck
 // checks a request.
 type ResponseCheck interface {
-	// Meta checks the reply's headers.
+	// Meta checks the response's headers.
 	Meta(header http.Header) []Result
-	// Body checks a reply body, as RequestCheck.Body does.
+	// Body checks a response body, as RequestCheck.Body does.
 	Body(content int, reads Reads, body []byte) ([]Result, []Field)
 }
 
@@ -78,14 +78,14 @@ type RequestSpec struct {
 	Body []Content
 }
 
-// ResponseSpec is what the spec says about one reply.
+// ResponseSpec is what the spec says about one response.
 type ResponseSpec struct {
-	// Headers are the reply's headers, each with In "header".
+	// Headers are the response's headers, each with In "header".
 	Headers []Param
 	Body    []Content
 }
 
-// Param is one parameter of a route, or a header of a reply.
+// Param is one parameter of a route, or a header of a response.
 type Param struct {
 	Name string
 	// In is path, query, header or cookie. It is also the Part of the

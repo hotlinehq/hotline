@@ -119,7 +119,7 @@ Feature: The CONNECT ingress, with interception
 
   Scenario: CONNECT over HTTP/2
     Over HTTP/2 a tunnel is one stream of a shared connection: the app's
-    bytes travel in the stream's request body and the proxy's in its reply.
+    bytes travel in the stream's request body and the proxy's in its response.
     Inside, it works like a tunnel opened over HTTP/1.1 (Peter, 2026-10-30).
     When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a over HTTP/2
     And sends a call inside it with Proxy-Authorization for talon-shop-b

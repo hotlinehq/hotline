@@ -45,7 +45,7 @@ jobs:
           - { target: FuzzFirstBytes, package: ., tags: '' }
           - { target: FuzzRequest, package: ., tags: '' }
           - { target: FuzzRequestBody, package: ., tags: '' }
-          - { target: FuzzReply, package: ., tags: '' }
+          - { target: FuzzResponse, package: ., tags: '' }
           - { target: FuzzVerify, package: ., tags: '' }
           - { target: FuzzReadHello, package: ., tags: fuzz }
           - { target: FuzzSentID, package: ., tags: fuzz }

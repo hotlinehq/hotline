@@ -84,7 +84,7 @@ func (w *world) useSpec(spec string) {
 
 func headerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a call carries (?:the header )?"([^:]+): ([^"]*)"$`, func(name, value string) error {
-		if isReplyHeader(name) {
+		if isResponseHeader(name) {
 			w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 				rw.Header().Add(name, value)
 			})
@@ -127,7 +127,7 @@ components:
 `)
 		return nil
 	})
-	sc.Step(`^a spec whose reply header Request-Id is a \$ref to a header marked x-hotline-redact true$`, func() error {
+	sc.Step(`^a spec whose response header Request-Id is a \$ref to a header marked x-hotline-redact true$`, func() error {
 		w.useSpec(`openapi: 3.1.0
 paths:
   /v1/things:
@@ -143,7 +143,7 @@ components:
 `)
 		return nil
 	})
-	sc.Step(`^a reply carries "([^:]+): ([^"]*)"$`, func(name, value string) error {
+	sc.Step(`^a response carries "([^:]+): ([^"]*)"$`, func(name, value string) error {
 		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set(name, value)
 		})
@@ -161,13 +161,13 @@ components:
 		}
 		return nil
 	})
-	sc.Step(`^a reply carries Request-Id with the byte FF in it, which is not UTF-8$`, func() error {
+	sc.Step(`^a response carries Request-Id with the byte FF in it, which is not UTF-8$`, func() error {
 		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Request-Id", "req\xff1")
 		})
 		return w.defaultCall()
 	})
-	sc.Step(`^a reply carries "([^"]+)" twice$`, func(name string) error {
+	sc.Step(`^a response carries "([^"]+)" twice$`, func(name string) error {
 		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Add(name, "100;w=60")
 			rw.Header().Add(name, "1000;w=3600")
@@ -221,8 +221,8 @@ components:
 	})
 }
 
-// isReplyHeader says whether a header in a scenario comes from the vendor.
-func isReplyHeader(name string) bool {
+// isResponseHeader says whether a header in a scenario comes from the vendor.
+func isResponseHeader(name string) bool {
 	switch strings.ToLower(name) {
 	case "date", "retry-after", "request-id", "x-request-id", "set-cookie":
 		return true

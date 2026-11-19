@@ -89,32 +89,32 @@ func (c *call) checkRequest(start time.Time) {
 	})
 }
 
-// checkReply starts the check of the reply.
-func (c *call) checkReply(start time.Time, resp *http.Response) {
-	if resp == nil || !c.plan.reply {
+// checkResponse starts the check of the response.
+func (c *call) checkResponse(start time.Time, resp *http.Response) {
+	if resp == nil || !c.plan.response {
 		return
 	}
 	// The status and headers are read now, in the goroutine that has the
-	// reply: once it has passed on, such as for a WebSocket's 101, the
-	// forwarder may change the reply while the check runs on its own.
+	// response: once it has passed on, such as for a WebSocket's 101, the
+	// forwarder may change the response while the check runs on its own.
 	status, header := resp.StatusCode, resp.Header
 	var after <-chan struct{}
 	if c.plan.routeInBody {
 		// The route is known only once the request's check has read the
-		// body, so the reply's check joins the line after it, and never
+		// body, so the response's check joins the line after it, and never
 		// holds a worker while it waits. finish starts the request check
 		// for every call.
 		after = c.reqCheck.done
 	}
-	c.replyCheck.begin(start, c.h.checks, c.respBody, after, func() (spec.Checked, spec.Route) {
+	c.responseCheck.begin(start, c.h.checks, c.respBody, after, func() (spec.Checked, spec.Route) {
 		// For a spec that names its action in the body, the request's
 		// check has ended and found the route; when it gave way in a full
 		// line, there is no route.
 		route := c.specRoute()
-		found := c.api.Spec.CheckReply(route, spec.Exchange{
-			Status:      status,
-			ReplyHeader: header,
-			ReplyBody:   c.respBody.copied(),
+		found := c.api.Spec.CheckResponse(route, spec.Exchange{
+			Status:         status,
+			ResponseHeader: header,
+			ResponseBody:   c.respBody.copied(),
 		})
 		c.respBody.drop()
 		return picked(c.api.Checks, found, false), route
@@ -123,7 +123,7 @@ func (c *call) checkReply(start time.Time, resp *http.Response) {
 
 // specRoute is the call's route in the spec: the one found as the call
 // started, or, for a spec that names its action in the body, the one the
-// request's check found. Only the reply's check and the record call it,
+// request's check found. Only the response's check and the record call it,
 // once the request's check has ended; a check that gave way in a full
 // line found no route.
 func (c *call) specRoute() spec.Route {
@@ -140,7 +140,7 @@ func picked(parts config.Parts, found spec.Checked, request bool) spec.Checked {
 	if parts == config.AllParts {
 		return found
 	}
-	results, body := &found.Reply, config.PartReplyBody
+	results, body := &found.Response, config.PartResponseBody
 	if request {
 		results, body = &found.Request, config.PartBody
 	}
@@ -168,12 +168,12 @@ func partOf(part string, request bool) config.Parts {
 		if request {
 			return config.PartHeaders
 		}
-		return config.PartReplyHeaders
+		return config.PartResponseHeaders
 	case "body":
 		if request {
 			return config.PartBody
 		}
-		return config.PartReplyBody
+		return config.PartResponseBody
 	case "status":
 		return config.PartStatus
 	}
