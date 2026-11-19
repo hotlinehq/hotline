@@ -1,0 +1,117 @@
+# The api of the WebSocket load case: Gemini Live's opening call, as in
+# specs/google/gemini-live, with the messages the load case sends listed so
+# the proxy names and checks each one. Written for the load test only, from
+# Google's Live API reference; not a full description of Gemini Live.
+openapi: 3.1.0
+info:
+  title: Gemini Live messages for the load test
+  version: v1beta
+paths:
+  /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent:
+    get:
+      operationId: BidiGenerateContent
+      responses:
+        "101":
+          description: Switched to a WebSocket; the session follows.
+      x-hotline-messages:
+        fromApp:
+          - $ref: "#/components/schemas/setup"
+          - $ref: "#/components/schemas/realtimeInput"
+          - $ref: "#/components/schemas/toolResponse"
+        fromVendor:
+          - $ref: "#/components/schemas/setupComplete"
+          - $ref: "#/components/schemas/serverContent"
+          - $ref: "#/components/schemas/toolCall"
+components:
+  schemas:
+    blob:
+      type: object
+      required: [mimeType, data]
+      properties:
+        mimeType: { type: string }
+        data: { type: string, contentEncoding: base64 }
+    setup:
+      type: object
+      required: [setup]
+      properties:
+        setup:
+          x-hotline-match: true
+          type: object
+          required: [model]
+          properties:
+            model: { type: string }
+            generationConfig:
+              type: object
+              properties:
+                responseModalities: { type: array, items: { enum: [TEXT, AUDIO] } }
+    realtimeInput:
+      type: object
+      required: [realtimeInput]
+      properties:
+        realtimeInput:
+          x-hotline-match: true
+          type: object
+          properties:
+            audio: { $ref: "#/components/schemas/blob" }
+    toolResponse:
+      type: object
+      required: [toolResponse]
+      properties:
+        toolResponse:
+          x-hotline-match: true
+          type: object
+          required: [functionResponses]
+          properties:
+            functionResponses:
+              type: array
+              items:
+                type: object
+                required: [id, name, response]
+                properties:
+                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  name: { type: string }
+                  response: { type: object }
+    setupComplete:
+      type: object
+      required: [setupComplete]
+      properties:
+        setupComplete: { type: object, x-hotline-match: true }
+    serverContent:
+      type: object
+      required: [serverContent]
+      properties:
+        serverContent:
+          x-hotline-match: true
+          type: object
+          properties:
+            modelTurn:
+              type: object
+              properties:
+                parts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      inlineData: { $ref: "#/components/schemas/blob" }
+        usageMetadata:
+          type: object
+          properties:
+            totalTokenCount: { type: integer, x-hotline-record: gen_ai.usage.total_tokens }
+    toolCall:
+      type: object
+      required: [toolCall]
+      properties:
+        toolCall:
+          x-hotline-match: true
+          type: object
+          required: [functionCalls]
+          properties:
+            functionCalls:
+              type: array
+              items:
+                type: object
+                required: [id, name]
+                properties:
+                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  name: { type: string }
+                  args: { type: object }

@@ -14,8 +14,13 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	common "go.opentelemetry.io/proto/otlp/common/v1"
+	logs "go.opentelemetry.io/proto/otlp/logs/v1"
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
+	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
 	"hotline-load/fakes"
@@ -188,6 +193,42 @@ var _ = Describe("The fake receiver", func() {
 		Expect(receiver.Records()).To(Equal(fakes.Sends{Requests: 2, Bytes: 10}))
 		Expect(receiver.Spans()).To(Equal(fakes.Sends{Requests: 1, Bytes: 5}))
 		Expect(receiver.Requests()).To(Equal(int64(4)))
+	})
+
+	It("counts the WebSocket records by what their check found, and every span", func() {
+		text := func(k, v string) *common.KeyValue {
+			return &common.KeyValue{Key: k, Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: v}}}
+		}
+		message := func(attrs ...*common.KeyValue) *logs.LogRecord {
+			return &logs.LogRecord{EventName: "hotline.websocket.message", Attributes: attrs}
+		}
+		records := []*logs.LogRecord{
+			message(text("hotline.websocket.message.name", "serverContent"), text("hotline.schema.status", "valid")),
+			message(text("hotline.websocket.message.name", "toolCall"), text("hotline.schema.status", "invalid")),
+			message(text("hotline.websocket.message.name", "serverContent"), text("hotline.schema.skipped", "overloaded"), text("hotline.schema.status", "skipped")),
+			message(text("hotline.websocket.message.name", "unknown"), text("hotline.schema.skipped", "overloaded")),
+			// An older proxy names the event in an attribute.
+			{Attributes: []*common.KeyValue{text("event.name", "hotline.websocket.message"), text("hotline.websocket.message.name", "unknown")}},
+			{EventName: "hotline.websocket.session", Attributes: []*common.KeyValue{{Key: "hotline.websocket.unread_from_index", Value: &common.AnyValue{Value: &common.AnyValue_IntValue{IntValue: 4}}}}},
+			{EventName: "hotline.websocket.session"},
+			{EventName: "hotline.request"},
+		}
+		body, err := proto.Marshal(&collogs.ExportLogsServiceRequest{ResourceLogs: []*logs.ResourceLogs{{ScopeLogs: []*logs.ScopeLogs{{LogRecords: records}}}}})
+		Expect(err).NotTo(HaveOccurred())
+		send("/v1/logs", body, true)
+		spans, err := proto.Marshal(&coltrace.ExportTraceServiceRequest{ResourceSpans: []*trace.ResourceSpans{{ScopeSpans: []*trace.ScopeSpans{{Spans: []*trace.Span{{Name: "websocket message"}, {Name: "message spec check"}, {Name: "websocket session"}}}}}}})
+		Expect(err).NotTo(HaveOccurred())
+		send("/v1/traces", spans, false)
+
+		m := receiver.Messages()
+		Expect(m.Records).To(Equal(int64(5)))
+		Expect(m.Valid).To(Equal(int64(1)))
+		Expect(m.Invalid).To(Equal(int64(1)))
+		Expect(m.Unknown).To(Equal(int64(2)))
+		Expect(m.Skipped).To(Equal(map[string]int64{"overloaded": 2}))
+		Expect(m.Sessions).To(Equal(int64(2)))
+		Expect(m.Unread).To(Equal(int64(1)))
+		Expect(m.Spans).To(Equal(int64(3)))
 	})
 
 	It("reads the proxy's memory handed out from a gzipped send of its own numbers", func() {

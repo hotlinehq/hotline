@@ -4,7 +4,7 @@ Measures what the proxy costs a call. Part one of the k6 pipeline: it only measu
 
 ## Run it
 
-Install [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/), then `make load`. It builds the proxy, starts a fake vendor and a fake receiver, and for each line of the Makefile runs k6 three times straight to the vendor and three times through the proxy, alternating. Every repeat is kept as it came: nothing is averaged.
+Run `make load`. It builds the proxy and k6 (`make k6`, see below), starts a fake vendor and a fake receiver, and for each line of the Makefile runs k6 three times straight to the vendor and three times through the proxy, alternating. Every repeat is kept as it came: nothing is averaged.
 
 ## Sending the numbers to Grafana Cloud
 
@@ -54,3 +54,24 @@ The proxy sends its own numbers every second unless `HOTLINE_LOAD_METRIC_INTERVA
 ## Very high rates, and a long run
 
 `make load` also sends the small call at 5000, 10000 and 20000 a second, and once at 5000 a second for 120 seconds (label `long`) to show memory that creeps up slowly. k6, the fake vendor and the proxy share one computer, so at some rate k6 itself cannot send fast enough: k6 then reports dropped iterations (calls it did not make) and the achieved rate falls below the one asked for. Read that as the limit of the test computer, not of the proxy.
+
+## WebSockets
+
+The `live-plain`, `live-alone` and `live-context` shapes open Gemini Live sessions instead of calls: `-sessions 50` keeps 50 open at once, each for the whole repeat. Each app sends a setup, then 40 ms of 16 kHz audio every 40 ms (25 messages a second, about 1.8 KB each), and the fake vendor answers each chunk with 40 ms of its own 24 kHz audio (about 2.7 KB) and every 25 chunks asks for a tool call, which the app answers. So a session carries about 50 messages a second, both ways together. The proxy names and checks each message against `load/live/live.openapi.yaml`, Gemini Live's opening call with its messages listed (`x-hotline-messages`).
+
+The shapes differ only in how messages are packed: `plain` not at all, `alone` each message compressed on its own (`no_context_takeover`), `context` each against the earlier ones, as most apps do.
+
+Stock k6 cannot do the last: its WebSockets use `gorilla/websocket`, which only packs each message alone. So the load test runs its own k6: `make k6` builds k6 v1.3.0 with `load/k6ws` added, by xk6 v1.5.1, into `load/out/k6`, and builds it again only when that code changes. `load/k6ws` is a separate module, kept out of `go.work` so k6's own modules never change the proxy's, and only passes the call on to `load/live`, which uses `coder/websocket` and is tested in this module. The workflow builds this k6 too, instead of downloading one.
+
+One line: `go run ./load/cmd/load -k6 load/out/k6 -proxy load/out/hotline-proxy -spec load/live/live.openapi.yaml -shape live-context -sessions 50`.
+
+What the table says, per repeat:
+
+- **messages**: both ways, through the proxy.
+- **extra p50, p95, p99**: from a chunk of audio leaving the app to the vendor's answer arriving, through the proxy minus direct, in milliseconds.
+- **cpu us/msg** and **KB/msg**: the proxy's processor time and memory handed out, per message.
+- **peak MB** and **KB/session**: the proxy's highest resident memory, and its growth over the memory just before the repeat, per open session.
+- **records/s** and **spans/s**: the message records, and the spans sent with WebSocket ones, that the receiver got per second of the repeat.
+- **checked**, **skipped**, **unknown**: messages whose check ran, whose check did not (by reason in `result.json`, such as `overloaded`), and that matched no schema. **unread**: sessions whose messages could not all be read, for lack of room for the copies.
+
+These answer one open question from the WebSocket requirements: whether a record and a span per audio chunk stay. They do while the receiver gets as many records as there were messages and nothing is skipped.

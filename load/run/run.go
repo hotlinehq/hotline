@@ -85,6 +85,9 @@ type Config struct {
 	// fake vendor and receiver) kept on the other cores, the proxy no longer
 	// shares a core with them, so a drop shows the proxy's own limit.
 	ProxyCPUs string
+	// Sessions is how many WebSocket sessions a live shape keeps open at
+	// once; Rate is not used for those.
+	Sessions int
 	// Label names what is measured (for example the branch), kept in every
 	// result so runs of two builds can be set side by side.
 	Label string
@@ -222,6 +225,9 @@ func Scenario(cfg Config) (string, error) {
 
 // Run does the whole run and returns its folder.
 func Run(cfg Config) (string, error) {
+	if _, live := livePacking(cfg.Shape); live {
+		return RunLive(cfg)
+	}
 	c, err := callFor(cfg.Shape)
 	if err != nil {
 		return "", err
@@ -263,7 +269,7 @@ func Run(cfg Config) (string, error) {
 		receiver.Forward(forward)
 		resource = TelemetryResource(tags)
 	}
-	p, err := startProxy(cfg, c.api, work, vendor, receiver, resource)
+	p, err := startProxy(cfg, c.api, work, vendor.CertPEM, receiver, resource)
 	if err != nil {
 		return "", err
 	}
@@ -691,7 +697,7 @@ func freeAddr() (string, error) {
 
 // startProxy writes the proxy's config, starts it and waits until it is
 // ready for calls.
-func startProxy(cfg Config, api, work string, vendor *fakes.Vendor, receiver *fakes.Receiver, resource string) (*proxyProcess, error) {
+func startProxy(cfg Config, api, work string, vendorCert []byte, receiver *fakes.Receiver, resource string) (*proxyProcess, error) {
 	proxyAddr, err := freeAddr()
 	if err != nil {
 		return nil, err
@@ -735,7 +741,7 @@ apis:
   - id: bench-shop
     apis: [%s%s]
 `, adminAddr, proxyAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
-	for path, data := range map[string][]byte{cert: vendor.CertPEM, conf: []byte(yaml)} {
+	for path, data := range map[string][]byte{cert: vendorCert, conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
 		}
