@@ -1,11 +1,11 @@
-Feature: The intercept ingress
+Feature: The transparent ingress
   A program opens a secure connection to a vendor. A firewall on the same
   machine sends it to the proxy's transparent listener port, and the program
   never knows. There is no CONNECT, so the proxy reads the vendor's name
   from the first message of the TLS handshake (the site name, called the
   SNI), shows a certificate for it signed by the customer's certificate authority, and
   handles each call inside like any other call, with hotline.ingress
-  intercept (Peter, 2026-11-08).
+  transparent (Peter, 2026-11-08).
 
   The tests need no firewall: a redirected connection looks the same as an
   app that connects straight to the listener and names the vendor in the
@@ -79,7 +79,7 @@ Feature: The intercept ingress
       Given the original destination cannot be read
       When the app connects to the listener with no name in the handshake, calling the address of api.talon.one
       Then the connection is closed with no TLS set up
-      And the intercept record has hotline.ingress transparent and error.type no_sni
+      And the transparent record has hotline.ingress transparent and error.type no_sni
 
     Scenario: A call by IP address to an internal address is refused
       Given the original destination of the connection is 10.0.0.5:443
@@ -96,7 +96,7 @@ Feature: The intercept ingress
       client that follows the ECH standard retries without ECH.
       When the app connects to the listener with ECH and the outer name ech.example.net
       Then the app's TLS setup fails because the proxy answered as the outer name ech.example.net and offered no ECH keys
-      And the intercept record has hotline.ingress transparent, server.address ech.example.net and error.type ech_rejected
+      And the transparent record has hotline.ingress transparent, server.address ech.example.net and error.type ech_rejected
       When the app retries without ECH naming api.talon.one
       And the app sends its call
       Then the test vendor got the call over https with its Host, path, query, headers and body unchanged
@@ -106,7 +106,7 @@ Feature: The intercept ingress
       When the app connects to the listener with ECH and the outer name ech.example.net
       Then the proxy dialed ech.example.net by its name, never the address the app chose
       When the app closes its connections
-      Then the intercept record has hotline.ingress transparent, server.address ech.example.net, hotline.intercept.mode passthrough and hotline.intercept.reason ech
+      Then the transparent record has hotline.ingress transparent, server.address ech.example.net, hotline.intercept.mode passthrough and hotline.intercept.reason ech
 
   Rule: Hosts in passthrough are relayed untouched
 
@@ -117,7 +117,7 @@ Feature: The intercept ingress
       Then the proxy dialed <host> by its name, never the address the app chose
       And the vendor's own certificate reaches the app, not one from the interception certificate authority
       When the app closes its connections
-      Then the intercept record has hotline.ingress transparent, server.address <host>, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
+      Then the transparent record has hotline.ingress transparent, server.address <host>, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
       Examples:
         | listed             | host                |
@@ -146,16 +146,16 @@ Feature: The intercept ingress
       When the app connects to the listener naming api.talon.one in the handshake
       Then TLS inside the tunnel fails to set up
       And nothing is sent to any vendor
-      And the intercept record has hotline.integration.id ci-lint, server.address api.talon.one and error.type tls_untrusted_by_app
+      And the transparent record has hotline.integration.id ci-lint, server.address api.talon.one and error.type tls_untrusted_by_app
 
     Scenario: Plain text on the listener
       When the app sends plain HTTP bytes to the listener
       Then the connection is closed with no TLS set up
-      And the intercept record has hotline.ingress transparent and error.type not_tls
+      And the transparent record has hotline.ingress transparent and error.type not_tls
 
     Scenario Outline: A first message that is not a usable client hello
       When the app sends <bytes> to the listener
-      Then the intercept record has hotline.ingress transparent and error.type <error>
+      Then the transparent record has hotline.ingress transparent and error.type <error>
 
       Examples:
         | bytes                                                   | error               |
@@ -178,7 +178,7 @@ Feature: The intercept ingress
       And <host setup>
       When the app connects to the listener naming pinned.example.com in the handshake
       Then the app's TLS setup fails
-      And the intercept record has hotline.ingress transparent, server.address pinned.example.com, hotline.intercept.mode passthrough and error.type <error>
+      And the transparent record has hotline.ingress transparent, server.address pinned.example.com, hotline.intercept.mode passthrough and error.type <error>
       And the proxy opens no connection
 
       Examples:
@@ -195,7 +195,7 @@ Feature: The intercept ingress
       When the app connects to the listener naming pinned.example.com in the handshake
       Then the proxy connected to the address of pinned.example.com
       When the app closes its connections
-      Then the intercept record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
+      Then the transparent record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
       And the record's hotline.timing.total_us is at least 15 seconds, half of the relay's 30 second connect wait
 
     # A relay is recorded only when it ends, which can be long after a
@@ -215,14 +215,14 @@ Feature: The intercept ingress
       Given the transparent listener lists pinned.example.com in passthrough
       When the app connects to the listener naming pinned.example.com in the handshake
       And the proxy stops
-      Then the intercept record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
+      Then the transparent record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
 
     Scenario: A listener the config no longer has keeps working until a restart
       Given the app has connected to the listener naming api.stripe.com in the handshake
       When the config file drops the transparent listener
       And the proxy checks its files
       And the app connects to the listener naming api.stripe.com in the handshake
-      Then the proxy logs a warning that listener intercept needs a restart
+      Then the proxy logs a warning that listener transparent needs a restart
       And the app sees a certificate for api.stripe.com signed by the interception certificate authority
 
   Rule: The listener and its certificate authority

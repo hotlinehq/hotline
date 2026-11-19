@@ -32,7 +32,7 @@ type listening struct {
 	// capture.
 	signs string
 	// server serves a forward or capture listener; a transparent one is
-	// served by serveIntercept.
+	// served by serveTransparent.
 	server *http.Server
 	served chan struct{}
 }
@@ -106,7 +106,7 @@ func (li *listening) serve(h *handler, where OriginalDestination, o Options) {
 	go func() {
 		defer close(li.served)
 		if li.server == nil {
-			h.serveIntercept(port, where, li)
+			h.serveTransparent(port, where, li)
 			return
 		}
 		_ = li.server.Serve(port)

@@ -111,7 +111,7 @@ Feature: Listeners
       When the app sends "PING" to the listener sidecar
       Then the app gets "+PONG" back
       And pinned.example.com got "PING"
-      And the intercept record has hotline.ingress transparent, server.address 192.0.2.250, hotline.intercept.mode passthrough and hotline.intercept.reason tcp
+      And the transparent record has hotline.ingress transparent, server.address 192.0.2.250, hotline.intercept.mode passthrough and hotline.intercept.reason tcp
 
     Scenario: A capture listener with protocol tcp relays every port
       Given the capture listener has protocol tcp and no cert

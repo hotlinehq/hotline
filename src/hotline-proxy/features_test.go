@@ -21,7 +21,7 @@ import (
 // HOTLINE_FEATURES narrows the run while working on one part, to save the
 // minute and a half the whole suite takes: a feature file, or one scenario
 // by its line, several separated by commas. For example
-// HOTLINE_FEATURES=features/intercept.feature:179 go test -run TestFeatures .
+// HOTLINE_FEATURES=features/transparent.feature:179 go test -run TestFeatures .
 // Empty, as in CI, runs every feature.
 func TestFeatures(t *testing.T) {
 	paths := []string{"features"}
@@ -102,7 +102,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	guardSteps(sc, w)
 	hostHeaderSteps(sc, w)
 	connectSteps(sc, w)
-	interceptSteps(sc, w)
+	transparentSteps(sc, w)
 	captureSteps(sc, w)
 	captureSocketSteps(sc, w)
 	halfCloseSteps(sc, w)

@@ -148,7 +148,7 @@ func (w *world) changeConfig(change string) error {
 		w.telemetryPprof = true
 	case "the transparent listener is added":
 		w.useAuthority(newAuthority())
-		w.intercept = &interceptConf{address: freePort(), authority: "customer"}
+		w.transparent = &transparentConf{address: freePort(), authority: "customer"}
 	case "the connect part is added":
 		w.useInterceptionAuthority(newAuthority())
 	case "the capture listener is added":

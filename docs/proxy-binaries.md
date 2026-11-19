@@ -37,4 +37,4 @@ cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
 
 ## Not here
 
-A Homebrew tap, Windows, a Mac Intel build, `.pkg` or `.dmg` files for the Mac program, `.deb` and `.rpm` packages, and the macOS firewall setup for the intercept ingress.
+A Homebrew tap, Windows, a Mac Intel build, `.pkg` or `.dmg` files for the Mac program, `.deb` and `.rpm` packages, and the macOS firewall setup for the transparent ingress.

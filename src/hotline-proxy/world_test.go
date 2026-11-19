@@ -231,21 +231,21 @@ type world struct {
 	tunnelErr error
 	// tunnelCerts are the certificates the proxy showed in each tunnel.
 	tunnelCerts []*x509.Certificate
-	// intercept is the transparent listener setting, when the scenario has one.
-	intercept *interceptConf
-	// interceptHost is the site the app's last connection to the intercept
+	// transparent is the transparent listener setting, when the scenario has one.
+	transparent *transparentConf
+	// transparentHost is the site the app's last connection to the transparent
 	// listener named, and original what the connection was first sent to,
 	// when the scenario lets the proxy read that.
-	interceptHost string
-	interceptAddr string
-	// pickedAddr and pickedIntercept say start picked the proxy port and the
-	// intercept port itself, and wroteConfig that it wrote the config from
+	transparentHost string
+	transparentAddr string
+	// pickedAddr and pickedTransparent say start picked the proxy port and the
+	// transparent listener itself, and wroteConfig that it wrote the config from
 	// the world, so it may pick them again when they are taken.
-	pickedAddr      bool
-	pickedIntercept bool
-	wroteConfig     bool
-	original        netip.AddrPort
-	originalKnown   bool
+	pickedAddr        bool
+	pickedTransparent bool
+	wroteConfig       bool
+	original          netip.AddrPort
+	originalKnown     bool
 	// sentRecords are the records that arrived while the proxy runs.
 	sentRecords []receivedRecord
 }
@@ -499,7 +499,7 @@ func (w *world) config() string {
 		}
 	}
 	b.WriteString(w.captureSection())
-	b.WriteString(w.interceptSection())
+	b.WriteString(w.transparentSection())
 	b.WriteString("exporters:\n")
 	for i, r := range w.receivers {
 		b.WriteString("  - otlp:\n")
@@ -577,7 +577,7 @@ func (w *world) start() error {
 // in a config the world wrote, so new ports may be picked.
 func (w *world) mayPickAgain(err error) bool {
 	return strings.Contains(err.Error(), "address already in use") &&
-		w.busy == "" && w.wroteConfig && (w.pickedAddr || w.pickedIntercept)
+		w.busy == "" && w.wroteConfig && (w.pickedAddr || w.pickedTransparent)
 }
 
 // pickAgain forgets the ports the world picked and the config it wrote, so
@@ -586,8 +586,8 @@ func (w *world) pickAgain() {
 	if w.pickedAddr {
 		w.addr = ""
 	}
-	if w.pickedIntercept {
-		w.intercept.address = ""
+	if w.pickedTransparent {
+		w.transparent.address = ""
 	}
 	w.configPath = ""
 	w.startErr = nil
@@ -598,11 +598,11 @@ func (w *world) startOnce() error {
 		w.addr = freePort()
 		w.pickedAddr = true
 	}
-	if w.intercept != nil && w.intercept.address == "" && w.intercept.without != "address" {
+	if w.transparent != nil && w.transparent.address == "" && w.transparent.without != "address" {
 		// Picked as late as possible, so no other scenario takes it first.
-		w.intercept.address = freePort()
-		w.interceptAddr = w.intercept.address
-		w.pickedIntercept = true
+		w.transparent.address = freePort()
+		w.transparentAddr = w.transparent.address
+		w.pickedTransparent = true
 	}
 	if len(w.integrations) == 0 && !w.noIntegrations {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")))

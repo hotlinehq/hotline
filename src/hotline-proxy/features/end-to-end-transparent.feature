@@ -1,5 +1,5 @@
 @e2e
-Feature: The intercept ingress, end to end
+Feature: The transparent ingress, end to end
   A real Go client calls the test vendor's own https address and knows
   nothing of the proxy. A real firewall rule on this machine redirects its
   connection to the program's transparent listener port. The program reads the

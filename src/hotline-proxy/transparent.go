@@ -120,9 +120,9 @@ func serverName(b []byte) string {
 	return strings.ToLower(string(b[5 : 5+n]))
 }
 
-// serveIntercept takes the connections a firewall sent to a transparent
+// serveTransparent takes the connections a firewall sent to a transparent
 // listener, until it is closed.
-func (h *handler) serveIntercept(l net.Listener, where OriginalDestination, li *listening) {
+func (h *handler) serveTransparent(l net.Listener, where OriginalDestination, li *listening) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -136,7 +136,7 @@ func (h *handler) serveIntercept(l net.Listener, where OriginalDestination, li *
 	}
 }
 
-// source is where a connection to intercept came from and how to treat it:
+// source is where a connection to the transparent listener came from and how to treat it:
 // the ingress it names in records, the integration, the sites to relay
 // untouched and the certificate authority to show certificates from.
 type source struct {
@@ -193,7 +193,7 @@ func (h *handler) intercepted(conn net.Conn, where OriginalDestination, li *list
 	h.serveSource(conn, reader, src, start)
 }
 
-// serveSource handles one connection to intercept, whose first bytes wait in
+// serveSource handles one connection to the transparent listener, whose first bytes wait in
 // reader: it reads the first message of the handshake and decides to
 // intercept the program's calls, to relay them untouched, or to refuse,
 // recording what it did not hand on as calls.
@@ -202,7 +202,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	first, err := readHello(reader)
 	if err != nil {
 		h.own.tlsFailed(err, src.ingressAttr())
-		h.interceptRecord(src, conn, start, "", "not_tls")
+		h.transparentRecord(src, conn, start, "", "not_tls")
 		_ = conn.Close()
 		return
 	}
@@ -221,11 +221,11 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		// no ECH keys. The program sees ECH rejected and retries without.
 		secure := tls.Server(inner, src.certificate.tlsConfig(host))
 		_, _ = timeHandshake(h.tunnels.ctx, secure, h.clock)
-		h.interceptRecord(src, conn, start, host, "ech_rejected")
+		h.transparentRecord(src, conn, start, host, "ech_rejected")
 		_ = conn.Close()
 		return
 	case host == "":
-		h.interceptRecord(src, conn, start, "", "no_sni")
+		h.transparentRecord(src, conn, start, "", "no_sni")
 		_ = conn.Close()
 		return
 	case src.passes(host):
@@ -239,7 +239,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	if err != nil {
 		h.logger.Debug("app TLS setup on an intercepting ingress failed", "ingress", src.ingress, "reason", err.Error())
 		h.own.tlsFailed(err, src.ingressAttr())
-		h.interceptRecord(src, conn, start, host, untrustedOr(err))
+		h.transparentRecord(src, conn, start, host, untrustedOr(err))
 		_ = conn.Close()
 		return
 	}
@@ -263,7 +263,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 		if errors.Is(err, errProhibited) {
 			errorType = "destination_ip_prohibited"
 		}
-		h.interceptRecord(src, app.Conn, start, host, errorType, mode...)
+		h.transparentRecord(src, app.Conn, start, host, errorType, mode...)
 		_ = app.Close()
 		return
 	}
@@ -282,7 +282,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 	<-done
 	_ = app.Close()
 	_ = vendor.Close()
-	h.interceptRecord(src, app.Conn, start, host, "", mode...)
+	h.transparentRecord(src, app.Conn, start, host, "", mode...)
 }
 
 // closeWrite tells the other side nothing more comes, and keeps reading
@@ -297,11 +297,11 @@ func closeWrite(c net.Conn) {
 	_ = c.Close()
 }
 
-// interceptRecord records a connection on an intercepting ingress that never
+// transparentRecord records a connection on an intercepting ingress that never
 // became a call: minimal, with the host when the proxy could read one.
 // errorType is empty when nothing went wrong. The proxy read no HTTP call,
 // so the record has no body hashes.
-func (h *handler) interceptRecord(src *source, conn net.Conn, start time.Time, host, errorType string, extra ...attribute.KeyValue) {
+func (h *handler) transparentRecord(src *source, conn net.Conn, start time.Time, host, errorType string, extra ...attribute.KeyValue) {
 	h.recordShort(short{
 		id: src.id, ingress: src.ingress, client: clientIP(conn.RemoteAddr().String()), host: host,
 		errorType: errorType, process: src.process, extra: extra, start: start, cfg: src.cfg,

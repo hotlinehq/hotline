@@ -89,9 +89,9 @@ type program struct {
 	pprof bool
 	// interception, when set, is the certificate authority in the certs section, which
 	// the connect part names, or the transparent listener when redirect is set.
-	interception *authority
-	redirect     bool
-	interceptAt  string
+	interception  *authority
+	redirect      bool
+	transparentAt string
 	// console adds a console exporter, and terminal, when set, is the
 	// terminal the program prints to instead of standard output.
 	console  bool
@@ -169,7 +169,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		if err := redirectAvailable(); err != nil {
 			return godog.ErrSkip
 		}
-		p.interception, p.redirect, p.interceptAt = newAuthority(), true, freePort()
+		p.interception, p.redirect, p.transparentAt = newAuthority(), true, freePort()
 		return p.run()
 	})
 	sc.Step(`^the Go client sends POST to the test vendor's https address while a firewall redirects its connection to the listener$`, func() error {
@@ -743,7 +743,7 @@ func (p *program) config(validateOnly bool) string {
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(authorityCertPEM(p.interception)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(authorityKeyPEM(p.interception)), 0o600)
 		if p.redirect {
-			listenTLS += fmt.Sprintf("  intercept:\n    address: %q\n    transparent: { cert: customer, integration: test-shop }\n", "tcp://"+p.interceptAt)
+			listenTLS += fmt.Sprintf("  transparent:\n    address: %q\n    transparent: { cert: customer, integration: test-shop }\n", "tcp://"+p.transparentAt)
 		} else {
 			listenTLS += "    connect: { cert: customer }\n"
 		}
@@ -1135,7 +1135,7 @@ func redirectAvailable() error {
 // the program reads the port from the operating system.
 func (p *program) goRedirected() (*http.Response, error) {
 	vendorPort := strings.TrimPrefix(p.vendorURL, "https://localhost:")
-	_, listenerPort, _ := net.SplitHostPort(p.interceptAt)
+	_, listenerPort, _ := net.SplitHostPort(p.transparentAt)
 	rule := []string{"-p", "tcp", "-d", redirectDestination, "--dport", vendorPort, "-j", "REDIRECT", "--to-ports", listenerPort}
 	if out, err := firewall(append([]string{"-t", "nat", "-A", "OUTPUT"}, rule...)...); err != nil {
 		return nil, fmt.Errorf("adding the firewall rule failed: %w: %s", err, out)

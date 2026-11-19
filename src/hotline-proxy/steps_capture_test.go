@@ -305,7 +305,7 @@ func (w *world) captureTunnel(host, port string, headers []string, site string, 
 		w.tunnelErr = errProxyClosed
 		return w.waitForRecords(1)
 	}
-	w.interceptHost = cmp.Or(site, host)
+	w.transparentHost = cmp.Or(site, host)
 	if net.ParseIP(site) == nil && site != "" {
 		w.vendor(site)
 	}

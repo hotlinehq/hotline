@@ -75,7 +75,7 @@ type Options struct {
 	// CheckWorkers is how many spec checks run at once: by default one
 	// per processor core the proxy may use.
 	CheckWorkers int
-	// OriginalDestination reads where a connection on listen.intercept was
+	// OriginalDestination reads where a connection on a transparent listener was
 	// first sent, before the firewall redirected it. Without it, calls
 	// that name no site cannot be intercepted.
 	OriginalDestination OriginalDestination

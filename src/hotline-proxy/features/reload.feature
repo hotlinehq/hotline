@@ -90,6 +90,6 @@ Feature: Reloading the config without a restart
       | there is one more exporter               | exporters           |
       | the tls part is added                    | listener proxy      |
       | the connect part is added                | listener proxy      |
-      | the transparent listener is added        | listener intercept  |
+      | the transparent listener is added        | listener transparent  |
       | the capture listener is added            | listener capture    |
       | telemetry.pprof is turned on          | telemetry.pprof |

@@ -153,7 +153,7 @@ func clientHello(host string) []byte {
 func FuzzFirstBytes(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
 		w.useAuthority(newAuthority())
-		w.intercept = &interceptConf{authority: "customer"}
+		w.transparent = &transparentConf{authority: "customer"}
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	})
 	f.Add(clientHello("api.talon.one"))
@@ -161,7 +161,7 @@ func FuzzFirstBytes(f *testing.F) {
 	f.Add([]byte("GET / HTTP/1.1\r\nHost: api.talon.one\r\n\r\n"))
 	f.Add([]byte{0x16, 3, 1, 0, 0})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.interceptAddr, data) })
+		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.transparentAddr, data) })
 		connect := "CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" +
 			"Hotline-Capture: 2\r\nHotline-Capture-Pid: 42\r\nHotline-Capture-Program: /usr/bin/app\r\n\r\n"
 		w.tryTwice(t, func() time.Duration { return sendRaw(t, "unix", w.captureFile, append([]byte(connect), data...)) })

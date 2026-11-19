@@ -2,9 +2,9 @@ package config
 
 import "strings"
 
-// Intercept is the transparent part of a listener: connections a firewall
+// Transparent is the transparent part of a listener: connections a firewall
 // sent to the proxy, which carry no CONNECT.
-type Intercept struct {
+type Transparent struct {
 	// Certificate authority signs the certificates shown for each site.
 	Authority *TLS
 	// Integration is the ID of every call on the port; empty means
@@ -34,7 +34,7 @@ func (c *Capture) HTTP(port string) bool { return c.ports[port] }
 
 // Passes says whether host is relayed untouched: it is listed in
 // passthrough, exactly or by a "*." suffix.
-func (i *Intercept) Passes(host string) bool {
+func (i *Transparent) Passes(host string) bool {
 	return i.Passthrough.Passes(host)
 }
 
@@ -54,7 +54,7 @@ func (pt Passthrough) Passes(host string) bool {
 }
 
 // Relays says whether an ECH outer name is relayed untouched.
-func (i *Intercept) Relays(outer string) bool {
+func (i *Transparent) Relays(outer string) bool {
 	for _, name := range i.ECHRelay {
 		if name == strings.ToLower(outer) {
 			return true
