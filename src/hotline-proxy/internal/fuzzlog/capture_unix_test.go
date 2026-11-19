@@ -3,6 +3,7 @@
 package fuzzlog_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,7 +40,7 @@ var _ = Describe("capturing a fuzz worker's output", func() {
 		_, err := os.Stderr.WriteString("panic: boom\n")
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(os.ReadFile(filepath.Join(dir, "worker-"+strconv.Itoa(os.Getpid())+".log"))).To(Equal([]byte("panic: boom\n")))
+		Expect(fs.ReadFile(os.DirFS(dir), "worker-"+strconv.Itoa(os.Getpid())+".log")).To(Equal([]byte("panic: boom\n")))
 	})
 
 	It("leaves the output where it was when the folder cannot take the file", func() {
