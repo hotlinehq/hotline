@@ -17,8 +17,8 @@ import (
 )
 
 func tlsSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^a proxy certificate for the name hotline-proxy from the test issuer$`, func() error {
-		w.proxyCert = w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+	sc.Step(`^a proxy certificate for the name hotline-proxy from the test certificate authority$`, func() error {
+		w.proxyCert = w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
 		return nil
 	})
@@ -26,11 +26,11 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		return nil
 	})
-	sc.Step(`^an app that trusts the test issuer$`, func() error {
+	sc.Step(`^an app that trusts the test certificate authority$`, func() error {
 		w.appTLS = w.appTLSConfig()
 		return nil
 	})
-	sc.Step(`^an app that does not trust the test issuer$`, func() error {
+	sc.Step(`^an app that does not trust the test certificate authority$`, func() error {
 		w.appTLS = &tls.Config{RootCAs: x509.NewCertPool(), ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
 		return nil
 	})
@@ -39,7 +39,7 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		w.appTLS.MinVersion, w.appTLS.MaxVersion = tls.VersionTLS10, tls.VersionTLS11
 		return nil
 	})
-	sc.Step(`^an app that trusts the test issuer and allows only TLS 1.(2|3)$`, func(minor int) error {
+	sc.Step(`^an app that trusts the test certificate authority and allows only TLS 1.(2|3)$`, func(minor int) error {
 		w.appTLS = w.appTLSConfig()
 		w.appTLS.MinVersion = tls.VersionTLS12
 		if minor == 3 {
@@ -48,7 +48,7 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		w.appTLS.MaxVersion = w.appTLS.MinVersion
 		return nil
 	})
-	sc.Step(`^an app that trusts the test issuer and offers HTTP/2 and HTTP/1.1$`, func() error {
+	sc.Step(`^an app that trusts the test certificate authority and offers HTTP/2 and HTTP/1.1$`, func() error {
 		w.appTLS = w.appTLSConfig()
 		w.appTLS.NextProtos = []string{"h2", "http/1.1"}
 		return nil
@@ -139,12 +139,12 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the key does not belong to the certificate$`, func() error {
 		w.problem = "not a matching certificate and key"
-		w.writeKeyPair(w.proxyCert, w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false))
+		w.writeKeyPair(w.proxyCert, w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false))
 		return nil
 	})
 	sc.Step(`^the certificate has already expired$`, func() error {
 		w.problem = "expired"
-		expired := w.issuer.leaf("hotline-proxy", time.Now().Add(-time.Hour), false)
+		expired := w.authority.leaf("hotline-proxy", time.Now().Add(-time.Hour), false)
 		w.writeKeyPair(expired, expired)
 		return nil
 	})
@@ -167,13 +167,13 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 		return w.callOn(conn)
 	})
 	sc.Step(`^the cert and key files are replaced with a second certificate$`, func() error {
-		second := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		second := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.renewed = &second
 		w.replaceKeyPair(second, second)
 		return nil
 	})
 	sc.Step(`^the key file is replaced with a key that does not belong to the certificate$`, func() error {
-		other := w.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		other := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.replaceFile("tls/key.pem", keyPEM(other))
 		return nil
 	})
@@ -194,10 +194,10 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 	})
 }
 
-// appTLSConfig is how an app that trusts the test issuer opens TLS to the
+// appTLSConfig is how an app that trusts the test certificate authority opens TLS to the
 // proxy, by its name hotline-proxy.
 func (w *world) appTLSConfig() *tls.Config {
-	return &tls.Config{RootCAs: w.issuer.pool, ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
+	return &tls.Config{RootCAs: w.authority.pool, ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
 }
 
 // openTLS opens a new TLS connection to the proxy and closes it again.

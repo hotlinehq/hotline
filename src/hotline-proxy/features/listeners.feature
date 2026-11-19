@@ -14,9 +14,9 @@ Feature: Listeners
   may name one cert for all its parts, and a part's own cert wins.
 
   Background:
-    Given an issuer named customer in certs
-    And a proxy certificate for the name hotline-proxy from the test issuer
-    And an app that trusts the interception issuer
+    Given a certificate authority named customer in certs
+    And a proxy certificate for the name hotline-proxy from the test certificate authority
+    And an app that trusts the interception certificate authority
 
   Rule: A config may have several listeners
 
@@ -46,8 +46,8 @@ Feature: Listeners
           tls: { mode: sign }
           connect:
         """
-      When an app that trusts the interception issuer opens TLS to the listener apps asking for the name hotline.local
-      Then the app sees a certificate for hotline.local signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the listener apps asking for the name hotline.local
+      Then the app sees a certificate for hotline.local signed by the interception certificate authority
 
     Scenario: tls with mode sign signs for the address when the app names no site
       Given the certs are:
@@ -60,8 +60,8 @@ Feature: Listeners
           address: tcp://{apps}
           tls: { cert: shop, mode: sign }
         """
-      When an app that trusts the interception issuer opens TLS to the listener apps asking for no name
-      Then the app sees a certificate for the local address 127.0.0.1 signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the listener apps asking for no name
+      Then the app sees a certificate for the local address 127.0.0.1 signed by the interception certificate authority
 
     Scenario: tls with mode sign on a socket file signs for localhost
       Given the certs are:
@@ -76,8 +76,8 @@ Feature: Listeners
           address: unix://{dir}/local.sock
           tls: { cert: shop, mode: sign }
         """
-      When an app that trusts the interception issuer opens TLS to the socket listener local asking for no name
-      Then the app sees a certificate for the name localhost signed by the interception issuer
+      When an app that trusts the interception certificate authority opens TLS to the socket listener local asking for no name
+      Then the app sees a certificate for the name localhost signed by the interception certificate authority
 
     Scenario: tls shows a fixed certificate by default
       Given the certs are:
@@ -203,7 +203,7 @@ Feature: Listeners
           connect:
         """
       When the app opens a tunnel to api.stripe.com:443 through the listener apps
-      Then the app sees a certificate for api.stripe.com signed by the interception issuer
+      Then the app sees a certificate for api.stripe.com signed by the interception certificate authority
 
   Rule: A reload changes a listener's settings, not its shape
 
@@ -218,11 +218,11 @@ Feature: Listeners
           address: tcp://{apps}
           tls: { cert: shop, mode: sign }
         """
-      And an app that trusts the interception issuer has opened TLS to the listener apps asking for the name hotline.local
-      When the files of the issuer named customer are replaced with a second issuer
+      And an app that trusts the interception certificate authority has opened TLS to the listener apps asking for the name hotline.local
+      When the files of the certificate authority named customer are replaced with a second certificate authority
       And the proxy checks its files
-      And an app that trusts the interception issuer opens TLS to the listener apps asking for the name hotline.local
-      Then the app sees a certificate for hotline.local signed by the second issuer
+      And an app that trusts the interception certificate authority opens TLS to the listener apps asking for the name hotline.local
+      Then the app sees a certificate for hotline.local signed by the second certificate authority
 
     Scenario: A renewed admin certificate is used without a restart
       Given the certs are:

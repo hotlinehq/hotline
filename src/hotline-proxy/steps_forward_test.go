@@ -401,15 +401,15 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^a vendor whose certificate issuer is in the system trust store$`, func() error { return nil })
+	sc.Step(`^a vendor whose certificate authority is in the system trust store$`, func() error { return nil })
 	sc.Step(`^a vendor whose certificate is (self-signed|expired|for another host name)$`, func(problem string) error {
 		switch problem {
 		case "self-signed":
-			w.replaceTLS("api.talon.one", w.issuer.leaf("api.talon.one", time.Now().Add(time.Hour), true))
+			w.replaceTLS("api.talon.one", w.authority.leaf("api.talon.one", time.Now().Add(time.Hour), true))
 		case "expired":
-			w.replaceTLS("api.talon.one", w.issuer.leaf("api.talon.one", time.Now().Add(-time.Hour), false))
+			w.replaceTLS("api.talon.one", w.authority.leaf("api.talon.one", time.Now().Add(-time.Hour), false))
 		default:
-			w.replaceTLS("api.talon.one", w.issuer.leaf("other.example", time.Now().Add(time.Hour), false))
+			w.replaceTLS("api.talon.one", w.authority.leaf("other.example", time.Now().Add(time.Hour), false))
 		}
 		return nil
 	})
@@ -420,7 +420,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the config file format$`, func() error {
-		w.replaceTLS("api.talon.one", w.issuer.leaf("api.talon.one", time.Now().Add(time.Hour), true))
+		w.replaceTLS("api.talon.one", w.authority.leaf("api.talon.one", time.Now().Add(time.Hour), true))
 		return nil
 	})
 	sc.Step(`^anyone looks for a setting to skip the certificate check$`, func() error {
@@ -680,7 +680,7 @@ func sprintf(format string, args ...any) string { return fmt.Sprintf(format, arg
 
 // vendorTLS is a TLS setup with a trusted certificate for host.
 func (w *world) vendorTLS(host string) *tls.Config {
-	return &tls.Config{Certificates: []tls.Certificate{w.issuer.leaf(host, time.Now().Add(24*time.Hour), false)}}
+	return &tls.Config{Certificates: []tls.Certificate{w.authority.leaf(host, time.Now().Add(24*time.Hour), false)}}
 }
 
 // forwardFull sends a call with an ID, secrets, hop headers and a body. A

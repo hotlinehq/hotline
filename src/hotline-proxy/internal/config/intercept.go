@@ -5,8 +5,8 @@ import "strings"
 // Intercept is the transparent part of a listener: connections a firewall
 // sent to the proxy, which carry no CONNECT.
 type Intercept struct {
-	// Issuer signs the certificates shown for each site.
-	Issuer *TLS
+	// Certificate authority signs the certificates shown for each site.
+	Authority *TLS
 	// Integration is the ID of every call on the port; empty means
 	// not-passed.
 	Integration string
@@ -19,8 +19,8 @@ type Intercept struct {
 // Capture is the capture part of a listener, the ingress of the macOS
 // capture extension.
 type Capture struct {
-	// Issuer signs the certificates shown for each site.
-	Issuer *TLS
+	// Certificate authority signs the certificates shown for each site.
+	Authority *TLS
 	// Passthrough lists sites relayed untouched.
 	Passthrough Passthrough
 	// ports are the ports, written as text, whose connections are read as

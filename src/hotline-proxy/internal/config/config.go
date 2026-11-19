@@ -171,7 +171,7 @@ type Trace struct {
 	Forward bool
 }
 
-// TLS is a certificate the proxy shows apps, or the issuer it signs them
+// TLS is a certificate the proxy shows apps, or the certificate authority it signs them
 // with: the files it comes from, and the pair they held when the config
 // was loaded.
 type TLS struct {
@@ -187,7 +187,7 @@ type Exporter struct {
 	// URL is where to send. Its scheme is https for TLS, else http. Its
 	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
 	URL *url.URL
-	// CAs are PEM certificates of issuers to trust on top of the proxy's
+	// CAs are PEM certificates of certificate authorities to trust on top of the proxy's
 	// own, for TLS.
 	CAs []byte
 	// Certificate, when set, is shown to the destination in mutual TLS.
@@ -233,7 +233,7 @@ type API struct {
 
 // file is the config file's layout.
 type file struct {
-	// Listen and Issuers are the old way to write ports and issuers, read
+	// Listen and Certificate authorities are the old way to write ports and certificate authorities, read
 	// only to say they are ignored.
 	Listen     yaml.Node                `yaml:"listen"`
 	Issuers    yaml.Node                `yaml:"issuers"`
@@ -703,7 +703,7 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 			l.problem("%s: tls needs an https:// endpoint", label)
 		}
 		if t.CA != "" {
-			e.CAs = l.issuers(label+": tls.ca", t.CA)
+			e.CAs = l.authorities(label+": tls.ca", t.CA)
 		}
 		if (t.Cert == "") != (t.Key == "") {
 			l.problem("%s: tls needs both cert and key, or neither", label)
@@ -764,8 +764,8 @@ func (l *loader) secret(label string, s secret) string {
 	return value
 }
 
-// issuers reads a PEM file of certificates.
-func (l *loader) issuers(label, path string) []byte {
+// certificate authorities reads a PEM file of certificates.
+func (l *loader) authorities(label, path string) []byte {
 	l.read[l.path(path)] = true
 	data, err := os.ReadFile(l.path(path)) //nolint:gosec // the config names its certificate files
 	if err != nil {

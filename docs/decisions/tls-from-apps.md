@@ -4,7 +4,7 @@ Full wording in [docs/proxy-tls-from-apps.md](../proxy-tls-from-apps.md).
 
 1. With `listen.tls` set, the proxy port accepts only TLS.
 2. Certificate and key are PEM files; on Kubernetes a Secret, usually from cert-manager.
-3. Hotline builds nothing for apps to trust the proxy and never makes its own certificate; customers use their own issuer.
+3. Hotline builds nothing for apps to trust the proxy and never makes its own certificate; customers use their own certificate authority.
 4. The files are re-read when they change; a broken new pair keeps the old one. Since 2026-10-31 through the shared config reload (file check every 5 seconds, or SIGHUP).
 5. Client certificates (mutual TLS) come later, with caller authentication.
 6. TLS 1.2 and 1.3 only, Go's default ciphers, nothing to configure.

@@ -39,7 +39,7 @@ Run them with `go test ./src/hotline-proxy/`. Scenarios tagged `@later` are skip
 
 The end-to-end tests reuse the client matrix from the research folder: `research/matrix-clients/go`, `research/matrix-clients/node` and the prototype proxy in `research/hotline-matrix-test`. The case numbers are those of the matrix in `egress-proxy-options.md`. Only cases 1, 2, 4 and 5 put a full address in the request line, so only they belong to slice 1. The rest arrive with the Host header ingress.
 
-Unlike the research runs, these tests never call the real Stripe. They use a local TLS test vendor whose certificate issuer is trusted through `SSL_CERT_FILE` (an environment variable Go reads on Linux to find trusted issuers), and a local fake OTLP receiver. The Java and Rust clients from the first milestone come in a later slice.
+Unlike the research runs, these tests never call the real Stripe. They use a local TLS test vendor whose certificate authority is trusted through `SSL_CERT_FILE` (an environment variable Go reads on Linux to find trusted certificate authorities), and a local fake OTLP receiver. The Java and Rust clients from the first milestone come in a later slice.
 
 ## What came after slice 1
 

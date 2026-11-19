@@ -23,7 +23,7 @@ Feature: Finding the ingress
     Then the vendor is api.talon.one
 
   Scenario: Without the connect part, CONNECT is not an ingress
-    The CONNECT ingress needs an issuer to sign the certificates it shows
+    The CONNECT ingress needs a certificate authority to sign the certificates it shows
     apps (see connect.feature).
     Given the proxy is running
     When an app sends "CONNECT api.stripe.com:443"

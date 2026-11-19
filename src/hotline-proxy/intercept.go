@@ -138,7 +138,7 @@ func (h *handler) serveIntercept(l net.Listener, where OriginalDestination, li *
 
 // source is where a connection to intercept came from and how to treat it:
 // the ingress it names in records, the integration, the sites to relay
-// untouched and the issuer to show certificates from.
+// untouched and the certificate authority to show certificates from.
 type source struct {
 	ingress     string
 	id          string

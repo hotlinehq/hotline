@@ -152,14 +152,14 @@ Feature: The proxy's own telemetry
     And the proxy checks its files
     Then hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls
 
-  Scenario: The CONNECT issuer
-    Given CONNECT is an ingress with an issuer that expires in 200 days
+  Scenario: The CONNECT certificate authority
+    Given CONNECT is an ingress with a certificate authority that expires in 200 days
     When the proxy starts
-    Then hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect
+    Then hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect
 
   Scenario: Each certificate is named by its listener and part
-    Given an issuer named customer in certs
-    And a proxy certificate for the name hotline-proxy from the test issuer
+    Given a certificate authority named customer in certs
+    And a proxy certificate for the name hotline-proxy from the test certificate authority
     And the certs are:
       """
       shop: { cert: ./ca/cert.pem, key: ./ca/key.pem }
@@ -191,7 +191,7 @@ Feature: The proxy's own telemetry
       | that does not trust the proxy opens TLS          | tls_untrusted_by_app | none      |
       | sends plain HTTP to the TLS port                 | plain_http           | none      |
       | that allows only TLS 1.1 opens TLS               | tls_version          | none      |
-      | that does not trust the issuer opens a tunnel    | tls_untrusted_by_app | connect   |
+      | that does not trust the certificate authority opens a tunnel    | tls_untrusted_by_app | connect   |
 
   Scenario: The Go runtime, five numbers
     go.memory.limit is the fifth, sent only when a memory limit is set

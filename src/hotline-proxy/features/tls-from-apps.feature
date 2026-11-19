@@ -7,11 +7,11 @@ Feature: TLS from apps to the proxy
   (Peter, 2026-10-28).
 
   Background:
-    Given a proxy certificate for the name hotline-proxy from the test issuer
+    Given a proxy certificate for the name hotline-proxy from the test certificate authority
     And a config file whose tls part points to its cert and key files
 
   Scenario: A call over TLS reaches the vendor
-    Given an app that trusts the test issuer
+    Given an app that trusts the test certificate authority
     When the app sends its call over TLS to the proxy
     Then the vendor gets the call over https
     And the app gets the vendor's status, headers and body unchanged
@@ -21,7 +21,7 @@ Feature: TLS from apps to the proxy
     The proxy's own cost includes setting up TLS with the app (Peter,
     2026-10-29). Later calls on the same connection skip it, like any phase
     that did not happen.
-    Given an app that trusts the test issuer
+    Given an app that trusts the test certificate authority
     When the app sends two calls on one TLS connection
     Then the first call's trace has an "app tls handshake" span at the start of "hotline call"
     And the second call's trace has no "app tls handshake" span
@@ -46,11 +46,11 @@ Feature: TLS from apps to the proxy
 
     Examples:
       | app                                         |
-      | an app that does not trust the test issuer  |
+      | an app that does not trust the test certificate authority  |
       | an app that allows only TLS 1.1             |
 
   Scenario Outline: TLS versions the proxy accepts
-    Given an app that trusts the test issuer and allows only <version>
+    Given an app that trusts the test certificate authority and allows only <version>
     When the app sends its call over TLS to the proxy
     Then the app gets the vendor's status, headers and body unchanged
     And the connection used <version>
@@ -74,7 +74,7 @@ Feature: TLS from apps to the proxy
       | the tls part has a cert file but no key file     |
 
   Scenario: A renewed certificate is used without a restart
-    Given an app that trusts the test issuer
+    Given an app that trusts the test certificate authority
     And the app has a connection open to the proxy
     When the cert and key files are replaced with a second certificate
     And the proxy checks its files
@@ -82,14 +82,14 @@ Feature: TLS from apps to the proxy
     And the open connection still takes calls
 
   Scenario: A reload with the same certificate keeps it
-    Given an app that trusts the test issuer
+    Given an app that trusts the test certificate authority
     And the proxy is running
     When the proxy is told to reload
     Then a new connection still gets the first certificate
     And the proxy does not log that a new TLS certificate is in use
 
   Scenario: A broken renewal keeps the old certificate
-    Given an app that trusts the test issuer
+    Given an app that trusts the test certificate authority
     And the proxy is running
     When the key file is replaced with a key that does not belong to the certificate
     And the proxy checks its files

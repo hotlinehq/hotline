@@ -59,7 +59,7 @@ type Options struct {
 	ConfigPath string
 	Resolver   Resolver
 	Dialer     Dialer
-	// RootCAs are the trusted certificate issuers, for vendors and for
+	// RootCAs are the trusted certificate authorities, for vendors and for
 	// collectors over TLS: the system's own and any extra ones.
 	RootCAs *x509.CertPool
 	Clock   Clock

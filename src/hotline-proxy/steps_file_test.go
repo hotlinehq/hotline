@@ -152,7 +152,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			ConfigPath:    w.writeFile("second.yaml", config),
 			Resolver:      w.network,
 			Dialer:        w.network,
-			RootCAs:       w.issuer.pool,
+			RootCAs:       w.authority.pool,
 			Clock:         proxy.SystemClock{},
 			Logger:        slog.New(slog.DiscardHandler),
 			ExportTimeout: time.Second,

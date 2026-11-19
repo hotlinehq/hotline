@@ -4,7 +4,7 @@ Feature: The hotline-proxy program
   starts the proxy, validate only checks a config, and version prints the
   version. verify checks the records in a file exporter's folder
   (docs/proxy-ledger.md). The config file is given only with --config. --trust-file adds
-  trusted certificate issuers on top of the system's own. The program's own
+  trusted certificate authorities on top of the system's own. The program's own
   log lines go to standard error. Every command takes --format: console,
   the default, writes plain lines for a person, and json writes one JSON
   object per line, for log collectors (Peter, 2026-11-12). Exit codes: 0

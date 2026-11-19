@@ -20,13 +20,13 @@ Feature: How OpenTelemetry data is sent
 
   Scenario: TLS to the collector
     An https:// endpoint means TLS. The collector's certificate is checked
-    against the system's issuers, the trust file and tls.ca.
-    Given a receiver over TLS whose issuer only tls.ca trusts
+    against the system's certificate authorities, the trust file and tls.ca.
+    Given a receiver over TLS whose certificate authority only tls.ca trusts
     When a call ends
     Then the receiver gets the record over TLS
 
   Scenario: An untrusted collector gets nothing
-    Given a receiver over TLS whose issuer nobody trusts
+    Given a receiver over TLS whose certificate authority nobody trusts
     When a call ends
     Then the receiver gets no record
     And the proxy logs a warning that the send to that endpoint failed

@@ -271,14 +271,14 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 
 	sc.Step(`^the proxy port takes TLS(?: with a certificate that expires in (\d+) days)?$`, func(days string) error {
 		n, _ := strconv.Atoi(days)
-		w.proxyCert = w.issuer.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
+		w.proxyCert = w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)
 		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
 		w.appTLS = w.appTLSConfig()
 		return nil
 	})
 	sc.Step(`^the cert and key files are replaced with a certificate that expires in (\d+) days$`, func(days int) error {
-		renewed := w.issuer.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
+		renewed := w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
 		w.renewed = &renewed
 		w.replaceKeyPair(renewed, renewed)
 		return nil
@@ -289,11 +289,11 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
 		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*w.renewed))
 	})
-	sc.Step(`^CONNECT is an ingress with an issuer that expires in (\d+) days$`, func(days int) error {
-		w.useInterceptionIssuer(newIssuerValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
+	sc.Step(`^CONNECT is an ingress with a certificate authority that expires in (\d+) days$`, func(days int) error {
+		w.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
 		return nil
 	})
-	sc.Step(`^hotline.certificate.not_after is that issuer's expiry for hotline.certificate.use proxy.connect$`, func() error {
+	sc.Step(`^hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect$`, func() error {
 		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(w.interception.cert.NotAfter.Unix()))
 	})
 
@@ -309,8 +309,8 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.appTLS = nil
 		return w.defaultCall()
 	})
-	sc.Step(`^an app that does not trust the issuer opens a tunnel$`, func() error {
-		w.useInterceptionIssuer(newIssuer())
+	sc.Step(`^an app that does not trust the certificate authority opens a tunnel$`, func() error {
+		w.useInterceptionAuthority(newAuthority())
 		w.tunnelRoots = x509.NewCertPool()
 		return w.openTunnel("api.talon.one", "443", "talon-shop-a")
 	})

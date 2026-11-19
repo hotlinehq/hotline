@@ -45,11 +45,11 @@ type world struct {
 	stoppedEarly bool
 	topExtra     string
 	// lastSent are the headers of the app's last call.
-	lastSent []string
-	dir      string
-	issuer   *issuer
-	network  *network
-	vendors  map[string]*vendor
+	lastSent  []string
+	dir       string
+	authority *authority
+	network   *network
+	vendors   map[string]*vendor
 	// talker is a vendor that speaks raw bytes over TLS, for relayed
 	// tunnels.
 	talker *talker
@@ -180,11 +180,11 @@ type world struct {
 	listenConnect string
 	// captureFile, when set, is the socket file of the capture listener, to
 	// dial. capturePath is the path the config names, when it is not
-	// captureFile itself; captureIssuer is the issuer it names, customer
+	// captureFile itself; captureAuthority is the certificate authority it names, customer
 	// by default, and capturePassthrough its passthrough list.
 	captureFile        string
 	capturePath        string
-	captureIssuer      string
+	captureAuthority   string
 	capturePassthrough []string
 	// captureHTTP, when set, is the ports list of the capture part: the
 	// ports read as calls. captureProtocol, when set, is the capture
@@ -208,13 +208,13 @@ type world struct {
 	captureDropped bool
 	// noProxyPort leaves the proxy listener out of the config.
 	noProxyPort bool
-	// issuersSection is the config's certs section, when it has one.
-	issuersSection string
-	// interception is the issuer in the connect part files, and second
+	// certEntries is the config's certs section, when it has one.
+	certEntries string
+	// interception is the certificate authority in the connect part files, and second
 	// the one that replaced it.
-	interception *issuer
-	second       *issuer
-	// tunnelRoots are the issuers an app trusts inside a tunnel, and
+	interception *authority
+	second       *authority
+	// tunnelRoots are the certificate authorities an app trusts inside a tunnel, and
 	// tunnelProtos the HTTP versions it offers there; none means both.
 	tunnelRoots  *x509.CertPool
 	tunnelProtos []string
@@ -259,7 +259,7 @@ func newWorld() (*world, error) {
 	}
 	return &world{
 		dir:       dir,
-		issuer:    newIssuer(),
+		authority: newAuthority(),
 		network:   newNetwork(),
 		vendors:   map[string]*vendor{},
 		receivers: []*receiver{newReceiver()},
@@ -314,7 +314,7 @@ func (w *world) vendor(host string) *vendor {
 	w.vendors[host] = v
 	w.network.name(host, v.ip)
 	v.notAfter = time.Now().Add(24 * time.Hour).Truncate(time.Second)
-	cert := w.issuer.leaf(host, v.notAfter, false)
+	cert := w.authority.leaf(host, v.notAfter, false)
 	for _, port := range []string{"443", "8443", "8080"} {
 		s := httptest.NewUnstartedServer(v.record("https", port))
 		s.EnableHTTP2 = true
@@ -450,8 +450,8 @@ func (w *world) captureSection() string {
 		return ""
 	}
 	cert := "cert: customer, "
-	if w.captureIssuer != "" {
-		cert = w.captureIssuer
+	if w.captureAuthority != "" {
+		cert = w.captureAuthority
 	}
 	quoted := make([]string, len(w.capturePassthrough))
 	for i, name := range w.capturePassthrough {
@@ -465,11 +465,11 @@ func (w *world) captureSection() string {
 		"unix://"+cmp.Or(w.capturePath, w.captureFile), w.captureProtocol, cert, strings.Join(quoted, ", "), ports)
 }
 
-// certsSection is the certs section: the issuers the scenario wrote, and
+// certsSection is the certs section: the certificate authorities the scenario wrote, and
 // the certificate apps are shown over TLS.
 func (w *world) certsSection() string {
-	entries := strings.TrimPrefix(w.issuersSection, "certs:\n") + w.tlsCert
-	if entries == "" && w.issuersSection == "" {
+	entries := strings.TrimPrefix(w.certEntries, "certs:\n") + w.tlsCert
+	if entries == "" && w.certEntries == "" {
 		return ""
 	}
 	return "certs:\n" + entries
@@ -633,7 +633,7 @@ func (w *world) startOnce() error {
 		ConfigPath:    w.configPath,
 		Resolver:      w.network,
 		Dialer:        w.network,
-		RootCAs:       w.issuer.pool,
+		RootCAs:       w.authority.pool,
 		Clock:         clock,
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		ExportTimeout: w.exportTimeout,

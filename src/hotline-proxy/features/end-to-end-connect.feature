@@ -3,7 +3,7 @@ Feature: The CONNECT ingress, end to end
   A real Go client calls the test vendor's own https address through the
   real hotline-proxy program, with the standard proxy setting, the way
   HTTPS_PROXY works. It sends CONNECT with the ID in the proxy address, and
-  trusts the interception issuer the program signs with. Like Go's default
+  trusts the interception certificate authority the program signs with. Like Go's default
   client, it offers HTTP/2 to the proxy and then speaks HTTP/1.1 to it
   (Peter, 2026-10-29).
 

@@ -12,8 +12,8 @@ Feature: WebSocket sessions
 
   Background:
     Given a shop spec where GET /orders answers 101 Switching Protocols
-    And an interception issuer named customer in certs, which the connect part picks
-    And an app that trusts the interception issuer
+    And an interception certificate authority named customer in certs, which the connect part picks
+    And an app that trusts the interception certificate authority
 
   Scenario Outline: Every ingress gives a call record and a session record
     Given the shop vendor accepts a WebSocket upgrade, reads 5 bytes, sends "ok" and closes
@@ -31,7 +31,7 @@ Feature: WebSocket sessions
       | connect       |
 
   Scenario: A captured WebSocket gives a call record and a session record
-    Given the capture listener is a socket file, whose issuer is customer too
+    Given the capture listener is a socket file, whose certificate authority is customer too
     And the shop vendor accepts a WebSocket upgrade, reads 5 bytes, sends "ok" and closes
     When an app opens a WebSocket to the shop through the capture ingress
     And the app sends "hello" and reads "ok"

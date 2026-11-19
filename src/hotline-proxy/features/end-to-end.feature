@@ -2,7 +2,7 @@
 Feature: Calling through the proxy, end to end
   A real client calls the real hotline-proxy program, which calls a local
   TLS test vendor; a fake OTLP receiver collects what the program sends.
-  The program trusts the test vendor's issuer through --trust-file. The Go
+  The program trusts the test vendor's certificate authority through --trust-file. The Go
   client cases are copied from the research folder (matrix-clients/go);
   case numbers are those in egress-proxy-options.md. Only cases 1, 2, 4 and
   5 put a full address in the request line. The Node, Java and Rust clients

@@ -27,7 +27,7 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 			switch {
 			case name == "no site" && address == "":
 				// An app that names no site but called by name pins the
-				// vendor's certificate: it checks the issuer, not the name.
+				// vendor's certificate: it checks the certificate authority, not the name.
 				site = ""
 				w.vendor(host)
 			case name == "no site":
@@ -154,8 +154,8 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the app also trusts the vendors' own issuer$`, func() error {
-		w.tunnelRoots.AddCert(w.issuer.cert)
+	sc.Step(`^the app also trusts the vendors' own certificate authority$`, func() error {
+		w.tunnelRoots.AddCert(w.authority.cert)
 		return nil
 	})
 	sc.Step(`^the connect part lists (\S+) in passthrough$`, func(name string) error {
@@ -311,11 +311,11 @@ func (w *world) captureTunnel(host, port string, headers []string, site string, 
 	}
 	roots := w.tunnelRoots.Clone()
 	// A relayed connection shows the vendor's own certificate.
-	roots.AddCert(w.issuer.cert)
+	roots.AddCert(w.authority.cert)
 	config := &tls.Config{RootCAs: roots, ServerName: site, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12}
 	if site == "" {
 		// No site name is sent, and the certificate is checked by its
-		// issuer alone, as an app that pins it does.
+		// certificate authority alone, as an app that pins it does.
 		config.InsecureSkipVerify = true
 		config.VerifyConnection = func(cs tls.ConnectionState) error {
 			_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: roots})

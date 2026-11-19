@@ -2,7 +2,7 @@
 Feature: Calling over TLS to the proxy, end to end
   A real client opens TLS to the real hotline-proxy program and sends the
   full vendor address inside it. The program's certificate comes from the
-  test issuer, which the client trusts. Case numbers are those in
+  test certificate authority, which the client trusts. Case numbers are those in
   egress-proxy-options.md: cases 4 and 5 put a full address in the request
   line over TLS. The Node client comes later (Peter, 2026-10-28).
 

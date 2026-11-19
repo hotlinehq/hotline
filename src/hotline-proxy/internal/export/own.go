@@ -65,7 +65,7 @@ func (o *Own) Shutdown(ctx context.Context) error {
 	return o.provider.Shutdown(ctx)
 }
 
-// destinationTLS trusts roots and the destination's own issuers, and shows
+// destinationTLS trusts roots and the destination's own certificate authorities, and shows
 // its client certificate, if any.
 func destinationTLS(e config.Exporter, roots *x509.CertPool) *tls.Config {
 	pool := roots.Clone()

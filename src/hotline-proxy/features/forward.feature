@@ -166,7 +166,7 @@ Feature: Forwarding a call to the vendor
       | an app using HTTP/1.1  | HTTP/1.1 only           | HTTP/1.1  | HTTP/1.1 |
 
   Scenario: A trusted certificate is accepted
-    Given a vendor whose certificate issuer is in the system trust store
+    Given a vendor whose certificate authority is in the system trust store
     When an app calls it through the proxy
     Then the call goes through
 

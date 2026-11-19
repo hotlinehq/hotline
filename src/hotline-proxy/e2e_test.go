@@ -70,12 +70,12 @@ func TestEndToEnd(t *testing.T) {
 // receiver at its edges. It is reached only through its command line, its
 // output, its exit code and the network.
 type program struct {
-	binary   string
-	dir      string
-	issuer   *issuer
-	receiver *receiver
+	binary    string
+	dir       string
+	authority *authority
+	receiver  *receiver
 	// vendor is the test vendor at localhost; untrusted is one whose
-	// certificate no issuer vouches for.
+	// certificate no certificate authority vouches for.
 	vendor    *vendor
 	vendorURL string
 	untrusted string
@@ -83,13 +83,13 @@ type program struct {
 	adminAddr string
 	taken     net.Listener
 	// tls makes the program's proxy port accept only TLS, with a
-	// certificate for hotline-proxy from the test issuer.
+	// certificate for hotline-proxy from the test certificate authority.
 	tls bool
 	// pprof turns on telemetry.pprof, the profile pages on the admin port.
 	pprof bool
-	// interception, when set, is the issuer in the certs section, which
+	// interception, when set, is the certificate authority in the certs section, which
 	// the connect part names, or the transparent listener when redirect is set.
-	interception *issuer
+	interception *authority
 	redirect     bool
 	interceptAt  string
 	// console adds a console exporter, and terminal, when set, is the
@@ -129,7 +129,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		dir, err := os.MkdirTemp("", "hotline-proxy-e2e-")
 		*p = program{
-			binary: binary, dir: dir, issuer: newIssuer(), proxyAddr: freePort(), adminAddr: freePort(),
+			binary: binary, dir: dir, authority: newAuthority(), proxyAddr: freePort(), adminAddr: freePort(),
 			release: make(chan struct{}), arrived: make(chan struct{}, 8),
 		}
 		return ctx, err
@@ -161,7 +161,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return p.run()
 	})
 	sc.Step(`^the hotline-proxy program runs with the connect part( and TLS on its port)? and integration test-shop for the test vendor$`, func(withTLS string) error {
-		p.interception = newIssuer()
+		p.interception = newAuthority()
 		p.tls = withTLS != ""
 		return p.run()
 	})
@@ -169,7 +169,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		if err := redirectAvailable(); err != nil {
 			return godog.ErrSkip
 		}
-		p.interception, p.redirect, p.interceptAt = newIssuer(), true, freePort()
+		p.interception, p.redirect, p.interceptAt = newAuthority(), true, freePort()
 		return p.run()
 	})
 	sc.Step(`^the Go client sends POST to the test vendor's https address while a firewall redirects its connection to the listener$`, func() error {
@@ -630,7 +630,7 @@ paths:
 `
 
 // run starts the program with the test vendor's config, trusting the test
-// issuer, and waits until its proxy port takes calls.
+// certificate authority, and waits until its proxy port takes calls.
 func (p *program) run(flags ...string) error {
 	p.startVendors()
 	// A port that was free a moment ago can be taken by another program
@@ -657,13 +657,13 @@ func (p *program) pickPorts() {
 }
 
 // launch starts the program with the config already written, trusting the
-// test issuer, and waits until its proxy port listens.
+// test certificate authority, and waits until its proxy port listens.
 func (p *program) launch(flags ...string) error {
-	block := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: p.issuer.cert.Raw})
-	if err := os.WriteFile(filepath.Join(p.dir, "issuer.pem"), block, 0o600); err != nil {
+	block := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: p.authority.cert.Raw})
+	if err := os.WriteFile(filepath.Join(p.dir, "authority.pem"), block, 0o600); err != nil {
 		return err
 	}
-	args := append([]string{"run", "--config", "hotline-proxy.yaml", "--trust-file", "issuer.pem"}, flags...)
+	args := append([]string{"run", "--config", "hotline-proxy.yaml", "--trust-file", "authority.pem"}, flags...)
 	if !slices.Contains(flags, "--drain-delay") {
 		// Scenarios about other things stop at once, not after the
 		// usual wait for Kubernetes.
@@ -705,10 +705,10 @@ func (p *program) startVendors() {
 	p.vendor = &vendor{host: "localhost"}
 	trusted := httptest.NewUnstartedServer(p.vendor.record("https", ""))
 	trusted.EnableHTTP2 = true
-	trusted.TLS = &tls.Config{Certificates: []tls.Certificate{p.issuer.leaf("localhost", time.Now().Add(24*time.Hour), false)}}
+	trusted.TLS = &tls.Config{Certificates: []tls.Certificate{p.authority.leaf("localhost", time.Now().Add(24*time.Hour), false)}}
 	trusted.StartTLS()
 	untrusted := httptest.NewUnstartedServer(p.vendor.record("https", ""))
-	untrusted.TLS = &tls.Config{Certificates: []tls.Certificate{p.issuer.leaf("localhost", time.Now().Add(24*time.Hour), true)}}
+	untrusted.TLS = &tls.Config{Certificates: []tls.Certificate{p.authority.leaf("localhost", time.Now().Add(24*time.Hour), true)}}
 	untrusted.StartTLS()
 	p.vendor.servers = append(p.vendor.servers, trusted, untrusted)
 	p.vendorURL = "https://localhost:" + port(trusted)
@@ -731,7 +731,7 @@ func (p *program) config(validateOnly bool) string {
 	_ = os.WriteFile(filepath.Join(p.dir, "specs", "test-vendor.yaml"), []byte(testVendorSpec), 0o600)
 	listenTLS, certs := "", ""
 	if p.tls {
-		cert := p.issuer.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		cert := p.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		_ = os.MkdirAll(filepath.Join(p.dir, "tls"), 0o750)
 		_ = os.WriteFile(filepath.Join(p.dir, "tls", "cert.pem"), []byte(certPEM(cert)), 0o600)
 		_ = os.WriteFile(filepath.Join(p.dir, "tls", "key.pem"), []byte(keyPEM(cert)), 0o600)
@@ -740,8 +740,8 @@ func (p *program) config(validateOnly bool) string {
 	}
 	if p.interception != nil {
 		_ = os.MkdirAll(filepath.Join(p.dir, "ca"), 0o750)
-		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(issuerCertPEM(p.interception)), 0o600)
-		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(issuerKeyPEM(p.interception)), 0o600)
+		_ = os.WriteFile(filepath.Join(p.dir, "ca", "cert.pem"), []byte(authorityCertPEM(p.interception)), 0o600)
+		_ = os.WriteFile(filepath.Join(p.dir, "ca", "key.pem"), []byte(authorityKeyPEM(p.interception)), 0o600)
 		if p.redirect {
 			listenTLS += fmt.Sprintf("  intercept:\n    address: %q\n    transparent: { cert: customer, integration: test-shop }\n", "tcp://"+p.interceptAt)
 		} else {
@@ -1001,10 +1001,10 @@ func goCase2(proxyAddr, target, id string) (*http.Response, error) {
 	return t.RoundTrip(paymentRequest(target))
 }
 
-// appTLS is how an app that trusts the test issuer opens TLS to the
+// appTLS is how an app that trusts the test certificate authority opens TLS to the
 // program, by its name hotline-proxy.
 func (p *program) appTLS() *tls.Config {
-	return &tls.Config{RootCAs: p.issuer.pool, ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
+	return &tls.Config{RootCAs: p.authority.pool, ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
 }
 
 // goCase4 sends "POST https://… HTTP/1.1" inside TLS to the proxy, the same
@@ -1024,12 +1024,12 @@ func goCase4(proxyAddr, target, id string, appTLS *tls.Config) (*http.Response, 
 // goConnect calls the vendor's own https address through the standard
 // proxy setting, as HTTPS_PROXY does: Go sends CONNECT with the ID from the
 // proxy address, then sets up TLS with the "vendor" inside the tunnel. The
-// app trusts the interception issuer, and the test issuer for the proxy's
+// app trusts the interception certificate authority, and the test certificate authority for the proxy's
 // own name. Like Go's default client, it offers HTTP/2 everywhere.
 func (p *program) goConnect(proxyScheme, target, id string) (*http.Response, error) {
 	_, proxyPort, _ := net.SplitHostPort(p.proxyAddr)
 	roots := p.interception.pool.Clone()
-	roots.AddCert(p.issuer.cert)
+	roots.AddCert(p.authority.cert)
 	t := &http.Transport{
 		Proxy: http.ProxyURL(&url.URL{Scheme: proxyScheme, Host: "hotline-proxy:" + proxyPort, User: url.UserPassword(id, "x")}),
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -1144,7 +1144,7 @@ func (p *program) goRedirected() (*http.Response, error) {
 		_, _ = firewall(append([]string{"-t", "nat", "-D", "OUTPUT"}, rule...)...)
 	})
 	roots := p.interception.pool.Clone()
-	roots.AddCert(p.issuer.cert)
+	roots.AddCert(p.authority.cert)
 	t := &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(redirectDestination, vendorPort))

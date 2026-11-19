@@ -9,8 +9,8 @@ Feature: A relayed tunnel stops each direction on its own
   stream, so when the vendor stops first the tunnel ends.
 
   Background:
-    Given an interception issuer named customer in certs, which the connect part picks
-    And the capture listener is a socket file, whose issuer is customer too
+    Given an interception certificate authority named customer in certs, which the connect part picks
+    And the capture listener is a socket file, whose certificate authority is customer too
     And the connect part lists pinned.example.com in passthrough
     And the capture listener lists pinned.example.com in passthrough
 

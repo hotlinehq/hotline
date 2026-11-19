@@ -141,7 +141,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 	flags := flag.NewFlagSet("hotline-proxy "+command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "the hotline-proxy.yaml file (required)")
-	trustFile := flags.String("trust-file", "", "a PEM file of extra trusted issuers for vendor certificates, on top of the system's own")
+	trustFile := flags.String("trust-file", "", "a PEM file of extra trusted certificate authorities for vendor certificates, on top of the system's own")
 	level := slog.LevelInfo
 	flags.TextVar(&level, "log-level", slog.LevelInfo, "the lowest level logged: debug, info, warn or error")
 	shutdownTimeout := flags.Duration("shutdown-timeout", 25*time.Second, "how long a stop may take (run only)")
@@ -331,7 +331,7 @@ func watch(p *proxy.Proxy, signals, reloads <-chan os.Signal) os.Signal {
 	}
 }
 
-// trustPool is the system's trusted issuers plus those in the trust file,
+// trustPool is the system's trusted certificate authorities plus those in the trust file,
 // if there is one.
 func trustPool(path string) (*x509.CertPool, error) {
 	pool, poolErr := x509.SystemCertPool()

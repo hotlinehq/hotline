@@ -69,7 +69,7 @@ func (o *own) observe(p *Proxy) {
 			"a restart to take effect, else 0."))
 	notAfter, _ := o.meter.Int64ObservableGauge("hotline.certificate.not_after", metric.WithUnit("s"),
 		metric.WithDescription("When a certificate of the proxy's own expires, in seconds since 1970, by where it is used: "+
-			"apps.tls is the tls certificate of the listener apps, apps.connect the issuer of its CONNECT tunnels, "+
+			"apps.tls is the tls certificate of the listener apps, apps.connect the certificate authority of its CONNECT tunnels, "+
 			"admin.tls the admin port's. Once it expires, apps stop trusting the proxy."))
 	memory, _ := o.meter.Int64ObservableUpDownCounter("hotline.spec_check.queue.memory.usage", metric.WithUnit("By"),
 		metric.WithDescription("Memory the bodies of spec checks waiting for a worker hold now. "+

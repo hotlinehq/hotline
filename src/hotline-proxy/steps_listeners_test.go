@@ -87,9 +87,9 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the certs are:$`, func(doc *godog.DocString) error {
-		w.issuersSection = "certs:\n"
+		w.certEntries = "certs:\n"
 		for _, line := range strings.Split(doc.Content, "\n") {
-			w.issuersSection += "  " + line + "\n"
+			w.certEntries += "  " + line + "\n"
 		}
 		return nil
 	})
@@ -102,7 +102,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^an app that trusts the interception issuer (?:opens|has opened) TLS to the (socket )?listener (\S+) asking for (?:the name (\S+)|no name)$`, func(socket, listener, name string) error {
+	sc.Step(`^an app that trusts the interception certificate authority (?:opens|has opened) TLS to the (socket )?listener (\S+) asking for (?:the name (\S+)|no name)$`, func(socket, listener, name string) error {
 		return w.through(listener, func() error {
 			roots := x509.NewCertPool()
 			roots.AddCert(w.interception.cert)
@@ -144,7 +144,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 			return w.openTLS()
 		})
 	})
-	sc.Step(`^the app sees a certificate for the local address 127.0.0.1 signed by the interception issuer$`, func() error {
+	sc.Step(`^the app sees a certificate for the local address 127.0.0.1 signed by the interception certificate authority$`, func() error {
 		if w.tunnelErr != nil {
 			return failf("TLS with the listener failed: %v", w.tunnelErr)
 		}
@@ -154,7 +154,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return leaf.CheckSignatureFrom(w.interception.cert)
 	})
-	sc.Step(`^the app sees a certificate for the name localhost signed by the interception issuer$`, func() error {
+	sc.Step(`^the app sees a certificate for the name localhost signed by the interception certificate authority$`, func() error {
 		if w.tunnelErr != nil {
 			return failf("TLS with the listener failed: %v", w.tunnelErr)
 		}
@@ -201,7 +201,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the capture listener has protocol tcp and no cert$`, func() error {
 		w.captureFile = w.dir + "/capture.sock"
-		w.captureProtocol, w.captureIssuer = "    protocol: tcp\n", " "
+		w.captureProtocol, w.captureAuthority = "    protocol: tcp\n", " "
 		return nil
 	})
 	sc.Step(`^the admin port has tls: \{ cert: (\S+) \}$`, func(cert string) error {

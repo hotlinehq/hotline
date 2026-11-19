@@ -24,7 +24,7 @@ var errProxyClosed = errors.New("the proxy closed the connection")
 // writes.
 type interceptConf struct {
 	address     string
-	issuer      string
+	authority   string
 	integration string
 	passthrough []string
 	relay       []string
@@ -49,8 +49,8 @@ func (w *world) interceptSection() string {
 		fmt.Fprintf(&b, "    protocol: %s\n", c.protocol)
 	}
 	b.WriteString("    transparent:\n")
-	if c.without != "issuer" {
-		fmt.Fprintf(&b, "      cert: %s\n", c.issuer)
+	if c.without != "cert" {
+		fmt.Fprintf(&b, "      cert: %s\n", c.authority)
 	}
 	if c.integration != "" {
 		fmt.Fprintf(&b, "      integration: %s\n", c.integration)
@@ -74,25 +74,25 @@ func yamlList(names []string) string {
 }
 
 func interceptSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^an issuer named customer in certs$`, func() error {
-		w.useIssuer(newIssuer())
+	sc.Step(`^a certificate authority named customer in certs$`, func() error {
+		w.useAuthority(newAuthority())
 		return nil
 	})
 	sc.Step(`^the transparent listener picks it(?: with integration "([^"]*)")?$`, func(id string) error {
-		w.intercept = &interceptConf{issuer: "customer", integration: id}
+		w.intercept = &interceptConf{authority: "customer", integration: id}
 		return nil
 	})
-	sc.Step(`^the connect part picks the issuer named customer$`, func() error {
+	sc.Step(`^the connect part picks the certificate authority named customer$`, func() error {
 		w.listenConnect = "  connect: { cert: customer }\n"
 		return nil
 	})
-	sc.Step(`^a second issuer named other, which the transparent listener picks$`, func() error {
-		second := newIssuer()
+	sc.Step(`^a second certificate authority named other, which the transparent listener picks$`, func() error {
+		second := newAuthority()
 		w.second = second
-		w.writeFile("ca/other-cert.pem", issuerCertPEM(second))
-		w.writeFile("ca/other-key.pem", issuerKeyPEM(second))
-		w.issuersSection += "  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
-		w.intercept = &interceptConf{issuer: "other"}
+		w.writeFile("ca/other-cert.pem", authorityCertPEM(second))
+		w.writeFile("ca/other-key.pem", authorityKeyPEM(second))
+		w.certEntries += "  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
+		w.intercept = &interceptConf{authority: "other"}
 		w.tunnelRoots.AddCert(second.cert)
 		return nil
 	})
@@ -154,7 +154,7 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the app sends its call with Proxy-Authorization for (\S+)$`, func(id string) error {
 		return w.callInTunnel("Host: "+w.interceptHost, basic(id+":x"))
 	})
-	sc.Step(`^the app sees a certificate for the IP (\S+) signed by the interception issuer$`, func(host string) error {
+	sc.Step(`^the app sees a certificate for the IP (\S+) signed by the interception certificate authority$`, func(host string) error {
 		if w.tunnelErr != nil {
 			return failf("TLS with the listener failed: %v", w.tunnelErr)
 		}
@@ -199,12 +199,12 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the vendor's own certificate reaches the app, not one from the interception issuer$`, func() error {
+	sc.Step(`^the vendor's own certificate reaches the app, not one from the interception certificate authority$`, func() error {
 		if w.tunnelErr != nil {
 			return failf("TLS with the vendor failed: %v", w.tunnelErr)
 		}
 		leaf := w.tunnelCerts[len(w.tunnelCerts)-1]
-		if err := leaf.CheckSignatureFrom(w.issuer.cert); err != nil {
+		if err := leaf.CheckSignatureFrom(w.authority.cert); err != nil {
 			return failf("the certificate is not the vendor's: %v", err)
 		}
 		return nil
@@ -328,44 +328,44 @@ func interceptSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^another program listens on the transparent listener address$`, func() error {
 		l := listenLocal()
 		w.listeners = append(w.listeners, l)
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: l.Addr().String(), issuer: "customer"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: l.Addr().String(), authority: "customer"}
 		w.busy = w.intercept.address
 		return nil
 	})
 	sc.Step(`^the transparent listener is added$`, func() error {
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "customer"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: freePort(), authority: "customer"}
 		return nil
 	})
 	sc.Step(`^the transparent listener lists an ech.relay name that is not a host name$`, func() error {
 		w.problem = `ech.relay "a/b" must be a host name`
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "customer", relay: []string{"a/b"}}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: freePort(), authority: "customer", relay: []string{"a/b"}}
 		return nil
 	})
 	sc.Step(`^the transparent listener names a cert that is not in certs$`, func() error {
 		w.problem = "listener intercept: transparent names the cert gone, which is not in certs"
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "gone"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: freePort(), authority: "gone"}
 		return nil
 	})
 	sc.Step(`^the transparent listener names no cert$`, func() error {
 		w.problem = "listener intercept: transparent needs a cert"
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "customer", without: "issuer"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: freePort(), authority: "customer", without: "cert"}
 		return nil
 	})
 	sc.Step(`^the transparent listener has no address$`, func() error {
 		w.problem = "listener intercept needs an address"
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{issuer: "customer", without: "address"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{authority: "customer", without: "address"}
 		return nil
 	})
 	sc.Step(`^the transparent listener lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
 		w.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{address: freePort(), issuer: "customer", passthrough: []string{"api.*.com"}}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{address: freePort(), authority: "customer", passthrough: []string{"api.*.com"}}
 		return nil
 	})
 }
@@ -424,7 +424,7 @@ func (w *world) interceptConnect(host, outer string) error {
 	w.tunnels = append(w.tunnels, conn)
 	roots := w.tunnelRoots.Clone()
 	// A relayed connection shows the vendor's own certificate.
-	roots.AddCert(w.issuer.cert)
+	roots.AddCert(w.authority.cert)
 	config := &tls.Config{RootCAs: roots, ServerName: host, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12}
 	if outer != "" {
 		config.MinVersion = tls.VersionTLS13

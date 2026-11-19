@@ -152,8 +152,8 @@ func clientHello(host string) []byte {
 // capture socket file: the TLS hello, or whatever stands in its place.
 func FuzzFirstBytes(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
-		w.useIssuer(newIssuer())
-		w.intercept = &interceptConf{issuer: "customer"}
+		w.useAuthority(newAuthority())
+		w.intercept = &interceptConf{authority: "customer"}
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 	})
 	f.Add(clientHello("api.talon.one"))
@@ -172,7 +172,7 @@ func FuzzFirstBytes(f *testing.F) {
 // Host, Proxy-Authorization and the rest, CONNECT included.
 func FuzzRequest(f *testing.F) {
 	w := fuzzWorld(f, func(w *world) {
-		w.useIssuer(newIssuer())
+		w.useAuthority(newAuthority())
 		w.listenConnect = "  connect: { cert: customer }\n"
 	})
 	login := basic("talon-shop-a:x")

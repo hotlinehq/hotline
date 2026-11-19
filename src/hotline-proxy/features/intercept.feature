@@ -3,7 +3,7 @@ Feature: The intercept ingress
   machine sends it to the proxy's transparent listener port, and the program
   never knows. There is no CONNECT, so the proxy reads the vendor's name
   from the first message of the TLS handshake (the site name, called the
-  SNI), shows a certificate for it signed by the customer's issuer, and
+  SNI), shows a certificate for it signed by the customer's certificate authority, and
   handles each call inside like any other call, with hotline.ingress
   intercept (Peter, 2026-11-08).
 
@@ -12,9 +12,9 @@ Feature: The intercept ingress
   handshake, so the test app does that.
 
   Background:
-    Given an issuer named customer in certs
+    Given a certificate authority named customer in certs
     And the transparent listener picks it with integration "ci-lint"
-    And an app that trusts the interception issuer
+    And an app that trusts the interception certificate authority
 
   Rule: Calls on the listener are handled like any other call
 
@@ -26,7 +26,7 @@ Feature: The intercept ingress
 
     Scenario: The certificate names the site in the handshake
       When the app connects to the listener naming api.stripe.com in the handshake
-      Then the app sees a certificate for api.stripe.com signed by the interception issuer
+      Then the app sees a certificate for api.stripe.com signed by the interception certificate authority
       And it is valid for 24 hours
 
     Scenario: A host's certificate is made once and reused
@@ -58,19 +58,19 @@ Feature: The intercept ingress
       Then the record says hotline.ingress transparent and ID ci-lint
       And the test vendor never saw Proxy-Authorization
 
-    Scenario: The ingress has its own issuer
-      Given the connect part picks the issuer named customer
-      And a second issuer named other, which the transparent listener picks
+    Scenario: The ingress has its own certificate authority
+      Given the connect part picks the certificate authority named customer
+      And a second certificate authority named other, which the transparent listener picks
       When the app opens a tunnel to api.stripe.com:443 with CONNECT
       And the app connects to the listener naming api.stripe.com in the handshake
-      Then the app sees a certificate for api.stripe.com signed by the second issuer
+      Then the app sees a certificate for api.stripe.com signed by the second certificate authority
 
   Rule: A handshake with no site name uses the address the program called
 
     Scenario: A call by IP address is intercepted with the IP as host
       Given the original destination of the connection is the address of api.talon.one
       When the app connects to the listener with no name in the handshake, calling the address of api.talon.one
-      Then the app sees a certificate for the IP api.talon.one signed by the interception issuer
+      Then the app sees a certificate for the IP api.talon.one signed by the interception certificate authority
       When the app sends its call
       Then the proxy connected to the address of api.talon.one
       And the record says hotline.ingress transparent and ID ci-lint
@@ -115,7 +115,7 @@ Feature: The intercept ingress
       And the original destination of the connection is 192.0.2.99:443
       When the app connects to the listener naming <host> in the handshake
       Then the proxy dialed <host> by its name, never the address the app chose
-      And the vendor's own certificate reaches the app, not one from the interception issuer
+      And the vendor's own certificate reaches the app, not one from the interception certificate authority
       When the app closes its connections
       Then the intercept record has hotline.ingress transparent, server.address <host>, hotline.intercept.mode passthrough and hotline.intercept.reason passthrough
 
@@ -127,7 +127,7 @@ Feature: The intercept ingress
     Scenario: A host that is not listed is still intercepted
       Given the transparent listener lists pinned.example.com in passthrough
       When the app connects to the listener naming api.talon.one in the handshake
-      Then the app sees a certificate for api.talon.one signed by the interception issuer
+      Then the app sees a certificate for api.talon.one signed by the interception certificate authority
 
     # A connection reads its listener's settings from the config it loaded,
     # so it never mixes a new listener with an old config (Peter,
@@ -137,12 +137,12 @@ Feature: The intercept ingress
       When the config file adds pinned.example.com to the transparent listener's passthrough
       And the proxy checks its files
       And the app connects to the listener naming pinned.example.com in the handshake
-      Then the vendor's own certificate reaches the app, not one from the interception issuer
+      Then the vendor's own certificate reaches the app, not one from the interception certificate authority
 
   Rule: Connections that cannot be intercepted are recorded
 
-    Scenario: An app that does not trust the issuer
-      Given an app that does not trust the interception issuer
+    Scenario: An app that does not trust the certificate authority
+      Given an app that does not trust the interception certificate authority
       When the app connects to the listener naming api.talon.one in the handshake
       Then TLS inside the tunnel fails to set up
       And nothing is sent to any vendor
@@ -223,16 +223,16 @@ Feature: The intercept ingress
       And the proxy checks its files
       And the app connects to the listener naming api.stripe.com in the handshake
       Then the proxy logs a warning that listener intercept needs a restart
-      And the app sees a certificate for api.stripe.com signed by the interception issuer
+      And the app sees a certificate for api.stripe.com signed by the interception certificate authority
 
-  Rule: The listener and its issuer
+  Rule: The listener and its certificate authority
 
-    Scenario: A renewed issuer is used without a restart
+    Scenario: A renewed certificate authority is used without a restart
       Given the app has connected to the listener naming api.stripe.com in the handshake
-      When the files of the issuer named customer are replaced with a second issuer
+      When the files of the certificate authority named customer are replaced with a second certificate authority
       And the proxy checks its files
       And the app connects to the listener naming api.stripe.com in the handshake
-      Then the app sees a certificate for api.stripe.com signed by the second issuer
+      Then the app sees a certificate for api.stripe.com signed by the second certificate authority
 
     Scenario: The address is already taken
       Given another program listens on the transparent listener address

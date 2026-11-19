@@ -103,24 +103,24 @@ Feature: Records a third party can trust
       And it has hotline.request.body.hash and hotline.response.body.hash
 
     Scenario: A tunnel relayed untouched is in the ledger, without body hashes
-      Given an interception issuer named customer in certs, which the connect part picks
-      And an app that trusts the interception issuer
+      Given an interception certificate authority named customer in certs, which the connect part picks
+      And an app that trusts the interception certificate authority
       And the connect part lists *.example.com in passthrough
-      And the app also trusts the vendors' own issuer
+      And the app also trusts the vendors' own certificate authority
       When the app opens a tunnel to pinned.example.com:443
       And the app closes its connections
       Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
       And the record has no hotline.request.body.hash or hotline.response.body.hash
 
     Scenario: A failed TLS handshake is in the ledger, without body hashes
-      Given an interception issuer named customer in certs, which the connect part picks
-      And an app that does not trust the interception issuer
+      Given an interception certificate authority named customer in certs, which the connect part picks
+      And an app that does not trust the interception certificate authority
       When the app opens a tunnel to api.talon.one:443 as integration talon-shop-a
       Then the record has hotline.record.hash, hotline.batch.id and hotline.batch.index
       And the record has no hotline.request.body.hash or hotline.response.body.hash
 
     Scenario: A connection a tcp listener relays is in the ledger, without body hashes
-      Given an issuer named customer in certs
+      Given a certificate authority named customer in certs
       And pinned.example.com on port 6379 answers "+PONG" to what it gets
       And the original destination of the connection is 192.0.2.250:6379
       And the listeners are:

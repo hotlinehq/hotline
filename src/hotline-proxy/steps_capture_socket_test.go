@@ -18,7 +18,7 @@ import (
 // captureSocketSteps are the steps about the capture listener, the socket file
 // the capture extension sends its CONNECT to (Peter, 2026-11-12).
 func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the capture listener is a socket file, whose issuer is customer too$`, func() error {
+	sc.Step(`^the capture listener is a socket file, whose certificate authority is customer too$`, func() error {
 		w.captureFile = filepath.Join(w.dir, "capture.sock")
 		return nil
 	})
@@ -96,9 +96,9 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the capture listener (names no cert|names a cert that is not in certs|lists a passthrough pattern that is not a name|is a path of 120 bytes|is a relative path|is ~/hotline/capture.sock)$`, func(setting string) error {
 		switch setting {
 		case "names no cert":
-			w.captureIssuer = " "
+			w.captureAuthority = " "
 		case "names a cert that is not in certs":
-			w.captureIssuer = "cert: gone, "
+			w.captureAuthority = "cert: gone, "
 		case "lists a passthrough pattern that is not a name":
 			w.capturePassthrough = []string{"api.*.com"}
 		case "is a path of 120 bytes":

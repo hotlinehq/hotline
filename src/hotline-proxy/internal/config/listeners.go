@@ -61,11 +61,11 @@ type ListenerTLS struct {
 	Sign bool
 }
 
-// Connect is the CONNECT part of a listener: the issuer that signs the
+// Connect is the CONNECT part of a listener: the certificate authority that signs the
 // certificate shown for each vendor host inside a tunnel, and the sites
 // relayed untouched.
 type Connect struct {
-	Issuer      *TLS
+	Authority   *TLS
 	Passthrough Passthrough
 }
 
@@ -359,7 +359,7 @@ func (l *loader) listener(label, name string, f *listenerFile, certs map[string]
 	if hasConnect {
 		l.signs(label+": connect", connectF.Mode)
 		li.Connect = &Connect{
-			Issuer:      l.use(label+": connect", connectF.Cert, f.Cert, true, certs),
+			Authority:   l.use(label+": connect", connectF.Cert, f.Cert, true, certs),
 			Passthrough: l.passthrough(label+": connect", connectF.Passthrough),
 		}
 	}
@@ -376,7 +376,7 @@ func (l *loader) transparent(label string, f interceptFile, listenerCert string,
 	l.signs(label, f.Mode)
 	i := &Intercept{
 		Integration: f.Integration,
-		Issuer:      l.use(label, f.Cert, listenerCert, true, certs),
+		Authority:   l.use(label, f.Cert, listenerCert, true, certs),
 		Passthrough: l.passthrough(label, f.Passthrough),
 	}
 	for _, name := range f.ECH.Relay {
@@ -390,7 +390,7 @@ func (l *loader) transparent(label string, f interceptFile, listenerCert string,
 }
 
 // capture reads a capture part: the ports read as calls, 80 and 443 when
-// left out, the issuer, and the sites relayed untouched.
+// left out, the certificate authority, and the sites relayed untouched.
 func (l *loader) capture(label string, f captureFile, listenerCert string, certs map[string]*TLS) *Capture {
 	l.signs(label, f.Mode)
 	ports := []int{80, 443}
@@ -405,7 +405,7 @@ func (l *loader) capture(label string, f captureFile, listenerCert string, certs
 		read[strconv.Itoa(port)] = true
 	}
 	return &Capture{
-		Issuer:      l.use(label, f.Cert, listenerCert, true, certs),
+		Authority:   l.use(label, f.Cert, listenerCert, true, certs),
 		Passthrough: l.passthrough(label, f.Passthrough),
 		ports:       read,
 	}

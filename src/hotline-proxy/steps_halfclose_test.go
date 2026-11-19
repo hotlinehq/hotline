@@ -113,7 +113,7 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 // startTalker makes host a talker on port 443, which runs talk on the one
 // connection it takes, over TLS.
 func (w *world) startTalker(host string, talk func(c *tls.Conn, got chan<- string)) {
-	cert := w.issuer.leaf(host, time.Now().Add(24*time.Hour), false)
+	cert := w.authority.leaf(host, time.Now().Add(24*time.Hour), false)
 	w.startPlainTalker(host, "443", func(raw net.Conn, got chan<- string) {
 		c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		defer func() { _ = c.Close() }()
@@ -177,7 +177,7 @@ func (w *world) relayedTunnel(kind, host string) (*tls.Conn, error) {
 		return nil, failf("the proxy answered CONNECT with %d", w.resp.StatusCode)
 	}
 	roots := x509.NewCertPool()
-	roots.AddCert(w.issuer.cert)
+	roots.AddCert(w.authority.cert)
 	app := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: host, MinVersion: tls.VersionTLS12})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
