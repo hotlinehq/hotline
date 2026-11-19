@@ -35,12 +35,12 @@ _Avoid_: unknown, default integration, anonymous
 ## Calls and how apps reach the proxy
 
 **Call**:
-One request from an app to a vendor and the vendor's reply, as it passes through the proxy.
-_Avoid_: request (that is only the app's half), transaction, exchange (the name of the spec package's type)
+One request from an app to a vendor and the vendor's response, as it passes through the proxy.
+_Avoid_: request (that is only the app's half; the vendor's half is the response), transaction, exchange (the name of the spec package's type)
 
-**Reply**:
-The vendor's answer to a call. OpenTelemetry attribute names keep their standard word, `response`.
-_Avoid_: response (in prose), answer
+**Response**:
+The vendor's answer to a call, the same word HTTP, Go, OpenTelemetry and OpenAPI use.
+_Avoid_: reply, answer
 
 **Ingress**:
 A way an app reaches the proxy. There are six: forward proxy, vendor URL in path, Host header, CONNECT, transparent, and capture.
@@ -147,11 +147,11 @@ For vendors that send every call to the same path, such as AWS's older APIs, the
 _Avoid_: operation, command
 
 **Spec check**:
-Checking one side of a call, the request or the reply, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, reply headers, reply body.
+Checking one side of a call, the request or the response, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, response headers, response body.
 _Avoid_: validation (used for the config, by `hotline-proxy validate`), verification (used for the ledger), schema check
 
 **Body copy**:
-The copy of a request or reply body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
+The copy of a request or response body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
 _Avoid_: buffer, captured body
 
 **Spec check line**:
