@@ -64,7 +64,7 @@ _Avoid_: tunnel ingress, HTTPS proxy
 
 **Transparent ingress**:
 Connections that a firewall or network rule sends to the proxy without the app knowing, which carry no `CONNECT`. Handled on a listener with the `transparent` part.
-_Avoid_: intercept ingress, `listen.intercept` (the old name), transparent redirect (the older plain-HTTP form of it)
+_Avoid_: intercept ingress, `listen.intercept` and the Go type `Intercept` (the old names), transparent redirect (the older plain-HTTP form of it)
 
 **Capture ingress**:
 Connections that the macOS helper, Hotline Capture, picks out of chosen Mac apps and hands to the proxy as a `CONNECT` over a socket file, with the capture headers. Handled on a listener with the `capture` part.
