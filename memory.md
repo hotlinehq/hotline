@@ -5,6 +5,7 @@ Decisions already made, so a new session does not have to dig through old thread
 ## Where the rules live
 
 - How to test and the TDD loop: [CLAUDE.md](CLAUDE.md).
+- The proxy's own words, each with a short definition and the words to avoid: [GLOSSARY.md](GLOSSARY.md). Check new names against it (Peter, 2026-11-19).
 - How to write, test and review proxy code in Go: the [`hotline-go-proxy` skill](.claude/skills/hotline-go-proxy/SKILL.md). It covers the system under test, testing only through the proxy's ways in and out, and no test-only code.
 - Describe each problem in plain words first, with the fix and its tests, and build only after Peter approves (Peter, 2026-11-02).
 - Ask Peter one question at a time, each with context, a pick and a tradeoff table (must rows first, a "Flips if" line for a close call), as decomplect's Interview mode does: [CLAUDE.md](CLAUDE.md) (Peter, 2026-11-18).
