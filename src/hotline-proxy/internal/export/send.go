@@ -71,7 +71,7 @@ type httpTransport struct {
 	urls    [2]string
 	headers map[string]string
 	agent   string
-	// gzip says the destination gzips: each sender then zips with its
+	// gzip says the exporter gzips: each sender then zips with its
 	// own zipper, from newZipper.
 	gzip bool
 }
@@ -85,7 +85,7 @@ type zipper struct {
 	w   *gzip.Writer
 }
 
-// newZipper is a zipper for one sender, or nil when the destination does
+// newZipper is a zipper for one sender, or nil when the exporter does
 // not gzip.
 func (t *httpTransport) newZipper() *zipper {
 	if !t.gzip {
@@ -119,7 +119,7 @@ func newHTTPTransport(e config.Exporter, tlsConfig *tls.Config, version string) 
 	return t
 }
 
-// httpClient is the HTTP client of one destination: HTTP/2 over TLS when
+// httpClient is the HTTP client of one exporter: HTTP/2 over TLS when
 // the collector offers it, and h2c to a plain endpoint when set.
 func httpClient(e config.Exporter, tlsConfig *tls.Config) *http.Client {
 	rt := &http.Transport{

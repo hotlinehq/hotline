@@ -64,7 +64,7 @@ func LineOf(c Call) []byte {
 }
 
 // TestTransport sends gzipped records to one collector over HTTP, like a
-// destination does.
+// exporter does.
 type TestTransport struct{ t *httpTransport }
 
 // NewTestTransport sends to the collector at rawURL, with gzip on.
@@ -74,7 +74,7 @@ func NewTestTransport(rawURL string) TestTransport {
 }
 
 // Sender is one more sender of records over the transport, like the record
-// queue or the ledger's batch line of a destination.
+// queue or the ledger's batch line of an exporter.
 func (t TestTransport) Sender() func(ctx context.Context, body []byte) error {
 	z := t.t.newZipper()
 	return func(ctx context.Context, body []byte) error {

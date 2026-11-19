@@ -14,7 +14,7 @@ import (
 )
 
 // own are the numbers the proxy keeps about itself, for the telemetry
-// destination: calls in flight, how long calls take, failed TLS setups with
+// exporter: calls in flight, how long calls take, failed TLS setups with
 // apps, config reloads and certificates. No number is split by
 // integration, vendor, host, URL or route, so they stay few however many
 // integrations a proxy serves (Peter, 2026-10-31). Each has a description

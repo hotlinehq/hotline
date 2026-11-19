@@ -9,7 +9,7 @@ From the WebSocket interview in the project thread. Requirements: `shop-assistan
 5. Each direction is hashed for the ledger, keyed with the session's trace and span ids, under `hotline.websocket.from_app.hash` and `hotline.websocket.from_vendor.hash`.
 6. A session still open when the proxy stops is ended and recorded within the stop's time.
 7. Who ended the session and its close code are left to milestone 2, read from the close message itself (Q10). The proxy can see only which connection closed first, which in a WebSocket is nearly always the vendor's.
-8. The sink tells a session record from a call record by `export.Call.Event`, empty for a call (Q14). Only a call counts in `hotline.requests`, and the console shows a session in two lines of its own. Revisit if a session record needs things a call never has inside the sink, such as its own queue; then a separate type.
+8. The exporters tell a session record from a call record by `export.Call.Event`, empty for a call (Q14). Only a call counts in `hotline.requests`, and the console shows a session in two lines of its own. Revisit if a session record needs things a call never has inside the sink, such as its own queue; then a separate type.
 9. The forwarder tells the handler when the `101` has reached the app, with the optional `forward.Switcher` (Q15; [forwarder.md](forwarder.md), item 8).
 10. Revisit if a WebSocket must be checked over HTTP/2, or plain `ws://` on the transparent listeners: both are left for later.
 

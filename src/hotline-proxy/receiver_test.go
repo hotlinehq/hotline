@@ -122,7 +122,7 @@ type receiverSetup struct {
 	h2c   bool
 }
 
-// receiver is a fake OTLP destination over HTTP on a local port.
+// receiver is a fake OTLP exporter over HTTP on a local port.
 type receiver struct {
 	httpServer *http.Server
 	// endpoint is how the config names the receiver.
@@ -542,7 +542,7 @@ func (r *receiver) got() ([]receivedRecord, []receivedCount) {
 
 func (r *receiver) stop() {
 	r.release()
-	// A receiver for a destination that is down never started a server.
+	// A receiver for an exporter that is down never started a server.
 	if r.httpServer != nil {
 		_ = r.httpServer.Close()
 	}

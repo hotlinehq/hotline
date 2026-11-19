@@ -8,8 +8,8 @@ info:
 actions:
   - target: $.components.schemas.SendEmailRequest
     update:
-      required: [FromEmailAddress, Destination]   # added to Content, which the spec needs already
-  - target: $.components.schemas.Destination
+      required: [FromEmailAddress, Exporter]   # added to Content, which the spec needs already
+  - target: $.components.schemas.Exporter
     update:
       required: [ToAddresses]
   - target: $.components.schemas.EmailAddress

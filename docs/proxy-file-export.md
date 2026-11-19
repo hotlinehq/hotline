@@ -85,4 +85,4 @@ The record is the same as every exporter gets, with the same `hotline.record.has
 - **Writing never slows a call.** The file exporter has its own queue, of at most 10 000 calls and `queueMemory` bytes. A full queue refuses the new call, which the usual warning line counts.
 - **A failed write** (a full disk) loses that batch, counted in the same warning, and the next write tries again. If the folder or the current file is deleted or moved away while the proxy runs, the next write makes them again.
 - **Changing a file exporter needs a restart,** as for every exporter ([proxy-config-reload.md](proxy-config-reload.md)); `content` and `maxBodySize` change on a reload.
-- The proxy's own numbers for the `telemetry` destination count each file exporter like any other, named by its folder.
+- The proxy's own numbers for the `telemetry` section count each file exporter like any other, named by its folder.

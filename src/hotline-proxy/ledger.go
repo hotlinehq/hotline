@@ -24,9 +24,9 @@ const keyLife = time.Hour
 // and its batch record holds the root of its records' tree, the root of
 // the batch before, and a signature with a key the proxy makes in memory.
 type book struct {
-	clock    Clock
-	sink     *export.Sink
-	instance string
+	clock     Clock
+	exporters *export.Exporters
+	instance  string
 	// run, when the config names the instance, is this run's own random id.
 	run     string
 	version string
@@ -72,9 +72,9 @@ type openBatch struct {
 	leaves     [][sha256.Size]byte
 }
 
-func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
+func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
-		clock: clock, sink: sink, instance: instanceID, version: version, config: current,
+		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current,
 		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, ended: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
@@ -88,7 +88,7 @@ func newBook(clock Clock, sink *export.Sink, cfg *config.Config, instanceID, ver
 
 // record hands a finished call to the exporters with its trace's hash, its
 // place in its integration's open batch and its own hash, and notes which
-// destinations dropped it. A full batch closes at once.
+// exporters dropped it. A full batch closes at once.
 //
 // The chain and the batch come from the config the call started with, not
 // the one in use now, so every record in a batch is of the config the
@@ -131,7 +131,7 @@ func (b *book) record(ctx context.Context, f finished) {
 	sum := b.hashes.Record(ledger.Record{Attrs: attrs, At: f.at, TraceID: traceID, SpanID: spanID})
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
-	b.sink.Call(ctx, export.Call{
+	b.exporters.Call(ctx, export.Call{
 		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
 		Ledger: export.Entry{Batch: open.id, Index: len(open.leaves), Hash: hash},
 	})
@@ -225,7 +225,7 @@ func (b *book) close(ch *chain, last bool) {
 		attrs = append(attrs, attribute.Bool("hotline.batch.last", true))
 	}
 	attrs = append(attrs, b.key.Sign(attrs))
-	b.sink.Batch(export.Batch{ID: open.id, At: b.clock.Now(), Attrs: attrs})
+	b.exporters.Batch(export.Batch{ID: open.id, At: b.clock.Now(), Attrs: attrs})
 	ch.previous = root
 	ch.sequence++
 }

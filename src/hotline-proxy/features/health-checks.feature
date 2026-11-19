@@ -4,7 +4,7 @@ Feature: Health checks on the admin port
   "is the process alive?", and /readyz, "should I send you calls?". A yes is
   200, a no is 503. The admin port listens only once the config is loaded
   and the proxy port listens, and /readyz says no from the first stop signal
-  on. A destination that is down never makes it say no. After the stop
+  on. An exporter that is down never makes it say no. After the stop
   signal the proxy keeps taking new calls for --drain-delay (5 seconds
   unless set), since Kubernetes needs a moment to stop sending calls to it.
   The admin port answers only these two paths, and its calls make no
@@ -16,7 +16,7 @@ Feature: Health checks on the admin port
     Then GET /livez on the admin port answers 200
     And GET /readyz on the admin port answers 200
 
-  Scenario: A destination that is down keeps the proxy ready
+  Scenario: An exporter that is down keeps the proxy ready
     Given a fake OTLP receiver that refuses connections
     And the hotline-proxy program runs with integration test-shop for the test vendor
     Then GET /readyz on the admin port answers 200

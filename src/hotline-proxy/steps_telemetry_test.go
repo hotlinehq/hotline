@@ -20,11 +20,11 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		w.telemetry = newReceiver()
 		return nil
 	})
-	sc.Step(`^the telemetry destination does not set metricInterval$`, func() error {
+	sc.Step(`^the telemetry section does not set metricInterval$`, func() error {
 		w.unsetOwnInterval = true
 		return nil
 	})
-	sc.Step(`^the telemetry destination sets (logInterval|traceInterval)$`, func(name string) error {
+	sc.Step(`^the telemetry section sets (logInterval|traceInterval)$`, func(name string) error {
 		w.telemetryExtra = "    " + name + ": 5s\n"
 		return nil
 	})
@@ -238,7 +238,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a product destination over HTTP that refuses every log export with 400$`, func() error {
+	sc.Step(`^a product exporter over HTTP that refuses every log export with 400$`, func() error {
 		w.receivers[0].stop()
 		w.receivers[0] = newReceiverWith(receiverSetup{})
 		for range 100 {
@@ -246,13 +246,13 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a product destination that is down$`, func() error {
+	sc.Step(`^a product exporter that is down$`, func() error {
 		w.receivers[0].stop()
 		// Nothing listens there yet.
 		w.receivers[0] = &receiver{endpoint: "http://" + freePort()}
 		return nil
 	})
-	sc.Step(`^the destination comes back and another call ends$`, func() error {
+	sc.Step(`^the exporter comes back and another call ends$`, func() error {
 		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(w.receivers[0].endpoint, "http://"))
 		if err != nil {
 			return err

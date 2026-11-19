@@ -15,10 +15,10 @@ import (
 // batchSize is how many records or spans one send carries at most.
 const batchSize = 512
 
-// queue holds the records or spans for one destination and sends them in
+// queue holds the records or spans for one exporter and sends them in
 // batches. When it is full, what is new is refused and counted, and what
 // waits is kept (Peter, 2026-11-09), so a call never waits for a
-// destination. The items wait in a ring: a list of fixed length that wraps
+// exporter. The items wait in a ring: a list of fixed length that wraps
 // around and is reused, so the queue never grows.
 type queue[T any] struct {
 	export   func(context.Context, []T) error
@@ -53,7 +53,7 @@ type queue[T any] struct {
 	// sends, since sends come one at a time.
 	batch []T
 	// crowded counts items refused by a full queue, failed those lost in a
-	// send the destination refused.
+	// send the exporter refused.
 	crowded drops
 	failed  drops
 	lastErr error
@@ -175,8 +175,8 @@ func (q *queue[T]) run() {
 }
 
 // send sends what is queued, in batches; all of it when flushing, else one
-// batch. A batch the destination refuses is lost and counted: the
-// destination has had its retries.
+// batch. A batch the exporter refuses is lost and counted: the
+// exporter has had its retries.
 func (q *queue[T]) send(ctx context.Context, all bool) error {
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
@@ -256,7 +256,7 @@ func (q *queue[T]) Shutdown(ctx context.Context) error {
 }
 
 // newItemQueue is the queue of one kind of written items for one
-// destination. A send writes the waiting items into one request, in a
+// exporter. A send writes the waiting items into one request, in a
 // buffer and a zipper the queue keeps, since its sends come one at a time.
 func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
 	var body []byte
@@ -265,7 +265,7 @@ func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeou
 		body = appendBatch(body[:0], resource, items)
 		return sendWithRetry(ctx, t, k, z, body, timeout)
 	}
-	// The destination closes the transport once both queues are done.
+	// The exporter closes the transport once both queues are done.
 	return newQueue(what, send, func(context.Context) error { return nil }, s)
 }
 

@@ -351,7 +351,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^an exporter with queueSize 3 whose destination is busy with the first record$`, func() error {
+	sc.Step(`^an exporter with queueSize 3 whose exporter is busy with the first record$`, func() error {
 		w.exporterExtra = []string{"      queueSize: 3\n"}
 		w.receivers[0].hold = make(chan struct{})
 		w.exportTimeout = time.Minute
@@ -374,7 +374,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		w.receivers[0].release()
 		return nil
 	})
-	sc.Step(`^the destination gets records 1, 2, 3 and 4$`, func() error {
+	sc.Step(`^the exporter gets records 1, 2, 3 and 4$`, func() error {
 		var got []string
 		for _, r := range w.records() {
 			got = append(got, sprint(r.attrs["url.full"]))
@@ -384,7 +384,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			"https://api.stripe.com/v1/payment_intents/pi_3", "https://api.stripe.com/v1/payment_intents/pi_4",
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
-			return failf("the destination got %v, want %v", got, want)
+			return failf("the exporter got %v, want %v", got, want)
 		}
 		return nil
 	})
@@ -400,10 +400,10 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the destination gets every span of the first call$`, func() error {
+	sc.Step(`^the exporter gets every span of the first call$`, func() error {
 		records, _ := w.receivers[0].got()
 		if len(records) != 2 {
-			return failf("the destination got %d records, want 2", len(records))
+			return failf("the exporter got %d records, want 2", len(records))
 		}
 		first := records[0].traceID
 		spans := w.receivers[0].spans()
@@ -414,7 +414,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			}
 		}
 		if len(ids) == 0 {
-			return failf("the destination got no span of the first call; it got %d spans", len(spans))
+			return failf("the exporter got no span of the first call; it got %d spans", len(spans))
 		}
 		for _, s := range spans {
 			if s.traceID != first {
@@ -431,12 +431,12 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		second := records[1].traceID
 		for _, s := range w.receivers[0].spans() {
 			if s.traceID == second {
-				return failf("the destination got span %q of the second call", s.name)
+				return failf("the exporter got span %q of the second call", s.name)
 			}
 		}
 		return nil
 	})
-	sc.Step(`^the proxy logs a warning that spans of 1 call were dropped for that destination$`, func() error {
+	sc.Step(`^the proxy logs a warning that spans of 1 call were dropped for that exporter$`, func() error {
 		for _, line := range strings.Split(w.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "spans") && strings.Contains(line, "calls=1") &&
 				strings.Contains(line, w.receivers[0].endpoint) {
@@ -445,13 +445,13 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return failf("no warning about the dropped call; the log is %s", w.logs.String())
 	})
-	sc.Step(`^the destination gets no span$`, func() error {
+	sc.Step(`^the exporter gets no span$`, func() error {
 		if spans := w.receivers[0].spans(); len(spans) != 0 {
-			return failf("the destination got %d spans", len(spans))
+			return failf("the exporter got %d spans", len(spans))
 		}
 		return nil
 	})
-	sc.Step(`^the proxy logs a warning that 1 record was dropped for that destination$`, func() error {
+	sc.Step(`^the proxy logs a warning that 1 record was dropped for that exporter$`, func() error {
 		for _, line := range strings.Split(w.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "dropped=1") &&
 				strings.Contains(line, w.receivers[0].endpoint) {

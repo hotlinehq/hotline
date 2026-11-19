@@ -18,7 +18,7 @@ import (
 )
 
 // Own sends the numbers the proxy keeps about itself to the telemetry
-// destination, and nowhere else. Without one they are not measured at all.
+// exporter, and nowhere else. Without one they are not measured at all.
 type Own struct {
 	provider *sdkmetric.MeterProvider
 	meter    metric.Meter
@@ -26,7 +26,7 @@ type Own struct {
 
 // NewOwn starts the pipeline of the proxy's own numbers, with the Go
 // runtime's among them. A metric telemetry.disable names is dropped before
-// it is measured. With no telemetry destination, nothing is measured.
+// it is measured. With no telemetry section, nothing is measured.
 func NewOwn(t *config.Telemetry, roots *x509.CertPool, service Service, timing Timing) *Own {
 	if t == nil {
 		return &Own{meter: noop.NewMeterProvider().Meter("hotline-proxy")}
@@ -65,9 +65,9 @@ func (o *Own) Shutdown(ctx context.Context) error {
 	return o.provider.Shutdown(ctx)
 }
 
-// destinationTLS trusts roots and the destination's own certificate authorities, and shows
+// exporterTLS trusts roots and the exporter's own certificate authorities, and shows
 // its client certificate, if any.
-func destinationTLS(e config.Exporter, roots *x509.CertPool) *tls.Config {
+func exporterTLS(e config.Exporter, roots *x509.CertPool) *tls.Config {
 	pool := roots.Clone()
 	pool.AppendCertsFromPEM(e.CAs)
 	c := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
@@ -96,16 +96,16 @@ func newSendStats(meter metric.Meter) sendStats {
 	return s
 }
 
-// observeDestinations sends, for every exporter, how many items wait in
+// observeExporters sends, for every exporter, how many items wait in
 // its queues and whether its last send worked.
-func observeDestinations(meter metric.Meter, destinations []destination, files []fileDestination) {
+func observeExporters(meter metric.Meter, exporters []exporter, files []fileExporter) {
 	size, _ := meter.Int64ObservableUpDownCounter("hotline.exporter.queue.size", metric.WithUnit("{item}"),
 		metric.WithDescription("Records or spans waiting to be sent to this exporter. "+
 			"A queue that keeps growing will soon drop items."))
 	up, _ := meter.Int64ObservableGauge("hotline.exporter.up",
 		metric.WithDescription("1 while sends to this exporter work, 0 from the first failed send until one works again."))
 	_, _ = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		for _, d := range destinations {
+		for _, d := range exporters {
 			waiting, _ := d.queue.fill()
 			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(d.queue.labels))
 			waiting, _ = d.spans.fill()
@@ -152,7 +152,7 @@ func (c countedMetrics) Export(ctx context.Context, rm *metricdata.ResourceMetri
 	n := 0
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			// Destinations get only the hotline.requests sum.
+			// Exporters get only the hotline.requests sum.
 			sum, _ := m.Data.(metricdata.Sum[int64])
 			n += len(sum.DataPoints)
 		}

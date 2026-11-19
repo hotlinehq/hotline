@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// waitingBatches is how many batch records wait for one destination at
+// waitingBatches is how many batch records wait for one exporter at
 // most. Past it the oldest is let go, and the next one sent says how many
 // were lost (Peter, 2026-11-16).
 const waitingBatches = 64
@@ -24,7 +24,7 @@ const batchRetry = time.Second
 const shownDropped = 1024
 
 // Batch is one ledger batch record: its id and its signed attributes, the
-// same for every destination. Each destination adds the records of the
+// same for every exporter. Each exporter adds the records of the
 // batch it dropped on its own.
 type Batch struct {
 	ID    string
@@ -32,23 +32,23 @@ type Batch struct {
 	Attrs []attribute.KeyValue
 }
 
-// Batch queues a batch record for every destination that keeps the
+// Batch queues a batch record for every exporter that keeps the
 // ledger. It never blocks and is never refused for a full queue: it waits
 // apart from the records, after them.
-func (s *Sink) Batch(b Batch) {
+func (s *Exporters) Batch(b Batch) {
 	for _, line := range s.batches {
 		line.add(b)
 	}
 }
 
-// batchDrops are the records of one batch a destination dropped: the
+// batchDrops are the records of one batch an exporter dropped: the
 // first shownDropped of them, and how many in all.
 type batchDrops struct {
 	shown []attribute.Value
 	count int
 }
 
-// own is what the destination adds to the batch's record: the records it
+// own is what the exporter adds to the batch's record: the records it
 // dropped, or only their count when there are too many to list.
 func (d *batchDrops) own() []attribute.KeyValue {
 	switch {
@@ -60,14 +60,14 @@ func (d *batchDrops) own() []attribute.KeyValue {
 	return []attribute.KeyValue{attribute.Slice("hotline.batch.dropped", d.shown...)}
 }
 
-// batchLine holds the batch records waiting for one destination and sends
+// batchLine holds the batch records waiting for one exporter and sends
 // them once the records queued before them are sent. A batch record that
 // cannot be sent waits and is tried again; it is never dropped for a full
 // queue.
 type batchLine struct {
 	name   string
 	logger *slog.Logger
-	// before sends the destination's waiting records, so a batch record
+	// before sends the exporter's waiting records, so a batch record
 	// follows its records.
 	before func(context.Context) error
 	send   func(context.Context, [][]byte) error
@@ -75,7 +75,7 @@ type batchLine struct {
 
 	mu      sync.Mutex
 	waiting []waitingBatch
-	// drops are the records the destination dropped, by the batch they
+	// drops are the records the exporter dropped, by the batch they
 	// belong to, until that batch's record is queued.
 	drops map[string]*batchDrops
 	// lost counts batch records let go since the last one sent.
@@ -101,7 +101,7 @@ func newBatchLine(name string, logger *slog.Logger, before func(context.Context)
 	return l
 }
 
-// dropped notes a record the destination dropped, for its batch's record.
+// dropped notes a record the exporter dropped, for its batch's record.
 func (l *batchLine) dropped(e Entry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -171,7 +171,7 @@ func (l *batchLine) flush(ctx context.Context) error {
 		}
 		items[i] = l.render(w.b, attrs)
 	}
-	// Records the destination refused are lost and counted by their own
+	// Records the exporter refused are lost and counted by their own
 	// queue; the batch records still go, after them.
 	_ = l.before(ctx)
 	if err := l.send(ctx, items); err != nil {

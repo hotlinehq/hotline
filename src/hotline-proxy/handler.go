@@ -41,7 +41,7 @@ type handler struct {
 	cfg       atomic.Pointer[config.Config]
 	clock     Clock
 	logger    *slog.Logger
-	sink      *export.Sink
+	exporters *export.Exporters
 	transport *http.Transport
 	// internal is the transport for calls that may reach internal IPs.
 	internal *http.Transport

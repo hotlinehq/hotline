@@ -207,14 +207,14 @@ Feature: The shop's AWS apis through the proxy
       And AWS answers 200 and the json body {"MessageId":"m-1"}
 
     Scenario: A whole email has no results
-      When the app sends AWS POST /v2/email/outbound-emails with the application/json body {"FromEmailAddress":"invoices@shop.example","Destination":{"ToAddresses":["success@simulator.amazonses.com"]},"Content":{"Raw":{"Data":"RnJvbTogaW52b2ljZXM="}}}
+      When the app sends AWS POST /v2/email/outbound-emails with the application/json body {"FromEmailAddress":"invoices@shop.example","Exporter":{"ToAddresses":["success@simulator.amazonses.com"]},"Content":{"Raw":{"Data":"RnJvbTogaW52b2ljZXM="}}}
       Then the record has url.template /v2/email/outbound-emails
       And the record has no request results
       And no record and no span holds success@simulator.amazonses.com or invoices@shop.example
 
     Scenario: A wrong address is reported, without the address
-      When the app sends AWS POST /v2/email/outbound-emails with the application/json body {"FromEmailAddress":"invoices@shop.example","Destination":{"ToAddresses":["not an address"]},"Content":{"Raw":{"Data":"RnJvbTogaW52b2ljZXM="}}}
-      Then the request results are body $.Destination.ToAddresses[0] format email
+      When the app sends AWS POST /v2/email/outbound-emails with the application/json body {"FromEmailAddress":"invoices@shop.example","Exporter":{"ToAddresses":["not an address"]},"Content":{"Raw":{"Data":"RnJvbTogaW52b2ljZXM="}}}
+      Then the request results are body $.Exporter.ToAddresses[0] format email
       And no result holds address
 
   Rule: The whole story goes through Hotline, each app as its own integration

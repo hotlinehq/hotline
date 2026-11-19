@@ -14,7 +14,7 @@ Decisions already made, so a new session does not have to dig through old thread
 - Every number in a pull request description, commit message or doc is well defined: say what was measured, over what (whole process or proxy only, per call or in total, allocated over time or held at once), how, and its unit (Peter, 2026-11-02).
 - Every `x-hotline-` mark in a vendor spec, with its use and an example: [docs/spec-marks.md](docs/spec-marks.md). A new mark is added only when a real example needs it, and listed there in the same pull request (Peter, 2026-11-01).
 - The proxy's spec and examples: `proxy-spec.md` and `proxy-example/` in the `hotline-strategic` repo.
-- What the proxy sends over OpenTelemetry, field by field: [docs/otel-export.md](docs/otel-export.md). Its own numbers, for the `telemetry` destination: [docs/proxy-telemetry.md](docs/proxy-telemetry.md).
+- What the proxy sends over OpenTelemetry, field by field: [docs/otel-export.md](docs/otel-export.md). Its own numbers, for the `telemetry` section: [docs/proxy-telemetry.md](docs/proxy-telemetry.md).
 
 ## Code layout
 

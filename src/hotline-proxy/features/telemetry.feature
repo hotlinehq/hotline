@@ -1,6 +1,6 @@
 Feature: The proxy's own telemetry
   The proxy sends numbers about itself as OpenTelemetry metrics to the
-  telemetry destination only, never mixed with the records of vendor calls:
+  telemetry section only, never mixed with the records of vendor calls:
   calls in flight, how long calls take, failed TLS setups with apps, each
   exporter, config reloads, certificates and the Go runtime: 14 metrics
   (Peter, 2026-11-01). Standard names where OpenTelemetry has one,
@@ -14,7 +14,7 @@ Feature: The proxy's own telemetry
   Background:
     Given a fake OTLP receiver for the proxy's own telemetry
 
-  Scenario: Own data goes only to the telemetry destination
+  Scenario: Own data goes only to the telemetry section
     When a call ends
     Then the telemetry receiver gets the metric http.server.request.duration
     And the telemetry receiver gets no log records
@@ -47,15 +47,15 @@ Feature: The proxy's own telemetry
 
   Scenario: The proxy's own numbers go out once a minute
     As with counts, unless telemetry.otlp.metricInterval says otherwise
-    (Peter, 2026-11-01). The telemetry destination gets only metrics, so a
+    (Peter, 2026-11-01). The telemetry section gets only metrics, so a
     logInterval or traceInterval there is ignored with a warning.
-    Given the telemetry destination does not set metricInterval
+    Given the telemetry section does not set metricInterval
     When a call ends
     Then the telemetry receiver gets no metric within a second
     And the telemetry receiver gets the metric http.server.request.duration once the proxy stops
 
   Scenario Outline: Log and trace intervals mean nothing for telemetry
-    Given the telemetry destination sets <setting>
+    Given the telemetry section sets <setting>
     Then the proxy logs a warning naming telemetry.otlp.<setting>
 
     Examples:
@@ -83,12 +83,12 @@ Feature: The proxy's own telemetry
     Then hotline.exporter.sent counts some for that exporter and hotline.signal count
 
   Scenario: Records dropped from a full queue are counted
-    Given an exporter with queueSize 3 whose destination is busy with the first record
+    Given an exporter with queueSize 3 whose exporter is busy with the first record
     When 4 more calls end
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason queue_full
 
   Scenario: Records lost in a refused send are counted
-    Given a product destination over HTTP that refuses every log export with 400
+    Given a product exporter over HTTP that refuses every log export with 400
     When a call ends
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason send_failed
 
@@ -97,10 +97,10 @@ Feature: The proxy's own telemetry
     Then hotline.exporter.up is 1 for that exporter
 
   Scenario: An exporter that is down shows as down, and up again once it works
-    Given a product destination that is down
+    Given a product exporter that is down
     When a call ends
     Then hotline.exporter.up turns 0 for that exporter
-    When the destination comes back and another call ends
+    When the exporter comes back and another call ends
     Then hotline.exporter.up turns 1 for that exporter
 
   Scenario: The config at start
@@ -232,7 +232,7 @@ Feature: The proxy's own telemetry
     Then the telemetry receiver gets hotline.app_tls.failures with unit "{connection}" and a description
 
   Scenario: Dropped items have their unit and a description
-    Given an exporter with queueSize 3 whose destination is busy with the first record
+    Given an exporter with queueSize 3 whose exporter is busy with the first record
     When 4 more calls end
     Then the telemetry receiver gets hotline.exporter.dropped with unit "{item}" and a description
 

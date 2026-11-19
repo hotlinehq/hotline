@@ -202,7 +202,7 @@
   <path d="M620,838 L604,838 L604,400 L660,400 L660,378" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
   <text x="672" y="396" font-size="13" fill="#64748B">integrations, specs, certs</text>
 
-  <!-- Destinations -->
+  <!-- Exporters -->
   <g filter="url(#shadow)">
     <rect x="1410" y="600" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
     <rect x="1410" y="702" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>

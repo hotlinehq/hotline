@@ -180,9 +180,9 @@ type TLS struct {
 	Certificate *tls.Certificate
 }
 
-// Exporter is one OTLP destination.
+// Exporter is the setup of one otlp exporter.
 type Exporter struct {
-	// Endpoint is the destination as the config names it.
+	// Endpoint is the collector's address as the config names it.
 	Endpoint string
 	// URL is where to send. Its scheme is https for TLS, else http. Its
 	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
@@ -190,7 +190,7 @@ type Exporter struct {
 	// CAs are PEM certificates of certificate authorities to trust on top of the proxy's
 	// own, for TLS.
 	CAs []byte
-	// Certificate, when set, is shown to the destination in mutual TLS.
+	// Certificate, when set, is shown to the exporter in mutual TLS.
 	Certificate *tls.Certificate
 	// Headers go with every request, login headers among them.
 	Headers map[string]string
@@ -199,7 +199,7 @@ type Exporter struct {
 	// (Peter, 2026-11-08).
 	H2C   bool
 	Delta bool
-	// QueueSize is how many records wait for the destination at most.
+	// QueueSize is how many records wait for the exporter at most.
 	QueueSize int
 	// MetricInterval, LogInterval and TraceInterval are how often counts,
 	// records and spans are sent. Records and spans also go sooner once a
@@ -208,7 +208,7 @@ type Exporter struct {
 	LogInterval    time.Duration
 	TraceInterval  time.Duration
 	// Resource are labels that describe where the proxy runs, sent to this
-	// destination only. They may change service.name and
+	// exporter only. They may change service.name and
 	// service.instance.id, never service.version.
 	Resource map[string]string
 }
@@ -295,7 +295,7 @@ type fileExporterFile struct {
 	QueueMemory string `yaml:"queueMemory"`
 }
 
-// exporterFile is one OTLP destination as the config writes it.
+// exporterFile is one OTLP exporter as the config writes it.
 type exporterFile struct {
 	Endpoint    string            `yaml:"endpoint"`
 	Headers     map[string]secret `yaml:"headers"`

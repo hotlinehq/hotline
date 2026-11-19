@@ -155,8 +155,8 @@ reads `total_weight` as it stands when compression fires, so `(A ⊕ B) ⊕ C` a
 
 **Commutativity fails too**, which is the sharper point — `A ⊕ B` and `B ⊕ A`
 are not the same operation here. `td_merge(into, from)` pours the source's
-centroids into the destination one at a time while compression triggers on the
-destination's fill, so the two arguments are not interchangeable. The sort is
+centroids into the exporter one at a time while compression triggers on the
+exporter's fill, so the two arguments are not interchangeable. The sort is
 introsort with three-way partitioning and is not stable — the source notes the
 order within a run of equal keys differs from a naive sort — so tied means can
 resolve by array layout as well.

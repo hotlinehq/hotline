@@ -16,7 +16,7 @@ Yes is `200`, no is `503`. `HEAD` works too. Any other path gets `404`, any othe
 1. `/readyz` says no only before the first config and all its specs have loaded, while the proxy port is not yet listening, and from the first stop signal on. The admin port opens only after the config is loaded and the proxy port listens, so until then Kubernetes can't reach it, which counts as no.
 2. A failed config reload will never make `/readyz` say no; the proxy keeps the last good config. Every copy usually reads the same file, so one bad edit would otherwise take every copy out of service at once. (Reload itself is a later chapter.)
 3. A bad config at start stops the proxy (exit code 1), so a rollout with a bad config halts while the old copies keep serving.
-4. A destination that is down never makes `/readyz` say no.
+4. An exporter that is down never makes `/readyz` say no.
 5. On the stop signal `/readyz` says no at once, and calls in progress finish.
 6. `/livez` says no only when the proxy is stuck: if the admin port answers, the proxy is alive.
 7. After the stop signal the proxy keeps taking new calls for `--drain-delay` (5 seconds unless set, part of the 25 second `--shutdown-timeout`), then closes the proxy port. Kubernetes needs a few seconds to stop sending calls to a copy, and our image has no shell for the usual `sleep` before stopping. A second signal skips the wait; `--drain-delay 0s` turns it off.

@@ -4,13 +4,13 @@ This page lists every piece of data the Hotline proxy sends out over OTLP, as th
 
 The rules come from the spec, `proxy-spec.md` section 4 in the `hotline-strategic` repo. The code lives in `src/hotline-proxy/record.go`, `connect.go` and `internal/export/`. Where the two differ, the last section says so.
 
-In short, the proxy sends three things to every destination under `exporters`:
+In short, the proxy sends three things to every exporter under `exporters`:
 
 1. **One log record per call**, named `hotline.request`. It holds everything known about the call.
 2. **One counter**, `hotline.requests`, that goes up by one per call.
 3. **One trace per call**: the call's steps as spans, each with its start and end. That is where the timings are (Peter, 2026-10-31).
 
-A fourth kind, numbers about the proxy itself, goes only to the `telemetry` destination (last signal below).
+A fourth kind, numbers about the proxy itself, goes only to the `telemetry` section (last signal below).
 
 ## How it is sent
 
@@ -19,11 +19,11 @@ A fourth kind, numbers about the proxy itself, goes only to the `telemetry` dest
 | Protocol | OTLP over HTTP as protobuf, to `/v1/logs`, `/v1/metrics` and `/v1/traces`. No gRPC since 2026-11-08. Over TLS, HTTP/2 when the collector offers it; to a plain endpoint, HTTP/1.1, or HTTP/2 with `h2c: true`. The proxy writes records and spans as OTLP itself; the counts go through the OpenTelemetry metrics library. Detail: [proxy-otlp-protocols.md](proxy-otlp-protocols.md). |
 | Connection to the collector | Plain, or TLS with an `https://` endpoint, with `tls.ca` and a client certificate if needed. Login headers from `headers`. |
 | Compression | gzip, unless `compression: none`; records and spans at gzip's fastest level. |
-| Destinations | Every entry under `exporters` gets the same records and counts, each with its own resource labels. Each has its own queue, so one that is down never holds up the others or the calls. |
+| Exporters | Every entry under `exporters` gets the same records and counts, each with its own resource labels. Each has its own queue, so one that is down never holds up the others or the calls. |
 | How often | Counts every 60 seconds (`metricInterval`), records every 15 seconds (`logInterval`) and spans every 15 seconds (`traceInterval`), each set per exporter. Records and spans also go sooner once 512 are waiting. One data point a minute is what Grafana Cloud's standard pricing covers (Peter, 2026-11-01). |
 | Time limit per send | 10 seconds, retries included. Fixed in the program. A busy collector is tried again after about a second at first, then at most every 5 seconds. A send the collector refuses loses its records, counted in a warning line like a full queue. |
 | Records per send | At most 512. |
-| Queue size | 10 000 records per destination, or `queueSize`. When full, the new record is refused and what waits is kept (Peter, 2026-11-09), and a warning log line gives the count, at most once a minute per destination and always once at shutdown. |
+| Queue size | 10 000 records per exporter, or `queueSize`. When full, the new record is refused and what waits is kept (Peter, 2026-11-09), and a warning log line gives the count, at most once a minute per exporter and always once at shutdown. |
 | At shutdown | Whatever is queued is sent first, within the shutdown time limit. |
 | Sampling | None. Every call is recorded, counted and traced. |
 | Counter temporality | Cumulative by default (the running total since start); `temporality: delta` sends only the change since the last send. |
@@ -47,7 +47,7 @@ exporters:
       endpoint: https://otel.example.com:4318
       headers:
         Authorization: { file: /etc/hotline/otlp/token }
-      resource:                                   # labels for this destination only
+      resource:                                   # labels for this exporter only
         service.name: invoices-proxy
         service.instance.id: { env: POD_NAME }
         deployment.environment.name: { env: HOTLINE_ENV }
@@ -209,11 +209,11 @@ There is no latency histogram and no pass or fail count: the control plane build
 
 ## Signal 3: the trace of each call
 
-One trace per call, to every destination, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Detail: [proxy-traces.md](proxy-traces.md).
+One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Detail: [proxy-traces.md](proxy-traces.md).
 
 ## Signal 4: the proxy's own numbers
 
-Metrics about the proxy itself, sent only to the `telemetry` destination and never mixed with the records and counts above. Without a `telemetry` section, nothing of this is measured or sent. No number is split by integration, vendor, host or route, so their count stays small however many integrations there are.
+Metrics about the proxy itself, sent only to the `telemetry` section and never mixed with the records and counts above. Without a `telemetry` section, nothing of this is measured or sent. No number is split by integration, vendor, host or route, so their count stays small however many integrations there are.
 
 - Calls: `http.server.active_requests`, `http.server.request.duration` and `hotline.app_tls.failures`.
 - Each exporter: `hotline.exporter.up`, `hotline.exporter.queue.size`, `hotline.exporter.sent` and `hotline.exporter.dropped`.

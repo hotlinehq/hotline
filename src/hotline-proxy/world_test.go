@@ -53,9 +53,9 @@ type world struct {
 	// talker is a vendor that speaks raw bytes over TLS, for relayed
 	// tunnels.
 	talker *talker
-	// receivers are the OTLP destinations, in the order of the config.
+	// receivers are the OTLP exporters, in the order of the config.
 	receivers []*receiver
-	// telemetry, when set, is the destination for the proxy's own health
+	// telemetry, when set, is where the proxy's own health
 	// data.
 	telemetry *receiver
 	// telemetryDisable are the metrics the telemetry section turns off.
