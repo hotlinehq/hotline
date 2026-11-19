@@ -198,7 +198,7 @@ _Avoid_: debug mode, raw dump, full record (that is a different thing)
 
 **Exporter**:
 One place that records, traces and counts are sent to, listed under `exporters`: `otlp`, `file` or `console`. Each has its own queue, so a slow one never holds up the calls or the others.
-_Avoid_: destination (in prose and in code names, such as `fileDestination`), output, backend, collector (that is the server an `otlp` exporter sends to)
+_Avoid_: sink (the group of all exporters is `export.Exporters`), destination (in prose and in code names, such as `fileDestination`), output, backend, collector (that is the server an `otlp` exporter sends to)
 
 ## Evidence ledger
 
