@@ -145,8 +145,9 @@ func counted(kv attribute.KeyValue) bool {
 // console writes, the roots TLS trusts, and how the proxy describes and
 // times itself.
 type Setup struct {
-	Exporters []config.Exporter
-	Files     []config.FileExporter
+	// OTLP are the otlp exporters, Files the file exporters.
+	OTLP  []config.Exporter
+	Files []config.FileExporter
 	// Console is nil when the config has no console exporter.
 	Console *config.ConsoleExporter
 	Out     Console
@@ -169,7 +170,7 @@ type Setup struct {
 // Each file exporter takes its folder's lock, so New fails with
 // ErrFolderTaken when another proxy writes to the same folder.
 func New(setup Setup) (*Exporters, error) {
-	exporters, files, console, out := setup.Exporters, setup.Files, setup.Console, setup.Out
+	exporters, files, console, out := setup.OTLP, setup.Files, setup.Console, setup.Out
 	roots, service, timing, logger, meter := setup.Roots, setup.Service, setup.Timing, setup.Logger, setup.Meter
 	s := &Exporters{}
 	s.scratch.New = func() any {

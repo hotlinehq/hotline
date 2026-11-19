@@ -162,7 +162,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	timing := export.Timing{Timeout: o.ExportTimeout}
 	telemetry := export.NewOwn(cfg.Telemetry, o.RootCAs, service, timing)
 	exporters, err := export.New(export.Setup{
-		Exporters: cfg.Exporters, Files: cfg.FileExporters, Console: cfg.Console, Out: o.Console.export(o.LookupEnv),
+		OTLP: cfg.Exporters, Files: cfg.FileExporters, Console: cfg.Console, Out: o.Console.export(o.LookupEnv),
 		Roots: o.RootCAs, Service: service, Timing: timing, Logger: o.Logger, Meter: telemetry.Meter(),
 	})
 	if err != nil {
