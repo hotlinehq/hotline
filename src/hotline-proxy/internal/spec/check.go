@@ -74,6 +74,9 @@ type checks struct {
 	// ("path", "query", "header" and "response") and then by name. Header
 	// names are lower case.
 	marks map[string]map[string]mark
+	// messages are the WebSocket messages each side may send, for a route
+	// that answers 101 with x-hotline-messages; nil otherwise.
+	messages *Messages
 }
 
 type param struct {

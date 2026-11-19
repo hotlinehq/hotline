@@ -342,5 +342,11 @@ func (f *Forwarder) upgrade(ctx context.Context, w http.ResponseWriter, in *http
 	go func() { _, _ = io.Copy(vendor, brw); ended <- struct{}{} }()
 	go func() { _, _ = io.Copy(app, vendor); ended <- struct{}{} }()
 	<-ended
+	// Either side ending ends the other, and the call ends only once both
+	// copies have, so no byte passes after the session's end (Peter,
+	// 2026-11-19, WebSocket slice 2).
+	_ = vendor.Close()
+	_ = app.Close()
+	<-ended
 	return nil
 }

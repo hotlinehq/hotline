@@ -516,7 +516,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	if upgrade {
 		// What follows a 101 is the session's, not the call's: the call's
 		// response has no body, and ends here (Peter, 2026-11-18).
-		c.session = c.newSession(resp.Body, toVendor)
+		c.session = c.newSession(resp, toVendor)
 		body = http.NoBody
 	}
 	c.respBody = &tap{

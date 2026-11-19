@@ -39,7 +39,8 @@ type checkJob struct {
 	// run checks the side, and gives what it found and the route it
 	// used.
 	run func() (spec.Checked, spec.Route)
-	// release gives the body's buffer back when the check is dropped.
+	// release gives the body's buffer back when the check is dropped; nil
+	// for a WebSocket message, whose copy is the check's own.
 	release func()
 	// bytes is the memory the body holds while the check waits.
 	bytes int64
@@ -83,6 +84,32 @@ func (l *checkLine) add(job *checkJob) {
 	l.ready.Signal()
 }
 
+// reserve holds n bytes of the line's memory for a WebSocket's copy that
+// waits to be read and unpacked (Peter, 2026-11-19, WebSocket slice 2,
+// Q17). Waiting checks give way first; false says the copy can't fit at
+// all. release gives the bytes back once the copy is read.
+func (l *checkLine) reserve(n int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if n <= l.limit {
+		l.trim(l.limit - n)
+	}
+	if l.memory+n > l.limit {
+		return false
+	}
+	l.memory += n
+	return true
+}
+
+func (l *checkLine) release(n int64) {
+	if n == 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.memory -= n
+}
+
 // resize sets a new cap, from a reloaded config. Waiting bodies beyond it
 // give way at once.
 func (l *checkLine) resize(limit int64) {
@@ -113,7 +140,9 @@ func (l *checkLine) drop(job *checkJob) {
 	now := l.clock.Now()
 	s := job.check
 	s.found, s.dropped, s.waited, s.end = spec.Checked{Skipped: "overloaded"}, true, now, now
-	job.release()
+	if job.release != nil {
+		job.release()
+	}
 	l.dropped()
 	close(s.done)
 }

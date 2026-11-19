@@ -179,7 +179,7 @@ Plain HTTP sent to a TLS port is a failed TLS setup, not a request, so it has no
 
 ### WebSocket sessions
 
-A WebSocket, after its `101`, gets one more log record when it ends, whichever side ends it (Peter, 2026-11-18, WebSocket milestone 1). It reads no frames: it counts and hashes the bytes each side sent. Checking the messages against the vendor's AsyncAPI document comes in milestone 2, with who ended the session and its close code.
+A WebSocket, after its `101`, gets one more log record when it ends, whichever side ends it (Peter, 2026-11-18, WebSocket milestone 1). It counts and hashes the bytes each side sent. When the opening call's route lists its messages (`x-hotline-messages`, [spec-marks.md](spec-marks.md)), each message gets a record of its own too (see [WebSocket messages](#websocket-messages)), and the session record also says how the session ended and counts its pings and pongs (Peter, 2026-11-19, slice 2).
 
 - Event name: `hotline.websocket.session`.
 - Timestamp: when the `101` reached the app.
@@ -197,6 +197,37 @@ A WebSocket, after its `101`, gets one more log record when it ends, whichever s
 | `hotline.websocket.from_vendor.hash` | text | The same for the vendor's bytes, with the side `from_vendor`. |
 | `hotline.websocket.duration_us` | number | How long the session was open, from the `101` reaching the app to its end, in whole microseconds. |
 
+Only when the route lists its messages, on the record and on the `websocket session` span:
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `hotline.websocket.close.from` | text | Who sent the session's first close message, `app` or `vendor`; `none` when no close message came. |
+| `hotline.websocket.close.code`, `hotline.websocket.close.reason` | number, text | That close message's code and reason, when it has them, such as 1007 and `API key not valid`. |
+| `hotline.websocket.closed_first` | text | With no close message: whose connection closed first, `app` or `vendor`. |
+| `hotline.websocket.from_app.pings`, `.pongs`, `hotline.websocket.from_vendor.pings`, `.pongs` | number | The pings and pongs each side sent. They get no record and no span. |
+| `hotline.websocket.unread_from_index` | number | When a side's messages could not all be read, the index of the first one that was not. |
+
+### WebSocket messages
+
+Each message of a session whose route lists its messages gets one log record, sent as soon as the message has passed and its check has ended (Peter, 2026-11-19, WebSocket slice 2). Pings, pongs and close messages are not messages.
+
+- Event name: `hotline.websocket.message`.
+- Timestamp: when the message's first byte passed.
+- Trace id and flags: the opening call's. Span id: the message's own `websocket message` span.
+- It goes into the ledger like a call's record, and `hotline-proxy verify` checks it. It is not counted in `hotline.requests`, and no counter counts messages. The console shows no line for it.
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `hotline.integration.id`, `hotline.ingress` | text | As in the session record. |
+| `hotline.websocket.message.index` | number | 1, 2, 3 in the order the messages' last bytes passed, both directions together. |
+| `hotline.websocket.message.direction` | text | `from_app` or `from_vendor`. |
+| `hotline.websocket.message.name` | text | The message schema whose `x-hotline-match` fields it matched, or `unknown`. |
+| `hotline.websocket.message.size` | number | The message's bytes as sent, all its frames' payloads together, without the frame headers. |
+| `hotline.websocket.message.unpacked_size` | number | For a compressed message, its size once unpacked. |
+| `hotline.websocket.ids`, `hotline.websocket.ids_total` | text list, number | Its `x-hotline-id-tuple` ids as `label:value`, at most 20, and their total when there are more. |
+| `hotline.schema.*` | | The spec check, as for a call's body: from the app under `request`, from the vendor under `response`. `hotline.schema.skipped` is `body_too_large` over 2 MiB after unpacking, `overloaded` when its check, or its reading, gave way, `unsupported_content_type` for a side that is not JSON. None for an `unknown` message, or when the api's `checks` leave out `messages`. |
+| fields marked `x-hotline-record` | | Copied as sent, such as Gemini's `usageMetadata.totalTokenCount`; never added up. |
+
 ## Signal 2: the hotline.requests counter
 
 | Name | Type | Unit | Attributes |
@@ -209,7 +240,7 @@ There is no latency histogram and no pass or fail count: the control plane build
 
 ## Signal 3: the trace of each call
 
-One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Detail: [proxy-traces.md](proxy-traces.md).
+One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Each of its messages has a `websocket message` span under `websocket session`, from the message's first byte to its last, sent with the message's record, with `message spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-19). Detail: [proxy-traces.md](proxy-traces.md).
 
 ## Signal 4: the proxy's own numbers
 

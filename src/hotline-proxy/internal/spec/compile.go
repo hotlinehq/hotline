@@ -185,6 +185,9 @@ func (b *builder) checks(template, method, where string) *checks {
 			c.responses[code] = b.response(c.marks, r, pointer, where, code)
 		}
 	}
+	if v, ok := op["x-hotline-messages"]; ok {
+		c.messages = b.messages(v, opPointer+"/x-hotline-messages", where)
+	}
 	b.clashes(c, where)
 	return c
 }

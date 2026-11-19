@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
 	"hotline-proxy/internal/tracectx"
@@ -18,7 +20,7 @@ import (
 // and hashed as they pass, and when it opened. The opening call is recorded
 // as soon as the 101 reaches the app, and the session in a record of its
 // own when it ends, in the call's trace, under the call's span (Peter,
-// 2026-11-18, WebSocket milestone 1). It reads no frames.
+// 2026-11-18, WebSocket milestone 1).
 type session struct {
 	// span is the session span's id, which the session record and its
 	// hashes carry.
@@ -29,16 +31,34 @@ type session struct {
 	fromApp    *countedWriter
 	// opened is when the 101 reached the app; zero while it has not.
 	opened time.Time
+	// reading reads the messages, when the route lists them; nil
+	// otherwise, and the session is counted in bytes only.
+	reading *reading
 }
 
-// newSession sets up the session of a call whose vendor answered 101:
-// vendor is the vendor's side, read and written.
-func (c *call) newSession(vendor io.ReadCloser, toVendor io.Writer) *session {
+// newSession sets up the session of a call whose vendor answered 101: its
+// body is the vendor's side, read and written. When the call's route lists
+// the session's messages in x-hotline-messages, they are read too (Peter,
+// 2026-11-19, WebSocket slice 2).
+func (c *call) newSession(resp *http.Response, toVendor io.Writer) *session {
 	span := tracectx.NewSpanID()
-	return &session{
-		span:       span,
-		fromVendor: &tap{ReadCloser: vendor, mac: c.h.bodyHash("from_vendor", c.trace.WithSpanID(span))},
-		fromApp:    &countedWriter{Writer: toVendor, mac: c.h.bodyHash("from_app", c.trace.WithSpanID(span))},
+	s := &session{span: span}
+	vendor := resp.Body
+	if messages := c.route.Messages(); messages != nil {
+		app, fromVendor := deflateAgreed(resp.Header.Values("Sec-WebSocket-Extensions"))
+		s.reading = newReading(c, span, messages, c.api.Checks.Has(config.PartMessages), app, fromVendor)
+		vendor = &vendorWire{ReadCloser: vendor, r: s.reading}
+		toVendor = appWire{Writer: toVendor, r: s.reading}
+	}
+	s.fromVendor = &tap{ReadCloser: vendor, mac: c.h.bodyHash("from_vendor", c.trace.WithSpanID(span))}
+	s.fromApp = &countedWriter{Writer: toVendor, mac: c.h.bodyHash("from_app", c.trace.WithSpanID(span))}
+	return s
+}
+
+// endReading ends the reading of the session's messages, if it reads them.
+func (s *session) endReading() {
+	if s.reading != nil {
+		s.reading.end()
 	}
 }
 
@@ -84,6 +104,11 @@ func (c *call) sessionRecord(end time.Time) finished {
 	span := export.Span{
 		ID: s.span, Parent: c.trace.SpanID(), Name: "websocket session", Kind: trace.SpanKindInternal,
 		Start: opened, End: end,
+	}
+	if s.reading != nil {
+		read := s.reading.sessionAttrs()
+		attrs = append(attrs, read...)
+		span.Attrs = read
 	}
 	return finished{
 		event: export.SessionEvent, cfg: c.cfg, chain: c.integration.Name, sc: sc, at: opened,

@@ -14,10 +14,13 @@ const (
 	PartStatus
 	PartResponseHeaders
 	PartResponseBody
+	// PartMessages are the messages of a WebSocket session (Peter,
+	// 2026-11-19, WebSocket slice 2, Q27).
+	PartMessages
 
 	// AllParts is every part, which is what leaving checks out means.
 	AllParts = PartPath | PartQuery | PartHeaders | PartCookies | PartBody |
-		PartStatus | PartResponseHeaders | PartResponseBody
+		PartStatus | PartResponseHeaders | PartResponseBody | PartMessages
 	// RequestParts and ResponseParts are the parts of each side.
 	RequestParts  = PartPath | PartQuery | PartHeaders | PartCookies | PartBody
 	ResponseParts = PartStatus | PartResponseHeaders | PartResponseBody
@@ -42,6 +45,8 @@ func partNamed(name string) (Parts, bool) {
 		return PartResponseHeaders, true
 	case "response-body":
 		return PartResponseBody, true
+	case "messages":
+		return PartMessages, true
 	}
 	return 0, false
 }
