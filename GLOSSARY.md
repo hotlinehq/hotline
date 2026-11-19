@@ -114,7 +114,7 @@ _Avoid_: management port, metrics port
 
 **Cert**:
 A named certificate and key pair under `certs`. Where it is used, `mode` says whether it is shown as it is (`serve`) or used as a certificate authority (`sign`): a certificate whose key signs a new certificate for each vendor name, which the apps must trust.
-_Avoid_: issuer (the old section name), CA cert, keypair
+_Avoid_: issuer, in both its meanings: our signing pair (the old `issuers` section) and the authority that signed a vendor's certificate. Say "certificate authority", with "our" or "the vendor's" in front. Also avoid: CA cert, keypair
 
 **Config reload**:
 Reading the config, specs, overlays, keys and certs again while running, every few seconds or at once on a `HUP` signal, without dropping calls.
