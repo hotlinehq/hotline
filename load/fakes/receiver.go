@@ -13,7 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -42,7 +44,9 @@ type Receiver struct {
 	// own, so a run shows which kind of send grew.
 	records counted
 	spans   counted
-	server  *http.Server
+	// messages counts what the WebSocket records said, read as they come.
+	messages messageCounts
+	server   *http.Server
 
 	mu        sync.Mutex
 	allocated int64
@@ -87,8 +91,18 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 	switch {
 	case strings.HasSuffix(req.URL.Path, "/v1/logs"):
 		r.records.add(counted.n)
+		// Only records of WebSockets are read: decoding every call's record
+		// would take processor time from k6, which shares the core.
+		var export collogs.ExportLogsServiceRequest
+		if bytes.Contains(data, []byte("hotline.websocket.")) && proto.Unmarshal(data, &export) == nil {
+			r.messages.readLogs(&export)
+		}
 	case strings.HasSuffix(req.URL.Path, "/v1/traces"):
 		r.spans.add(counted.n)
+		var export coltrace.ExportTraceServiceRequest
+		if bytes.Contains(data, []byte("websocket ")) && proto.Unmarshal(data, &export) == nil {
+			r.messages.readSpans(&export)
+		}
 	case strings.HasSuffix(req.URL.Path, "/v1/metrics"):
 		var export colmetrics.ExportMetricsServiceRequest
 		if err := proto.Unmarshal(data, &export); err != nil {

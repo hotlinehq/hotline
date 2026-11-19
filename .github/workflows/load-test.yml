@@ -36,11 +36,6 @@ permissions:
   contents: read
 
 env:
-  K6_VERSION: v1.3.0
-  # The checksums of the release files (Intel and ARM), so a changed download
-  # is refused.
-  K6_SHA256_AMD64: 84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd
-  K6_SHA256_ARM64: df35a88b5ef534b39f4ab74b22a0d60362138af219228253f042650a36af7920
   # The runner has 2 cores. The proxy gets core 0 and everything else (k6, the
   # fake vendor and receiver) core 1, so they do not queue for the same core
   # and a drop shows the proxy's own limit.
@@ -60,20 +55,18 @@ jobs:
           cache-dependency-path: |
             src/hotline-proxy/go.sum
             load/go.sum
+            load/k6ws/go.sum
             go.work.sum
 
-      - name: install k6
+      # k6 is built, not downloaded: k6 with load/k6ws added, the WebSocket
+      # sessions of the live lines, at the versions pinned in the Makefile
+      # (make k6). Go checks every module it fetches against its checksum
+      # database, so a changed download is refused.
+      - name: build k6
         run: |
-          case "$(uname -m)" in
-            x86_64)  arch=amd64; sum="${K6_SHA256_AMD64}" ;;
-            aarch64) arch=arm64; sum="${K6_SHA256_ARM64}" ;;
-            *) echo "no k6 build for $(uname -m)"; exit 1 ;;
-          esac
-          curl -sSfL -o k6.tgz "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${arch}.tar.gz"
-          echo "${sum}  k6.tgz" | sha256sum --check
-          tar xzf k6.tgz
+          make k6
           mkdir -p "${RUNNER_TEMP}/bin"
-          install "k6-${K6_VERSION}-linux-${arch}/k6" "${RUNNER_TEMP}/bin/k6"
+          install load/out/k6 "${RUNNER_TEMP}/bin/k6"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
           "${RUNNER_TEMP}/bin/k6" version
 

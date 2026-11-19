@@ -38,14 +38,14 @@ e2e:
 		go test -tags e2e -count=1 -run TestEndToEnd ./src/hotline-proxy/
 	go tool covdata textfmt -i=e2e-cover/data -o e2e-cover.out
 
-# load builds the proxy and runs the load test: the fakes, the proxy and k6
-# (which must be installed), each call shape at its rates, three repeats
+# load builds the proxy and k6 (make k6) and runs the load test: the fakes,
+# the proxy and k6, each call shape at its rates, three repeats
 # each, one folder load/results/run-NNN per line below. The proxy is built
 # as it ships; the runner turns on its profile pages (telemetry.pprof) so the
 # lines marked -profile can also save a
 # processor and a memory profile. See load/README.md.
 .PHONY: load
-load:
+load: k6
 	mkdir -p load/out
 	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
@@ -63,6 +63,32 @@ load:
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/s3/2006-03-01.openapi.yaml -shape xml -rate 500 -profile
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape large-json -rate 200
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape huge-json -rate 50
+	# WebSockets: Gemini Live sessions, each sending and getting 25 messages
+	# of audio a second, so 50 messages a second per session both ways.
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 50
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-alone -sessions 50
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50
+
+LIVE_SPEC = load/live/live.openapi.yaml
+
+# k6 builds the k6 the load test runs: k6 K6_VERSION with load/k6ws added
+# (the WebSocket sessions), built by xk6 XK6_VERSION, pinned so every run
+# measures with the same k6. Stock k6 cannot pack WebSocket messages
+# against earlier ones (see load/README.md).
+K6 ?= load/out/k6
+K6_VERSION = v1.3.0
+XK6_VERSION = v1.5.1
+#
+# It is built again only when the code it holds has changed.
+.PHONY: k6
+k6: $(K6)
+$(K6): load/k6ws/k6ws.go load/k6ws/go.mod load/go.mod load/live/session.go load/fakes/live.go
+	mkdir -p load/out
+	GOBIN=$(CURDIR)/load/out go install go.k6.io/xk6/cmd/xk6@$(XK6_VERSION)
+	GOWORK=off load/out/xk6 build $(K6_VERSION) \
+		--with github.com/hotlinehq/hotline/load/k6ws=./load/k6ws --replace hotline-load=./load --output $(K6)
 
 # load-compare measures two builds in turn, so a fix can be judged against
 # main on the same computer in the same job: BASE_PROXY is the built
@@ -112,3 +138,4 @@ lint:
 	golangci-lint run ./examples/aws-shop/...
 	golangci-lint run ./tools/aws-openapi/...
 	golangci-lint run ./load/...
+	cd load/k6ws && GOWORK=off golangci-lint run ./...
