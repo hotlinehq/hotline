@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"mime"
@@ -34,6 +35,8 @@ type side struct {
 	// of message the proxy reads.
 	readable bool
 	kinds    []kind
+	// wanted is what naming reads of a message.
+	wanted *wanted
 }
 
 // kind is one message schema: its name in components/schemas, the marks
@@ -103,7 +106,7 @@ func (m *Messages) Name(fromApp bool, data []byte) Message {
 	if !s.readable {
 		return Message{Name: Unknown, Skipped: "unsupported_content_type"}
 	}
-	v := partial(data)
+	v := s.wanted.read(data)
 	for i := range s.kinds {
 		k := &s.kinds[i]
 		if k.matched(v) {
@@ -196,56 +199,109 @@ func every(v any, path []step) []any {
 	return out
 }
 
-// partial reads JSON as far as it is whole: a message cut at the size kept
-// still gives the fields before the cut, so it can be named. A whole
-// message, nearly every one, is read in one go; only one that is not is
-// read token by token, which is slower.
-func partial(data []byte) any {
-	var v any
-	if decodeJSONInto(data, &v) == nil {
-		return v
+// wanted is the part of a side's messages that naming reads: the fields
+// its marks name, and nothing else. A Gemini Live message is mostly
+// audio no mark looks at, and reading all of it, then reading it again
+// for the check, handed out over half of a session's memory (load test,
+// 2026-11-20).
+type wanted struct {
+	// whole keeps the value here as it is: a const to compare, or an id.
+	whole bool
+	// props are the properties read further, when the value is an object;
+	// items what is read of each item, when it is a list. A field with
+	// neither, nor whole, is only noted as there.
+	props map[string]*wanted
+	items *wanted
+}
+
+// there stands for a field naming needs only to know is there.
+type there struct{}
+
+// wantedBy is what the marks of every kind of a side read.
+func wantedBy(kinds []kind) *wanted {
+	root := &wanted{}
+	for _, k := range kinds {
+		for _, mark := range k.matches {
+			w := root
+			for _, name := range mark.path {
+				w = w.prop(name)
+			}
+			w.whole = w.whole || mark.hasValue
+		}
+		for _, mark := range k.ids {
+			w := root
+			for _, st := range mark.path {
+				if st.each {
+					if w.items == nil {
+						w.items = &wanted{}
+					}
+					w = w.items
+					continue
+				}
+				w = w.prop(st.name)
+			}
+			w.whole = true
+		}
 	}
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.UseNumber()
-	v, _ = partialValue(d)
+	return root
+}
+
+func (w *wanted) prop(name string) *wanted {
+	if w.props == nil {
+		w.props = map[string]*wanted{}
+	}
+	if w.props[name] == nil {
+		w.props[name] = &wanted{}
+	}
+	return w.props[name]
+}
+
+// read reads data as far as it is whole, keeping only what w wants: a
+// message cut at the size kept still gives the fields before the cut, so
+// it can be named. It reads the data where it is, without a copy.
+func (w *wanted) read(data []byte) any {
+	d := jsontext.NewDecoder(bytes.NewBuffer(data), jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))
+	v, _ := w.value(d)
 	return v
 }
 
-// decodeJSONInto reads one JSON value, numbers kept as written.
-func decodeJSONInto(data []byte, v *any) error {
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.UseNumber()
-	return d.Decode(v)
-}
-
-// partialValue reads one value, and says whether it was whole.
-func partialValue(d *json.Decoder) (any, bool) {
-	t, err := d.Token()
-	if err != nil {
-		return nil, false
-	}
-	switch t {
-	case json.Delim('{'):
+// value reads the next value, and says whether it was whole.
+func (w *wanted) value(d *jsontext.Decoder) (any, bool) {
+	kind := d.PeekKind()
+	switch {
+	case w.whole:
+		return wholeValue(d)
+	case kind == '{' && w.props != nil:
+		// The peek saw the brace, so reading it cannot fail.
+		_, _ = d.ReadToken()
 		m := map[string]any{}
-		for d.More() {
-			// A key cut short leaves the decoder broken, so its value is
-			// not whole either.
-			key, _ := d.Token()
-			name, _ := key.(string)
-			v, whole := partialValue(d)
+		for d.PeekKind() != '}' {
+			// A name cut short reads as no property of w's, so its value is
+			// skipped, which fails as the decoder has failed.
+			name, _ := d.ReadToken()
+			key := name.String() // before the next read, which reuses its memory
+			next, read := w.props[key]
+			if !read {
+				if d.SkipValue() != nil {
+					return m, false
+				}
+				continue
+			}
+			v, whole := next.value(d)
 			if v != nil || whole {
-				m[name] = v
+				m[key] = v
 			}
 			if !whole {
 				return m, false
 			}
 		}
-		_, err := d.Token()
+		_, err := d.ReadToken()
 		return m, err == nil
-	case json.Delim('['):
+	case kind == '[' && w.items != nil:
+		_, _ = d.ReadToken()
 		var list []any
-		for d.More() {
-			v, whole := partialValue(d)
+		for d.PeekKind() != ']' {
+			v, whole := w.items.value(d)
 			if v != nil || whole {
 				list = append(list, v)
 			}
@@ -253,10 +309,26 @@ func partialValue(d *json.Decoder) (any, bool) {
 				return list, false
 			}
 		}
-		_, err := d.Token()
+		_, err := d.ReadToken()
 		return list, err == nil
 	}
-	return t, true
+	if d.SkipValue() != nil {
+		return nil, false
+	}
+	return there{}, true
+}
+
+// wholeValue reads the next value whole, as plain Go data with its numbers
+// as json.Number, as written.
+// A value cut short reads as nothing: its raw bytes are empty, so the
+// decoding leaves v nil.
+func wholeValue(d *jsontext.Decoder) (any, bool) {
+	raw, err := d.ReadValue()
+	var v any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	_ = dec.Decode(&v)
+	return v, err == nil
 }
 
 // idLabel is what an x-hotline-id-tuple label may hold.
@@ -316,6 +388,7 @@ func (b *builder) side(v any, pointer, where string) side {
 		s.kinds = append(s.kinds, k)
 	}
 	b.clearMatches(s.kinds, where)
+	s.wanted = wantedBy(s.kinds)
 	return s
 }
 

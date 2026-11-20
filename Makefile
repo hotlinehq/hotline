@@ -67,9 +67,9 @@ load: k6
 	# of audio a second, so 50 messages a second per session both ways.
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100 -profile
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-alone -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50 -profile
 
 LIVE_SPEC = load/live/live.openapi.yaml
 

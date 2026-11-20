@@ -116,6 +116,11 @@ type LiveResult struct {
 	Skipped map[string]int64 `json:"messagesSkipped,omitempty"`
 	Unread  int64            `json:"sessionsUnread"`
 	Spans   int64            `json:"spans"`
+	// RecordsDropped and SpansDropped are what the proxy's exporters lost,
+	// by the proxy's own count: a queue that overflowed or a send that
+	// failed.
+	RecordsDropped int64 `json:"recordsDropped"`
+	SpansDropped   int64 `json:"spansDropped"`
 	// RecordsPerSecond and SpansPerSecond are over the repeat's length.
 	RecordsPerSecond float64 `json:"messageRecordsPerSecond"`
 	SpansPerSecond   float64 `json:"spansPerSecond"`
@@ -195,10 +200,12 @@ func RunLive(cfg Config) (string, error) {
 	d := liveDriver{k6: k6Path, script: scriptPath, packing: packing, tags: tags,
 		directURL: "ws://" + vendor.PlainAddr + livePath,
 		proxyURL:  "ws://" + p.addr + "/https://localhost:" + vendorPort + livePath}
-	if _, err := d.k6run(filepath.Join(work, "warmup.json"), "3s", true, min(cfg.Sessions, 10), "warmup", 0); err != nil {
+	idle := receiver.Messages()
+	warm, err := d.k6run(filepath.Join(work, "warmup.json"), "3s", true, min(cfg.Sessions, 10), "warmup", 0)
+	if err != nil {
 		return "", fmt.Errorf("warm-up through the proxy failed: %w", err)
 	}
-	quiet(receiver)
+	quiet(receiver, idle, int64(warm.Messages()))
 
 	var results []LiveResult
 	for n := 1; n <= cfg.Repeats; n++ {
@@ -229,21 +236,30 @@ func RunLive(cfg Config) (string, error) {
 	if cfg.Out != nil {
 		liveTable(cfg.Out, results)
 	}
+	if cfg.Profile {
+		load := func(summary string) error {
+			_, err := d.k6run(summary, cfg.Duration, true, cfg.Sessions, "profile", 0)
+			return err
+		}
+		if err := saveProfiles(cfg, p, filepath.Join(dir, "profile"), tags, load); err != nil {
+			return "", err
+		}
+	}
 	return dir, nil
 }
 
 // liveTable prints one line per repeat.
 func liveTable(w io.Writer, results []LiveResult) {
-	_, _ = fmt.Fprintln(w, "repeat  sessions  failed  messages  extra p50 / p95 / p99 (ms)  cpu us/msg  KB/msg  peak MB  KB/session  records/s  spans/s  checked  skipped  unknown  unread")
+	_, _ = fmt.Fprintln(w, "repeat  sessions  failed  messages  extra p50 / p95 / p99 (ms)  cpu us/msg  KB/msg  peak MB  KB/session  records/s  spans/s  checked  skipped  unknown  unread  dropped")
 	for _, r := range results {
 		skipped := int64(0)
 		for _, n := range r.Skipped {
 			skipped += n
 		}
-		_, _ = fmt.Fprintf(w, "%6d  %8d  %6d  %8d  %7.2f / %6.2f / %6.2f  %10.1f  %6.2f  %7d  %10.0f  %9.0f  %7.0f  %7d  %7d  %7d  %6d\n",
+		_, _ = fmt.Fprintf(w, "%6d  %8d  %6d  %8d  %7.2f / %6.2f / %6.2f  %10.1f  %6.2f  %7d  %10.0f  %9.0f  %7.0f  %7d  %7d  %7d  %6d  %7d\n",
 			r.Repeat, r.Proxy.Sessions, r.Proxy.Failed+r.Direct.Failed, r.Proxy.Messages(), r.ExtraP50, r.ExtraP95, r.ExtraP99,
 			r.CPUMicrosPerMessage, r.AllocatedBytesPerMessage/1024, r.PeakRSSKB/1024, r.SessionKB,
-			r.RecordsPerSecond, r.SpansPerSecond, r.Valid+r.Invalid, skipped, r.Unknown, r.Unread)
+			r.RecordsPerSecond, r.SpansPerSecond, r.Valid+r.Invalid, skipped, r.Unknown, r.Unread, r.RecordsDropped+r.SpansDropped)
 	}
 }
 
@@ -291,6 +307,7 @@ func (d liveDriver) measured(p *proxyProcess, receiver *fakes.Receiver, summary,
 		return LiveResult{}, err
 	}
 	before := receiver.Messages()
+	recordsLost0, spansLost0 := receiver.Dropped()
 	rss0 := p.residentKB()
 	cpu0, err := p.cpuTicks()
 	if err != nil {
@@ -310,7 +327,8 @@ func (d liveDriver) measured(p *proxyProcess, receiver *fakes.Receiver, summary,
 	if err != nil {
 		return LiveResult{}, err
 	}
-	after := quiet(receiver)
+	after := quiet(receiver, before, int64(l.Messages()))
+	recordsLost1, spansLost1 := receiver.Dropped()
 	messages := float64(l.Messages())
 	skipped := maps.Clone(after.Skipped)
 	for reason, n := range before.Skipped {
@@ -332,21 +350,25 @@ func (d liveDriver) measured(p *proxyProcess, receiver *fakes.Receiver, summary,
 		Skipped:                  skipped,
 		Unread:                   after.Unread - before.Unread,
 		Spans:                    after.Spans - before.Spans,
+		RecordsDropped:           recordsLost1 - recordsLost0,
+		SpansDropped:             spansLost1 - spansLost0,
 	}, nil
 }
 
-// quiet waits until the proxy has sent the last records, when the
-// receiver's count stays the same for a second (at most 20 seconds), and
-// says what they held.
-func quiet(receiver *fakes.Receiver) fakes.Messages {
-	last := receiver.Messages()
+// quiet waits until the receiver has a record for each of the want
+// messages since before, or for 20 seconds, and says what the records
+// held. The proxy sends records every 15 seconds unless 512 wait
+// (logInterval), so a repeat's last few hundred can come that late:
+// waiting for the counts to stay the same for a second, or five, missed
+// them, up to 2 in 100 on the load runner (2026-11-20).
+func quiet(receiver *fakes.Receiver, before fakes.Messages, want int64) fakes.Messages {
+	now := receiver.Messages()
 	for range 20 {
-		time.Sleep(time.Second)
-		now := receiver.Messages()
-		if now.Records == last.Records && now.Spans == last.Spans && now.Sessions == last.Sessions {
+		if now.Records-before.Records >= want {
 			return now
 		}
-		last = now
+		time.Sleep(time.Second)
+		now = receiver.Messages()
 	}
-	return last
+	return now
 }

@@ -72,6 +72,8 @@ What the table says, per repeat:
 - **cpu us/msg** and **KB/msg**: the proxy's processor time and memory handed out, per message.
 - **peak MB** and **KB/session**: the proxy's highest resident memory, and its growth over the memory just before the repeat, per open session.
 - **records/s** and **spans/s**: the message records, and the spans sent with WebSocket ones, that the receiver got per second of the repeat.
-- **checked**, **skipped**, **unknown**: messages whose check ran, whose check did not (by reason in `result.json`, such as `overloaded`), and that matched no schema. **unread**: sessions whose messages could not all be read, for lack of room for the copies.
+- **checked**, **skipped**, **unknown**: messages whose check ran, whose check did not (by reason in `result.json`, such as `overloaded`), and that matched no schema. **unread**: sessions whose messages could not all be read, for lack of room for the copies. **dropped**: records and spans the proxy's exporters lost, by the proxy's own count (`hotline.exporter.dropped`).
+
+The proxy sends records and spans every 15 seconds unless 512 are waiting, so after each repeat the runner waits until it has a record for every message k6 counted, for at most 20 seconds. The lines marked `-profile` (100 sessions plain, 50 packed against earlier messages) save profiles as the call lines do.
 
 These answer one open question from the WebSocket requirements: whether a record and a span per audio chunk stay. They do while the receiver gets as many records as there were messages and nothing is skipped.

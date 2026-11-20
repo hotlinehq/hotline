@@ -195,6 +195,33 @@ var _ = Describe("The fake receiver", func() {
 		Expect(receiver.Requests()).To(Equal(int64(4)))
 	})
 
+	It("keeps the proxy's own count of the records and spans its exporters dropped", func() {
+		point := func(signal, reason string, n int64) *metrics.NumberDataPoint {
+			text := func(k, v string) *common.KeyValue {
+				return &common.KeyValue{Key: k, Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: v}}}
+			}
+			return &metrics.NumberDataPoint{Value: &metrics.NumberDataPoint_AsInt{AsInt: n},
+				Attributes: []*common.KeyValue{text("hotline.exporter", "otlp"), text("hotline.signal", signal), text("hotline.drop.reason", reason)}}
+		}
+		dropped := func(temporality metrics.AggregationTemporality, points ...*metrics.NumberDataPoint) []byte {
+			m := &metrics.Metric{Name: "hotline.exporter.dropped", Data: &metrics.Metric_Sum{Sum: &metrics.Sum{AggregationTemporality: temporality, DataPoints: points}}}
+			out, err := proto.Marshal(&colmetrics.ExportMetricsServiceRequest{
+				ResourceMetrics: []*metrics.ResourceMetrics{{ScopeMetrics: []*metrics.ScopeMetrics{{Metrics: []*metrics.Metric{m}}}}},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return out
+		}
+		total := metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE
+		send("/telemetry/v1/metrics", dropped(total, point("record", "queue_full", 5), point("span", "send_failed", 2)), false)
+		// A total since the start replaces the last one.
+		send("/telemetry/v1/metrics", dropped(total, point("record", "queue_full", 7)), false)
+		// Growth since the last send is added.
+		send("/telemetry/v1/metrics", dropped(metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA, point("record", "send_failed", 3)), false)
+		records, spans := receiver.Dropped()
+		Expect(records).To(Equal(int64(10)))
+		Expect(spans).To(Equal(int64(2)))
+	})
+
 	It("counts the WebSocket records by what their check found, and every span", func() {
 		text := func(k, v string) *common.KeyValue {
 			return &common.KeyValue{Key: k, Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: v}}}

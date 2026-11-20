@@ -46,7 +46,9 @@ type Receiver struct {
 	spans   counted
 	// messages counts what the WebSocket records said, read as they come.
 	messages messageCounts
-	server   *http.Server
+	// drops keeps the proxy's own count of what its exporters lost.
+	drops  drops
+	server *http.Server
 
 	mu        sync.Mutex
 	allocated int64
@@ -110,6 +112,7 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		r.readAllocated(&export)
+		r.drops.read(&export)
 		if req.URL.Path == TelemetryPath+"/v1/metrics" {
 			r.pass(data)
 		}
