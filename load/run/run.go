@@ -329,25 +329,39 @@ func Run(cfg Config) (string, error) {
 		}
 	}
 	if cfg.Profile {
-		began := time.Now()
-		if err := d.profileRun(p, filepath.Join(dir, "profile"), cfg.Duration); err != nil {
-			return "", fmt.Errorf("profile run: %w", err)
+		load := func(summary string) error {
+			_, err := d.k6run(summary, cfg.Duration, d.proxyURL, true, d.rate, "profile", 0)
+			return err
 		}
-		if pyroscope := PyroscopeFromEnv(os.Getenv); pyroscope != nil {
-			// A failed upload is a warning: the files are in the artifact.
-			for _, name := range []string{"cpu.pprof", "allocs.pprof"} {
-				if err := pyroscope.Upload(filepath.Join(dir, "profile", name), PyroscopeName(tags), began, time.Now()); err != nil && cfg.Out != nil {
-					fmt.Fprintf(cfg.Out, "warning: sending %s to Pyroscope failed: %v\n", name, err)
-				}
-			}
+		if err := saveProfiles(cfg, p, filepath.Join(dir, "profile"), tags, load); err != nil {
+			return "", err
 		}
 	}
 	return dir, nil
 }
 
-// profileRun runs the proxy once more under load and saves a processor
-// profile of the middle of the run and the memory profile after it.
-func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
+// saveProfiles runs the proxy once more under load, not counted in the
+// numbers, saves its profiles into folder and sends them to Pyroscope when
+// it is set. load runs k6 through the proxy for that run.
+func saveProfiles(cfg Config, p *proxyProcess, folder string, tags PushTags, load func(summary string) error) error {
+	began := time.Now()
+	if err := profileRun(p, folder, cfg.Duration, load); err != nil {
+		return fmt.Errorf("profile run: %w", err)
+	}
+	if pyroscope := PyroscopeFromEnv(os.Getenv); pyroscope != nil {
+		// A failed upload is a warning: the files are in the artifact.
+		for _, name := range []string{"cpu.pprof", "allocs.pprof"} {
+			if err := pyroscope.Upload(filepath.Join(folder, name), PyroscopeName(tags), began, time.Now()); err != nil && cfg.Out != nil {
+				_, _ = fmt.Fprintf(cfg.Out, "warning: sending %s to Pyroscope failed: %v\n", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+// profileRun runs load once more and saves a processor profile of the
+// middle of the run and the memory profile after it.
+func profileRun(p *proxyProcess, folder, duration string, load func(summary string) error) error {
 	if err := os.Mkdir(folder, 0o750); err != nil {
 		return err
 	}
@@ -361,7 +375,7 @@ func (d driver) profileRun(p *proxyProcess, folder, duration string) error {
 		time.Sleep(2 * time.Second)
 		cpu <- FetchProfile(fmt.Sprintf("http://%s/debug/pprof/profile?seconds=%d", p.pprofAddr, seconds), filepath.Join(folder, "cpu.pprof"))
 	}()
-	if _, err := d.k6run(filepath.Join(folder, "proxy-summary.json"), duration, d.proxyURL, true, d.rate, "profile", 0); err != nil {
+	if err := load(filepath.Join(folder, "proxy-summary.json")); err != nil {
 		return err
 	}
 	if err := <-cpu; err != nil {

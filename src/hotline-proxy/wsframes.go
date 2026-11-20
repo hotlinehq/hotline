@@ -529,7 +529,7 @@ func (d *inflater) unpack(body io.Reader, out io.Writer, buf []byte) error {
 	src := io.MultiReader(body, bytes.NewReader(deflateTail()))
 	var dict []byte
 	if d.takeover {
-		dict = d.dict
+		dict = d.dict[max(0, len(d.dict)-d.window):]
 	}
 	if d.reader == nil {
 		d.reader = flate.NewReaderDict(src, dict)
@@ -548,12 +548,25 @@ func (d *inflater) unpack(body io.Reader, out io.Writer, buf []byte) error {
 	return err
 }
 
-// Write keeps the last window bytes unpacked. The bytes before them are
-// let go of when append next moves the list.
+// Write keeps the last window bytes unpacked, in one list of twice the
+// window made once per session: new bytes go after the kept ones, and
+// only when the list is full are the last window bytes moved to its
+// start. A new list for every message handed out most of a compressed
+// session's memory (load test, 2026-11-20).
 func (d *inflater) Write(p []byte) (int, error) {
+	n := len(p)
+	if n >= d.window {
+		p = p[n-d.window:]
+	}
+	if d.dict == nil {
+		d.dict = make([]byte, 0, 2*d.window)
+	}
+	if len(d.dict)+len(p) > cap(d.dict) {
+		keep := d.dict[max(0, len(d.dict)-(d.window-len(p))):]
+		d.dict = d.dict[:copy(d.dict[:cap(d.dict)], keep)]
+	}
 	d.dict = append(d.dict, p...)
-	d.dict = d.dict[max(0, len(d.dict)-d.window):]
-	return len(p), nil
+	return n, nil
 }
 
 // deflateAgreed reads the permessage-deflate the 101 agreed to, if any, as
