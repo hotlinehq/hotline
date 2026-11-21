@@ -169,7 +169,7 @@ actions:
 		}
 		return w.appWrite(frames)
 	})
-	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|add_order)|a (?:packed )?batch_add|add_order |toolResponse |\{).+)$`, w.appSends)
+	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|add_order)|a (?:packed )?batch_add|a toolResponse|add_order |toolResponse |\{).+)$`, w.appSends)
 	sc.Step(`^the app closes the (?:Kraken|tool) WebSocket$`, func() error {
 		if err := w.appWrite(frameOf(0x8, true, false, []byte{0x03, 0xe8}, true)); err != nil {
 			return err
@@ -579,6 +579,7 @@ func (w *world) appSends(what string) error {
 	pings := regexp.MustCompile(`^(\d+) pings and reads (\d+) pongs$`)
 	audio := regexp.MustCompile(`^(\d+) bytes of audio as a binary frame$`)
 	large := regexp.MustCompile(`^a (packed )?batch_add (?:of|that unpacks to) (\d+) MiB(?: with req_id (\d+))?$`)
+	tool := regexp.MustCompile(`^a toolResponse of (\d+) MiB with id "([^"]+)"$`)
 	packed := regexp.MustCompile(`^(\d+) add_order messages, packed$`)
 	plain := regexp.MustCompile(`^(.+?)(?: as a (binary) frame| split into (\d+) frames, with a ping after the first)?$`)
 	for _, part := range strings.Split(what, ", then ") {
@@ -604,6 +605,10 @@ func (w *world) appSends(what string) error {
 			mib, _ := strconv.Atoi(m[2])
 			reqID, _ := strconv.Atoi(m[3])
 			err = w.appMessage(bigBatchAdd(mib<<20, max(reqID, 1)), m[1] != "")
+		case tool.MatchString(part):
+			m := tool.FindStringSubmatch(part)
+			mib, _ := strconv.Atoi(m[1])
+			err = w.appMessage(bigToolResponse(mib<<20, m[2]), false)
 		case packed.MatchString(part):
 			n, _ := strconv.Atoi(packed.FindStringSubmatch(part)[1])
 			for i := range n {
@@ -850,6 +855,14 @@ func (p *packer) pack(message []byte) []byte {
 	return bytes.Clone(bytes.TrimSuffix(p.buf.Bytes(), []byte{0x00, 0x00, 0xff, 0xff}))
 }
 
+// bigToolResponse is a toolResponse of size bytes, its id first, then
+// its long text, inside the list of responses.
+func bigToolResponse(size int, id string) []byte {
+	head := `{"toolResponse":{"functionResponses":[{"id":"` + id + `","name":"orderStatus","response":{"text":"`
+	tail := `"}}]}}`
+	return []byte(head + strings.Repeat("a", size-len(head)-len(tail)) + tail)
+}
+
 // toolSpec is a shop api whose GET /live switches to a WebSocket and lists
 // tool calls sent by the vendor, shaped like Gemini Live's, for the cases
 // Kraken has no message for; GET /other switches too, with none listed.
@@ -933,4 +946,5 @@ components:
           properties:
             id: { type: string }
             message: { type: string }
+            cause: { $ref: "#/components/schemas/toolError" }
 `

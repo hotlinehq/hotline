@@ -10,7 +10,8 @@ Feature: WebSocket messages Kraken has no example of
   the vendor, with no reply. The correlation id of toolCall is at
   /toolCall/functionCalls/0/id, of toolResponse at
   /toolResponse/functionResponses/0/id, and of toolError at /toolError/id.
-  Its GET /other answers 101 too, and lists nothing.
+  A toolError may hold the toolError that caused it, so its schema refers
+  to itself. Its GET /other answers 101 too, and lists nothing.
 
   Background:
     Given the tool spec
@@ -45,3 +46,18 @@ Feature: WebSocket messages Kraken has no example of
     When an app opens a WebSocket to the tool spec's /other and sends "hello"
     Then there are 0 message records
     And the session record has no hotline.websocket.close.from
+
+  Scenario: A correlation id in an empty list records nothing
+    When an app opens the tool WebSocket
+    And the app sends {"toolResponse":{"functionResponses":[]}}
+    And the app closes the tool WebSocket
+    Then message record 1 says hotline.websocket.message.name toolResponse, hotline.websocket.message.role reply
+    And message record 1 has no messaging.message.conversation_id
+
+  Scenario: A correlation id in a list is still read from a message too large to check
+    The message is read only as far as naming needs: here into the list
+    of responses, which the long text inside it cuts short.
+    When an app opens the tool WebSocket
+    And the app sends a toolResponse of 3 MiB with id "call-9"
+    And the app closes the tool WebSocket
+    Then message record 1 says hotline.websocket.message.name toolResponse, hotline.schema.skipped body_too_large, messaging.message.conversation_id call-9
