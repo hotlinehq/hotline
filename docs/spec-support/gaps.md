@@ -25,7 +25,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 | Gap | Matters | Source |
 |---|---|---|
 | Only the first `servers` entry is read, and only for its base path (like `/v1`). Other servers, and `servers` on a path or an operation, are ignored. | Medium | [code] `spec.go` |
-| Server variables: a variable in the host (`https://{region}.api.com/v1`) makes Go refuse the address, so the base path `/v1` is silently dropped and routes miss. A variable in the path is treated like a path value. | Medium | [inferred], checked with Go's URL parser |
+| Fixed on 2026-11-21 (M1): the host of a servers address is no longer parsed, so a variable in it (`https://{region}.api.com/v1`) keeps the base path `/v1`. A variable in the path is treated like a path value. | Medium | [code] `spec.go` basePath |
 | `$ref` to another file (a split spec) is refused. Specs must be bundled into one file. | Medium | [code] `compile.go` object |
 | `webhooks` (the 3.1 top-level section) is not read. Calls the vendor makes to the app are not checked. | Medium: Stripe, GitHub, Slack send webhooks | [code] only `paths` is read |
 | `callbacks` are not read. | Low to medium | [code] |
@@ -81,11 +81,11 @@ If katydid replaces santhosh: `contains`, `prefixItems`, `propertyNames` and `un
 | `servers` and `channels` are not read. One WebSocket is one channel; the route's OpenAPI path stands in for the channel address. | Low for WebSockets | [code] only operations and defaultContentType are allowed |
 | Channel parameters (values in the address) are not read; the OpenAPI path and query parameters cover the WebSocket's URL. | Low | [code] |
 | Bindings (`ws` query and headers, and others) are ignored silently. | Low: OpenAPI parameters cover the upgrade call | [code] key never read |
-| Traits (operation and message) are ignored silently, so anything a trait adds, such as a `correlationId` or `contentType`, is lost. | Medium: vendors use traits to share these | [code] key never read |
+| Fixed on 2026-11-21 (M1): traits on an operation or a message refuse the spec, saying to write what they add into the operation or message itself. Merging them in comes later if a vendor needs it. | Medium: vendors use traits to share these | [code] `messages.go` |
 | Message `headers` are not read, and `correlationId` in `$message.header` refuses the spec. WebSocket messages have no headers. | Low for WebSockets | [code] `correlation` |
 | `correlationId` reads one field only; a list index reads one item, so a tool call with several calls records only the first id. | Medium for multi-call AI tool use | [code] and docs/spec-marks.md |
 | `reply.address` and `reply.channel` refuse the spec (dynamic reply addresses such as a reply topic). | Low for WebSockets | [code] |
-| `schemaFormat` (Avro, Protobuf, RAML schemas) is not supported: a payload must be a `$ref` to an OpenAPI JSON Schema. A non-JSON `schemaFormat` key is ignored silently. | Low to medium | [code] payload rule; [inferred] key ignored |
+| `schemaFormat` (Avro, Protobuf, RAML schemas) is not supported: a payload must be a `$ref` to an OpenAPI JSON Schema. Since 2026-11-21 (M1), a `schemaFormat` that is not JSON Schema, on a message or its payload, refuses the spec instead of being ignored. | Low to medium | [code] `messages.go` |
 | An inline payload schema is refused; it must be a `$ref` to `components/schemas`. | Low: a style rule | [code] |
 | Non-JSON messages (binary, `audio/pcm`, Protobuf, MessagePack) are recorded as `unknown` and not checked. One content type per side. | Medium: realtime audio APIs | [code] |
 | Messages are named only by `x-hotline-match` marks; there is no AsyncAPI way to name them, and a match mark inside a list is refused. | Low: our own choice | [code] |
@@ -96,5 +96,5 @@ If katydid replaces santhosh: `contains`, `prefixItems`, `propertyNames` and `un
 
 1. Server-Sent Events: check each streamed event (the OpenAI and Anthropic case).
 2. Multipart bodies: at least check the non-file fields.
-3. Server variables in the host: refuse the spec instead of silently dropping the base path.
-4. AsyncAPI traits: refuse them, or merge them in, instead of ignoring them silently.
+3. Server variables in the host: done (M1), the base path is kept.
+4. AsyncAPI traits: done (M1), they refuse the spec.

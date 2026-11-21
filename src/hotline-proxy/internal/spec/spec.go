@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -109,13 +108,9 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 	b := newBuilder(name, data, newEngine)
 	s := &Spec{actionHeader: doc.ActionHeader, actionField: doc.ActionField, secretHeaders: map[string]bool{}, secretQuery: map[string]bool{}}
 	var problems []error
-	// A base path in the first servers address, such as /v1 in
-	// https://api.x.com/v1, goes in front of every route.
 	base := ""
 	if len(doc.Servers) > 0 {
-		if u, err := url.Parse(doc.Servers[0].URL); err == nil {
-			base = strings.TrimSuffix(u.Path, "/")
-		}
+		base = basePath(doc.Servers[0].URL)
 	}
 	for key, item := range doc.Paths {
 		template := base + key
@@ -224,4 +219,17 @@ func (p pathItem) operations() map[string]*operation {
 		}
 	}
 	return all
+}
+
+// basePath is the path of a servers address, such as /v1 in
+// https://api.x.com/v1, which goes in front of every route. The scheme and
+// host are not used, as the config names the hosts, so a variable in them,
+// such as {region}, is skipped rather than read. A variable in the path
+// stays in the route, like any path value.
+func basePath(address string) string {
+	if _, rest, absolute := strings.Cut(address, "://"); absolute {
+		_, path, _ := strings.Cut(rest, "/")
+		address = "/" + path
+	}
+	return strings.TrimSuffix(address, "/")
 }
