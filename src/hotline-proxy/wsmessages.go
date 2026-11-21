@@ -62,7 +62,7 @@ func (r *reading) end() {
 }
 
 // message names a whole message, starts its check, and records it once
-// the check ends. Its name and ids are found here, in a step never dropped
+// the check ends. Its name and correlation id are found here, in a step never dropped
 // (Q14).
 func (r *reading) message(w *wire, seen seenMessage, m message) {
 	named := r.messages.Name(w.fromApp, m.data)
@@ -139,18 +139,23 @@ func (r *reading) record(w *wire, seen seenMessage, m *message, named spec.Messa
 			attrs = append(attrs, attribute.Int64("hotline.websocket.message.unpacked_size", m.unpacked))
 		}
 	}
-	if len(named.IDs) > 0 {
-		ids := named.IDs
-		if len(ids) > shownResults {
-			attrs = append(attrs, attribute.Int("hotline.websocket.ids_total", len(ids)))
-			ids = ids[:shownResults]
-		}
-		attrs = append(attrs, attribute.StringSlice("hotline.websocket.ids", ids))
+	// The operation, role and correlation id go on the span too, so a trace
+	// store can group a request with its replies from the traces alone
+	// (Peter, 2026-11-21, Q4, Q6 and Q9).
+	var paired []attribute.KeyValue
+	if named.Operation != "" {
+		paired = append(paired,
+			attribute.String("hotline.websocket.operation", named.Operation),
+			attribute.String("hotline.websocket.message.role", named.Role))
 	}
+	if named.ConversationID != "" {
+		paired = append(paired, attribute.String("messaging.message.conversation_id", named.ConversationID))
+	}
+	attrs = append(attrs, paired...)
 	attrs = checked(attrs, found, ran)
 	spans := []export.Span{{
 		ID: id, Parent: r.session, Name: "websocket message", Kind: trace.SpanKindInternal,
-		Start: seen.start, End: seen.end,
+		Start: seen.start, End: seen.end, Attrs: paired,
 	}}
 	if check != nil {
 		spans = append(spans, c.checkSpans("message spec check", id, check, append(found.Request, found.Response...), found.Skipped)...)

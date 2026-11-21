@@ -185,8 +185,11 @@ func (b *builder) checks(template, method, where string) *checks {
 			c.responses[code] = b.response(c.marks, r, pointer, where, code)
 		}
 	}
-	if v, ok := op["x-hotline-messages"]; ok {
-		c.messages = b.messages(v, opPointer+"/x-hotline-messages", where)
+	if _, ok := op["x-hotline-messages"]; ok {
+		b.problem("%s: x-hotline-messages is replaced by x-async-api, see docs/spec-marks.md", where)
+	}
+	if v, ok := op["x-async-api"]; ok {
+		c.messages = b.asyncAPI(v, opPointer+"/x-async-api", where)
 	}
 	b.clashes(c, where)
 	return c

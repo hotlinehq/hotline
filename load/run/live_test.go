@@ -45,6 +45,11 @@ var _ = Describe("A live run that cannot start", func() {
 		Expect(err).To(MatchError(ContainSubstring(`no call shape called "live-zip"`)))
 	})
 
+	It("takes a Kraken shape with an unknown packing as an unknown call shape", func() {
+		_, err := run.Run(run.Config{OutDir: GinkgoT().TempDir(), Shape: "kraken-zip", Sessions: 2, Duration: "3s", Repeats: 1})
+		Expect(err).To(MatchError(ContainSubstring(`no call shape called "kraken-zip"`)))
+	})
+
 	It("says plainly when k6 is not installed", func() {
 		_, err := run.Run(run.Config{OutDir: GinkgoT().TempDir(), K6: "/no/such/k6", Shape: "live-plain", Sessions: 2, Duration: "3s", Repeats: 1})
 		Expect(err).To(MatchError(ContainSubstring("k6 is not installed")))
@@ -57,18 +62,24 @@ var _ = Describe("The scenario line of a live shape", func() {
 		Expect(line).To(Equal("scenario: live-context (Gemini Live sessions, 25 audio messages a second each way, packing context), " +
 			"50 sessions at once for 20s, 3 repeats, each direct then through the proxy"))
 	})
+
+	It("says what a Kraken session sends", func() {
+		line := run.LiveScenario(run.Config{Shape: "kraken-alone", Sessions: 20, Duration: "20s", Repeats: 1})
+		Expect(line).To(Equal("scenario: kraken-alone (Kraken market data sessions, 25 pings a second, each answered by a pong and a book update, packing alone), " +
+			"20 sessions at once for 20s, 1 repeat, each direct then through the proxy"))
+	})
 })
 
 // The whole live run, against the real proxy and the k6 of make k6: set
 // HOTLINE_PROXY to the built program and K6_LIVE to that k6.
 var _ = DescribeTable("A live run with the proxy and a few sessions",
-	func(shape string) {
+	func(shape, spec string) {
 		proxy, k6 := os.Getenv("HOTLINE_PROXY"), os.Getenv("K6_LIVE")
 		if proxy == "" || k6 == "" {
 			Skip("needs HOTLINE_PROXY and K6_LIVE, the k6 of make k6")
 		}
 		dir, err := run.Run(run.Config{
-			Proxy: proxy, Spec: "../live/live.openapi.yaml", K6: k6, OutDir: GinkgoT().TempDir(),
+			Proxy: proxy, Spec: spec, K6: k6, OutDir: GinkgoT().TempDir(),
 			Shape: shape, Sessions: 3, Duration: "2s", Repeats: 1,
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -87,7 +98,10 @@ var _ = DescribeTable("A live run with the proxy and a few sessions",
 		Expect(r.Spans).To(BeNumerically(">", r.Records))
 		Expect(strings.TrimSpace(r.Shape)).To(Equal(shape))
 	},
-	Entry("records every plain message", "live-plain"),
-	Entry("records every message packed alone", "live-alone"),
-	Entry("records every message packed against earlier ones", "live-context"),
+	Entry("records every plain message", "live-plain", "../live/live.openapi.yaml"),
+	Entry("records every message packed alone", "live-alone", "../live/live.openapi.yaml"),
+	Entry("records every message packed against earlier ones", "live-context", "../live/live.openapi.yaml"),
+	Entry("records every plain Kraken message", "kraken-plain", "../live/kraken.openapi.yaml"),
+	Entry("records every Kraken message packed alone", "kraken-alone", "../live/kraken.openapi.yaml"),
+	Entry("records every Kraken message packed against earlier ones", "kraken-context", "../live/kraken.openapi.yaml"),
 )

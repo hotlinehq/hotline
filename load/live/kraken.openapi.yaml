@@ -1,0 +1,193 @@
+# The api of the Kraken load case: Kraken's Spot WebSocket v2 market data,
+# with the messages the load case sends listed in AsyncAPI 3's shapes under
+# x-async-api, so the proxy names and checks each one and records its
+# operation, role and correlation id (req_id). Written for the load test
+# only, from the full Kraken spec in the project files
+# (kraken-v2/kraken-v2.asyncapi.yaml); not a full description of Kraken.
+#
+# The operations are seen from Kraken, as OpenAPI is: receive means the app
+# sends it, send means Kraken sends it. A failed subscribe can't say which
+# channel it was for, so it is an operation of its own (subscribeFailed),
+# whose message answers a request of any operation by its req_id.
+openapi: 3.1.0
+info:
+  title: Kraken Spot WebSocket v2 market data for the load test
+  version: 2.0.0
+paths:
+  /v2:
+    get:
+      operationId: marketData
+      responses:
+        "101":
+          description: Switched to a WebSocket; the session follows.
+      x-async-api:
+        operations:
+          ping:
+            action: receive # Kraken receives it, so the app sends it
+            messages: [{ $ref: "#/components/x-async-api/messages/ping" }]
+            reply:
+              messages: [{ $ref: "#/components/x-async-api/messages/pong" }]
+          subscribeBook:
+            action: receive
+            messages: [{ $ref: "#/components/x-async-api/messages/subscribeBook" }]
+            reply:
+              messages: [{ $ref: "#/components/x-async-api/messages/subscribeBookReply" }]
+          subscribeFailed:
+            action: send # Kraken sends it
+            messages: [{ $ref: "#/components/x-async-api/messages/subscribeFailed" }]
+          book:
+            action: send
+            messages:
+              - $ref: "#/components/x-async-api/messages/bookSnapshot"
+              - $ref: "#/components/x-async-api/messages/bookUpdate"
+          heartbeat:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/heartbeat" }]
+          status:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/status" }]
+components:
+  x-async-api:
+    messages:
+      ping:
+        payload: { $ref: "#/components/schemas/ping" }
+        correlationId: { $ref: "#/components/x-async-api/correlationIds/reqId" }
+      pong:
+        payload: { $ref: "#/components/schemas/pong" }
+        correlationId: { $ref: "#/components/x-async-api/correlationIds/reqId" }
+      subscribeBook:
+        payload: { $ref: "#/components/schemas/subscribeBook" }
+        correlationId: { $ref: "#/components/x-async-api/correlationIds/reqId" }
+      subscribeBookReply:
+        payload: { $ref: "#/components/schemas/subscribeBookReply" }
+        correlationId: { $ref: "#/components/x-async-api/correlationIds/reqId" }
+      subscribeFailed:
+        payload: { $ref: "#/components/schemas/subscribeFailed" }
+        correlationId: { $ref: "#/components/x-async-api/correlationIds/reqId" }
+      bookSnapshot: { payload: { $ref: "#/components/schemas/bookSnapshot" } }
+      bookUpdate: { payload: { $ref: "#/components/schemas/bookUpdate" } }
+      heartbeat: { payload: { $ref: "#/components/schemas/heartbeat" } }
+      status: { payload: { $ref: "#/components/schemas/status" } }
+    correlationIds:
+      reqId:
+        description: The app's req_id, repeated on every reply to that request.
+        location: "$message.payload#/req_id"
+  schemas:
+    reqId:
+      type: integer
+      description: Chosen by the app. Each reply carries the same value.
+    timestamp:
+      type: string
+      description: RFC 3339 time, for example 2023-09-21T14:15:07.197274Z.
+    ping:
+      type: object
+      additionalProperties: false
+      required: [method]
+      properties:
+        method: { type: string, const: ping, x-hotline-match: true }
+        req_id: { $ref: "#/components/schemas/reqId" }
+    pong:
+      type: object
+      additionalProperties: false
+      required: [method]
+      properties:
+        method: { type: string, const: pong, x-hotline-match: true }
+        req_id: { $ref: "#/components/schemas/reqId" }
+        success: { type: boolean }
+        error: { type: string }
+        time_in: { $ref: "#/components/schemas/timestamp" }
+        time_out: { $ref: "#/components/schemas/timestamp" }
+    subscribeBook:
+      type: object
+      additionalProperties: false
+      required: [method, params]
+      properties:
+        method: { type: string, const: subscribe, x-hotline-match: true }
+        req_id: { $ref: "#/components/schemas/reqId" }
+        params:
+          type: object
+          required: [channel, symbol]
+          properties:
+            channel: { type: string, const: book, x-hotline-match: true }
+            symbol: { type: array, minItems: 1, items: { type: string } }
+            depth: { type: integer, enum: [10, 25, 100, 500, 1000] }
+            snapshot: { type: boolean }
+    subscribeBookReply:
+      type: object
+      additionalProperties: false
+      required: [method, success, result]
+      properties:
+        method: { type: string, const: subscribe, x-hotline-match: true }
+        req_id: { $ref: "#/components/schemas/reqId" }
+        success: { type: boolean, const: true, x-hotline-match: true }
+        result:
+          type: object
+          required: [channel]
+          properties:
+            channel: { type: string, const: book, x-hotline-match: true }
+            symbol: { type: string }
+            depth: { type: integer, enum: [10, 25, 100, 500, 1000] }
+            snapshot: { type: boolean }
+            warnings: { type: array, items: { type: string } }
+        time_in: { $ref: "#/components/schemas/timestamp" }
+        time_out: { $ref: "#/components/schemas/timestamp" }
+    subscribeFailed:
+      type: object
+      required: [method, success, error]
+      properties:
+        method: { type: string, const: subscribe, x-hotline-match: true }
+        req_id: { $ref: "#/components/schemas/reqId" }
+        success: { type: boolean, const: false, x-hotline-match: true }
+        error: { type: string }
+        time_in: { $ref: "#/components/schemas/timestamp" }
+        time_out: { $ref: "#/components/schemas/timestamp" }
+    priceLevel:
+      type: object
+      required: [price, qty]
+      properties:
+        price: { type: number }
+        qty: { type: number }
+    bookData:
+      type: object
+      required: [symbol, bids, asks, checksum]
+      properties:
+        symbol: { type: string }
+        bids: { type: array, items: { $ref: "#/components/schemas/priceLevel" } }
+        asks: { type: array, items: { $ref: "#/components/schemas/priceLevel" } }
+        checksum: { type: integer, description: CRC32 of the top ten levels. }
+        timestamp: { $ref: "#/components/schemas/timestamp" }
+    bookSnapshot:
+      type: object
+      required: [channel, type, data]
+      properties:
+        channel: { type: string, const: book, x-hotline-match: true }
+        type: { type: string, const: snapshot, x-hotline-match: true }
+        data: { type: array, items: { $ref: "#/components/schemas/bookData" } }
+    bookUpdate:
+      type: object
+      required: [channel, type, data]
+      properties:
+        channel: { type: string, const: book, x-hotline-match: true }
+        type: { type: string, const: update, x-hotline-match: true }
+        data: { type: array, items: { $ref: "#/components/schemas/bookData" } }
+    heartbeat:
+      type: object
+      required: [channel]
+      properties:
+        channel: { type: string, const: heartbeat, x-hotline-match: true }
+    status:
+      type: object
+      required: [channel, type, data]
+      properties:
+        channel: { type: string, const: status, x-hotline-match: true }
+        type: { type: string, const: update, x-hotline-match: true }
+        data:
+          type: array
+          items:
+            type: object
+            required: [api_version, connection_id, system, version]
+            properties:
+              api_version: { type: string }
+              connection_id: { type: integer }
+              system: { type: string, enum: [online, cancel_only, maintenance, post_only] }
+              version: { type: string }

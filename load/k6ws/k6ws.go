@@ -1,5 +1,5 @@
-// Package k6ws adds k6/x/hotline-live to k6: one Gemini Live session per
-// call, run by hotline-load/live. Stock k6 opens WebSockets with
+// Package k6ws adds k6/x/hotline-live to k6: one WebSocket session per
+// call, Gemini Live or Kraken, run by hotline-load/live. Stock k6 opens WebSockets with
 // gorilla/websocket, which can only pack each message alone; this one uses
 // coder/websocket, which can also pack against earlier messages, as real
 // apps do. Built into k6 with xk6, see load/README.md.

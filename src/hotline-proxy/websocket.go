@@ -38,7 +38,7 @@ type session struct {
 
 // newSession sets up the session of a call whose vendor answered 101: its
 // body is the vendor's side, read and written. When the call's route lists
-// the session's messages in x-hotline-messages, they are read too (Peter,
+// the session's messages in x-async-api, they are read too (Peter,
 // 2026-11-19, WebSocket slice 2).
 func (c *call) newSession(resp *http.Response, toVendor io.Writer) *session {
 	span := tracectx.NewSpanID()

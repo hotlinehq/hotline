@@ -31,18 +31,36 @@ var (
 	errLiveFailed   = errors.New("sessions failed")
 )
 
-// liveAPI is the api's name in the proxy's config, and livePath what an app
-// opens on Gemini Live.
-const (
-	liveAPI  = "live"
-	livePath = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-)
+// liveAPI is the api's name in the proxy's config.
+const liveAPI = "live"
 
-// livePacking says whether a shape is a WebSocket one, and how it packs
-// its messages: live-plain, live-alone or live-context.
-func livePacking(shape string) (string, bool) {
-	packing, ok := strings.CutPrefix(shape, "live-")
-	return packing, ok && slices.Contains([]string{"plain", "alone", "context"}, packing)
+// socketShape is a WebSocket shape: which vendor, what an app opens there,
+// what each session sends, and how messages are packed.
+type socketShape struct {
+	vendor, path, what, packing string
+	start                       func() (*fakes.LiveVendor, error)
+}
+
+// liveShape says whether a shape is a WebSocket one, and which: live-plain,
+// live-alone or live-context for Gemini Live, kraken-plain, kraken-alone
+// or kraken-context for Kraken's market data.
+func liveShape(shape string) (socketShape, bool) {
+	vendors := map[string]socketShape{
+		"live": {
+			vendor: "gemini", path: "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+			what:  fmt.Sprintf("Gemini Live sessions, %d audio messages a second each way", int(time.Second/live.Chunk)),
+			start: fakes.StartLiveVendor,
+		},
+		"kraken": {
+			vendor: "kraken", path: "/v2",
+			what:  fmt.Sprintf("Kraken market data sessions, %d pings a second, each answered by a pong and a book update", int(time.Second/live.Chunk)),
+			start: fakes.StartKrakenVendor,
+		},
+	}
+	prefix, packing, _ := strings.Cut(shape, "-")
+	s, known := vendors[prefix]
+	s.packing = packing
+	return s, known && slices.Contains([]string{"plain", "alone", "context"}, packing)
 }
 
 // LiveLatency is what k6 says about one target in one repeat of a live
@@ -128,18 +146,18 @@ type LiveResult struct {
 
 // LiveScenario says in one line what a live run does.
 func LiveScenario(cfg Config) string {
-	packing, _ := livePacking(cfg.Shape)
+	s, _ := liveShape(cfg.Shape)
 	repeats := fmt.Sprintf("%d repeats", cfg.Repeats)
 	if cfg.Repeats == 1 {
 		repeats = "1 repeat"
 	}
-	return fmt.Sprintf("scenario: %s (Gemini Live sessions, %d audio messages a second each way, packing %s), %d sessions at once for %s, %s, each direct then through the proxy",
-		cfg.Shape, int(time.Second/live.Chunk), packing, cfg.Sessions, cfg.Duration, repeats)
+	return fmt.Sprintf("scenario: %s (%s, packing %s), %d sessions at once for %s, %s, each direct then through the proxy",
+		cfg.Shape, s.what, s.packing, cfg.Sessions, cfg.Duration, repeats)
 }
 
 // RunLive does the whole run of a live shape and returns its folder.
 func RunLive(cfg Config) (string, error) {
-	packing, _ := livePacking(cfg.Shape)
+	shape, _ := liveShape(cfg.Shape)
 	if cfg.Sessions <= 0 {
 		return "", errNoSessions
 	}
@@ -162,7 +180,7 @@ func RunLive(cfg Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	vendor, err := fakes.StartLiveVendor()
+	vendor, err := shape.start()
 	if err != nil {
 		return "", err
 	}
@@ -197,9 +215,9 @@ func RunLive(cfg Config) (string, error) {
 		return "", err
 	}
 	_, vendorPort, _ := net.SplitHostPort(vendor.TLSAddr)
-	d := liveDriver{k6: k6Path, script: scriptPath, packing: packing, tags: tags,
-		directURL: "ws://" + vendor.PlainAddr + livePath,
-		proxyURL:  "ws://" + p.addr + "/https://localhost:" + vendorPort + livePath}
+	d := liveDriver{k6: k6Path, script: scriptPath, vendor: shape.vendor, packing: shape.packing, tags: tags,
+		directURL: "ws://" + vendor.PlainAddr + shape.path,
+		proxyURL:  "ws://" + p.addr + "/https://localhost:" + vendorPort + shape.path}
 	idle := receiver.Messages()
 	warm, err := d.k6run(filepath.Join(work, "warmup.json"), "3s", true, min(cfg.Sessions, 10), "warmup", 0)
 	if err != nil {
@@ -265,9 +283,9 @@ func liveTable(w io.Writer, results []LiveResult) {
 
 // liveDriver runs k6 for one live shape.
 type liveDriver struct {
-	k6, script, packing string
-	tags                PushTags
-	directURL, proxyURL string
+	k6, script, vendor, packing string
+	tags                        PushTags
+	directURL, proxyURL         string
 }
 
 func (d liveDriver) k6run(summary, duration string, viaProxy bool, sessions int, phase string, repeat int) (LiveLatency, error) {
@@ -283,7 +301,7 @@ func (d liveDriver) k6run(summary, duration string, viaProxy bool, sessions int,
 	args = append(args, PushOptions(os.Getenv("K6_PROMETHEUS_RW_SERVER_URL"), d.tags, target, phase, repeat)...)
 	args = append(args, d.script)
 	cmd := exec.CommandContext(context.Background(), d.k6, args...) //nolint:gosec // the k6 the person chose
-	cmd.Env = append(os.Environ(), "URL="+url, "AUTH="+auth, "PACKING="+d.packing,
+	cmd.Env = append(os.Environ(), "URL="+url, "AUTH="+auth, "VENDOR="+d.vendor, "PACKING="+d.packing,
 		"SESSIONS="+strconv.Itoa(sessions), "SECONDS="+strconv.FormatFloat(length.Seconds(), 'f', -1, 64))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return LiveLatency{}, fmt.Errorf("k6 failed: %w: %s", err, strings.TrimSpace(string(out)))

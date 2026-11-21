@@ -57,18 +57,20 @@ The proxy sends its own numbers every second unless `HOTLINE_LOAD_METRIC_INTERVA
 
 ## WebSockets
 
-The `live-plain`, `live-alone` and `live-context` shapes open Gemini Live sessions instead of calls: `-sessions 50` keeps 50 open at once, each for the whole repeat. Each app sends a setup, then 40 ms of 16 kHz audio every 40 ms (25 messages a second, about 1.8 KB each), and the fake vendor answers each chunk with 40 ms of its own 24 kHz audio (about 2.7 KB) and every 25 chunks asks for a tool call, which the app answers. So a session carries about 50 messages a second, both ways together. The proxy names and checks each message against `load/live/live.openapi.yaml`, Gemini Live's opening call with its messages listed (`x-hotline-messages`).
+The `live-plain`, `live-alone` and `live-context` shapes open Gemini Live sessions instead of calls: `-sessions 50` keeps 50 open at once, each for the whole repeat. Each app sends a setup, then 40 ms of 16 kHz audio every 40 ms (25 messages a second, about 1.8 KB each), and the fake vendor answers each chunk with 40 ms of its own 24 kHz audio (about 2.7 KB) and every 25 chunks asks for a tool call, which the app answers. So a session carries about 50 messages a second, both ways together. The proxy names and checks each message against `load/live/live.openapi.yaml`, Gemini Live's opening call with its operations and messages listed in AsyncAPI's shapes (`x-async-api`, see `docs/spec-marks.md`).
+
+The `kraken-plain`, `kraken-alone` and `kraken-context` shapes open sessions on a fake Kraken (Spot WebSocket v2, market data), checked against `load/live/kraken.openapi.yaml`; the real Kraken is never called. Each app subscribes to the order book of BTC/USD and of a pair Kraken does not know, so it gets a reply and a snapshot, and a failure, then sends a ping every 40 ms (25 a second). The fake Kraken answers each ping with a pong carrying the same `req_id`, and an update of the book (about 0.3 KB), and sends a heartbeat once a second. So a session carries about 75 small messages a second, both ways together, and shows every role: requests, replies, an answer and pushes. The delay is from a ping leaving to its pong arriving. The `make load` lines copy the Gemini ones: 20, 50 and 100 sessions plain, 50 packed alone and 50 packed against earlier messages.
 
 The shapes differ only in how messages are packed: `plain` not at all, `alone` each message compressed on its own (`no_context_takeover`), `context` each against the earlier ones, as most apps do.
 
-Stock k6 cannot do the last: its WebSockets use `gorilla/websocket`, which only packs each message alone. So the load test runs its own k6: `make k6` builds k6 v1.3.0 with `load/k6ws` added, by xk6 v1.5.1, into `load/out/k6`, and builds it again only when that code changes. `load/k6ws` is a separate module, kept out of `go.work` so k6's own modules never change the proxy's, and only passes the call on to `load/live`, which uses `coder/websocket` and is tested in this module. The workflow builds this k6 too, instead of downloading one.
+Stock k6 cannot do the last: its WebSockets use `gorilla/websocket`, which only packs each message alone. So the load test runs its own k6: `make k6` builds k6 v1.3.0 with `load/k6ws` added, by xk6 v1.5.1, into `load/out/k6`, and builds it again only when that code changes. `load/k6ws` is a separate module, kept out of `go.work` so k6's own modules never change the proxy's, and only passes the call on to `load/live`, which runs either vendor's session with `coder/websocket` and is tested in this module. The workflow builds this k6 too, instead of downloading one.
 
-One line: `go run ./load/cmd/load -k6 load/out/k6 -proxy load/out/hotline-proxy -spec load/live/live.openapi.yaml -shape live-context -sessions 50`.
+One line: `go run ./load/cmd/load -k6 load/out/k6 -proxy load/out/hotline-proxy -spec load/live/live.openapi.yaml -shape live-context -sessions 50`, or for Kraken `-spec load/live/kraken.openapi.yaml -shape kraken-context`.
 
 What the table says, per repeat:
 
 - **messages**: both ways, through the proxy.
-- **extra p50, p95, p99**: from a chunk of audio leaving the app to the vendor's answer arriving, through the proxy minus direct, in milliseconds.
+- **extra p50, p95, p99**: from a chunk of audio (or a ping, for Kraken) leaving the app to the vendor's answer arriving, through the proxy minus direct, in milliseconds.
 - **cpu us/msg** and **KB/msg**: the proxy's processor time and memory handed out, per message.
 - **peak MB** and **KB/session**: the proxy's highest resident memory, and its growth over the memory just before the repeat, per open session.
 - **records/s** and **spans/s**: the message records, and the spans sent with WebSocket ones, that the receiver got per second of the repeat.

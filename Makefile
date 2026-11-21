@@ -70,8 +70,17 @@ load: k6
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100 -profile
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-alone -sessions 50
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50 -profile
+	# Kraken market data sessions, each pinging 25 times a second, with a
+	# pong and a book update for each ping, so 75 messages a second per
+	# session both ways. The same counts as the Gemini lines, to compare.
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 20
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 50
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 100 -profile
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-alone -sessions 50
+	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-context -sessions 50 -profile
 
 LIVE_SPEC = load/live/live.openapi.yaml
+KRAKEN_SPEC = load/live/kraken.openapi.yaml
 
 # k6 builds the k6 the load test runs: k6 K6_VERSION with load/k6ws added
 # (the WebSocket sessions), built by xk6 XK6_VERSION, pinned so every run
@@ -84,7 +93,7 @@ XK6_VERSION = v1.5.1
 # It is built again only when the code it holds has changed.
 .PHONY: k6
 k6: $(K6)
-$(K6): load/k6ws/k6ws.go load/k6ws/go.mod load/go.mod load/live/session.go load/fakes/live.go
+$(K6): load/k6ws/k6ws.go load/k6ws/go.mod load/go.mod $(wildcard load/live/*.go) load/fakes/live.go load/fakes/kraken.go
 	mkdir -p load/out
 	GOBIN=$(CURDIR)/load/out go install go.k6.io/xk6/cmd/xk6@$(XK6_VERSION)
 	GOWORK=off load/out/xk6 build $(K6_VERSION) \

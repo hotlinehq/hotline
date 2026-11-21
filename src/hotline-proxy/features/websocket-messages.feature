@@ -1,17 +1,20 @@
 Feature: WebSocket messages checked against the spec
   The proxy reads each message of a WebSocket session as it passes, finds
-  which message it is from the x-hotline-match marks in the schemas that
-  the 101 operation's x-hotline-messages lists, checks it against that
-  schema, and writes one record and one span per message. The bytes pass
-  unchanged and never wait (Peter, 2026-11-19, WebSocket slice 2, Q1 to
-  Q27 in the spike).
+  which message it is from the x-hotline-match marks in the payload
+  schemas of the messages that the 101 operation's x-async-api operations
+  list, checks it against that schema, and writes one record and one span
+  per message. The bytes pass unchanged and never wait (Peter, 2026-11-19,
+  WebSocket slice 2, Q1 to Q27 in the spike). The operations and messages
+  are written in AsyncAPI 3's shapes (Peter, 2026-11-21, Q1 to Q9).
 
-  The live spec's GET /live answers 101 and lists, from the app, the
-  messages toolResponse and sessionInfo, and from the vendor, toolCall and
-  serverContent. toolCall and toolResponse are named by their top-level
-  field, sessionInfo by type with the const session.info. The ids of
-  toolCall.functionCalls[] and toolResponse.functionResponses[] are marked
-  x-hotline-id-tuple tool-call.
+  The live spec's GET /live answers 101 and lists four operations:
+  toolCall, sent by the vendor, with toolResponse as its reply; toolError,
+  sent by the vendor, with no reply; sessionInfo, sent by the app; and
+  serverContent, sent by the vendor. toolCall, toolResponse and toolError
+  are named by their top-level field, sessionInfo by type with the const
+  session.info. The correlation id of toolCall is at
+  /toolCall/functionCalls/0/id, of toolResponse at
+  /toolResponse/functionResponses/0/id, and of toolError at /toolError/id.
 
   Background:
     Given the live spec
@@ -42,7 +45,7 @@ Feature: WebSocket messages checked against the spec
     And the app closes the live WebSocket
     Then message record 1 says hotline.websocket.message.name sessionInfo
     And message record 2 says hotline.websocket.message.name unknown
-    And message record 2 has no hotline.schema.status
+    And message record 2 has no hotline.schema.status, hotline.websocket.operation or hotline.websocket.message.role
 
   Scenario: A message with several marks needs all of them
     Given the live spec, where sessionInfo also marks session.kind with const "text"
@@ -69,16 +72,26 @@ Feature: WebSocket messages checked against the spec
       | problem                                         | message                                                    |
       | toolCall has no x-hotline-match                 | the message toolCall has no x-hotline-match                |
       | an x-hotline-match sits inside functionCalls    | sits inside a list                                         |
-      | toolCallAgain matches on toolCall alone as well | the messages toolCall and toolCallAgain both match the same messages |
-      | x-hotline-messages is a list                    | x-hotline-messages must list the messages fromApp and fromVendor |
-      | x-hotline-messages also lists fromServer        | x-hotline-messages has fromServer, but lists only fromApp and fromVendor |
-      | fromApp is 5                                    | fromApp: the messages must be a list of $refs to components/schemas |
-      | fromApp lists a schema written in place         | fromApp: message 1 must be a $ref to components/schemas    |
-      | fromApp lists a schema that is not there        | the $ref #/components/schemas/nothing points nowhere       |
+      | toolCallAgain matches on toolCall alone as well | the messages toolCallAgain and toolCall both match the same messages |
       | toolCall's x-hotline-match is yes               | x-hotline-match at /components/schemas/toolCall/properties/toolCall must be true |
-      | toolCall's x-hotline-id-tuple is 5              | must be a label, such as tool-call                         |
       | a field of toolResponse points nowhere          | the $ref #/components/schemas/nothing points nowhere       |
       | toolCall is not JSON Schema                     | cannot be read as JSON Schema                              |
+      | x-async-api is a list                           | x-async-api must hold operations                           |
+      | x-async-api also holds channels                 | x-async-api has channels, but holds only operations and defaultContentType |
+      | toolCall's action is publish                    | the operation toolCall: action must be send or receive     |
+      | toolCall's messages is 5                        | the operation toolCall: messages must be a list of $refs to components/x-async-api/messages |
+      | sessionInfo lists a message written in place    | the operation sessionInfo: message 1 must be a $ref to components/x-async-api/messages |
+      | sessionInfo lists 5                             | the operation sessionInfo: message 1 must be a $ref to components/x-async-api/messages |
+      | sessionInfo has no payload                      | the message sessionInfo: payload must be a $ref to components/schemas |
+      | sessionInfo lists a message that is not there   | the $ref #/components/x-async-api/messages/nothing points nowhere |
+      | sessionInfo's payload is written in place       | the message sessionInfo: payload must be a $ref to components/schemas |
+      | serverContent also lists toolCall               | the message toolCall is in the operations serverContent and toolCall: a message belongs to one operation |
+      | toolCall's reply names a channel                | the operation toolCall: reply holds only messages          |
+      | toolCall's correlationId is in a header         | the message toolCall: correlationId.location $message.header#/id: a WebSocket message has no headers |
+      | toolCall's correlationId is not a pointer       | the message toolCall: correlationId.location must start with $message.payload#/ |
+      | the app's messages mix JSON and audio/pcm       | the messages the app sends mix the content types application/json and audio/pcm |
+      | the route still uses x-hotline-messages         | x-hotline-messages is replaced by x-async-api              |
+      | toolCall marks its id x-hotline-id-tuple        | x-hotline-id-tuple is replaced by the message's correlationId |
 
   Scenario: Binary frames are read as the side's content type
     When an app opens the live WebSocket
@@ -167,13 +180,13 @@ Feature: WebSocket messages checked against the spec
     And message record 1 says hotline.websocket.message.size 3145728
     And the live vendor got all 3145728 bytes of the message unchanged
 
-  Scenario: A skipped check still lists the message's ids
-    The ids are read in the step that names the message, which is never
-    dropped, so they are there whatever happened to the check (Q14).
+  Scenario: A skipped check still has the message's correlation id
+    The correlation id is read in the step that names the message, which
+    is never dropped, so it is there whatever happened to the check (Q14).
     When an app opens the live WebSocket
     And the app sends a toolResponse of 3 MiB with id "call-9"
     And the app closes the live WebSocket
-    Then message record 1 says hotline.schema.skipped body_too_large, hotline.websocket.ids [tool-call:call-9]
+    Then message record 1 says hotline.schema.skipped body_too_large, messaging.message.conversation_id call-9
 
   Scenario: When the copy of a side does not fit in memory, that side is not read from then on
     A copy that waits for the reader counts under specChecks.queueMemory.
@@ -236,21 +249,48 @@ Feature: WebSocket messages checked against the spec
     And the app sends toolResponse with id "call-7"
     Then a message record and a "websocket message" span arrive while the WebSocket is open
 
-  Scenario: Ids are listed on each message record, and nothing is paired
-    Given the live vendor sends toolCall with ids "call-7" and "call-8"
+  # Operations, roles and correlation ids
+
+  Scenario: Each message says its operation, its role and its correlation id
+    Nothing is paired in the proxy: the trace store groups a request with
+    its replies by the correlation id (Q4, Q5). The role comes from the
+    spec: a request's operation has a reply, a reply is in an operation's
+    reply, and a message with neither is a push (Q6, Q9).
+    Given the live vendor sends toolCall with id "call-7"
     When an app opens the live WebSocket
     And the app reads a message
     And the app sends toolResponse with id "call-7"
+    And the app sends {"type":"session.info","session":{}}
     And the app closes the live WebSocket
-    Then message record 1 says hotline.websocket.ids [tool-call:call-7 tool-call:call-8]
-    And message record 2 says hotline.websocket.ids [tool-call:call-7]
+    Then message record 1 and its span say hotline.websocket.operation toolCall, hotline.websocket.message.role request, messaging.message.conversation_id call-7
+    And message record 2 and its span say hotline.websocket.operation toolCall, hotline.websocket.message.role reply, messaging.message.conversation_id call-7
+    And message record 3 and its span say hotline.websocket.operation sessionInfo, hotline.websocket.message.role push
+    And message record 3 has no messaging.message.conversation_id or hotline.websocket.ids
 
-  Scenario: At most 20 ids are listed, with their total
-    Given the live vendor sends toolCall with 21 ids
+  Scenario: A message with a correlation id that is in no reply answers a request of any operation
+    Given the live vendor sends toolError with id "call-7"
     When an app opens the live WebSocket
     And the app reads a message
     And the app closes the live WebSocket
-    Then message record 1 says hotline.websocket.ids_total 21
+    Then message record 1 and its span say hotline.websocket.operation toolError, hotline.websocket.message.role answer, messaging.message.conversation_id call-7
+
+  Scenario: A correlation id in a list is read at the index the spec names
+    Given the live vendor sends toolCall with ids "call-7" and "call-8"
+    When an app opens the live WebSocket
+    And the app reads a message
+    And the app closes the live WebSocket
+    Then message record 1 says messaging.message.conversation_id call-7
+
+  Scenario: A correlation id that is a number is recorded as its text, and any other value records nothing
+    When an app opens the live WebSocket
+    And the app sends {"toolResponse":{"functionResponses":[{"id":42,"name":"orderStatus","response":{}}]}}
+    And the app sends {"toolResponse":{"functionResponses":[{"id":{"n":42},"name":"orderStatus","response":{}}]}}
+    And the app sends {"toolResponse":{"functionResponses":[]}}
+    And the app closes the live WebSocket
+    Then message record 1 says messaging.message.conversation_id 42
+    And message record 2 has no messaging.message.conversation_id
+    And message record 3 has no messaging.message.conversation_id
+    And message record 3 says hotline.websocket.message.role reply
 
   Scenario: The console shows the session, not each message
     Given a console exporter
@@ -305,7 +345,7 @@ Feature: WebSocket messages checked against the spec
     Then there are 0 message records
     And the session record and the websocket session span say hotline.websocket.from_app.pings 3, hotline.websocket.from_vendor.pongs 3
 
-  Scenario: A session whose route has no x-hotline-messages is counted in bytes only
+  Scenario: A session whose route has no x-async-api is counted in bytes only
     When an app opens a WebSocket to the live spec's /other and sends "hello"
     Then there are 0 message records
     And the session record has no hotline.websocket.close.from
