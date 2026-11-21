@@ -369,14 +369,6 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 	// Reloading.
 	sc.Step(`^an app's call is in progress$`, p.callInProgress)
 	sc.Step(`^the config file changes$`, func() error {
-		// The proxy listens before it notes how its files look, and it says
-		// it started only after. A change made before that line would be
-		// taken as the file it started with, so the test waits for it.
-		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(p.stderr.String(), "hotline proxy started"); time.Sleep(20 * time.Millisecond) {
-			if time.Now().After(deadline) {
-				return failf("the program never said it started:\n%s", p.stderr.String())
-			}
-		}
 		p.writeConfig(p.config(false) + "# changed\n")
 		return nil
 	})

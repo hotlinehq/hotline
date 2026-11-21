@@ -69,9 +69,11 @@ type Config struct {
 	Digest string
 	// Ledger is how records are grouped into signed batches.
 	Ledger Ledger
-	// Files are every file the load read or tried to read, so the proxy
-	// can tell when one changes. A refused config still lists them.
-	Files []string
+	// Files are every file the load read or tried to read, each as it was
+	// just before the load read it (nil when it was not there), so the
+	// proxy can tell when one changes, even during the load. A refused
+	// config still lists them.
+	Files map[string]os.FileInfo
 	// Warnings name settings the proxy does not use, such as a misspelt
 	// field. They do not stop the proxy.
 	Warnings []string
@@ -397,7 +399,8 @@ const notPassed = "not-passed"
 //
 // A refused config comes back with only Files set, next to the problems.
 func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*Config, error) {
-	tried := &Config{Files: []string{path}}
+	info, _ := os.Stat(path)
+	tried := &Config{Files: map[string]os.FileInfo{path: info}}
 	data, err := os.ReadFile(path) //nolint:gosec // the operator chooses the config file
 	if err != nil {
 		return tried, fmt.Errorf("%w: %w", ErrInvalid, err)
@@ -421,7 +424,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		specs:     map[string]*spec.Spec{},
 		files:     map[string][]byte{},
 		lookupEnv: lookupEnv,
-		read:      map[string]bool{path: true},
+		read:      map[string]os.FileInfo{path: info},
 		hashed:    map[string][]byte{path: data},
 	}
 	c := &Config{
@@ -580,7 +583,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 	}
 	c.notPassed = settle(notPassed, false, nil, t)
 	c.Ledger = l.ledger(f)
-	c.Files = slices.Sorted(maps.Keys(l.read))
+	c.Files = l.read
 	c.Warnings = append(c.Warnings, l.warnings...)
 	if len(l.problems) > 0 {
 		return &Config{Files: c.Files}, errors.Join(l.problems...)
@@ -634,9 +637,10 @@ type loader struct {
 	warnings  []string
 	lookupEnv func(string) (string, bool)
 	problems  []error
-	// read are the files the load read or tried to read, and hashed those
-	// the fingerprint covers, with what they held.
-	read   map[string]bool
+	// read are the files the load read or tried to read, as they were
+	// just before, and hashed those the fingerprint covers, with what they
+	// held.
+	read   map[string]os.FileInfo
 	hashed map[string][]byte
 }
 
@@ -740,7 +744,7 @@ func (l *loader) secret(label string, s secret) string {
 	case s.written:
 		return s.value
 	case s.file != "":
-		l.read[l.path(s.file)] = true
+		l.reading(l.path(s.file))
 		data, err := os.ReadFile(l.path(s.file)) //nolint:gosec // the config names its secret files
 		if err != nil {
 			l.problem("%s: the file %s cannot be read", label, s.file)
@@ -758,7 +762,7 @@ func (l *loader) secret(label string, s secret) string {
 
 // certificate authorities reads a PEM file of certificates.
 func (l *loader) authorities(label, path string) []byte {
-	l.read[l.path(path)] = true
+	l.reading(l.path(path))
 	data, err := os.ReadFile(l.path(path)) //nolint:gosec // the config names its certificate files
 	if err != nil {
 		l.problem("%s: %s cannot be read: %v", label, path, err)
@@ -848,7 +852,8 @@ func (l *loader) pair(label string, f *pairFile, load func(certFile, keyFile str
 		return nil
 	}
 	t := &TLS{CertFile: l.path(f.Cert), KeyFile: l.path(f.Key)}
-	l.read[t.CertFile], l.read[t.KeyFile] = true, true
+	l.reading(t.CertFile)
+	l.reading(t.KeyFile)
 	cert, err := load(t.CertFile, t.KeyFile, now)
 	if err != nil {
 		l.problems = append(l.problems, err)
@@ -873,6 +878,14 @@ func loadPair(label, certFile, keyFile string, now time.Time) (*tls.Certificate,
 	return &cert, nil
 }
 
+// reading notes a file as it is just before the load reads it, so a
+// change made while the load runs is seen by the next check.
+func (l *loader) reading(path string) {
+	if _, noted := l.read[path]; !noted {
+		l.read[path], _ = os.Stat(path)
+	}
+}
+
 func (l *loader) path(path string) string {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.dir, path)
@@ -887,12 +900,12 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 		return nil
 	}
 	path = l.path(path)
-	l.read[path] = true
+	l.reading(path)
 	names := []string{path}
 	files := make([]overlay.File, 0, len(overlays))
 	for _, o := range overlays {
 		o = l.path(o)
-		l.read[o] = true
+		l.reading(o)
 		names = append(names, o)
 		files = append(files, overlay.File{Name: o})
 	}

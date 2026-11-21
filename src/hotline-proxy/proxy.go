@@ -212,7 +212,10 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	// port's certificates from a goroutine of its own, so they are all set
 	// above, before it starts.
 	h.own.observe(p)
-	p.reload.seen = stat(cfg.Files)
+	// The files as the load found them, just before it read them: a
+	// change made since, even while the listeners opened, is seen by the
+	// first check.
+	p.reload.seen = cfg.Files
 	go func() {
 		defer close(p.tunnelServed)
 		_ = p.tunnelServer.Serve(h.tunnels)

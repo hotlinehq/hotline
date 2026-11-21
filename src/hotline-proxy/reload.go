@@ -58,24 +58,21 @@ func (p *Proxy) Reload() {
 // is valid. Calls in progress finish on the config they started with.
 func (p *Proxy) load() {
 	r := p.reload
-	// The files are looked at before they are read, so a change made
-	// while they are read is seen by the next check.
+	// The files of the config in use are looked at before the load, so a
+	// change made while it runs is seen by the next check; the load notes
+	// its own files the same way.
 	old := p.handler.cfg.Load()
 	before := stat(old.Files)
 	cfg, err := config.Load(r.path, r.clock.Now(), r.lookupEnv)
 	// From now on the files of this load are watched, and after a failed
 	// one also those of the config still in use.
-	watched := cfg.Files
+	r.seen = maps.Clone(cfg.Files)
 	if err != nil {
-		watched = append(watched, old.Files...)
-	}
-	r.seen = map[string]os.FileInfo{}
-	for _, path := range watched {
-		info, known := before[path]
-		if !known {
-			info, _ = os.Stat(path)
+		for path, info := range before {
+			if _, read := r.seen[path]; !read {
+				r.seen[path] = info
+			}
 		}
-		r.seen[path] = info
 	}
 	if err != nil {
 		// One line per problem, so a config with many lists each.
@@ -139,9 +136,9 @@ func needRestart(old, cfg *config.Config) []string {
 
 // stat looks up each file; a file that is missing is kept as nil, so its
 // arrival counts as a change.
-func stat(paths []string) map[string]os.FileInfo {
-	seen := make(map[string]os.FileInfo, len(paths))
-	for _, path := range paths {
+func stat(files map[string]os.FileInfo) map[string]os.FileInfo {
+	seen := make(map[string]os.FileInfo, len(files))
+	for path := range files {
 		seen[path], _ = os.Stat(path)
 	}
 	return seen
