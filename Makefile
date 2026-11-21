@@ -80,7 +80,7 @@ load: k6
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-context -sessions 50 -profile
 
 LIVE_SPEC = load/live/live.openapi.yaml
-KRAKEN_SPEC = load/live/kraken.openapi.yaml
+KRAKEN_SPEC = specs/kraken/spot-websocket/v2.openapi.yaml
 
 # k6 builds the k6 the load test runs: k6 K6_VERSION with load/k6ws added
 # (the WebSocket sessions), built by xk6 XK6_VERSION, pinned so every run

@@ -223,9 +223,9 @@ type world struct {
 	tunnels []net.Conn
 	// socket is the app's open WebSocket, for the WebSocket scenarios.
 	socket *openSocket
-	// live is the live spec's WebSocket: what its vendor does, and what
-	// both ends sent.
-	live *liveSocket
+	// scripted is the WebSocket vendor of the message scenarios: what it
+	// does, and what both ends sent.
+	scripted *scriptedVendor
 	// h2 is the app's HTTP/2 connection for tunnels, and h2Reused says
 	// the last tunnel shared it.
 	h2        *http.Transport

@@ -1,0 +1,3685 @@
+# Kraken's Spot WebSocket v2, market data and trading, for Hotline: one GET /v2
+# that answers 101, with every operation and message in AsyncAPI 3's shapes under
+# x-async-api, so the proxy names and checks each message and records its
+# operation, role and correlation id (req_id). Both of Kraken's WebSockets,
+# ws.kraken.com (market data) and ws-auth.kraken.com (trading), use this file.
+#
+# Written by a script from the unofficial AsyncAPI file in the Hotline project
+# files (kraken-v2/kraken-v2.asyncapi.yaml, from Kraken's reference pages read
+# 2026-11-20); the script is kraken-e2e/to_openapi.py.txt there. Change the
+# AsyncAPI file or the script, then write this file again; don't edit it by hand.
+# Used by the WebSocket message tests and the Kraken load case.
+#
+# The operations are seen from Kraken, as OpenAPI is: receive means the app
+# sends it, send means Kraken sends it. A failed subscribe can't say which
+# channel it was for, so it is an operation of its own (subscribeFailed), whose
+# message answers a request of any operation by its req_id.
+openapi: 3.1.0
+info:
+  title: Kraken Spot WebSocket API v2
+  version: 2.0.0
+servers:
+- url: https://ws.kraken.com
+- url: https://ws-auth.kraken.com
+paths:
+  /v2:
+    get:
+      operationId: webSocket
+      responses:
+        '101':
+          description: Switched to a WebSocket; the session follows.
+      x-async-api:
+        operations:
+          ping:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/ping'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/pong'
+          subscribeTicker:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeTicker'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeTickerReply'
+          unsubscribeTicker:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeTicker'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeTickerReply'
+          subscribeBook:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeBook'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeBookReply'
+          unsubscribeBook:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeBook'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeBookReply'
+          subscribeOhlc:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeOhlc'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeOhlcReply'
+          unsubscribeOhlc:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeOhlc'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeOhlcReply'
+          subscribeTrade:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeTrade'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeTradeReply'
+          unsubscribeTrade:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeTrade'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeTradeReply'
+          subscribeInstrument:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeInstrument'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeInstrumentReply'
+          unsubscribeInstrument:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeInstrument'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeInstrumentReply'
+          subscribeFailed:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeFailed'
+          unsubscribeFailed:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeFailed'
+          heartbeat:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/heartbeat'
+          status:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/status'
+          ticker:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/ticker'
+          bookSnapshot:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/bookSnapshot'
+          bookUpdate:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/bookUpdate'
+          ohlc:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/ohlc'
+          trade:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/trade'
+          instrument:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/instrument'
+          subscribeLevel3:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeLevel3'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeLevel3Reply'
+          unsubscribeLevel3:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeLevel3'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeLevel3Reply'
+          subscribeExecutions:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeExecutions'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeExecutionsReply'
+          unsubscribeExecutions:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeExecutions'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeExecutionsReply'
+          subscribeBalances:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/subscribeBalances'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/subscribeBalancesReply'
+          unsubscribeBalances:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/unsubscribeBalances'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/unsubscribeBalancesReply'
+          addOrder:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/addOrder'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/addOrderReply'
+          amendOrder:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/amendOrder'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/amendOrderReply'
+          editOrder:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/editOrder'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/editOrderReply'
+          cancelOrder:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/cancelOrder'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/cancelOrderReply'
+          cancelAll:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/cancelAll'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/cancelAllReply'
+          cancelAllOrdersAfter:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/cancelAllOrdersAfter'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/cancelAllOrdersAfterReply'
+          batchAdd:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/batchAdd'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/batchAddReply'
+          batchCancel:
+            action: receive
+            messages:
+            - $ref: '#/components/x-async-api/messages/batchCancel'
+            reply:
+              messages:
+              - $ref: '#/components/x-async-api/messages/batchCancelReply'
+          level3Snapshot:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/level3Snapshot'
+          level3Update:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/level3Update'
+          executions:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/executions'
+          balancesSnapshot:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/balancesSnapshot'
+          balancesUpdate:
+            action: send
+            messages:
+            - $ref: '#/components/x-async-api/messages/balancesUpdate'
+components:
+  x-async-api:
+    messages:
+      ping:
+        payload:
+          $ref: '#/components/schemas/ping'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      pong:
+        payload:
+          $ref: '#/components/schemas/pong'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeTicker:
+        payload:
+          $ref: '#/components/schemas/subscribeTicker'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeTickerReply:
+        payload:
+          $ref: '#/components/schemas/subscribeTickerReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeTicker:
+        payload:
+          $ref: '#/components/schemas/unsubscribeTicker'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeTickerReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeTickerReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeBook:
+        payload:
+          $ref: '#/components/schemas/subscribeBook'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeBookReply:
+        payload:
+          $ref: '#/components/schemas/subscribeBookReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeBook:
+        payload:
+          $ref: '#/components/schemas/unsubscribeBook'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeBookReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeBookReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeLevel3:
+        payload:
+          $ref: '#/components/schemas/subscribeLevel3'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeLevel3Reply:
+        payload:
+          $ref: '#/components/schemas/subscribeLevel3Reply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeLevel3:
+        payload:
+          $ref: '#/components/schemas/unsubscribeLevel3'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeLevel3Reply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeLevel3Reply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeOhlc:
+        payload:
+          $ref: '#/components/schemas/subscribeOhlc'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeOhlcReply:
+        payload:
+          $ref: '#/components/schemas/subscribeOhlcReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeOhlc:
+        payload:
+          $ref: '#/components/schemas/unsubscribeOhlc'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeOhlcReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeOhlcReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeTrade:
+        payload:
+          $ref: '#/components/schemas/subscribeTrade'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeTradeReply:
+        payload:
+          $ref: '#/components/schemas/subscribeTradeReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeTrade:
+        payload:
+          $ref: '#/components/schemas/unsubscribeTrade'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeTradeReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeTradeReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeInstrument:
+        payload:
+          $ref: '#/components/schemas/subscribeInstrument'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeInstrumentReply:
+        payload:
+          $ref: '#/components/schemas/subscribeInstrumentReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeInstrument:
+        payload:
+          $ref: '#/components/schemas/unsubscribeInstrument'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeInstrumentReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeInstrumentReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeExecutions:
+        payload:
+          $ref: '#/components/schemas/subscribeExecutions'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeExecutionsReply:
+        payload:
+          $ref: '#/components/schemas/subscribeExecutionsReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeExecutions:
+        payload:
+          $ref: '#/components/schemas/unsubscribeExecutions'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeExecutionsReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeExecutionsReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeBalances:
+        payload:
+          $ref: '#/components/schemas/subscribeBalances'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeBalancesReply:
+        payload:
+          $ref: '#/components/schemas/subscribeBalancesReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeBalances:
+        payload:
+          $ref: '#/components/schemas/unsubscribeBalances'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeBalancesReply:
+        payload:
+          $ref: '#/components/schemas/unsubscribeBalancesReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      subscribeFailed:
+        payload:
+          $ref: '#/components/schemas/subscribeFailed'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      unsubscribeFailed:
+        payload:
+          $ref: '#/components/schemas/unsubscribeFailed'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      addOrder:
+        payload:
+          $ref: '#/components/schemas/addOrder'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      addOrderReply:
+        payload:
+          $ref: '#/components/schemas/addOrderReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      amendOrder:
+        payload:
+          $ref: '#/components/schemas/amendOrder'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      amendOrderReply:
+        payload:
+          $ref: '#/components/schemas/amendOrderReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      editOrder:
+        payload:
+          $ref: '#/components/schemas/editOrder'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      editOrderReply:
+        payload:
+          $ref: '#/components/schemas/editOrderReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelOrder:
+        payload:
+          $ref: '#/components/schemas/cancelOrder'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelOrderReply:
+        payload:
+          $ref: '#/components/schemas/cancelOrderReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelAll:
+        payload:
+          $ref: '#/components/schemas/cancelAll'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelAllReply:
+        payload:
+          $ref: '#/components/schemas/cancelAllReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelAllOrdersAfter:
+        payload:
+          $ref: '#/components/schemas/cancelAllOrdersAfter'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      cancelAllOrdersAfterReply:
+        payload:
+          $ref: '#/components/schemas/cancelAllOrdersAfterReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      batchAdd:
+        payload:
+          $ref: '#/components/schemas/batchAdd'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      batchAddReply:
+        payload:
+          $ref: '#/components/schemas/batchAddReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      batchCancel:
+        payload:
+          $ref: '#/components/schemas/batchCancel'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      batchCancelReply:
+        payload:
+          $ref: '#/components/schemas/batchCancelReply'
+        correlationId:
+          $ref: '#/components/x-async-api/correlationIds/reqId'
+      heartbeat:
+        payload:
+          $ref: '#/components/schemas/heartbeat'
+      status:
+        payload:
+          $ref: '#/components/schemas/status'
+      ticker:
+        payload:
+          $ref: '#/components/schemas/ticker'
+      bookSnapshot:
+        payload:
+          $ref: '#/components/schemas/bookSnapshot'
+      bookUpdate:
+        payload:
+          $ref: '#/components/schemas/bookUpdate'
+      level3Snapshot:
+        payload:
+          $ref: '#/components/schemas/level3Snapshot'
+      level3Update:
+        payload:
+          $ref: '#/components/schemas/level3Update'
+      ohlc:
+        payload:
+          $ref: '#/components/schemas/ohlc'
+      trade:
+        payload:
+          $ref: '#/components/schemas/trade'
+      instrument:
+        payload:
+          $ref: '#/components/schemas/instrument'
+      executions:
+        payload:
+          $ref: '#/components/schemas/executions'
+      balancesSnapshot:
+        payload:
+          $ref: '#/components/schemas/balancesSnapshot'
+      balancesUpdate:
+        payload:
+          $ref: '#/components/schemas/balancesUpdate'
+    correlationIds:
+      reqId:
+        description: The client's `req_id`, echoed on every reply to that request.
+        location: $message.payload#/req_id
+  schemas:
+    ping:
+      type: object
+      properties:
+        method:
+          type: string
+          const: ping
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+      additionalProperties: false
+      required:
+      - method
+    pong:
+      type: object
+      properties:
+        method:
+          type: string
+          const: pong
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+      required:
+      - method
+    subscribeTicker:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ticker
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            event_trigger:
+              type: string
+              enum:
+              - bbo
+              - trades
+              default: trades
+            snapshot:
+              type: boolean
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeTickerReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ticker
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeTicker:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ticker
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            event_trigger:
+              type: string
+              enum:
+              - bbo
+              - trades
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeTickerReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ticker
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            event_trigger:
+              type: string
+              enum:
+              - bbo
+              - trades
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeBook:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: book
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 25
+              - 100
+              - 500
+              - 1000
+            snapshot:
+              type: boolean
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeBookReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: book
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 25
+              - 100
+              - 500
+              - 1000
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeBook:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: book
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 25
+              - 100
+              - 500
+              - 1000
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeBookReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: book
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            depth:
+              type: integer
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeLevel3:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: level3
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 100
+              - 1000
+            snapshot:
+              type: boolean
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - symbol
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeLevel3Reply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: level3
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 100
+              - 1000
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeLevel3:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: level3
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            depth:
+              type: integer
+              enum:
+              - 10
+              - 100
+              - 1000
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - symbol
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeLevel3Reply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: level3
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            depth:
+              type: integer
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeOhlc:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ohlc
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            interval:
+              type: integer
+              enum:
+              - 1
+              - 5
+              - 15
+              - 30
+              - 60
+              - 240
+              - 1440
+              - 10080
+              - 21600
+            snapshot:
+              type: boolean
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeOhlcReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ohlc
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            interval:
+              type: integer
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeOhlc:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ohlc
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            interval:
+              type: integer
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeOhlcReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: ohlc
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeTrade:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: trade
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+            snapshot:
+              type: boolean
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeTradeReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: trade
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeTrade:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: trade
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbols'
+          required:
+          - channel
+          - symbol
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeTradeReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: trade
+              x-hotline-match: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeInstrument:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: instrument
+              x-hotline-match: true
+            execution_venue:
+              type: string
+              enum:
+              - international
+              - bitnomial-exchange
+            include_tokenized_assets:
+              type: boolean
+            snapshot:
+              type: boolean
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeInstrumentReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: instrument
+              x-hotline-match: true
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeInstrument:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: instrument
+              x-hotline-match: true
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeInstrumentReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: instrument
+              x-hotline-match: true
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeExecutions:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: executions
+              x-hotline-match: true
+            snap_trades:
+              type: boolean
+            snap_orders:
+              type: boolean
+            order_status:
+              type: boolean
+            rebased:
+              type: boolean
+            ratecounter:
+              type: boolean
+            users:
+              type: string
+              const: all
+              x-hotline-match: true
+            snapshot_trades:
+              type: boolean
+              deprecated: true
+            snapshot:
+              type: boolean
+              deprecated: true
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeExecutionsReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: executions
+              x-hotline-match: true
+            snap_orders:
+              type: boolean
+            snap_trades:
+              type: boolean
+            maxratecount:
+              type: integer
+            snapshot:
+              type: boolean
+              deprecated: true
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeExecutions:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: executions
+              x-hotline-match: true
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeExecutionsReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: executions
+              x-hotline-match: true
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeBalances:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: balances
+              x-hotline-match: true
+            snapshot:
+              type: boolean
+            rebased:
+              type: boolean
+            users:
+              type: string
+              const: all
+              x-hotline-match: true
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    subscribeBalancesReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: balances
+              x-hotline-match: true
+            snapshot:
+              type: boolean
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    unsubscribeBalances:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: balances
+              x-hotline-match: true
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - channel
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    unsubscribeBalancesReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: true
+          x-hotline-match: true
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            channel:
+              type: string
+              const: balances
+              x-hotline-match: true
+          required:
+          - channel
+      additionalProperties: false
+      required:
+      - method
+      - success
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    subscribeFailed:
+      type: object
+      properties:
+        method:
+          type: string
+          const: subscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: false
+          x-hotline-match: true
+        error:
+          type: string
+          description: Why the request failed.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - method
+      - success
+      - error
+    unsubscribeFailed:
+      type: object
+      properties:
+        method:
+          type: string
+          const: unsubscribe
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          const: false
+          x-hotline-match: true
+        error:
+          type: string
+          description: Why the request failed.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - method
+      - success
+      - error
+    addOrder:
+      type: object
+      properties:
+        method:
+          type: string
+          const: add_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            order_type:
+              $ref: '#/components/schemas/OrderType'
+            side:
+              $ref: '#/components/schemas/Side'
+            order_qty:
+              type: number
+            limit_price:
+              type: number
+            limit_price_type:
+              $ref: '#/components/schemas/PriceType'
+            triggers:
+              $ref: '#/components/schemas/Triggers'
+            time_in_force:
+              $ref: '#/components/schemas/TimeInForce'
+            margin:
+              type: boolean
+            post_only:
+              type: boolean
+            reduce_only:
+              type: boolean
+            effective_time:
+              $ref: '#/components/schemas/Timestamp'
+            expire_time:
+              $ref: '#/components/schemas/Timestamp'
+            cl_ord_id:
+              type: string
+            order_userref:
+              type: integer
+            conditional:
+              $ref: '#/components/schemas/Conditional'
+            display_qty:
+              type: number
+            fee_preference:
+              $ref: '#/components/schemas/FeePreference'
+            no_mpp:
+              type: boolean
+              deprecated: true
+            stp_type:
+              $ref: '#/components/schemas/StpType'
+            cash_order_qty:
+              type: number
+            sender_sub_id:
+              type: string
+            stop_price:
+              type: number
+              deprecated: true
+            trigger:
+              type: string
+              enum:
+              - last
+              - index
+              deprecated: true
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            deadline:
+              $ref: '#/components/schemas/Timestamp'
+            validate:
+              type: boolean
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - order_type
+          - side
+          - order_qty
+          - symbol
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    addOrderReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: add_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            order_id:
+              type: string
+              x-hotline-record: kraken.order.id
+            cl_ord_id:
+              type: string
+            order_userref:
+              type: integer
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    amendOrder:
+      type: object
+      properties:
+        method:
+          type: string
+          const: amend_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            order_id:
+              type: string
+            cl_ord_id:
+              type: string
+            order_qty:
+              type: number
+            display_qty:
+              type: number
+            limit_price:
+              type: number
+            limit_price_type:
+              $ref: '#/components/schemas/PriceType'
+            post_only:
+              type: boolean
+            trigger_price:
+              type: number
+            trigger_price_type:
+              $ref: '#/components/schemas/PriceType'
+            deadline:
+              $ref: '#/components/schemas/Timestamp'
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    amendOrderReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: amend_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            amend_id:
+              type: string
+            order_id:
+              type: string
+            cl_ord_id:
+              type: string
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    editOrder:
+      type: object
+      properties:
+        method:
+          type: string
+          const: edit_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            order_id:
+              type: string
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            order_qty:
+              type: number
+            order_userref:
+              type: integer
+            limit_price:
+              type: number
+            display_qty:
+              type: number
+            fee_preference:
+              $ref: '#/components/schemas/FeePreference'
+            post_only:
+              type: boolean
+            reduce_only:
+              type: boolean
+            triggers:
+              $ref: '#/components/schemas/Triggers'
+            deadline:
+              $ref: '#/components/schemas/Timestamp'
+            validate:
+              type: boolean
+            token:
+              $ref: '#/components/schemas/Token'
+            no_mpp:
+              type: boolean
+              deprecated: true
+            price:
+              type: number
+              deprecated: true
+            trigger:
+              type: string
+              deprecated: true
+            stop_price:
+              type: number
+              deprecated: true
+          required:
+          - order_id
+          - symbol
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    editOrderReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: edit_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            order_id:
+              type: string
+            original_order_id:
+              type: string
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    cancelOrder:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            order_id:
+              type: array
+              items:
+                type: string
+            cl_ord_id:
+              type: array
+              items:
+                type: string
+            order_userref:
+              type: array
+              items:
+                type: integer
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    cancelOrderReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_order
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            order_id:
+              type: string
+            cl_ord_id:
+              type: string
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    cancelAll:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_all
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    cancelAllReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_all
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            count:
+              type: integer
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    cancelAllOrdersAfter:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_all_orders_after
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            timeout:
+              type: integer
+              description: Seconds; 0 turns the timer off.
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - timeout
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    cancelAllOrdersAfterReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: cancel_all_orders_after
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            currentTime:
+              $ref: '#/components/schemas/Timestamp'
+            triggerTime:
+              $ref: '#/components/schemas/Timestamp'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    batchAdd:
+      type: object
+      properties:
+        method:
+          type: string
+          const: batch_add
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            symbol:
+              $ref: '#/components/schemas/Symbol'
+            orders:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
+              minItems: 2
+              maxItems: 15
+            deadline:
+              $ref: '#/components/schemas/Timestamp'
+            validate:
+              type: boolean
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - symbol
+          - orders
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    batchAddReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: batch_add
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: array
+          items:
+            type: object
+            properties:
+              order_id:
+                type: string
+              cl_ord_id:
+                type: string
+              order_userref:
+                type: integer
+              warnings:
+                $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    batchCancel:
+      type: object
+      properties:
+        method:
+          type: string
+          const: batch_cancel
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        params:
+          type: object
+          properties:
+            orders:
+              type: array
+              items:
+                type: string
+              description: Kraken order ids or client order_userref values.
+            cl_ord_id:
+              type: array
+              items:
+                type: string
+            token:
+              $ref: '#/components/schemas/Token'
+          required:
+          - orders
+          - token
+      additionalProperties: false
+      required:
+      - method
+      - params
+    batchCancelReply:
+      type: object
+      properties:
+        method:
+          type: string
+          const: batch_cancel
+          x-hotline-match: true
+        req_id:
+          $ref: '#/components/schemas/ReqId'
+        success:
+          type: boolean
+          description: False when the request failed; then `error` says why.
+        error:
+          type: string
+          description: Present when `success` is false.
+        time_in:
+          $ref: '#/components/schemas/Timestamp'
+        time_out:
+          $ref: '#/components/schemas/Timestamp'
+        result:
+          type: object
+          properties:
+            count:
+              type: integer
+            warnings:
+              $ref: '#/components/schemas/Warnings'
+      additionalProperties: false
+      required:
+      - method
+      if:
+        type: object
+        properties:
+          success:
+            const: true
+        required:
+        - success
+      then:
+        required:
+        - result
+    heartbeat:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: heartbeat
+          x-hotline-match: true
+      required:
+      - channel
+    status:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: status
+          x-hotline-match: true
+        type:
+          type: string
+          const: update
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusData'
+      required:
+      - channel
+      - type
+      - data
+    ticker:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: ticker
+          x-hotline-match: true
+        type:
+          type: string
+          enum:
+          - snapshot
+          - update
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TickerData'
+      required:
+      - channel
+      - type
+      - data
+    bookSnapshot:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: book
+          x-hotline-match: true
+        type:
+          type: string
+          const: snapshot
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookData'
+      required:
+      - channel
+      - type
+      - data
+    bookUpdate:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: book
+          x-hotline-match: true
+        type:
+          type: string
+          const: update
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookData'
+      required:
+      - channel
+      - type
+      - data
+    level3Snapshot:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: level3
+          x-hotline-match: true
+        type:
+          type: string
+          const: snapshot
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Snapshot'
+      required:
+      - channel
+      - type
+      - data
+    level3Update:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: level3
+          x-hotline-match: true
+        type:
+          type: string
+          const: update
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Update'
+      required:
+      - channel
+      - type
+      - data
+    ohlc:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: ohlc
+          x-hotline-match: true
+        type:
+          type: string
+          enum:
+          - snapshot
+          - update
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OhlcData'
+      required:
+      - channel
+      - type
+      - data
+    trade:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: trade
+          x-hotline-match: true
+        type:
+          type: string
+          enum:
+          - snapshot
+          - update
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TradeData'
+      required:
+      - channel
+      - type
+      - data
+    instrument:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: instrument
+          x-hotline-match: true
+        type:
+          type: string
+          enum:
+          - snapshot
+          - update
+        data:
+          $ref: '#/components/schemas/InstrumentData'
+      required:
+      - channel
+      - type
+      - data
+    executions:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: executions
+          x-hotline-match: true
+        type:
+          type: string
+          enum:
+          - snapshot
+          - update
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionData'
+        sequence:
+          type: integer
+      required:
+      - channel
+      - type
+      - data
+    balancesSnapshot:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: balances
+          x-hotline-match: true
+        type:
+          type: string
+          const: snapshot
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceSnapshot'
+        sequence:
+          type: integer
+      required:
+      - channel
+      - type
+      - data
+    balancesUpdate:
+      type: object
+      properties:
+        channel:
+          type: string
+          const: balances
+          x-hotline-match: true
+        type:
+          type: string
+          const: update
+          x-hotline-match: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceUpdate'
+        sequence:
+          type: integer
+      required:
+      - channel
+      - type
+      - data
+    ReqId:
+      type: integer
+      description: Client-chosen request id. The reply carries the same value; it pairs a request with its replies.
+    Timestamp:
+      type: string
+      description: RFC 3339 time, for example 2023-09-21T14:15:07.197274Z.
+    Token:
+      type: string
+      description: Session token from the REST call GetWebSocketsToken. Sent inside the message, not on the upgrade.
+    Symbol:
+      type: string
+      description: Currency pair, for example BTC/USD.
+      examples:
+      - BTC/USD
+    Symbols:
+      type: array
+      items:
+        $ref: '#/components/schemas/Symbol'
+      minItems: 1
+    Side:
+      type: string
+      enum:
+      - buy
+      - sell
+    OrderType:
+      type: string
+      enum:
+      - limit
+      - market
+      - iceberg
+      - stop-loss
+      - stop-loss-limit
+      - take-profit
+      - take-profit-limit
+      - trailing-stop
+      - trailing-stop-limit
+      - settle-position
+    SecondaryOrderType:
+      type: string
+      enum:
+      - limit
+      - stop-loss
+      - stop-loss-limit
+      - take-profit
+      - take-profit-limit
+      - trailing-stop
+      - trailing-stop-limit
+    PriceType:
+      type: string
+      enum:
+      - static
+      - pct
+      - quote
+    TimeInForce:
+      type: string
+      enum:
+      - gtc
+      - gtd
+      - ioc
+      - fok
+    StpType:
+      type: string
+      enum:
+      - cancel_newest
+      - cancel_oldest
+      - cancel_both
+    FeePreference:
+      type: string
+      enum:
+      - base
+      - quote
+    Warnings:
+      type: array
+      items:
+        type: string
+    Triggers:
+      type: object
+      properties:
+        reference:
+          type: string
+          enum:
+          - index
+          - last
+          default: last
+        price:
+          type: number
+        price_type:
+          $ref: '#/components/schemas/PriceType'
+      description: Trigger price for stop-loss, take-profit and trailing-stop orders.
+    Conditional:
+      type: object
+      properties:
+        order_type:
+          $ref: '#/components/schemas/SecondaryOrderType'
+        limit_price:
+          type: number
+        limit_price_type:
+          $ref: '#/components/schemas/PriceType'
+        trigger_price:
+          type: number
+        trigger_price_type:
+          $ref: '#/components/schemas/PriceType'
+        stop_price:
+          type: number
+          deprecated: true
+      description: Secondary close order of a one-triggers-other (OTO) order.
+    Order:
+      type: object
+      properties:
+        order_type:
+          $ref: '#/components/schemas/OrderType'
+        side:
+          $ref: '#/components/schemas/Side'
+        order_qty:
+          type: number
+        limit_price:
+          type: number
+        limit_price_type:
+          $ref: '#/components/schemas/PriceType'
+        triggers:
+          $ref: '#/components/schemas/Triggers'
+        time_in_force:
+          $ref: '#/components/schemas/TimeInForce'
+        margin:
+          type: boolean
+        post_only:
+          type: boolean
+        reduce_only:
+          type: boolean
+        effective_time:
+          $ref: '#/components/schemas/Timestamp'
+        expire_time:
+          $ref: '#/components/schemas/Timestamp'
+        cl_ord_id:
+          type: string
+        order_userref:
+          type: integer
+        conditional:
+          $ref: '#/components/schemas/Conditional'
+        display_qty:
+          type: number
+        fee_preference:
+          $ref: '#/components/schemas/FeePreference'
+        no_mpp:
+          type: boolean
+          deprecated: true
+        stp_type:
+          $ref: '#/components/schemas/StpType'
+        cash_order_qty:
+          type: number
+        sender_sub_id:
+          type: string
+        stop_price:
+          type: number
+          deprecated: true
+        trigger:
+          type: string
+          enum:
+          - last
+          - index
+          deprecated: true
+      description: One order of a batch_add.
+      required:
+      - order_type
+      - side
+      - order_qty
+    TickerData:
+      type: object
+      properties:
+        ask:
+          type: number
+        ask_qty:
+          type: number
+        bid:
+          type: number
+        bid_qty:
+          type: number
+        change:
+          type: number
+        change_pct:
+          type: number
+        high:
+          type: number
+        last:
+          type: number
+        low:
+          type: number
+        volume:
+          type: number
+        vwap:
+          type: number
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - symbol
+    PriceLevel:
+      type: object
+      properties:
+        price:
+          type: number
+        qty:
+          type: number
+      required:
+      - price
+      - qty
+    BookData:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        bids:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceLevel'
+        asks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceLevel'
+        checksum:
+          type: integer
+          description: CRC32 of the top ten levels.
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - symbol
+      - bids
+      - asks
+      - checksum
+    Level3Order:
+      type: object
+      properties:
+        order_id:
+          type: string
+        limit_price:
+          type: number
+        order_qty:
+          type: number
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - order_id
+      - limit_price
+      - order_qty
+    Level3Event:
+      allOf:
+      - $ref: '#/components/schemas/Level3Order'
+      - type: object
+        properties:
+          event:
+            type: string
+            enum:
+            - add
+            - modify
+            - delete
+        required:
+        - event
+    Level3Snapshot:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        bids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Order'
+        asks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Order'
+        checksum:
+          type: integer
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - symbol
+      - bids
+      - asks
+      - checksum
+    Level3Update:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        bids:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Event'
+        asks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level3Event'
+        checksum:
+          type: integer
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - symbol
+      - bids
+      - asks
+      - checksum
+    OhlcData:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        vwap:
+          type: number
+        trades:
+          type: integer
+        volume:
+          type: number
+        interval_begin:
+          $ref: '#/components/schemas/Timestamp'
+        interval:
+          type: integer
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+          deprecated: true
+      required:
+      - symbol
+      - open
+      - high
+      - low
+      - close
+      - interval
+    TradeData:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        side:
+          $ref: '#/components/schemas/Side'
+        qty:
+          type: number
+        price:
+          type: number
+        ord_type:
+          type: string
+          enum:
+          - limit
+          - market
+        trade_id:
+          type: integer
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+      required:
+      - symbol
+      - side
+      - qty
+      - price
+      - trade_id
+    Asset:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum:
+          - depositonly
+          - disabled
+          - enabled
+          - fundingtemporarilydisabled
+          - withdrawalonly
+          - workinprogress
+        precision:
+          type: integer
+        precision_display:
+          type: integer
+        borrowable:
+          type: boolean
+        collateral_value:
+          type: number
+        margin_rate:
+          type: number
+        multiplier:
+          type: number
+        class:
+          type: string
+      required:
+      - id
+      - status
+    Pair:
+      type: object
+      properties:
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        base:
+          type: string
+        quote:
+          type: string
+        status:
+          type: string
+          enum:
+          - cancel_only
+          - delisted
+          - limit_only
+          - maintenance
+          - online
+          - post_only
+          - reduce_only
+          - work_in_progress
+        qty_precision:
+          type: integer
+        qty_increment:
+          type: number
+        qty_min:
+          type: number
+        price_precision:
+          type: integer
+        price_increment:
+          type: number
+        cost_precision:
+          type: integer
+        cost_min:
+          type: number
+        marginable:
+          type: boolean
+        has_index:
+          type: boolean
+        margin_initial:
+          type: number
+        position_limit_long:
+          type: integer
+        position_limit_short:
+          type: integer
+        ws_display_price_precision:
+          type: integer
+        tick_size:
+          type: number
+          deprecated: true
+      required:
+      - symbol
+      - base
+      - quote
+      - status
+    InstrumentData:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Asset'
+        pairs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pair'
+      required:
+      - assets
+      - pairs
+    Fee:
+      type: object
+      properties:
+        asset:
+          type: string
+        qty:
+          type: number
+      required:
+      - asset
+      - qty
+    ExecutionTriggers:
+      type: object
+      properties:
+        reference:
+          type: string
+          enum:
+          - index
+          - last
+        price:
+          type: number
+        price_type:
+          $ref: '#/components/schemas/PriceType'
+        actual_price:
+          type: number
+        peak_price:
+          type: number
+        last_price:
+          type: number
+        status:
+          type: string
+          enum:
+          - triggered
+          - untriggered
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+    ExecutionData:
+      type: object
+      properties:
+        order_id:
+          type: string
+        exec_type:
+          type: string
+          enum:
+          - pending_new
+          - new
+          - trade
+          - filled
+          - iceberg_refill
+          - canceled
+          - expired
+          - amended
+          - restated
+          - status
+        symbol:
+          $ref: '#/components/schemas/Symbol'
+        side:
+          $ref: '#/components/schemas/Side'
+        order_type:
+          $ref: '#/components/schemas/OrderType'
+        order_status:
+          type: string
+        order_qty:
+          type: number
+        cum_qty:
+          type: number
+        cum_cost:
+          type: number
+        avg_price:
+          type: number
+        limit_price:
+          type: number
+        cash_order_qty:
+          type: number
+        display_qty:
+          type: number
+        display_qty_remain:
+          type: number
+        cl_ord_id:
+          type: string
+        order_userref:
+          type: integer
+        ord_ref_id:
+          type: string
+        ext_ord_id:
+          type: string
+        ext_exec_id:
+          type: string
+        exec_id:
+          type: string
+        trade_id:
+          type: integer
+        last_qty:
+          type: number
+        last_price:
+          type: number
+        cost:
+          type: number
+        fees:
+          type: array
+          items:
+            $ref: '#/components/schemas/Fee'
+        fee_ccy_pref:
+          type: string
+        fee_usd_equiv:
+          type: number
+        liquidity_ind:
+          type: string
+          enum:
+          - m
+          - t
+        time_in_force:
+          type: string
+          enum:
+          - GTC
+          - GTD
+          - IOC
+          - FOK
+        effective_time:
+          $ref: '#/components/schemas/Timestamp'
+        expire_time:
+          $ref: '#/components/schemas/Timestamp'
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+        post_only:
+          type: boolean
+        reduce_only:
+          type: boolean
+        margin:
+          type: boolean
+        margin_borrow:
+          type: boolean
+        liquidated:
+          type: boolean
+        no_mpp:
+          type: boolean
+        amended:
+          type: boolean
+        position_status:
+          type: string
+          enum:
+          - opened
+          - closing
+          - closed
+        triggers:
+          $ref: '#/components/schemas/ExecutionTriggers'
+        contingent:
+          type: object
+          properties:
+            order_type:
+              $ref: '#/components/schemas/SecondaryOrderType'
+            trigger_price:
+              type: number
+            trigger_price_type:
+              $ref: '#/components/schemas/PriceType'
+            limit_price:
+              type: number
+            limit_price_type:
+              $ref: '#/components/schemas/PriceType'
+        reason:
+          type: string
+        ratecount:
+          type: integer
+        sender_sub_id:
+          type: string
+        user:
+          type: string
+        cancel_reason:
+          type: string
+          deprecated: true
+        stop_price:
+          type: number
+          deprecated: true
+        trigger:
+          type: string
+          enum:
+          - index
+          - last
+          deprecated: true
+        triggered_price:
+          type: number
+          deprecated: true
+      required:
+      - order_id
+      - exec_type
+      - timestamp
+    Wallet:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - spot
+          - earn
+        id:
+          type: string
+          enum:
+          - main
+          - flex
+          - bonded
+          - flexible
+          - liquid
+          - locked
+          - closed
+        balance:
+          type: number
+      required:
+      - type
+      - id
+      - balance
+    BalanceSnapshot:
+      type: object
+      properties:
+        asset:
+          type: string
+        asset_class:
+          type: string
+          enum:
+          - currency
+        balance:
+          type: number
+        wallets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Wallet'
+      required:
+      - asset
+      - balance
+    BalanceUpdate:
+      type: object
+      properties:
+        asset:
+          type: string
+        asset_class:
+          type: string
+          enum:
+          - currency
+        amount:
+          type: number
+        balance:
+          type: number
+        fee:
+          type: number
+        ledger_id:
+          type: string
+        ref_id:
+          type: string
+        timestamp:
+          $ref: '#/components/schemas/Timestamp'
+        type:
+          type: string
+          enum:
+          - deposit
+          - withdrawal
+          - trade
+          - margin
+          - adjustment
+          - rollover
+          - credit
+          - transfer
+          - settled
+          - staking
+          - sale
+          - reserve
+          - conversion
+          - dividend
+          - reward
+          - creator_fee
+        subtype:
+          type: string
+          enum:
+          - spotfromfutures
+          - spottofutures
+          - stakingfromspot
+          - spotfromstaking
+          - stakingtospot
+          - spottostaking
+        category:
+          type: string
+          enum:
+          - deposit
+          - withdrawal
+          - trade
+          - margin-trade
+          - margin-settle
+          - margin-conversion
+          - conversion
+          - credit
+          - marginrollover
+          - staking-rewards
+          - instant
+          - equity-trade
+          - airdrop
+          - equity-dividend
+          - reward-bonus
+          - nft
+          - block-trade
+        wallet_type:
+          type: string
+          enum:
+          - spot
+          - earn
+        wallet_id:
+          type: string
+          enum:
+          - main
+          - bonded
+          - flexible
+          - liquid
+          - locked
+        user:
+          type: string
+      required:
+      - asset
+      - amount
+      - balance
+      - type
+    Maintenance:
+      type: object
+      properties:
+        event_id:
+          type: integer
+        title:
+          type: string
+        expected_start_utc:
+          $ref: '#/components/schemas/Timestamp'
+        expected_end_utc:
+          type:
+          - string
+          - 'null'
+        time_to_start_s:
+          type: integer
+        phase:
+          type: string
+          enum:
+          - announced
+          - reminder_24h
+          - approaching_30m
+          - imminent_5m
+          - final_warning_30s
+          - unspecified
+        affected_services:
+          type: array
+          items:
+            type: string
+        order_submission:
+          type: string
+          enum:
+          - allowed
+          - discouraged
+          - blocked
+          - unspecified
+        recommended_action:
+          type: string
+          enum:
+          - continue
+          - reduce_activity
+          - cancel_open_orders
+          - stop_new_orders
+          - disconnect_and_wait
+          - unspecified
+        cancel_before_utc:
+          type:
+          - string
+          - 'null'
+        source_url:
+          type: string
+    Emergency:
+      type: object
+      properties:
+        event_id:
+          type: integer
+        title:
+          type: string
+        incident_status:
+          type: string
+          enum:
+          - investigating
+          - identified
+          - monitoring
+          - unspecified
+        impact:
+          type: string
+          enum:
+          - none
+          - minor
+          - major
+          - critical
+          - unspecified
+        affected_services:
+          type: array
+          items:
+            type: string
+        started_at_utc:
+          $ref: '#/components/schemas/Timestamp'
+        next_steps:
+          type: array
+          items:
+            type: object
+            properties:
+              applies_to:
+                type: array
+                items:
+                  type: string
+              type:
+                type: string
+                enum:
+                - expected_restart
+                - expected_cancel_only
+                - expected_post_only
+                - expected_online
+                - unspecified
+              expected_at_utc:
+                $ref: '#/components/schemas/Timestamp'
+        source_url:
+          type: string
+    StatusData:
+      type: object
+      properties:
+        system:
+          type: string
+          enum:
+          - online
+          - cancel_only
+          - maintenance
+          - post_only
+        api_version:
+          type: string
+          enum:
+          - v2
+        connection_id:
+          type: integer
+        version:
+          type: string
+        upcoming_maintenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/Maintenance'
+        emergency:
+          type: array
+          items:
+            $ref: '#/components/schemas/Emergency'
+      required:
+      - system
+      - api_version
+      - connection_id
+      - version
