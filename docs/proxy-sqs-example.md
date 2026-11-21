@@ -51,7 +51,7 @@ An SQS `SendMessage` body is JSON, but the message itself is a **string** inside
  "MessageBody": "{\"schemaVersion\":1,\"eventId\":\"5f0c…\", …}"}
 ```
 
-So the check has to read the string as JSON, then check that against the job schema. OpenAPI 3.1 already has words for this, from JSON Schema: `contentMediaType` (what the string holds) and `contentSchema` (the schema for what it holds).
+So the check has to read the string as JSON, then check that against the job schema. OpenAPI already has words for this, from JSON Schema: `contentMediaType` (what the string holds) and `contentSchema` (the schema for what it holds).
 
 ```yaml
 MessageBody:
@@ -131,7 +131,7 @@ actions:
 - **Every response** each action can give: `200` with its body, and SQS's error responses (`400` and `500` with `__type` and `message`).
 - **Login** named in the security section as the `Authorization` header; as always, its value is never read.
 - **Headers to record** marked as agreed: `x-amzn-RequestId` and `x-amzn-query-error` with `x-hotline-redact: false`.
-- **Checked as a valid OpenAPI 3.1 file** by a test, and loaded by the proxy's own `validate` command.
+- **Checked as a valid OpenAPI 3.2 file** by a test, and loaded by the proxy's own `validate` command.
 
 This also builds what [proxy-aws.md](proxy-aws.md) agreed but did not build yet: routes named by a header, and the signed call test.
 

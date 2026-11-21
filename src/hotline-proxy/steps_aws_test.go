@@ -40,7 +40,7 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		if strings.HasPrefix(mark, "x-hotline-action-header:") {
 			header = mark + "\n"
 		}
-		spec := "openapi: 3.1.0\ninfo: { title: SQS, version: '1' }\n" + header +
+		spec := "openapi: 3.2.0\ninfo: { title: SQS, version: '1' }\n" + header +
 			"paths:\n  " + route + ":\n    post:\n      responses:\n        '200': { description: done }\n"
 		w.addIntegration(integration("talon-shop-a", w.specAPI(sqsHost, spec, "")))
 		return nil
@@ -49,7 +49,7 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		if mark == "no x-hotline-body" {
 			mark = ""
 		}
-		spec := "openapi: 3.1.0\ninfo: { title: SQS, version: '1' }\nx-hotline-action-header: X-Amz-Target\n" +
+		spec := "openapi: 3.2.0\ninfo: { title: SQS, version: '1' }\nx-hotline-action-header: X-Amz-Target\n" +
 			"paths:\n  /#X-Amz-Target=AmazonSQS.SendMessage:\n    post:\n" +
 			"      requestBody:\n        content:\n          " + mediaType + ":\n            " + mark + "\n" +
 			"            schema: { type: object, properties: { DelaySeconds: { type: integer } } }\n" +

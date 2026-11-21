@@ -1,5 +1,5 @@
 // Package smithy turns an AWS service's Smithy model (AWS's own api
-// description language, in its JSON form) into an OpenAPI 3.1 spec Hotline
+// description language, in its JSON form) into an OpenAPI 3.2 spec Hotline
 // can read. Four of AWS's protocols are handled: its JSON one, where every
 // call is POST / and the action is named in the X-Amz-Target header; its
 // query one, used by SNS and STS, where every call is POST / with a form
@@ -135,7 +135,7 @@ func Convert(data []byte, options Options) ([]byte, error) {
 		title = t
 	}
 	doc := document{
-		OpenAPI: "3.1.0",
+		OpenAPI: "3.2.0",
 		Info: map[string]any{
 			"title":       title,
 			"version":     service.Version,

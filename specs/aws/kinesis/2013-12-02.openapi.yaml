@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.2.0
 info:
     description: Made by Hotline's aws-openapi tool from AWS's Smithy model. Do not edit by hand.
     title: Amazon Kinesis

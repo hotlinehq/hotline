@@ -44,7 +44,7 @@ apis:
 ## Requirements
 
 1. **Overlays belong to the api.** `overlays` is a list of file paths on an api in the `apis` section, read the same way as `spec`. An integration cannot add overlays (decision 11 of the spec checks: an integration may change only `vendorTimeout`).
-2. **Applied once, at load.** When the proxy reads the config, it reads the spec, applies the overlays, and then treats the result exactly like a spec written by hand: every rule for specs applies to it (OpenAPI 3.1 only, `$ref` within the same file, the marks such as `x-hotline-redact` and `x-hotline-action-header`). Calls are checked only against this merged spec.
+2. **Applied once, at load.** When the proxy reads the config, it reads the spec, applies the overlays, and then treats the result exactly like a spec written by hand: every rule for specs applies to it (OpenAPI 3.2 only, checked after the overlays are applied, `$ref` within the same file, the marks such as `x-hotline-redact` and `x-hotline-action-header`). Calls are checked only against this merged spec.
 3. **Order.** The overlays are applied in the order the list gives. Inside one file, the actions run in the order written, each on the result of the one before, as the format says.
 4. **Only the latest version, 1.1** (Peter, 2026-10-30). Files with `overlay: 1.1.x` are read; the last number only marks fixes to the format's text. Actions `update`, `remove` and `copy` work as the format says. Any other version, such as `1.0.0` or `2.0.0`, is refused. Moving a 1.0 file to 1.1 is usually just changing that number.
 5. **Standard JSONPath only.** Targets are read as RFC 9535 JSONPath, as 1.1 says. Tool-specific extras are not accepted.

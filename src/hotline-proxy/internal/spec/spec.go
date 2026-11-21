@@ -93,9 +93,18 @@ type operation struct{}
 // Schemas. Every problem is listed, not only the first one.
 func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 	var doc document
-	err := yaml.Unmarshal(data, &doc)
-	if err != nil || !strings.HasPrefix(doc.OpenAPI, "3.1.") {
-		return nil, fmt.Errorf("%w: %s is not an OpenAPI 3.1 document", ErrInvalid, name)
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%w: %s is not YAML or JSON: %w", ErrInvalid, name, err)
+	}
+	// Only OpenAPI 3.2 is read (Peter, 2026-11-21). A 3.1 file moves over
+	// by changing its version line alone, so the message says how. The
+	// patch number never changes what a spec may say, so any 3.2.x loads.
+	if !strings.HasPrefix(doc.OpenAPI, "3.2.") {
+		found := "has no openapi line"
+		if doc.OpenAPI != "" {
+			found = "says openapi " + doc.OpenAPI
+		}
+		return nil, fmt.Errorf("%w: %s %s, but Hotline reads OpenAPI 3.2 only: change the line to openapi: 3.2.0", ErrInvalid, name, found)
 	}
 	b := newBuilder(name, data, newEngine)
 	s := &Spec{actionHeader: doc.ActionHeader, actionField: doc.ActionField, secretHeaders: map[string]bool{}, secretQuery: map[string]bool{}}

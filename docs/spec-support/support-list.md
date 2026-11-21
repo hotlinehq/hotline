@@ -4,7 +4,7 @@ Draft, 2026-11-21. Nothing built. The order of the work is in [roadmap.md](roadm
 
 **Decided (Peter, 2026-11-21, Q1): OpenAPI 3.2 only.** The proxy refuses OpenAPI 3.1 and older, because spec files are easy to rewrite to 3.2. Revisit if a 3.1 rule turns out to clash with 3.2, so a file can't be moved over by changing its version line alone.
 
-**Where the 3.2 items come from.** From my knowledge of the OpenAPI 3.2 release (September 2025), not checked line by line against the spec text. Check before building.
+**Where the 3.2 items come from.** Checked on 2026-11-21 against the published 3.2.0 text (`versions/3.2.0.md` in `OAI/OpenAPI-Specification`) and the OpenAPI Initiative's upgrade guide, which says 3.2 has no breaking changes from 3.1.
 
 ## What dropping 3.1 means
 
@@ -43,7 +43,7 @@ New from 3.2:
 
 18. `matrix`, `label`, `spaceDelimited` and `pipeDelimited` parameter styles.
 19. Parameters described with `content` instead of `schema`.
-20. 3.2's XML `nodeType`, which replaces `attribute` and `wrapped`.
+20. 3.2's XML `nodeType`, the new way to say what `attribute` and `wrapped` say. Those two are deprecated in 3.2 but still allowed.
 21. Non-JSON WebSocket messages, such as Protobuf or MessagePack.
 22. Other AsyncAPI protocols, such as Kafka and MQTT, and standalone AsyncAPI files.
 

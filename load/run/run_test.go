@@ -340,7 +340,7 @@ var _ = Describe("Loading many specs into the proxy", func() {
 		dir := GinkgoT().TempDir()
 		for _, name := range []string{"ssm", "sqs", "kms"} {
 			Expect(os.MkdirAll(filepath.Join(dir, name), 0o755)).To(Succeed())
-			Expect(os.WriteFile(filepath.Join(dir, name, "2020-01-01.openapi.yaml"), []byte("openapi: 3.0.0\n"), 0o644)).To(Succeed())
+			Expect(os.WriteFile(filepath.Join(dir, name, "2020-01-01.openapi.yaml"), []byte("openapi: 3.2.0\n"), 0o644)).To(Succeed())
 		}
 		Expect(os.WriteFile(filepath.Join(dir, "README.md"), []byte("notes"), 0o644)).To(Succeed())
 		Expect(os.MkdirAll(filepath.Join(dir, "empty"), 0o755)).To(Succeed())
@@ -356,7 +356,7 @@ var _ = Describe("Loading many specs into the proxy", func() {
 	It("gives absolute paths, which the proxy needs because it reads relative ones from its config's folder", func() {
 		dir := GinkgoT().TempDir()
 		Expect(os.MkdirAll(filepath.Join(dir, "kms"), 0o755)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(dir, "kms", "2020-01-01.openapi.yaml"), []byte("openapi: 3.0.0\n"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(dir, "kms", "2020-01-01.openapi.yaml"), []byte("openapi: 3.2.0\n"), 0o644)).To(Succeed())
 		wd, err := os.Getwd()
 		Expect(err).NotTo(HaveOccurred())
 		rel, err := filepath.Rel(wd, dir)

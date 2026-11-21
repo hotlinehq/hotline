@@ -4,9 +4,10 @@ Draft, 2026-11-21. Planning only, nothing built. Built from [support-list.md](su
 
 Sizes are rough guesses, not measured: **small** is about one pull request, **medium** two or three, **large** more than three.
 
-## M0. Move to 3.2 only (small)
+## M0. Move to 3.2 only (small, built 2026-11-21)
 
-- Check the 3.2 spec text against the support list; my list of what 3.2 adds came from memory.
+- Checked the 3.2.0 spec text against the support list: every item is in it, and 3.2 lists no breaking change from 3.1. XML `attribute` and `wrapped` are deprecated (still allowed), not removed.
+- New 3.2 parts the proxy can't check yet load and are skipped quietly (Peter, 2026-11-21).
 - The proxy loads `openapi: 3.2.*` and refuses everything else, with a message saying to change the version.
 - Rewrite every spec in `specs/` and every test spec to 3.2.
 - A spec with `webhooks` or `callbacks` sections still loads, and those sections are ignored (see M5).

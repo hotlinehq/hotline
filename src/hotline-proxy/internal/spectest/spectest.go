@@ -383,7 +383,7 @@ responses: {}
 // Route is a spec with one GET /a route, its parameters, body and responses
 // written in YAML under it.
 func Route(operation string) string {
-	return "openapi: 3.1.0\npaths:\n  /a:\n    get:\n" + indent(operation, "      ")
+	return "openapi: 3.2.0\npaths:\n  /a:\n    get:\n" + indent(operation, "      ")
 }
 
 func indent(text, by string) string {

@@ -9,7 +9,7 @@ import (
 )
 
 // noPathsSpec is a valid spec with no routes, so calls get no url.template.
-const noPathsSpec = `openapi: 3.1.0
+const noPathsSpec = `openapi: 3.2.0
 info: { title: Talon.One, version: "1" }
 paths: {}
 `
@@ -126,6 +126,9 @@ func (w *world) changeConfig(change string) error {
 		return nil
 	case "talon-shop-a's spec file is missing":
 		w.apis[0].yaml = strings.Replace(w.apis[0].yaml, "talon-one.openapi.yaml", "missing.yaml", 1)
+	case "talon-shop-a's spec says OpenAPI 3.1":
+		w.apis[0].yaml = strings.Replace(w.apis[0].yaml, "talon-one.openapi.yaml", "talon-one-3.1.openapi.yaml", 1)
+		w.writeFile("specs/talon-one-3.1.openapi.yaml", "openapi: 3.1.0\npaths: {}\n")
 	case "Talon.One has the overlay no-paths.yaml":
 		w.apis[0].yaml += "    overlays: [./overlays/no-paths.yaml]\n"
 	case "the proxy listener moves to another port":

@@ -26,7 +26,7 @@ func overlayCommandSteps(sc *godog.ScenarioContext, p *program) {
       parameters:
         - { in: query, name: limit, schema: { maximum: 100, type: integer } }
 info: { version: "1", title: Shop }
-openapi: 3.1.0
+openapi: 3.2.0
 `)
 	})
 	sc.Step(`^the file to.yaml holds from.yaml with the title changed to null$`, func() error {

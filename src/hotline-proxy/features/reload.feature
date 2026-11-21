@@ -45,6 +45,7 @@ Feature: Reloading the config without a restart
       | problem                             | named             |
       | it is not valid YAML                | is not valid YAML |
       | talon-shop-a's spec file is missing | cannot be read    |
+      | talon-shop-a's spec says OpenAPI 3.1 | Hotline reads OpenAPI 3.2 only |
 
   Scenario: A fixed config after a broken one is used
     When the config file changes so that it is not valid YAML

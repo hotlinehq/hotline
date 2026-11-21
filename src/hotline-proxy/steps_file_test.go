@@ -655,7 +655,7 @@ func parseLines(data []byte) ([]map[string]any, error) {
 // its own way.
 func secretSpecs() map[string]string {
 	return map[string]string{ //nolint:gosec // specs that name where a secret goes, holding none
-		"security section names X-Api-Key": `openapi: 3.1.0
+		"security section names X-Api-Key": `openapi: 3.2.0
 paths:
   /v1/things:
     get: {}
@@ -663,14 +663,14 @@ components:
   securitySchemes:
     api_key: { type: apiKey, in: header, name: X-Api-Key }
 `,
-		"header X-Debug-Token is marked x-hotline-redact true": `openapi: 3.1.0
+		"header X-Debug-Token is marked x-hotline-redact true": `openapi: 3.2.0
 paths:
   /v1/things:
     get:
       parameters:
         - { name: X-Debug-Token, in: header, x-hotline-redact: true }
 `,
-		"response header Request-Id is marked x-hotline-redact true": `openapi: 3.1.0
+		"response header Request-Id is marked x-hotline-redact true": `openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -680,14 +680,14 @@ paths:
           headers:
             Request-Id: { schema: { type: string }, x-hotline-redact: true }
 `,
-		"path value id is marked x-hotline-redact true": `openapi: 3.1.0
+		"path value id is marked x-hotline-redact true": `openapi: 3.2.0
 paths:
   /v1/things/{id}:
     get:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string }, x-hotline-redact: true }
 `,
-		"security section names the query word key": `openapi: 3.1.0
+		"security section names the query word key": `openapi: 3.2.0
 paths:
   /v1/things:
     get: {}

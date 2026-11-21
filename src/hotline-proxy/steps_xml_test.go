@@ -20,7 +20,7 @@ func xmlSteps(sc *godog.ScenarioContext, w *world) {
 		return err
 	})
 	sc.Step(`^the files api with a spec whose shipment body is (\S+) with (x-hotline-body: \S+)$`, func(mediaType, mark string) error {
-		spec := "openapi: 3.1.0\ninfo: { title: Files, version: '1' }\npaths:\n  /shipments:\n    post:\n" +
+		spec := "openapi: 3.2.0\ninfo: { title: Files, version: '1' }\npaths:\n  /shipments:\n    post:\n" +
 			"      requestBody:\n        content:\n          " + mediaType + ":\n            " + mark + "\n" +
 			"            schema: { type: object }\n" +
 			"      responses:\n        '201': { description: done }\n"

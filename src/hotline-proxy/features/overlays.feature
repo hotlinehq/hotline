@@ -147,12 +147,28 @@ Feature: Overlays on an api's spec
       | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: $.paths, update: [ 1 ] } ] }                | action 1:                             |
       | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: $.paths, copy: "$.paths[" } ] }             | action 1: copy $.paths[ is not valid JSONPath |
       | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: $.paths, copy: "$.paths.*" } ] }            | action 1: copy $.paths.* matches 6 spots, not one |
-      | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: $.openapi, update: 3.0.3 } ] }              | is not an OpenAPI 3.1 document        |
+      | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: $.openapi, update: 3.0.3 } ] }              | says openapi 3.0.3, but Hotline reads OpenAPI 3.2 only |
       | { overlay: 1.1.0, info: { title: T, version: "1" }, actions: [ { target: "$.paths['/orders'].post.requestBody.content['application/json'].schema", update: { $ref: "#/components/schemas/Gone" } } ] } | Gone |
+
+  Scenario: An overlay can move a spec's version line to 3.2
+    The version is checked after the overlays are applied, so the result
+    is what counts (Peter, 2026-11-21).
+    Given the overlay to-3.2.overlay.yaml:
+      """
+      overlay: 1.1.0
+      info: { title: To 3.2, version: "1" }
+      actions:
+        - target: $
+          update: { openapi: 3.2.0 }
+      """
+    And the shop spec with the overlays to-3.2.overlay.yaml, limit-10.overlay.yaml
+    And the shop spec file says openapi 3.1.0
+    When the app sends GET /orders?limit=50
+    Then the request results are query limit maximum 10
 
   Scenario: A spec that is not YAML, with an overlay, stops the proxy at start
     Given the shop spec with the overlay limit-10.overlay.yaml
-    And the shop spec file holds "openapi: [3.1.0"
+    And the shop spec file holds "openapi: [3.2.0"
     When the proxy loads the config
     Then the config is refused with a message naming "api.shop.test" and "the spec is not YAML or JSON"
 

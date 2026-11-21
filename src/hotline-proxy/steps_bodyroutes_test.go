@@ -12,7 +12,7 @@ const snsHost = "sns.eu-west-1.amazonaws.com"
 
 // snsLikeSpec names each action in the body field Action, the way SNS and
 // STS do.
-const snsLikeSpec = `openapi: 3.1.0
+const snsLikeSpec = `openapi: 3.2.0
 info: { title: SNS, version: '1' }
 x-hotline-action-field: Action
 paths:
@@ -92,7 +92,7 @@ func bodyRouteSteps(sc *godog.ScenarioContext, w *world) {
 		if marks != "no action mark" {
 			lines = strings.Join(strings.Split(marks, " and "), "\n") + "\n"
 		}
-		spec := "openapi: 3.1.0\ninfo: { title: SNS, version: '1' }\n" + lines +
+		spec := "openapi: 3.2.0\ninfo: { title: SNS, version: '1' }\n" + lines +
 			"paths:\n  " + route + ":\n    post:\n      responses:\n        '200': { description: done }\n"
 		w.addIntegration(integration("talon-shop-a", w.specAPI(snsHost, spec, "")))
 		return nil

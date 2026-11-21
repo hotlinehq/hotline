@@ -25,15 +25,57 @@ func specSteps(sc *godog.ScenarioContext, w *world) {
 		return hasNo(record, "url.template")
 	})
 	sc.Step(`^a spec with the route (\S+)$`, func(route string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.1.0\npaths:\n  %s:\n    get: {}\n", route))
+		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n", route))
 		return nil
 	})
 	sc.Step(`^a spec whose servers address is (\S+) with the route (\S+)$`, func(server, route string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.1.0\nservers:\n  - url: %s\npaths:\n  %s:\n    get: {}\n", server, route))
+		w.useSpec(fmt.Sprintf("openapi: 3.2.0\nservers:\n  - url: %s\npaths:\n  %s:\n    get: {}\n", server, route))
+		return nil
+	})
+	sc.Step(`^a spec saying openapi (\S+) with the route (\S+)$`, func(version, route string) error {
+		w.useSpec(fmt.Sprintf("openapi: %s\npaths:\n  %s:\n    get: {}\n", version, route))
+		return nil
+	})
+	sc.Step(`^a spec with the route (\S+), a webhook (\S+) and a callback (\S+)$`, func(route, webhook, callback string) error {
+		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
+paths:
+  %s:
+    get:
+      callbacks:
+        done:
+          "{$request.query.url}%s":
+            post: { responses: { "200": { description: ok } } }
+webhooks:
+  %s:
+    get: { responses: { "200": { description: ok } } }
+`, route, callback, webhook))
+		return nil
+	})
+	sc.Step(`^a spec with the route (\S+) that also uses query, additionalOperations, in querystring and itemSchema$`, func(route string) error {
+		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
+paths:
+  %s:
+    get:
+      responses:
+        "200":
+          description: events
+          content:
+            text/event-stream:
+              itemSchema: { type: object, required: [data] }
+    query:
+      parameters:
+        - name: filter
+          in: querystring
+          content:
+            application/x-www-form-urlencoded:
+              schema: { type: object }
+    additionalOperations:
+      LINK: {}
+`, route))
 		return nil
 	})
 	sc.Step(`^a spec with the routes (\S+) and (\S+)$`, func(first, second string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.1.0\npaths:\n  %s:\n    get: {}\n  %s:\n    get: {}\n", first, second))
+		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n  %s:\n    get: {}\n", first, second))
 		return nil
 	})
 
@@ -44,7 +86,7 @@ func specSteps(sc *godog.ScenarioContext, w *world) {
 			"not marked":                    "",
 		}[marked]
 		w.parameter = parameter
-		w.useSpec(fmt.Sprintf(`openapi: 3.1.0
+		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
 paths:
   /v1/things/{thing}:
     get:
@@ -100,7 +142,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^lists page again for GET, marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     parameters:
@@ -132,7 +174,7 @@ paths:
 			"an apiKey scheme in the query named key":                        "{ type: apiKey, in: query, name: key }",
 			"an apiKey scheme in a cookie named sid":                         "{ type: apiKey, in: cookie, name: sid }",
 		}[scheme]
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 security:
   - auth: []
 paths:
@@ -162,7 +204,7 @@ components:
 		return w.nowhere("A-1")
 	})
 	sc.Step(`^a spec where one operation has its own security section with an apiKey header X-Op-Key$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 security:
   - bearer: []
 paths:
