@@ -108,7 +108,7 @@ model {
   captureHelper -> hotline.proxy.ingress 'CONNECT over a socket file'
   hotline.proxy.guard -> vendors 'calls, unchanged, HTTPS'
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
-  hotline.proxy.exporters -> otlpBackend 'records, traces, metrics, OTLP'
+  hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
   hotline.proxy.exporters -> hotline.folder 'JSON lines'
   hotline.proxy.exporters -> terminal 'two lines per call'
   hotline.proxy.telemetry -> otlpBackend 'own metrics, OTLP'
