@@ -108,11 +108,16 @@ func (w *world) forget() {
 
 // sendRaw writes data on a new connection to address, says nothing more
 // comes, and reads until the proxy closes the connection. It gives how long
-// that took; a wait cut off at fuzzWait counts as longer.
+// that took; a wait cut off at fuzzWait counts as longer, the connect's own
+// wait included. A connect slow once on a busy machine is then tried again
+// like a slow answer, instead of failing at once (fuzz run of 2026-11-21).
 func sendRaw(t *testing.T, network, address string, data []byte) time.Duration {
 	t.Helper()
 	start := time.Now()
 	conn, err := (&net.Dialer{Timeout: fuzzWait}).DialContext(context.Background(), network, address)
+	if isTimeout(err) {
+		return fuzzWait + time.Millisecond
+	}
 	if err != nil {
 		t.Fatalf("cannot connect to the proxy: %v", err)
 	}
