@@ -359,6 +359,8 @@ func liveSpecEdits() map[string][][2]string {
 		"sessionInfo lists a message written in place":  {{sessionInfoLine, "            messages: [{ payload: { type: object } }]"}},
 		"sessionInfo lists a message that is not there": {{sessionInfoLine, `            messages: [{ $ref: "#/components/x-async-api/messages/nothing" }]`}},
 		"sessionInfo's payload is written in place":     {{sessionPayload, "        payload: { type: object }"}},
+		"sessionInfo's payload points nowhere":          {{sessionPayload, `        payload: { $ref: "#/components/schemas/nothing" }`}},
+		"the vendor's messages mix JSON and audio/pcm":  {{`        payload: { $ref: "#/components/schemas/toolCall" }`, `        payload: { $ref: "#/components/schemas/toolCall" }` + "\n        contentType: audio/pcm"}},
 		"sessionInfo lists 5":                           {{sessionInfoLine, "            messages: [5]"}},
 		"sessionInfo has no payload":                    {{sessionPayload, "        summary: no payload"}},
 		"serverContent also lists toolCall": {

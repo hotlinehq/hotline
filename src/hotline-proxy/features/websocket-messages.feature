@@ -83,6 +83,7 @@ Feature: WebSocket messages checked against the spec
       | sessionInfo lists a message written in place    | the operation sessionInfo: message 1 must be a $ref to components/x-async-api/messages |
       | sessionInfo lists 5                             | the operation sessionInfo: message 1 must be a $ref to components/x-async-api/messages |
       | sessionInfo has no payload                      | the message sessionInfo: payload must be a $ref to components/schemas |
+      | sessionInfo's payload points nowhere            | the $ref #/components/schemas/nothing points nowhere       |
       | sessionInfo lists a message that is not there   | the $ref #/components/x-async-api/messages/nothing points nowhere |
       | sessionInfo's payload is written in place       | the message sessionInfo: payload must be a $ref to components/schemas |
       | serverContent also lists toolCall               | the message toolCall is in the operations serverContent and toolCall: a message belongs to one operation |
@@ -90,6 +91,7 @@ Feature: WebSocket messages checked against the spec
       | toolCall's correlationId is in a header         | the message toolCall: correlationId.location $message.header#/id: a WebSocket message has no headers |
       | toolCall's correlationId is not a pointer       | the message toolCall: correlationId.location must start with $message.payload#/ |
       | the app's messages mix JSON and audio/pcm       | the messages the app sends mix the content types application/json and audio/pcm |
+      | the vendor's messages mix JSON and audio/pcm    | the messages the vendor sends mix the content types application/json and audio/pcm |
       | the route still uses x-hotline-messages         | x-hotline-messages is replaced by x-async-api              |
       | toolCall marks its id x-hotline-id-tuple        | x-hotline-id-tuple is replaced by the message's correlationId |
 
@@ -291,6 +293,14 @@ Feature: WebSocket messages checked against the spec
     And message record 2 has no messaging.message.conversation_id
     And message record 3 has no messaging.message.conversation_id
     And message record 3 says hotline.websocket.message.role reply
+
+  Scenario: A correlation id whose path stops at a value that holds no fields records nothing
+    Given the live vendor sends {"toolError":"no such order"}
+    When an app opens the live WebSocket
+    And the app reads a message
+    And the app closes the live WebSocket
+    Then message record 1 says hotline.websocket.message.name toolError, hotline.websocket.message.role answer
+    And message record 1 has no messaging.message.conversation_id
 
   Scenario: The console shows the session, not each message
     Given a console exporter
