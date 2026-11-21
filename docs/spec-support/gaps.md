@@ -17,7 +17,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| OpenAPI 3.2, the newest version, is refused: only `openapi: 3.1.*` loads. So its new parts (`QUERY` method, `additionalOperations`, `itemSchema` for streamed bodies, `in: querystring`) are out too. | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
+| Fixed on 2026-11-21 (M0): only `openapi: 3.2.*` loads now. Its new parts (`QUERY` method, `additionalOperations`, `itemSchema` for streamed bodies, `in: querystring`) load but are skipped quietly until built. | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
 | A standalone AsyncAPI file is not read. Messages exist only inside an OpenAPI file, under `x-async-api`. | Medium | [code] `messages.go` |
 
 ## 2. OpenAPI: servers and paths

@@ -745,7 +745,7 @@ func (w *world) websocketOnce(target, message string, headers ...string) error {
 }
 
 // websocketSpec is a shop api whose GET /orders switches to a WebSocket.
-const websocketSpec = `openapi: 3.1.0
+const websocketSpec = `openapi: 3.2.0
 info: { title: shop live orders, version: "1" }
 paths:
   /orders:

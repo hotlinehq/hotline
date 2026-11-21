@@ -40,7 +40,7 @@ func redactionSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a spec whose security section names the query parameter key, which is also marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -105,7 +105,7 @@ func headerSteps(sc *godog.ScenarioContext, w *world) {
 		return w.lastHas(key, []string{value})
 	})
 	sc.Step(`^a spec with the header X-Debug-Token marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -115,7 +115,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^a spec whose header X-Debug-Token is a \$ref to a parameter marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -128,7 +128,7 @@ components:
 		return nil
 	})
 	sc.Step(`^a spec whose response header Request-Id is a \$ref to a header marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -178,7 +178,7 @@ components:
 		return w.lastHas("http.response.header.ratelimit-policy", []string{"100;w=60", "1000;w=3600"})
 	})
 	sc.Step(`^a spec that marks Authorization x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -188,7 +188,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^a spec whose security section names X-Api-Key, also marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:

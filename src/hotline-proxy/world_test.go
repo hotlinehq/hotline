@@ -915,7 +915,7 @@ func (w *world) apiFor(host, extra string) string {
 	case "api.stripe.com":
 		return w.stripeAPI(extra)
 	}
-	return w.specAPI(host, "openapi: 3.1.0\npaths:\n  /a:\n    get: {}\n", extra)
+	return w.specAPI(host, "openapi: 3.2.0\npaths:\n  /a:\n    get: {}\n", extra)
 }
 
 func mustURL(raw string) *url.URL {

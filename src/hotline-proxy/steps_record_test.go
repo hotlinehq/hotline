@@ -193,7 +193,7 @@ func recordSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^a call with Authorization, Proxy-Authorization, a cookie, an API key and a JSON body$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:

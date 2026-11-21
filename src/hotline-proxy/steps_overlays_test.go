@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -32,6 +33,11 @@ func overlaySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the shop spec file holds "([^"]*)"$`, func(content string) error {
 		w.writeFile("specs/shop.openapi.yaml", content)
 		return nil
+	})
+	sc.Step(`^the shop spec file says openapi (\S+)$`, func(version string) error {
+		spec, err := os.ReadFile(filepath.Join(w.dir, "specs", "shop.openapi.yaml"))
+		w.writeFile("specs/shop.openapi.yaml", regexp.MustCompile(`(?m)^openapi: .*$`).ReplaceAllString(string(spec), "openapi: "+version))
+		return err
 	})
 	sc.Step(`^(\S+) sends GET (\S+)$`, func(id, path string) error {
 		w.appID = id

@@ -866,7 +866,7 @@ func bigToolResponse(size int, id string) []byte {
 // toolSpec is a shop api whose GET /live switches to a WebSocket and lists
 // tool calls sent by the vendor, shaped like Gemini Live's, for the cases
 // Kraken has no message for; GET /other switches too, with none listed.
-const toolSpec = `openapi: 3.1.0
+const toolSpec = `openapi: 3.2.0
 info: { title: shop tool calls, version: "1" }
 paths:
   /live:

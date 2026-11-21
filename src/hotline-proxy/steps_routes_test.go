@@ -4,7 +4,7 @@ import "github.com/cucumber/godog"
 
 func routeSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the S3-like routes spec$`, func() error {
-		w.useSpec(`openapi: 3.1.0
+		w.useSpec(`openapi: 3.2.0
 paths:
   /:
     get:

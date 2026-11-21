@@ -53,6 +53,27 @@ Feature: Reading the vendor spec
     When a call is GET /v1/items
     Then the route template is /v1/items
 
+  Scenario: Any 3.2 patch version loads
+    The patch number does not change what a spec may say, so 3.2.1 reads
+    like 3.2.0 (Peter, 2026-11-21).
+    Given a spec saying openapi 3.2.1 with the route /v1/items
+    When a call is GET /v1/items
+    Then the route template is /v1/items
+
+  Scenario: Webhooks and callbacks are loaded and ignored
+    They describe calls the vendor makes to the app, which the proxy does
+    not check (Peter, 2026-11-21).
+    Given a spec with the route /v1/items, a webhook /v1/events and a callback /v1/done
+    When a call is GET /v1/events
+    Then there is no route
+
+  Scenario: 3.2 parts the proxy does not check yet are skipped quietly
+    QUERY, other methods, a whole query as one value and streamed items
+    load, and go unchecked until they are built (Peter, 2026-11-21).
+    Given a spec with the route /v1/items that also uses query, additionalOperations, in querystring and itemSchema
+    When a call is GET /v1/items
+    Then the route template is /v1/items
+
   Scenario Outline: Reading the marks
     Given a spec where <parameter> is <marked>
     When the spec is read

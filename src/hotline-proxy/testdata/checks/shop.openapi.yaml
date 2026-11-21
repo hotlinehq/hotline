@@ -1,6 +1,6 @@
 # A small vendor spec for the checks scenarios: every part of a call has
 # something to check.
-openapi: 3.1.0
+openapi: 3.2.0
 info: { title: Shop, version: "1" }
 servers:
   - url: https://api.shop.test

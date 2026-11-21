@@ -22,9 +22,10 @@ Full wording in [docs/proxy-spec-checks.md](../proxy-spec-checks.md).
 
 - Which parts run is a list, `checks`, on the api (Peter, 2026-11-08): `path`, `query`, `headers`, `cookies`, `body`, `status`, `response-headers`, `response-body`, and `messages` since 2026-11-19 ([websockets.md](websockets.md), item 21). Omitted means all, `[]` means the route only, an unknown name stops the start. No body copy is kept unless a body part is picked (a spec that names its action in the body keeps the request body). Detail: [docs/proxy-spec-checks.md](../proxy-spec-checks.md).
 
-## Edge proxy: spec versions and webhooks (Peter, 2026-11-21, planned, not built)
+## Edge proxy: spec versions and webhooks (Peter, 2026-11-21; 18 and 20 built)
 
 Plan: [docs/spec-support/roadmap.md](../spec-support/roadmap.md).
 
-18. The edge proxy reads OpenAPI 3.2 only, replacing item 9's "only OpenAPI 3.1". 3.1 and older are refused, since spec files are easy to rewrite to 3.2, and every spec in `specs/` and the tests moves to 3.2 in one go. Revisit if a 3.1 rule turns out to clash with 3.2, so a file can't be moved over by changing its version line alone.
+18. The edge proxy reads OpenAPI 3.2 only, replacing item 9's "only OpenAPI 3.1". 3.1 and older are refused, since spec files are easy to rewrite to 3.2, and every spec in `specs/` and the tests moves to 3.2 in one go. Revisit if a 3.1 rule turns out to clash with 3.2, so a file can't be moved over by changing its version line alone. Checked against the 3.2.0 text and the OpenAPI Initiative's upgrade guide on 2026-11-21: 3.2 lists no breaking change from 3.1.
 19. Webhook support is minimal: only the app calling the vendor, such as setting up webhook endpoints or posting to a vendor's webhook address, with the secret in that address never recorded. Calls from the vendor to the app are out of scope, so a spec's `webhooks` and `callbacks` sections are loaded and ignored.
+20. New 3.2 parts the proxy can't check yet (`query`, `additionalOperations`, `in: querystring`, `itemSchema` and the rest) are skipped quietly, like any field the proxy does not know (Peter, 2026-11-21). The version is checked after overlays are applied, any `3.2.x` loads, and the refusal names the file, the version found and the fix: change the line to `openapi: 3.2.0`. Revisit if a vendor spec we need uses one of those parts and its calls are wrongly flagged or wrongly pass.

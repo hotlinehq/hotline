@@ -132,8 +132,11 @@ Feature: Loading the config file
       | an integration names an api with a list, not a name  |
       | an api has no spec                                   |
       | an api points to a spec file that does not exist     |
-      | a spec is not an OpenAPI document                    |
+      | a spec is not YAML                                   |
+      | a spec is Swagger 2.0, with no openapi line          |
       | a spec is OpenAPI 3.0                                |
+      | a spec is OpenAPI 3.1                                |
+      | a spec is OpenAPI 3.20                               |
       | a schema in a spec has the type integr               |
       | a $ref in a spec points nowhere                      |
       | a $ref in a spec points to another file              |

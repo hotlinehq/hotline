@@ -118,8 +118,8 @@ var _ = Describe("Converting an AWS JSON service from Smithy to OpenAPI", func()
 	var doc map[string]any
 	BeforeEach(func() { doc = convert(model) })
 
-	It("writes an OpenAPI 3.1 document named after the service and its version", func() {
-		Expect(doc["openapi"]).To(Equal("3.1.0"))
+	It("writes an OpenAPI 3.2 document named after the service and its version", func() {
+		Expect(doc["openapi"]).To(Equal("3.2.0"))
 		Expect(at(doc, "info", "title")).To(Equal("Example Queues"))
 		Expect(at(doc, "info", "version")).To(Equal("2012-11-05"))
 	})

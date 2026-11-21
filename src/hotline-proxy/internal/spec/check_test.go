@@ -153,7 +153,7 @@ var _ = Describe("What spec tells the schema engine", func() {
 	})
 
 	It("describes each parameter, with where its value is", func() {
-		t, _ := tell(`openapi: 3.1.0
+		t, _ := tell(`openapi: 3.2.0
 paths:
   /a/{id}/{rest+}:
     get:
@@ -186,7 +186,7 @@ components:
 	})
 
 	It("lets a method's parameter win over the path's", func() {
-		t, _ := tell("openapi: 3.1.0\npaths:\n  /a:\n    parameters:\n      - { name: q, in: query, required: true }\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n")
+		t, _ := tell("openapi: 3.2.0\npaths:\n  /a:\n    parameters:\n      - { name: q, in: query, required: true }\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n")
 		Expect(t.requests[0].Params).To(HaveLen(1))
 		Expect(t.requests[0].Params[0].Required).To(BeFalse())
 	})
@@ -297,7 +297,7 @@ var _ = Describe("Checking the response", func() {
 	})
 
 	It("does not check the response when the spec lists no responses", func() {
-		got := parsed("openapi: 3.1.0\npaths:\n  /a:\n    get: {}\n").Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 500})
+		got := parsed("openapi: 3.2.0\npaths:\n  /a:\n    get: {}\n").Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 500})
 		Expect(got.Response).To(BeEmpty())
 	})
 })
@@ -339,7 +339,7 @@ var _ = Describe("Specs the proxy cannot use", func() {
 })
 
 var _ = Describe("A route found once", func() {
-	doc := "openapi: 3.1.0\npaths:\n" +
+	doc := "openapi: 3.2.0\npaths:\n" +
 		"  /a/{id}:\n    get:\n      parameters:\n        - { name: id, in: path, x-hotline-redact: false }\n      responses: {}\n" +
 		"  /b/{id}:\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n"
 

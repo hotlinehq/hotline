@@ -603,7 +603,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 const paymentPath = "/v1/payment_intents?expand=customer&customer=cus_8812"
 
 // testVendorSpec is our copy of the test vendor's spec.
-const testVendorSpec = `openapi: 3.1.0
+const testVendorSpec = `openapi: 3.2.0
 servers:
   - url: https://localhost
 paths:

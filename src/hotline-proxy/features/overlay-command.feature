@@ -10,7 +10,7 @@ Feature: Making an overlay, and overlays in validate
   Background:
     Given the file from.yaml:
       """
-      openapi: 3.1.0
+      openapi: 3.2.0
       info: { title: Shop, version: "1" }
       paths:
         /orders:
@@ -24,7 +24,7 @@ Feature: Making an overlay, and overlays in validate
   Scenario: An overlay made from two specs turns one into the other
     Given the file to.yaml:
       """
-      openapi: 3.1.0
+      openapi: 3.2.0
       info: { title: Shop, version: "1" }
       paths:
         /orders:
@@ -68,7 +68,7 @@ Feature: Making an overlay, and overlays in validate
   Scenario Outline: Files the overlay command cannot use
     Given the file broken.yaml:
       """
-      openapi: [3.1.0
+      openapi: [3.2.0
       """
     When hotline-proxy is run with "overlay <arguments>"
     Then it exits with code 1

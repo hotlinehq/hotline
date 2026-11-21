@@ -54,7 +54,7 @@ func convertRestJSON(m model, serviceID string, service shape, options Options) 
 		title = t
 	}
 	doc := restDocument{
-		OpenAPI: "3.1.0",
+		OpenAPI: "3.2.0",
 		Info: map[string]any{
 			"title":       title,
 			"version":     service.Version,
