@@ -1,5 +1,7 @@
-# On main and on release tags: builds and checks the programs and the image
-# (binary-build.yml), then publishes both: the programs on GitHub Releases
+# On main and on release tags: builds the programs and the image
+# (binary-build.yml), signs the Mac program, packages them
+# (binary-package.yml), runs the Linux program and the image (smoke-linux,
+# smoke-image), then publishes both: the programs on GitHub Releases
 # with a checksum file and a cosign signature, and the image to ghcr.io with
 # an SBOM, build provenance and a cosign signature (Peter, 2026-11-10). A tag
 # v1.2.3 makes the release v1.2.3 and the image tags 1.2.3, 1.2 and latest;
@@ -35,14 +37,123 @@ concurrency:
 jobs:
   binaries:
     uses: ./.github/workflows/binary-build.yml
+
+  # Signs the Mac program with the Developer ID certificate and has Apple
+  # check it (notarization), on a macOS runner with Apple's own tools (Peter,
+  # 2026-11-11), on every build of main and every release tag. It lives here,
+  # not in binary-build.yml, so pull requests have no signing job at all
+  # (Peter, 2026-11-21). The secrets sit in the release-signing environment,
+  # which only main and v* tags may use. The signed tarball keeps its name and
+  # is saved as the artifact hotline-mac-signed; binary-package.yml puts it in
+  # place of the unsigned one, so the checksums and the signature cover the
+  # signed program.
+  sign-mac:
+    # A by-hand run on another branch does not sign: the release-signing
+    # environment refuses it.
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+    needs: binaries
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy_${{ needs.binaries.outputs.label }}_darwin_arm64.tar.gz
+          path: dist
+      - name: sign and notarize the Mac program
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: .github/scripts/sign-mac-program.sh "dist/hotline-proxy_${{ needs.binaries.outputs.label }}_darwin_arm64.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hotline-mac-signed
+          path: dist/hotline-proxy_${{ needs.binaries.outputs.label }}_darwin_arm64.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  # Runs when sign-mac ran and also when it was left out (a by-hand run on
+  # another branch), but never after a failure.
+  package:
+    needs: [binaries, sign-mac]
+    if: ${{ !cancelled() && !failure() }}
+    uses: ./.github/workflows/binary-package.yml
     with:
-      # Every build of main and every release tag signs the Mac program
-      # (Peter, 2026-11-11). A by-hand run on another branch does not.
-      sign: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
-    secrets: inherit
+      label: ${{ needs.binaries.outputs.label }}
+      signed: ${{ needs.sign-mac.result == 'success' }}
+
+  # Runs the Linux amd64 program, before anything is published. Only here,
+  # not on pull requests (Peter, 2026-11-21).
+  smoke-linux:
+    needs: [binaries, package]
+    # package still runs when sign-mac was left out on a by-hand run, so
+    # this must not be skipped along with it.
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-programs
+          path: dist
+      - name: check the files and run the program
+        run: |
+          set -eu
+          (cd dist && sha256sum -c SHA256SUMS)
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.binaries.outputs.label }}_linux_amd64.tar.gz"
+          .github/scripts/smoke-program.sh dist/hotline-proxy "${{ needs.binaries.outputs.version }}"
+
+  # Checks the image the image job saved, on linux/amd64, before anything is
+  # published. Only here, not on pull requests (Peter, 2026-11-21). Read permission only. skopeo comes with the GitHub runner.
+  smoke-image:
+    needs: binaries
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy.tar
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hotline-proxy_${{ needs.binaries.outputs.label }}_linux_amd64.tar.gz
+          path: dist
+      - name: load the amd64 image
+        run: |
+          skopeo --version
+          skopeo copy --override-os linux --override-arch amd64 \
+            oci-archive:hotline-proxy.tar docker-daemon:hotline-proxy:smoke
+      - name: smoke test
+        run: |
+          set -eu
+          config="$PWD/deploy/kubernetes/sidecar"
+          mounts="-v $config:/etc/hotline/config:ro"
+
+          # The image holds the very program of the download: the same
+          # version line as the Linux amd64 program that was checked.
+          tar -C dist -xzf "dist/hotline-proxy_${{ needs.binaries.outputs.label }}_linux_amd64.tar.gz" hotline-proxy
+          test "$(docker run --rm hotline-proxy:smoke version)" = "$(dist/hotline-proxy version)"
+          docker create --name copy hotline-proxy:smoke >/dev/null
+          docker cp copy:/hotline-proxy image-program
+          docker rm copy >/dev/null
+          cmp dist/hotline-proxy image-program || { echo "the image program differs from the download"; exit 1; }
+          docker run --rm --read-only $mounts hotline-proxy:smoke validate --config /etc/hotline/config/hotline-proxy.yaml
+
+          # Runs as nonroot on a read-only filesystem, and says it is ready.
+          docker run -d --name proxy --read-only --cap-drop ALL -p 8081:8081 $mounts hotline-proxy:smoke
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:8081/readyz && break
+            sleep 1
+          done
+          curl -fs http://localhost:8081/readyz
+          test "$(docker inspect proxy --format '{{.Config.User}}')" = "65532:65532"
+          docker rm -f proxy
 
   publish:
-    needs: binaries
+    needs: [binaries, smoke-linux, smoke-image]
     # A by-hand run on any other branch builds and checks, but publishes
     # nothing.
     if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
