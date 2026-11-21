@@ -97,6 +97,25 @@ Feature: WebSocket messages checked against the spec
       | the vendor's messages mix JSON and audio/pcm       | the messages the vendor sends mix the content types application/json and audio/pcm                         |
       | the route still uses x-hotline-messages            | x-hotline-messages is replaced by x-async-api                                                              |
       | ping marks its req_id x-hotline-id-tuple           | x-hotline-id-tuple is replaced by the message's correlationId                                              |
+      | ping has traits                                    | the operation ping: traits are not read: write what they add into the operation itself                     |
+      | heartbeat has traits                               | the message heartbeat: traits are not read: write what they add into the message itself                    |
+      | heartbeat's schemaFormat is Avro                   | the message heartbeat: schemaFormat application/vnd.apache.avro;version=1.9.0 is not JSON Schema           |
+      | heartbeat's payload has the schemaFormat Protobuf  | the message heartbeat: schemaFormat application/x-protobuf is not JSON Schema                              |
+
+  Scenario Outline: A schemaFormat of the JSON Schema family loads
+    AsyncAPI's and OpenAPI's schema formats and JSON Schema itself are
+    all read as JSON Schema (Peter, 2026-11-21, M1).
+    Given the Kraken spec, where add_order's schemaFormat is <format>
+    When an app opens the Kraken WebSocket
+    And the app sends add_order with req_id 7
+    And the app closes the Kraken WebSocket
+    Then message record 1 says hotline.websocket.message.name addOrder, hotline.schema.status valid
+
+    Examples:
+      | format                                          |
+      | application/vnd.aai.asyncapi+json;version=3.0.0 |
+      | application/vnd.oai.openapi;version=3.2.0       |
+      | application/schema+json;version=draft-07        |
 
   Scenario: Binary frames are read as the side's content type
     When an app opens the Kraken WebSocket

@@ -13,12 +13,12 @@ Sizes are rough guesses, not measured: **small** is about one pull request, **me
 - A spec with `webhooks` or `callbacks` sections still loads, and those sections are ignored (see M5).
 - Depends on: nothing. Everything below depends on it.
 
-## M1. Stop silent mistakes (small)
+## M1. Stop silent mistakes (small, built 2026-11-21)
 
 These mistakes give no warning today, so they come before new features.
-- A server address with a variable in the host, like `{region}`, quietly drops the base path. Refuse it, or read the variables.
-- AsyncAPI traits are ignored. Refuse them for now; merging them in comes later if a vendor needs it.
-- A message `schemaFormat` other than JSON Schema (Avro or Protobuf, for example) is ignored. Refuse it.
+- A server address with a variable in the host, like `{region}`, quietly dropped the base path. Built: the host is no longer parsed, since the config names the hosts, so the base path stays.
+- AsyncAPI traits were ignored. Built: they refuse the spec for now; merging them in comes later if a vendor needs it.
+- A message `schemaFormat` other than JSON Schema (Avro or Protobuf, for example) was ignored. Built: it refuses the spec. AsyncAPI's, OpenAPI's and JSON Schema's own formats load.
 - Depends on: M0.
 
 ## M2. Streamed replies with `itemSchema` (large, the biggest win)

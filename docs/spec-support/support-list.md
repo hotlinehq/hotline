@@ -34,10 +34,10 @@ New from 3.2:
 
 12. **Multipart bodies** (file uploads): check the fields that are not files, using `encoding`, and 3.2's `itemEncoding` and `prefixEncoding` where given.
 13. **Webhooks, minimal: the app calling the vendor.** Calls that set up webhooks (Stripe's webhook endpoints, GitHub's hooks) and calls to a vendor's webhook address (Slack or Discord incoming webhooks), checked like any call, with the secret in the address always hidden.
-14. **Server variables:** read `{region}`-style variables in the host and path, or refuse the spec clearly. Today a variable in the host quietly drops the base path.
+14. **Server variables:** a variable in the host is skipped, as the config names the hosts, and a variable in the path is read like a path value (built 2026-11-21).
 15. **Server `name`** (new in 3.2): used to label which server a call went to.
 16. **`discriminator`** with 3.2's `defaultMapping`: pick the branch by the field, so an error names the right branch.
-17. **AsyncAPI traits:** merge them in, or refuse them, instead of ignoring them without a warning.
+17. **AsyncAPI traits:** refused since 2026-11-21, instead of ignored without a warning. Merge them in when a vendor needs it.
 
 ## Later: only when a real example needs it
 

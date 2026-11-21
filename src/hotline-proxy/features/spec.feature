@@ -48,10 +48,20 @@ Feature: Reading the vendor spec
       | /v1/items/ | /v1/items  |
       | /v1/items  | /v1/items/ |
 
-  Scenario: Base path in the servers address
-    Given a spec whose servers address is https://api.x.com/v1 with the route /items
+  Scenario Outline: Base path in the servers address
+    The host is not used, as the config names the hosts, so a variable in
+    it, such as {region}, changes nothing (Peter, 2026-11-21, M1).
+    Given a spec whose servers address is <address> with the route /items
     When a call is GET /v1/items
     Then the route template is /v1/items
+
+    Examples:
+      | address                                |
+      | https://api.x.com/v1                   |
+      | https://api.x.com/v1/                  |
+      | https://{region}.api.x.com/v1          |
+      | {scheme}://api.x.com/v1                |
+      | /v1                                    |
 
   Scenario: Any 3.2 patch version loads
     The patch number does not change what a spec may say, so 3.2.1 reads

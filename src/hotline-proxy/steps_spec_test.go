@@ -29,7 +29,7 @@ func specSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a spec whose servers address is (\S+) with the route (\S+)$`, func(server, route string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.2.0\nservers:\n  - url: %s\npaths:\n  %s:\n    get: {}\n", server, route))
+		w.useSpec(fmt.Sprintf("openapi: 3.2.0\nservers:\n  - url: \"%s\"\npaths:\n  %s:\n    get: {}\n", server, route))
 		return nil
 	})
 	sc.Step(`^a spec saying openapi (\S+) with the route (\S+)$`, func(version, route string) error {

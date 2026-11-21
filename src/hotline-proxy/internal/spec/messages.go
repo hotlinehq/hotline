@@ -404,6 +404,9 @@ func (b *builder) asyncAPI(v any, pointer, where string) *Messages {
 			b.problem("%s: action must be send or receive", opWhere)
 			continue
 		}
+		if _, has := op["traits"]; has {
+			b.problem("%s: traits are not read: write what they add into the operation itself", opWhere)
+		}
 		messages := b.refs(op["messages"], opAt+"/messages", opWhere)
 		v, hasReply := op["reply"]
 		if !hasReply {
@@ -466,7 +469,14 @@ func (b *builder) message(r ref, operation, role string, fromApp bool, defaultTy
 		return placed{}, false
 	}
 	msgWhere := where + ": the message " + r.name
+	if _, has := m["traits"]; has {
+		b.problem("%s: traits are not read: write what they add into the message itself", msgWhere)
+	}
 	payload := m["payload"]
+	b.schemaFormat(m, msgWhere)
+	if p, isObject := payload.(map[string]any); isObject {
+		b.schemaFormat(p, msgWhere)
+	}
 	schemaName, shared := strings.CutPrefix(refOf(payload), sharedPrefix)
 	if !shared {
 		b.problem("%s: payload must be a $ref to components/schemas", msgWhere)
@@ -628,4 +638,22 @@ func (b *builder) messageCheck(item any, pointer, schemaName, name, where string
 		fields:    b.fields(item, pointer),
 	}
 	return b.responseCheck(&response{body: &bodySpec{content: []content{ct}}}, where)
+}
+
+// schemaFormat refuses a schemaFormat, on a message or its payload, that is
+// not JSON Schema, such as Avro or Protobuf. The payload would be read as
+// JSON Schema all the same and its checks would mean nothing, so the spec
+// is refused rather than the key skipped (Peter, 2026-11-21, M1).
+func (b *builder) schemaFormat(m map[string]any, where string) {
+	v, has := m["schemaFormat"]
+	if !has {
+		return
+	}
+	// These start the formats whose schemas are read as JSON Schema:
+	// AsyncAPI's own, OpenAPI's, and JSON Schema itself.
+	jsonSchemaFormats := []string{"application/vnd.aai.asyncapi", "application/vnd.oai.openapi", "application/schema+"}
+	format, _ := v.(string)
+	if !slices.ContainsFunc(jsonSchemaFormats, func(prefix string) bool { return strings.HasPrefix(format, prefix) }) {
+		b.problem("%s: schemaFormat %v is not JSON Schema", where, v)
+	}
 }
