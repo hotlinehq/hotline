@@ -12,10 +12,10 @@ import (
 func main() {
 	var cfg run.Config
 	flag.StringVar(&cfg.Proxy, "proxy", "", "the built hotline-proxy program (required)")
-	flag.StringVar(&cfg.Spec, "spec", "", "the spec the proxy checks calls against: SSM's, or S3's for xml (required)")
+	flag.StringVar(&cfg.Spec, "spec", "", "the spec the proxy checks calls against: SSM's, S3's for xml, load/live/live.openapi.yaml or load/live/kraken.openapi.yaml for the WebSocket shapes (required)")
 	flag.StringVar(&cfg.K6, "k6", "", "the k6 program (default: the one on the path)")
 	flag.StringVar(&cfg.OutDir, "out", "load/results", "where the run folders go")
-	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json, slow or xml; or a WebSocket one, live-plain, live-alone or live-context (needs the k6 of make k6)")
+	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json, slow or xml; or a WebSocket one, live-plain, live-alone or live-context (Gemini Live), kraken-plain, kraken-alone or kraken-context (Kraken market data); these need the k6 of make k6")
 	flag.IntVar(&cfg.Rate, "rate", 500, "calls a second")
 	flag.IntVar(&cfg.Sessions, "sessions", 0, "for a live shape: how many WebSocket sessions are open at once")
 	flag.StringVar(&cfg.Duration, "duration", "20s", "how long each repeat lasts")

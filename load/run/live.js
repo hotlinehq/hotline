@@ -1,8 +1,9 @@
 // The k6 script of the WebSocket load case. It needs the k6 built with
 // load/k6ws (make k6). Every setting comes from the environment: URL (ws://,
 // straight to the vendor or through the proxy), AUTH (1 to name an
-// integration to the proxy), PACKING (plain, alone or context), SESSIONS
-// (how many at once) and SECONDS (how long each sends audio).
+// integration to the proxy), VENDOR (gemini or kraken), PACKING (plain,
+// alone or context), SESSIONS (how many at once) and SECONDS (how long each
+// sends on its beat).
 import live from 'k6/x/hotline-live';
 import encoding from 'k6/encoding';
 import { Counter, Trend } from 'k6/metrics';
@@ -32,7 +33,7 @@ export default function () {
   let s;
   try {
     // The offset spreads the sessions' beats over one 40 ms chunk.
-    s = live.session({ url: __ENV.URL, proxyAuthorization, packing: __ENV.PACKING, seconds, offset: (__VU % 40) / 40 });
+    s = live.session({ url: __ENV.URL, proxyAuthorization, vendor: __ENV.VENDOR, packing: __ENV.PACKING, seconds, offset: (__VU % 40) / 40 });
   } catch (e) {
     failed.add(1);
     console.error(String(e));

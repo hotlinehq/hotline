@@ -13,9 +13,8 @@ This page lists every mark, what it is for, and an example. Marks live only in o
 | [`x-hotline-body`](#x-hotline-body) | a body's media type | read a vendor's own content type as JSON or XML |
 | [`x-hotline-action-header`](#x-hotline-action-header) | the top of the spec | the header that names the action, when every call has the same path |
 | [`x-hotline-action-field`](#x-hotline-action-field) | the top of the spec | the body field that names the action, when every call has the same path |
-| [`x-hotline-messages`](#x-hotline-messages) | an operation that answers `101` | the messages each side of its WebSocket may send |
-| [`x-hotline-match`](#x-hotline-match) | a field of a message schema | which message a WebSocket message is |
-| [`x-hotline-id-tuple`](#x-hotline-id-tuple) | an id field of a message schema | list a message's ids on its record |
+| [`x-async-api`](#x-async-api-websocket-messages-in-asyncapis-shapes) | an operation that answers `101`, and `components` | the operations and messages of its WebSocket, written as in AsyncAPI 3 |
+| [`x-hotline-match`](#x-hotline-match) | a field of a message's payload schema | which message a WebSocket message is |
 
 ## x-hotline-redact
 
@@ -149,11 +148,11 @@ A call whose body is `Action=Publish&TopicArn=...&Message=...` matches `/#Action
 
 Detail: [proxy-aws-query.md](proxy-aws-query.md).
 
-## x-hotline-messages
+## x-async-api: WebSocket messages in AsyncAPI's shapes
 
-**What it's for.** After a `101`, a WebSocket carries messages both ways, which plain OpenAPI can't describe. This mark lists the schemas of the messages each side may send, so the proxy can name, check and record each one (Peter, 2026-11-19, WebSocket slice 2).
+**What it's for.** After a `101`, a WebSocket carries messages both ways, which plain OpenAPI can't describe. AsyncAPI, the standard for message APIs, can. So the spec keeps one file per vendor, and the messages are written inside it in AsyncAPI 3's own shapes, under one key, `x-async-api` (Peter, 2026-11-21, Q1 and Q7). The `x-` keeps the file valid OpenAPI, so it still opens in other tools and passes linters. The proxy names, checks and records each message, and writes down which operation it belongs to and how it is tied to other messages.
 
-**Use case.** Gemini Live sends `toolCall` and the app answers `toolResponse`. A `toolResponse` without its `id` is a broken message that today nobody sees.
+**Use case.** Gemini Live sends `toolCall` and the app answers `toolResponse`, with the same id. A `toolResponse` without its `id` is a broken message that today nobody sees, and a store of the records can group a tool call with its answer by that id.
 
 ```yaml
 paths:
@@ -161,22 +160,46 @@ paths:
     get:
       responses:
         '101': { description: Switching to a WebSocket }
-      x-hotline-messages:
-        fromApp:    [{ $ref: '#/components/schemas/toolResponse' }]
-        fromVendor: [{ $ref: '#/components/schemas/toolCall' }]
+      x-async-api:
+        operations:
+          audio:
+            action: receive        # the vendor receives it, so the app sends it
+            messages: [{ $ref: '#/components/x-async-api/messages/realtimeInput' }]
+          toolCall:
+            action: send           # the vendor sends it
+            messages: [{ $ref: '#/components/x-async-api/messages/toolCall' }]
+            reply:
+              messages: [{ $ref: '#/components/x-async-api/messages/toolResponse' }]
+components:
+  x-async-api:
+    messages:
+      realtimeInput: { payload: { $ref: '#/components/schemas/realtimeInput' } }
+      toolCall:
+        payload: { $ref: '#/components/schemas/toolCall' }
+        correlationId: { location: '$message.payload#/toolCall/functionCalls/0/id' }
+      toolResponse:
+        payload: { $ref: '#/components/schemas/toolResponse' }
+        correlationId: { location: '$message.payload#/toolResponse/functionResponses/0/id' }
 ```
 
 **Rules.**
 
-1. It goes on the operation that answers `101`, and takes `fromApp` and `fromVendor`, each a list of `$ref`s to `components/schemas`. Each named schema is a message schema.
-2. A side's messages are read as JSON, from text and binary frames alike. A side written `{ contentType: audio/pcm, messages: [...] }` with a type that is not JSON is not read: its messages are recorded as `unknown`, `hotline.schema.skipped=unsupported_content_type`.
-3. A route without the mark gets the session record's byte counts only.
-4. Overlays change message schemas as they change body schemas.
-5. With `messages` in the api's `checks` (or `checks` left out), each named message is checked against its schema, up to 2 MiB after unpacking.
+1. **Where.** `x-async-api` with its `operations` goes on the operation that answers `101`. The messages go in `components/x-async-api/messages`, so several routes can share them; each operation lists them by `$ref`. A route without the mark gets the session record's byte counts only.
+2. **Sides.** Seen from the vendor, as OpenAPI is: `action: receive` means the app sends the operation's messages, `action: send` means the vendor sends them. A message in the operation's `reply` is sent by the other side.
+3. **One operation per message.** A message belongs to exactly one operation of its route, in its `messages` or its `reply`. A message in two operations refuses the spec. A reply that can't say which request it answers, such as Kraken's failed subscribe, gets an operation of its own (Peter, 2026-11-21, Q8).
+4. **A message** has a `payload`, a `$ref` to `components/schemas`, which is checked as a body is. It may have a `correlationId` and a `contentType`. Its name is its key in `components/x-async-api/messages`.
+5. **Content type.** `contentType` on a message, or `defaultContentType` beside the operations, and `application/json` when neither is set. JSON messages are read from text and binary frames alike. A side whose messages are not JSON, such as `audio/pcm`, is not read: its messages are recorded as `unknown`, `hotline.schema.skipped=unsupported_content_type`. The messages of one side share one content type.
+6. **`correlationId.location`** is `$message.payload#/` and then a JSON pointer to one field (Q3). A number in the pointer reads that item of a list: `/toolCall/functionCalls/0/id` is the first call's id, so a tool call with several calls records only the first. A text or number value is recorded as `messaging.message.conversation_id`; anything else records nothing. A WebSocket message has no headers, so `$message.header` refuses the spec. A `correlationId` may also be a `$ref`, such as to `components/x-async-api/correlationIds/reqId`.
+7. **`reply`** takes `messages` only. `channel` and `address` refuse the spec, since one WebSocket is one channel and they would do nothing.
+8. **Role.** Each message gets a role from where it is listed (Q9): `request` when its operation has a `reply`, `reply` when it is in a `reply`, `answer` when it has a `correlationId` but its operation has no reply and it is in no reply (it answers a request of any operation), and `push` otherwise. Take care: a business id, such as an order id, used as a push's `correlationId` makes that push an `answer`.
+9. With `messages` in the api's `checks` (or `checks` left out), each named message is checked against its payload schema, up to 2 MiB after unpacking. Overlays change these the same way they change other parts of the spec. An unclear spec is refused: at start the proxy stops, at reload the last good spec stays.
+10. The old marks are refused with a pointer here: `x-hotline-messages` (replaced by `x-async-api`) and `x-hotline-id-tuple` (replaced by the message's `correlationId`).
+
+The proxy pairs nothing itself and keeps nothing per session (Q5): a wrong reply, a reply to nothing or an unanswered request is found later in the data store, from the role, the operation and the correlation id on each message's record and span.
 
 ## x-hotline-match
 
-**What it's for.** It says which message a WebSocket message is: the first listed schema of its side whose marked fields all match names it.
+**What it's for.** It says which message a WebSocket message is: the first message of its side whose payload schema's marked fields all match names it. The messages of a side are tried by operation name, then in the order each operation lists them.
 
 ```yaml
 toolResponse:
@@ -189,27 +212,9 @@ sessionUpdate:
 
 **Rules.**
 
-1. It goes on a property of a message schema and takes `true`. With a `const` beside it, the field must have that value; without, it must be there.
+1. It goes on a property of a message's payload schema and takes `true`. With a `const` beside it, the field must have that value; without, it must be there.
 2. A message schema may mark several fields; a message is that message only when all of them match. No match: `unknown`, recorded but not checked.
 3. The spec is refused when a message schema has no mark, when a mark sits inside a list, or when every mark of one message of a side is among another's, so the two would match the same messages.
-
-## x-hotline-id-tuple
-
-**What it's for.** A vendor's own ids, such as a tool call's id, let a reader find a call, its cancellation and its answer by searching the records. The proxy pairs nothing itself.
-
-```yaml
-functionCalls:
-  type: array
-  items:
-    properties:
-      id: { type: string, x-hotline-id-tuple: tool-call }
-```
-
-**Rules.**
-
-1. It goes on an id field of a message schema, inside lists too, and takes a label of letters, digits, dots, dashes and underscores.
-2. The message record lists every id as `label:value` under `hotline.websocket.ids`, such as `tool-call:call-7`, up to 20 with `hotline.websocket.ids_total`. Only text and number values are listed.
-3. The ids are read when the message is named, so they are there even when its check was skipped.
 
 ## Other spec words the proxy reads
 

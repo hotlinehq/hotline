@@ -61,7 +61,7 @@ Open only the file for the topic at hand.
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
 - Glossary words (certificate authority, transparent, response, exporter): [docs/decisions/glossary.md](docs/decisions/glossary.md)
-- WebSockets (slice 1: bytes and a session record; slice 2: each message named by `x-hotline-match`, checked, and recorded with a span of its own): [docs/decisions/websockets.md](docs/decisions/websockets.md)
+- WebSockets (slice 1: bytes and a session record; slice 2: each message named by `x-hotline-match`, checked, and recorded with a span of its own; messages written in AsyncAPI's shapes under `x-async-api`, with operation, role and correlation id on each record and span, and a Kraken load case): [docs/decisions/websockets.md](docs/decisions/websockets.md)
 - Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Console exporter (two coloured lines per call on standard output, like mitmdump): [docs/decisions/console-export.md](docs/decisions/console-export.md)

@@ -33,12 +33,11 @@ func AudioChunk(rate int, chunkLength time.Duration) string {
 	return base64.StdEncoding.EncodeToString(pcm)
 }
 
-// LiveVendor is a fake Gemini Live: a WebSocket that answers the app's
-// setup with setupComplete, each chunk of the app's audio with a chunk of
-// its own, and every ToolCallEvery chunks also asks for a tool call. It
-// agrees to whatever permessage-deflate the app offers, so the app picks
-// how messages are packed. Like Vendor, it listens on TLS (for the proxy)
-// and on plain HTTP (for the app without the proxy).
+// LiveVendor is a fake WebSocket vendor: Gemini Live (StartLiveVendor) or
+// Kraken (StartKrakenVendor). It agrees to whatever permessage-deflate the
+// app offers, so the app picks how messages are packed. Like Vendor, it
+// listens on TLS (for the proxy) and on plain HTTP (for the app without
+// the proxy).
 type LiveVendor struct {
 	TLSAddr, PlainAddr string
 	CertPEM            []byte
@@ -52,13 +51,21 @@ const ToolCallEvery = 25
 // vendorChunk is 40 ms of Gemini's 24 kHz answer.
 const vendorChunk = 40 * time.Millisecond
 
-// StartLiveVendor starts the vendor on free ports of 127.0.0.1.
+// StartLiveVendor starts a fake Gemini Live on free ports of 127.0.0.1: it
+// answers the app's setup with setupComplete, each chunk of the app's audio
+// with a chunk of its own, and every ToolCallEvery chunks also asks for a
+// tool call.
 func StartLiveVendor() (*LiveVendor, error) {
+	audio := AudioChunk(24000, vendorChunk)
+	return startWebSocketVendor(func(ctx context.Context, c *websocket.Conn) { serveLive(ctx, c, audio) })
+}
+
+// startWebSocketVendor starts a vendor whose sessions serve answers.
+func startWebSocketVendor(serve func(context.Context, *websocket.Conn)) (*LiveVendor, error) {
 	certPEM, cert, err := selfSigned()
 	if err != nil {
 		return nil, err
 	}
-	audio := AudioChunk(24000, vendorChunk)
 	v := &LiveVendor{CertPEM: certPEM}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover})
@@ -66,7 +73,7 @@ func StartLiveVendor() (*LiveVendor, error) {
 			return
 		}
 		c.SetReadLimit(1 << 20)
-		serveLive(r.Context(), c, audio)
+		serve(r.Context(), c)
 	})
 	for _, secure := range []bool{true, false} {
 		ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")

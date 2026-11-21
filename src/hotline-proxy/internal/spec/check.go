@@ -75,7 +75,7 @@ type checks struct {
 	// names are lower case.
 	marks map[string]map[string]mark
 	// messages are the WebSocket messages each side may send, for a route
-	// that answers 101 with x-hotline-messages; nil otherwise.
+	// that answers 101 with x-async-api; nil otherwise.
 	messages *Messages
 }
 

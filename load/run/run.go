@@ -55,7 +55,8 @@ type Config struct {
 	// OutDir holds one folder per run.
 	OutDir string
 	// Shape names the call shape: small-json, medium-json, large-json,
-	// huge-json, slow or xml.
+	// huge-json, slow or xml; or a WebSocket one: live-plain, live-alone,
+	// live-context, kraken-plain, kraken-alone or kraken-context.
 	Shape string
 	// Rate is calls a second; Duration is how long each repeat lasts, as k6
 	// writes it ("20s").
@@ -225,7 +226,7 @@ func Scenario(cfg Config) (string, error) {
 
 // Run does the whole run and returns its folder.
 func Run(cfg Config) (string, error) {
-	if _, live := livePacking(cfg.Shape); live {
+	if _, live := liveShape(cfg.Shape); live {
 		return RunLive(cfg)
 	}
 	c, err := callFor(cfg.Shape)

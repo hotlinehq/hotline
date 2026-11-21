@@ -155,8 +155,20 @@ The copy of a request or response body that the proxy keeps, up to a size limit,
 _Avoid_: buffer, captured body
 
 **Message schema**:
-The schema of one kind of WebSocket message, in the spec's `components/schemas`, listed by the `x-hotline-messages` mark on the operation that answers `101`. Its `x-hotline-match` fields name a message.
+One kind of WebSocket message, written as in AsyncAPI 3 in the spec's `components/x-async-api/messages`, and listed by an operation under the `x-async-api` mark on the operation that answers `101`. Its payload is a schema in `components/schemas`, whose `x-hotline-match` fields name a message.
 _Avoid_: AsyncAPI document (not used), channel, message type
+
+**Message operation**:
+One exchange of a WebSocket as the spec's `x-async-api` lists it, such as `toolCall`: the messages one side sends and, in its `reply`, those the other side sends back. Each message schema belongs to exactly one. Not the route's OpenAPI operation, which is the call that opens the WebSocket.
+_Avoid_: exchange, pair
+
+**Message role**:
+What a message is within its operation, found from the spec: `request` (its operation has a reply), `reply` (it is in a reply), `answer` (it has a correlation id but no operation's reply holds it) or `push` (tied to no request).
+_Avoid_: message type, kind
+
+**Correlation id**:
+The one field of a WebSocket message, named by its `correlationId`, that a request and its replies share, such as Kraken's `req_id`. Recorded as `messaging.message.conversation_id`. The proxy only writes it down; it pairs nothing.
+_Avoid_: pair id, id tuple
 
 **Spec check line**:
 Where spec checks wait when every worker is busy. Its memory is capped by `specChecks.queueMemory`; past the cap the oldest waiting checks are skipped, never the call.

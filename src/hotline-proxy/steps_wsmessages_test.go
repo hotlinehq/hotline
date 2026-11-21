@@ -51,30 +51,16 @@ func websocketMessageSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the live spec, where (.+)$`, func(change string) error {
-		edits := map[string][2]string{
-			`sessionInfo also marks session.kind with const "text"`: {"kind: { type: string }", "kind: { type: string, x-hotline-match: true, const: text }"},
-			"toolCall has no x-hotline-match":                       {"          x-hotline-match: true # toolCall\n", ""},
-			"an x-hotline-match sits inside functionCalls":          {"name: { type: string } # toolCall name", "name: { type: string, x-hotline-match: true }"},
-			"toolCallAgain matches on toolCall alone as well": {
-				`{ $ref: "#/components/schemas/serverContent" }]`,
-				`{ $ref: "#/components/schemas/serverContent" }, { $ref: "#/components/schemas/toolCallAgain" }]`,
-			},
-			"the app's messages are audio/pcm": {appLine, `        fromApp: { contentType: audio/pcm, messages: [{ $ref: "#/components/schemas/toolResponse" }] }`},
-		}
-		edits["x-hotline-messages is a list"] = [2]string{"      x-hotline-messages:\n", "      x-hotline-messages: [nothing]\n      x-unused:\n"}
-		edits["x-hotline-messages also lists fromServer"] = [2]string{"        fromVendor:", "        fromServer: []\n        fromVendor:"}
-		edits["fromApp is 5"] = [2]string{appLine, "        fromApp: 5"}
-		edits["fromApp lists a schema written in place"] = [2]string{appLine, "        fromApp: [{ type: object }]"}
-		edits["fromApp lists a schema that is not there"] = [2]string{appLine, `        fromApp: [{ $ref: "#/components/schemas/nothing" }]`}
-		edits["toolCall's x-hotline-match is yes"] = [2]string{"x-hotline-match: true # toolCall", "x-hotline-match: yes # toolCall"}
-		edits["toolCall's x-hotline-id-tuple is 5"] = [2]string{"x-hotline-id-tuple: tool-call", "x-hotline-id-tuple: 5"}
-		edits["a field of toolResponse points nowhere"] = [2]string{"response: { type: object }", `response: { $ref: "#/components/schemas/nothing" }`}
-		edits["toolCall is not JSON Schema"] = [2]string{"required: [toolCall]", "required: 5"}
-		edit, known := edits[change]
+		edits, known := liveSpecEdits()[change]
 		if !known {
 			return failf("no change %q to the live spec", change)
 		}
-		w.live.spec = strings.Replace(w.live.spec, edit[0], edit[1], 1)
+		for _, edit := range edits {
+			if !strings.Contains(w.live.spec, edit[0]) {
+				return failf("the live spec has no %q to change", edit[0])
+			}
+			w.live.spec = strings.Replace(w.live.spec, edit[0], edit[1], 1)
+		}
 		if change == "toolCallAgain matches on toolCall alone as well" {
 			w.live.spec += "    toolCallAgain:\n      type: object\n      properties:\n        toolCall: { type: object, x-hotline-match: true }\n"
 		}
@@ -211,6 +197,18 @@ actions:
 		}
 		return says(r.attrs, pairs)
 	})
+	sc.Step(`^message record (\d+) and its span say (.+)$`, func(n int, pairs string) error {
+		r, err := w.messageRecord(n)
+		if err != nil {
+			return err
+		}
+		spans := w.receivers[0].spans()
+		i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == r.spanID })
+		if i < 0 {
+			return failf("no span has message record %d's span id", n)
+		}
+		return errors.Join(says(r.attrs, pairs), says(spans[i].attrs, pairs))
+	})
 	sc.Step(`^message records (\d+) to (\d+) say (.+)$`, func(from, to int, pairs string) error {
 		var errs []error
 		for n := from; n <= to; n++ {
@@ -332,8 +330,54 @@ actions:
 	})
 }
 
-// appLine is the live spec's list of the app's messages.
-const appLine = `        fromApp: [{ $ref: "#/components/schemas/toolResponse" }, { $ref: "#/components/schemas/sessionInfo" }]`
+// liveSpecEdits are the changes a scenario can make to the live spec,
+// each a list of texts to replace once.
+func liveSpecEdits() map[string][][2]string {
+	const (
+		toolCallLine      = `            messages: [{ $ref: "#/components/x-async-api/messages/toolCall" }]`
+		sessionInfoLine   = `            messages: [{ $ref: "#/components/x-async-api/messages/sessionInfo" }]`
+		serverContentLine = `            messages: [{ $ref: "#/components/x-async-api/messages/serverContent" }]`
+		responsePayload   = `        payload: { $ref: "#/components/schemas/toolResponse" }`
+		sessionPayload    = `        payload: { $ref: "#/components/schemas/sessionInfo" }`
+		toolCallLocation  = `"$message.payload#/toolCall/functionCalls/0/id"`
+	)
+	return map[string][][2]string{
+		`sessionInfo also marks session.kind with const "text"`: {{"kind: { type: string }", "kind: { type: string, x-hotline-match: true, const: text }"}},
+		"toolCall has no x-hotline-match":                       {{"          x-hotline-match: true # toolCall\n", ""}},
+		"an x-hotline-match sits inside functionCalls":          {{"name: { type: string } # toolCall name", "name: { type: string, x-hotline-match: true }"}},
+		"toolCallAgain matches on toolCall alone as well": {
+			{serverContentLine, strings.TrimSuffix(serverContentLine, "]") + `, { $ref: "#/components/x-async-api/messages/toolCallAgain" }]`},
+			{"  x-async-api:\n    messages:\n", "  x-async-api:\n    messages:\n      toolCallAgain: { payload: { $ref: \"#/components/schemas/toolCallAgain\" } }\n"},
+		},
+		"toolCall's x-hotline-match is yes":             {{"x-hotline-match: true # toolCall", "x-hotline-match: yes # toolCall"}},
+		"a field of toolResponse points nowhere":        {{"response: { type: object }", `response: { $ref: "#/components/schemas/nothing" }`}},
+		"toolCall is not JSON Schema":                   {{"required: [toolCall]", "required: 5"}},
+		"x-async-api is a list":                         {{"      x-async-api:\n        operations:\n", "      x-async-api: [nothing]\n      x-unused:\n        operations:\n"}},
+		"x-async-api also holds channels":               {{"        operations:\n", "        channels: {}\n        operations:\n"}},
+		"toolCall's action is publish":                  {{"            action: send\n", "            action: publish\n"}},
+		"toolCall's messages is 5":                      {{toolCallLine, "            messages: 5"}},
+		"sessionInfo lists a message written in place":  {{sessionInfoLine, "            messages: [{ payload: { type: object } }]"}},
+		"sessionInfo lists a message that is not there": {{sessionInfoLine, `            messages: [{ $ref: "#/components/x-async-api/messages/nothing" }]`}},
+		"sessionInfo's payload is written in place":     {{sessionPayload, "        payload: { type: object }"}},
+		"sessionInfo's payload points nowhere":          {{sessionPayload, `        payload: { $ref: "#/components/schemas/nothing" }`}},
+		"the vendor's messages mix JSON and audio/pcm":  {{`        payload: { $ref: "#/components/schemas/toolCall" }`, `        payload: { $ref: "#/components/schemas/toolCall" }` + "\n        contentType: audio/pcm"}},
+		"sessionInfo lists 5":                           {{sessionInfoLine, "            messages: [5]"}},
+		"sessionInfo has no payload":                    {{sessionPayload, "        summary: no payload"}},
+		"serverContent also lists toolCall": {
+			{serverContentLine, strings.TrimSuffix(serverContentLine, "]") + `, { $ref: "#/components/x-async-api/messages/toolCall" }]`},
+		},
+		"toolCall's reply names a channel":          {{"            reply:\n", "            reply:\n              channel: { $ref: \"#/channels/live\" }\n"}},
+		"toolCall's correlationId is in a header":   {{toolCallLocation, `"$message.header#/id"`}},
+		"toolCall's correlationId is not a pointer": {{toolCallLocation, `"toolCall.functionCalls.0.id"`}},
+		"the app's messages mix JSON and audio/pcm": {{responsePayload, responsePayload + "\n        contentType: audio/pcm"}},
+		"the app's messages are audio/pcm": {
+			{responsePayload, responsePayload + "\n        contentType: audio/pcm"},
+			{sessionPayload, sessionPayload + "\n        contentType: audio/pcm"},
+		},
+		"the route still uses x-hotline-messages":  {{"      x-async-api:\n", "      x-hotline-messages: { fromApp: [] }\n      x-async-api:\n"}},
+		"toolCall marks its id x-hotline-id-tuple": {{"id: { type: string } # toolCall id", "id: { type: string, x-hotline-id-tuple: tool-call }"}},
+	}
+}
 
 // useLiveSpec writes the live spec and puts its integration in its place.
 func (w *world) useLiveSpec() {
@@ -528,7 +572,8 @@ func says(attrs map[string]any, pairs string) error {
 }
 
 // liveMessage is the text of a message written in a scenario: JSON as it
-// is, or toolCall, toolResponse or serverContent with their ids or counts.
+// is, or toolCall, toolResponse, toolError or serverContent with their ids
+// or counts.
 func liveMessage(text string) ([]byte, error) {
 	ids := regexp.MustCompile(`"([^"]+)"`)
 	var found []string
@@ -538,17 +583,14 @@ func liveMessage(text string) ([]byte, error) {
 	switch {
 	case strings.HasPrefix(text, "{"):
 		return []byte(text), nil
-	case text == "toolCall with 21 ids":
-		for i := range 21 {
-			found = append(found, fmt.Sprintf("call-%d", i+1))
-		}
-		return liveMessage("toolCall with ids " + `"` + strings.Join(found, `", "`) + `"`)
 	case strings.HasPrefix(text, "toolCall with id"):
 		var calls []string
 		for _, id := range found {
 			calls = append(calls, `{"id":"`+id+`","name":"orderStatus"}`)
 		}
 		return []byte(`{"toolCall":{"functionCalls":[` + strings.Join(calls, ",") + `]}}`), nil
+	case strings.HasPrefix(text, "toolError with id"):
+		return []byte(`{"toolError":{"id":"` + found[0] + `","message":"no such order"}}`), nil
 	case strings.HasPrefix(text, "toolResponse with id"):
 		return toolResponse(found[0]), nil
 	case strings.HasPrefix(text, "serverContent with totalTokenCount "):
@@ -688,7 +730,7 @@ func (p *packer) pack(message []byte) []byte {
 }
 
 // liveSpec is a shop api whose GET /live switches to a WebSocket and lists
-// its messages; GET /other switches too, with no messages listed.
+// its operations and messages; GET /other switches too, with none listed.
 const liveSpec = `openapi: 3.1.0
 info: { title: shop live, version: "1" }
 paths:
@@ -696,14 +738,42 @@ paths:
     get:
       responses:
         "101": { description: switched to a WebSocket }
-      x-hotline-messages:
-        fromApp: [{ $ref: "#/components/schemas/toolResponse" }, { $ref: "#/components/schemas/sessionInfo" }]
-        fromVendor: [{ $ref: "#/components/schemas/toolCall" }, { $ref: "#/components/schemas/serverContent" }]
+      x-async-api:
+        operations:
+          toolCall:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/toolCall" }]
+            reply:
+              messages: [{ $ref: "#/components/x-async-api/messages/toolResponse" }]
+          toolError:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/toolError" }]
+          sessionInfo:
+            action: receive
+            messages: [{ $ref: "#/components/x-async-api/messages/sessionInfo" }]
+          serverContent:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/serverContent" }]
   /other:
     get:
       responses:
         "101": { description: switched to a WebSocket }
 components:
+  x-async-api:
+    messages:
+      toolCall:
+        payload: { $ref: "#/components/schemas/toolCall" }
+        correlationId: { location: "$message.payload#/toolCall/functionCalls/0/id" }
+      toolResponse:
+        payload: { $ref: "#/components/schemas/toolResponse" }
+        correlationId: { location: "$message.payload#/toolResponse/functionResponses/0/id" }
+      toolError:
+        payload: { $ref: "#/components/schemas/toolError" }
+        correlationId: { location: "$message.payload#/toolError/id" }
+      sessionInfo:
+        payload: { $ref: "#/components/schemas/sessionInfo" }
+      serverContent:
+        payload: { $ref: "#/components/schemas/serverContent" }
   schemas:
     toolCall:
       type: object
@@ -720,7 +790,7 @@ components:
                 type: object
                 required: [id, name]
                 properties:
-                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  id: { type: string } # toolCall id
                   name: { type: string } # toolCall name
     toolResponse:
       type: object
@@ -737,9 +807,20 @@ components:
                 type: object
                 required: [id, name, response]
                 properties:
-                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  id: {}
                   name: { type: string }
                   response: { type: object }
+    toolError:
+      type: object
+      required: [toolError]
+      properties:
+        toolError:
+          x-hotline-match: true
+          type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            message: { type: string }
     sessionInfo:
       type: object
       required: [type, session]

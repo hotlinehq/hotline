@@ -1,7 +1,9 @@
 # The api of the WebSocket load case: Gemini Live's opening call, as in
-# specs/google/gemini-live, with the messages the load case sends listed so
-# the proxy names and checks each one. Written for the load test only, from
-# Google's Live API reference; not a full description of Gemini Live.
+# specs/google/gemini-live, with the messages the load case sends listed in
+# AsyncAPI 3's shapes under x-async-api, so the proxy names and checks each
+# one and records its operation, role and correlation id. Written for the
+# load test only, from Google's Live API reference; not a full description
+# of Gemini Live.
 openapi: 3.1.0
 info:
   title: Gemini Live messages for the load test
@@ -13,16 +15,37 @@ paths:
       responses:
         "101":
           description: Switched to a WebSocket; the session follows.
-      x-hotline-messages:
-        fromApp:
-          - $ref: "#/components/schemas/setup"
-          - $ref: "#/components/schemas/realtimeInput"
-          - $ref: "#/components/schemas/toolResponse"
-        fromVendor:
-          - $ref: "#/components/schemas/setupComplete"
-          - $ref: "#/components/schemas/serverContent"
-          - $ref: "#/components/schemas/toolCall"
+      x-async-api:
+        operations:
+          setup:
+            action: receive # the vendor receives it, so the app sends it
+            messages: [{ $ref: "#/components/x-async-api/messages/setup" }]
+            reply:
+              messages: [{ $ref: "#/components/x-async-api/messages/setupComplete" }]
+          audio:
+            action: receive
+            messages: [{ $ref: "#/components/x-async-api/messages/realtimeInput" }]
+          answer:
+            action: send # the vendor sends it
+            messages: [{ $ref: "#/components/x-async-api/messages/serverContent" }]
+          toolCall:
+            action: send
+            messages: [{ $ref: "#/components/x-async-api/messages/toolCall" }]
+            reply:
+              messages: [{ $ref: "#/components/x-async-api/messages/toolResponse" }]
 components:
+  x-async-api:
+    messages:
+      setup: { payload: { $ref: "#/components/schemas/setup" } }
+      setupComplete: { payload: { $ref: "#/components/schemas/setupComplete" } }
+      realtimeInput: { payload: { $ref: "#/components/schemas/realtimeInput" } }
+      serverContent: { payload: { $ref: "#/components/schemas/serverContent" } }
+      toolCall:
+        payload: { $ref: "#/components/schemas/toolCall" }
+        correlationId: { location: "$message.payload#/toolCall/functionCalls/0/id" }
+      toolResponse:
+        payload: { $ref: "#/components/schemas/toolResponse" }
+        correlationId: { location: "$message.payload#/toolResponse/functionResponses/0/id" }
   schemas:
     blob:
       type: object
@@ -68,7 +91,7 @@ components:
                 type: object
                 required: [id, name, response]
                 properties:
-                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  id: { type: string }
                   name: { type: string }
                   response: { type: object }
     setupComplete:
@@ -112,6 +135,6 @@ components:
                 type: object
                 required: [id, name]
                 properties:
-                  id: { type: string, x-hotline-id-tuple: tool-call }
+                  id: { type: string }
                   name: { type: string }
                   args: { type: object }
