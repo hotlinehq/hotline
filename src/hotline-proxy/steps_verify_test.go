@@ -53,7 +53,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		if len(records) != 2 || len(batches) == 0 {
 			return failf("the file got %d records and %d batch records", len(records), len(batches))
 		}
-		otlp, _ := w.receivers[0].got()
+		otlp := w.receivers[0].got()
 		third := otlp[len(otlp)-1].attrs
 		want := []any{map[string]any{"index": json.Number("2"), "hash": third["hotline.record.hash"]}}
 		if got := batches[0]["hotline.batch.dropped"]; fmt.Sprint(got) != fmt.Sprint(want) {

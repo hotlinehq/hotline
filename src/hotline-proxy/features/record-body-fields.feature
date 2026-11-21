@@ -11,8 +11,7 @@ Feature: Marked body fields and headers are copied into the record
 
   A mark is the spec author's promise that the field holds no secret and
   no personal data. Only plain values are copied: text, numbers, and true
-  or false, and never from inside a list, where a field has many values. The copied fields are signed with the rest of the record, and
-  they never go into the hotline.requests counter.
+  or false, and never from inside a list, where a field has many values. The copied fields are signed with the rest of the record.
 
   Background:
     Given the overlay marks.overlay.yaml:
@@ -107,11 +106,6 @@ Feature: Marked body fields and headers are copied into the record
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and an order whose item is 300 characters long
       Then the record holds shop.order.item with its first 256 characters
-
-    Scenario: The fields stay out of the counter
-      Given the vendor answers 201
-      When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
-      Then hotline.requests carries no shop.order.item
 
   Rule: Marked headers of the call are copied
 

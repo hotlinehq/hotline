@@ -317,14 +317,6 @@ Feature: WebSocket messages checked against the spec
     Then message record 1 says gemini.tokens.total 42
     And message record 2 says gemini.tokens.total 57
 
-  Scenario: No message counter
-    Given the live vendor sends toolCall with id "call-7"
-    When an app opens the live WebSocket
-    And the app reads a message
-    And the app sends toolResponse with id "call-7"
-    And the app closes the live WebSocket
-    Then hotline.requests counts 1 call, with http.response.status_code 101
-
   Scenario: hotline-proxy verify checks the message records too
     Given a file exporter writing to the folder calls
     When an app opens the live WebSocket

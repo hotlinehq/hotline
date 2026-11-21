@@ -18,7 +18,7 @@ Feature: The proxy's own telemetry
     When a call ends
     Then the telemetry receiver gets the metric http.server.request.duration
     And the telemetry receiver gets no log records
-    And the product receiver gets no metric but hotline.requests
+    And the product receiver gets no metric
 
   Scenario: Calls in flight, by ingress only
     Given a vendor that keeps the call waiting
@@ -46,8 +46,9 @@ Feature: The proxy's own telemetry
     And the telemetry receiver gets no metric hotline.proxy.overhead
 
   Scenario: The proxy's own numbers go out once a minute
-    As with counts, unless telemetry.otlp.metricInterval says otherwise
-    (Peter, 2026-11-01). The telemetry section gets only metrics, so a
+    Unless telemetry.otlp.metricInterval says otherwise (Peter,
+    2026-11-01): one data point a minute is what Grafana Cloud's standard
+    pricing covers. The telemetry section gets only metrics, so a
     logInterval or traceInterval there is ignored with a warning.
     Given the telemetry section does not set metricInterval
     When a call ends
@@ -63,6 +64,27 @@ Feature: The proxy's own telemetry
       | logInterval   |
       | traceInterval |
 
+  Scenario Outline: Telemetry temporality
+    Sums go out as running totals since the start, unless
+    telemetry.otlp.temporality is delta: then only the change since the
+    last send.
+    Given the telemetry section <sets>
+    When a call ends
+    Then the telemetry sums are <kind>
+
+    Examples:
+      | sets                      | kind       |
+      | does not set temporality  | cumulative |
+      | sets temporality to delta | delta      |
+
+  Scenario: The telemetry section speaks h2c when asked
+    As an exporter does: with h2c true, a plain http:// endpoint gets
+    HTTP/2 from the first byte (Peter, 2026-11-08).
+    Given the telemetry receiver is plain and offers h2c
+    And the telemetry section sets h2c to true
+    When a call ends
+    Then every request to the telemetry receiver came over HTTP/2.0
+
   Scenario: The queue of each exporter
     When a call ends
     Then hotline.exporter.queue.size is sent for that exporter and hotline.signal record
@@ -77,10 +99,6 @@ Feature: The proxy's own telemetry
     Given a vendor reached over a new https connection
     When a call ends
     Then hotline.exporter.sent counts 14 for that exporter and hotline.signal span
-
-  Scenario: Counts sent to an exporter are counted too
-    When a call ends
-    Then hotline.exporter.sent counts some for that exporter and hotline.signal count
 
   Scenario: Records dropped from a full queue are counted
     Given an exporter with queueSize 3 whose exporter is busy with the first record
@@ -258,7 +276,7 @@ Feature: The proxy's own telemetry
     Given a config with no telemetry section
     When a call ends
     Then the proxy logs a warning that its own telemetry is not sent
-    And the product receiver gets no metric but hotline.requests
+    And the product receiver gets no metric
 
   Scenario: A change to the telemetry section needs a restart
     Given the proxy runs

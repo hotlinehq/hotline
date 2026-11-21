@@ -817,7 +817,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the last batch record has hotline.batch.last true and covers that call$`, func() error {
 		w.settle()
 		batches := w.receivers[0].ledger()
-		records, _ := w.receivers[0].got()
+		records := w.receivers[0].got()
 		if len(batches) == 0 || len(records) == 0 {
 			return failf("the exporter got %d batch records and %d records", len(batches), len(records))
 		}
@@ -927,7 +927,7 @@ func (w *world) waitBatches(n int) ([]receivedRecord, error) {
 // got at least n call records.
 func (w *world) waitRecords(n int) ([]receivedRecord, error) {
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		records, _ := w.receivers[0].got()
+		records := w.receivers[0].got()
 		if len(records) >= n {
 			return records, nil
 		}

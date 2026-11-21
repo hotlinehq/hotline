@@ -11,7 +11,7 @@ Slice 1 is built. The test cases are Gherkin feature files (plain-language cases
 - **Integration ID** from `Proxy-Authorization: Basic`, the user name part. A missing or unknown ID, or a host outside the integration's apis, uses the reserved `not-passed` settings.
 - **Phase timings:** DNS, connect, TLS, first byte and total, the proxy's own time before and after the vendor call, plus the vendor IP and whether the connection was reused.
 - **The request record**, with redaction driven by the `x-hotline-redact` marks in our copy of the vendor's OpenAPI spec.
-- **OpenTelemetry output** over OTLP: one log record per call and the `hotline.requests` counter, with the standard OpenTelemetry names and `hotline.*` for the rest.
+- **OpenTelemetry output** over OTLP: one log record per call and the `hotline.requests` counter (removed on 2026-11-21), with the standard OpenTelemetry names and `hotline.*` for the rest.
 - **The proxy's own errors:** `502` or `504` with a `Proxy-Status` header (RFC 9209, the standard for proxy error answers).
 - **Loading the config file** once at start.
 

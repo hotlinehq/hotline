@@ -56,7 +56,7 @@ func configSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^every OTLP exporter is read with its endpoint$`, func() error {
 		w.settle()
 		for _, r := range w.receivers {
-			if records, _ := r.got(); len(records) != 1 {
+			if records := r.got(); len(records) != 1 {
 				return failf("the exporter at %s got %d records", r.endpoint, len(records))
 			}
 		}
@@ -357,6 +357,7 @@ func (w *world) refusedWith(parts ...string) error {
 func (w *world) brokenConfig(problem string) error {
 	exporters := "exporters:\n  - otlp:\n      endpoint: " + w.receivers[0].endpoint + "\n"
 	start := "listeners:\n  apps:\n    address: \"tcp://127.0.0.1:0\"\n"
+	ownTelemetry := "telemetry:\n  otlp:\n    endpoint: " + w.receivers[0].endpoint + "\n"
 	one := func(extra string) string {
 		return w.raw(start+exporters, integration("shop", w.apiFor("api.x.com", extra)))
 	}
@@ -373,8 +374,8 @@ func (w *world) brokenConfig(problem string) error {
 		w.problem = "an integration has no id"
 	case "there are no exporters":
 		w.rawConfig, w.problem = start, "there are no exporters"
-	case "an exporter's temporality is neither cumulative nor delta":
-		w.rawConfig = start + exporters + "      temporality: weekly\n"
+	case "the telemetry section's temporality is neither cumulative nor delta":
+		w.rawConfig = start + exporters + ownTelemetry + "    temporality: weekly\n"
 		w.problem = "temporality must be cumulative or delta"
 	case "an exporter's endpoint is not a valid address":
 		w.rawConfig = start + exporters + "  - otlp:\n      endpoint: \"http://col%zz:4318\"\n"
@@ -431,8 +432,8 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's resource environment variable is not set":
 		w.rawConfig = start + exporters + "      resource:\n        deployment.environment.name: { env: HOTLINE_ENV }\n"
 		w.problem = "resource deployment.environment.name: the environment variable HOTLINE_ENV is not set"
-	case "an exporter's metricInterval is zero":
-		w.rawConfig = start + exporters + "      metricInterval: 0s\n"
+	case "the telemetry section's metricInterval is zero":
+		w.rawConfig = start + exporters + ownTelemetry + "    metricInterval: 0s\n"
 		w.problem = "metricInterval \"0s\" must be a duration above zero"
 	case "an exporter's logInterval is not a duration":
 		w.rawConfig = start + exporters + "      logInterval: often\n"

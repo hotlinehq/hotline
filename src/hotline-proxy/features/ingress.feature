@@ -47,7 +47,6 @@ Feature: Finding the ingress
     When an app sends <request>
     Then the proxy answers <status>
     And the record is minimal with hotline.ingress <ingress>, http.response.status_code <status> and error.type http_request_error
-    And hotline.requests goes up by one
 
     Examples:
       | request                         | status | ingress       |

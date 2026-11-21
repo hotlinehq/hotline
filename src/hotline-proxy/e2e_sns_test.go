@@ -156,7 +156,7 @@ func (p *program) records() ([]map[string]any, error) {
 	if err := p.stop(); err != nil {
 		return nil, err
 	}
-	received, _ := p.receiver.got()
+	received := p.receiver.got()
 	var out []map[string]any
 	for _, r := range received {
 		if r.eventName == "hotline.request" {

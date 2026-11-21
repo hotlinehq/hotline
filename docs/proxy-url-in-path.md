@@ -40,7 +40,7 @@ The ingress finds two things, the integration and the vendor's real address. Aft
 
 - `findIngress` in `handler.go` reads the raw request line (`RequestURI`), never the cleaned path. A target starting `/http:` or `/https:`, with the colon plain or encoded as `%3A`, in any case, is this ingress; only `/http://` and `/https://` followed by a host are parsed, the rest get `400`.
 - From there the call takes the forward proxy's path unchanged: the vendor address from the path replaces the request URL for the vendor, and `Host` is set from it.
-- A refused request (`400` or `501`) gets its minimal record from `refused` in `record.go`: ID, ingress (none for CONNECT), the vendor host when one could be read, method, status, `error.type=http_request_error` and `hotline.timing.total_us`. It goes through the same sink, so it is counted in `hotline.requests` too.
+- A refused request (`400` or `501`) gets its minimal record from `refused` in `record.go`: ID, ingress (none for CONNECT), the vendor host when one could be read, method, status, `error.type=http_request_error` and `hotline.timing.total_us`. It goes through the same sink as every other record.
 
 ## Not in this slice
 

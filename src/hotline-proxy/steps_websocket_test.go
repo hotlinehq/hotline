@@ -81,7 +81,7 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^a call record with http.response.status_code 101 arrives while the WebSocket is open$`, func() error {
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			if records, _ := w.receivers[0].got(); len(records) > 0 {
+			if records := w.receivers[0].got(); len(records) > 0 {
 				return has(records[0].attrs, "http.response.status_code", 101)
 			}
 		}
@@ -203,13 +203,6 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the fourth line is "([^"]*)" and the time the session was open$`, func(want string) error {
 		return w.consoleLine(3, `^ *`+regexp.QuoteMeta(want)+` \d+\.\d ms$`)
-	})
-	sc.Step(`^hotline.requests counts 1 call, with http.response.status_code 101$`, func() error {
-		counts := w.counts()
-		if len(counts) == 0 || counts[len(counts)-1].value != 1 {
-			return failf("got the counts %+v, want one call", counts)
-		}
-		return has(counts[len(counts)-1].attrs, "http.response.status_code", 101)
 	})
 }
 

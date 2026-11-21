@@ -1,5 +1,5 @@
 Feature: Sending OpenTelemetry data
-  Records and counts go out over OTLP. Standard names come from the
+  Records and spans go out over OTLP. Standard names come from the
   semconv Go package; Hotline-only fields use the hotline. prefix.
   Tests use a fake OTLP receiver running locally.
 
@@ -19,7 +19,6 @@ Feature: Sending OpenTelemetry data
     When the proxy sends any signal
     Then its resource has service.name invoices-proxy, service.instance.id from POD_NAME and deployment.environment.name from the file
     And service.version is still the proxy's own
-    And the hotline.requests counter carries the same resource
 
   Scenario: Each exporter has its own labels
     Given two exporters, the second with the resource deployment.environment.name staging
@@ -34,33 +33,28 @@ Feature: Sending OpenTelemetry data
     And every other field has the exact hotline. name from the spec
     And numbers are numbers, true and false are booleans and header values are lists of strings
 
-  Scenario: The hotline.requests counter
-    When a call ends
-    Then hotline.requests goes up by one, with unit {request}
-    And it carries hotline.integration.id, url.template, http.request.method, http.response.status_code and error.type
-
-  Scenario: The counter for not-passed calls
-    When a not-passed call ends
-    Then hotline.requests carries no url.template
-
-  Scenario Outline: Temporality
-    Given an exporter that <sets>
+  Scenario: No metrics go to exporters
+    Exporters get records and spans only. The control plane works out
+    counts and latencies from the records (Peter, 2026-11-21).
     When calls end
-    Then the totals are <kind>
+    Then the receiver gets nothing on /v1/metrics
 
-    Examples:
-      | sets                      | kind       |
-      | does not set temporality  | cumulative |
-      | sets temporality to delta | delta      |
+  Scenario: Metric settings on an exporter are ignored
+    metricInterval and temporality were the settings of the counter
+    exporters once got. They mean nothing there now, so they are ignored,
+    with no error and no warning (Peter, 2026-11-21).
+    Given an exporter that sets metricInterval to 0s and temporality to weekly
+    When a call ends
+    Then the receiver gets the record
+    And the proxy logs no warning about metricInterval or temporality
 
   Scenario: How often each exporter sends, by default
-    Counts go out once a minute: one data point a minute is what Grafana
-    Cloud's standard pricing covers. Records and spans go out every 15
-    seconds, or sooner once 512 are waiting (Peter, 2026-11-01).
+    Records and spans go out every 15 seconds, or sooner once 512 are
+    waiting (Peter, 2026-11-01).
     Given an exporter that sets no intervals
     When a call ends
     Then nothing arrives within a second
-    And the record, its spans and the count arrive when the proxy stops
+    And the record and its spans arrive when the proxy stops
 
   Scenario Outline: Each signal has its own interval
     Given an exporter that sets <setting> to 1h
@@ -70,18 +64,13 @@ Feature: Sending OpenTelemetry data
 
     Examples:
       | setting        | signal |
-      | metricInterval | count  |
       | logInterval    | record |
       | traceInterval  | span   |
-
-  Scenario: No latency histogram
-    When calls end
-    Then no histogram is sent
 
   Scenario: Several exporters get the same data
     Given two exporters
     When a call ends
-    Then both get the same record and count
+    Then both get the same record and spans
 
   Scenario: One exporter down
     Given two exporters, one of them down

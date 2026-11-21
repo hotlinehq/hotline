@@ -60,16 +60,6 @@ type receivedSpan struct {
 	resource map[string]any
 }
 
-// receivedCount is one data point of the hotline.requests counter.
-type receivedCount struct {
-	unit        string
-	monotonic   bool
-	temporality metrics.AggregationTemporality
-	resource    map[string]any
-	attrs       map[string]any
-	value       int64
-}
-
 // receivedPoint is one data point of any metric the receiver got.
 type receivedPoint struct {
 	name string
@@ -77,8 +67,10 @@ type receivedPoint struct {
 	// description is the metric's help text.
 	description string
 	// kind is sum, gauge or histogram.
-	kind  string
-	attrs map[string]any
+	kind string
+	// temporality says whether a sum is a running total or a change.
+	temporality metrics.AggregationTemporality
+	attrs       map[string]any
 	// value is a sum's or gauge's value, or a histogram's total.
 	value  float64
 	count  uint64
@@ -111,7 +103,7 @@ type answer struct {
 
 // receiverSetup says how a fake receiver listens.
 type receiverSetup struct {
-	// path goes in front of /v1/logs and /v1/metrics.
+	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
 	path string
 	// tls, when set, makes the receiver accept only TLS, with this setup.
 	tls *tls.Config
@@ -141,12 +133,9 @@ type receiver struct {
 	// down refuses every log export, until it is back.
 	down bool
 	// refused counts the call records refused while down.
-	refused     int
-	counts      []receivedCount
-	points      []receivedPoint
-	histograms  int
-	otherMetric []string
-	spanList    []receivedSpan
+	refused  int
+	points   []receivedPoint
+	spanList []receivedSpan
 	// logsHeld counts log exports that are waiting on hold.
 	logsHeld int
 	// hold, while open, keeps every export waiting.
@@ -344,28 +333,9 @@ func (r *receiver) exportMetrics(ctx context.Context, req *colmetrics.ExportMetr
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, rm := range req.GetResourceMetrics() {
-		res := values(rm.GetResource().GetAttributes())
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
 				r.points = append(r.points, pointsOf(m)...)
-				if m.GetHistogram() != nil || m.GetExponentialHistogram() != nil {
-					r.histograms++
-				}
-				if m.GetName() != "hotline.requests" {
-					r.otherMetric = append(r.otherMetric, m.GetName())
-					continue
-				}
-				sum := m.GetSum()
-				for _, dp := range sum.GetDataPoints() {
-					r.counts = append(r.counts, receivedCount{
-						unit:        m.GetUnit(),
-						monotonic:   sum.GetIsMonotonic(),
-						temporality: sum.GetAggregationTemporality(),
-						resource:    res,
-						attrs:       values(dp.GetAttributes()),
-						value:       dp.GetAsInt(),
-					})
-				}
 			}
 		}
 	}
@@ -375,12 +345,13 @@ func (r *receiver) exportMetrics(ctx context.Context, req *colmetrics.ExportMetr
 // pointsOf are the data points of one metric, of the kinds the proxy sends.
 func pointsOf(m *metrics.Metric) []receivedPoint {
 	var points []receivedPoint
+	temporality := m.GetSum().GetAggregationTemporality()
 	number := func(kind string, dp *metrics.NumberDataPoint) {
 		v := float64(dp.GetAsInt())
 		if _, ok := dp.GetValue().(*metrics.NumberDataPoint_AsDouble); ok {
 			v = dp.GetAsDouble()
 		}
-		points = append(points, receivedPoint{name: m.GetName(), unit: m.GetUnit(), description: m.GetDescription(), kind: kind, attrs: values(dp.GetAttributes()), value: v})
+		points = append(points, receivedPoint{name: m.GetName(), unit: m.GetUnit(), description: m.GetDescription(), kind: kind, temporality: temporality, attrs: values(dp.GetAttributes()), value: v})
 	}
 	for _, dp := range m.GetSum().GetDataPoints() {
 		number("sum", dp)
@@ -530,12 +501,12 @@ func (r *receiver) takenCalls() int {
 }
 
 // forget drops what the receiver kept, so a long fuzz run does not fill
-// the memory. It keeps the counts.
+// the memory. It keeps the numbers of calls taken and refused.
 func (r *receiver) forget() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.records, r.batches, r.sessions, r.messages, r.counts, r.points = nil, nil, nil, nil, nil, nil
-	r.otherMetric, r.spanList, r.seen = nil, nil, nil
+	r.records, r.batches, r.sessions, r.messages, r.points = nil, nil, nil, nil, nil
+	r.spanList, r.seen = nil, nil
 }
 
 func (r *receiver) ledger() []receivedRecord {
@@ -544,10 +515,10 @@ func (r *receiver) ledger() []receivedRecord {
 	return append([]receivedRecord(nil), r.batches...)
 }
 
-func (r *receiver) got() ([]receivedRecord, []receivedCount) {
+func (r *receiver) got() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]receivedRecord(nil), r.records...), append([]receivedCount(nil), r.counts...)
+	return append([]receivedRecord(nil), r.records...)
 }
 
 func (r *receiver) stop() {

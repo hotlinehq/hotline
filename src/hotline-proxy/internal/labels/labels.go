@@ -1,10 +1,9 @@
 // Package labels keeps the label sets of the proxy's numbers. Making a set
 // sorts and hashes its labels, and the proxy made one for every call, though
-// few different ones come: the numbers are split by integrations, spec
-// routes, methods, status codes and error types, never by anything that
-// grows with each call (Peter, 2026-10-31). Some of these come from the app,
-// such as the integration id of a refused call, so the store must not
-// trust them to stay few.
+// few different ones come: the numbers are split by ingresses, status codes
+// and error types, never by anything that grows with each call (Peter,
+// 2026-10-31). The store still does not trust them to stay few, so a
+// label that one day comes from the app cannot fill the memory.
 package labels
 
 import (
@@ -13,8 +12,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// Room is how many labels a kept set holds at most, enough for the records
-// counter's five; a list of more is made fresh each time.
+// Room is how many labels a kept set holds at most, more than the three a
+// call's duration carries; a list of more is made fresh each time.
 const Room = 5
 
 // Most is how many sets are kept at most, about 2.5 MB. A full store starts

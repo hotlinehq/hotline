@@ -122,7 +122,7 @@ _Avoid_: hot reload, refresh, restart
 
 **Own telemetry**:
 Numbers about the proxy itself (calls in flight, queue lengths, drops), sent only when the `telemetry` section names a collector.
-_Avoid_: proxy metrics (the `hotline.requests` counter is about calls, not the proxy), internal metrics, self-monitoring, "the `telemetry` destination" (say "the `telemetry` section": it is not an exporter)
+_Avoid_: proxy metrics, internal metrics, self-monitoring, "the `telemetry` destination" (say "the `telemetry` section": it is not an exporter)
 
 ## Checking calls against the vendor's spec
 
@@ -221,7 +221,7 @@ With `content: full` on an integration, file exporters get every header and the 
 _Avoid_: debug mode, raw dump, full record (that is a different thing)
 
 **Exporter**:
-One place that records, traces and counts are sent to, listed under `exporters`: `otlp`, `file` or `console`. Each has its own queue, so a slow one never holds up the calls or the others.
+One place that records and traces are sent to, listed under `exporters`: `otlp`, `file` or `console`. Each has its own queue, so a slow one never holds up the calls or the others.
 _Avoid_: sink (the group of all exporters is `export.Exporters`), destination (in prose and in code names, such as `fileDestination`), output, backend, collector (that is the server an `otlp` exporter sends to)
 
 ## Evidence ledger

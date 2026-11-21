@@ -185,7 +185,8 @@ type Exporter struct {
 	// Endpoint is the collector's address as the config names it.
 	Endpoint string
 	// URL is where to send. Its scheme is https for TLS, else http. Its
-	// path goes in front of /v1/logs, /v1/metrics and /v1/traces.
+	// path goes in front of /v1/logs and /v1/traces, or /v1/metrics for
+	// the telemetry section.
 	URL *url.URL
 	// CAs are PEM certificates of certificate authorities to trust on top of the proxy's
 	// own, for TLS.
@@ -197,16 +198,13 @@ type Exporter struct {
 	Gzip    bool
 	// H2C sends HTTP/2 from the first byte to a plain http:// endpoint
 	// (Peter, 2026-11-08).
-	H2C   bool
-	Delta bool
+	H2C bool
 	// QueueSize is how many records wait for the exporter at most.
 	QueueSize int
-	// MetricInterval, LogInterval and TraceInterval are how often counts,
-	// records and spans are sent. Records and spans also go sooner once a
-	// batch of them waits.
-	MetricInterval time.Duration
-	LogInterval    time.Duration
-	TraceInterval  time.Duration
+	// LogInterval and TraceInterval are how often records and spans are
+	// sent. Both also go sooner once a batch of them waits.
+	LogInterval   time.Duration
+	TraceInterval time.Duration
 	// Resource are labels that describe where the proxy runs, sent to this
 	// exporter only. They may change service.name and
 	// service.instance.id, never service.version.
@@ -302,7 +300,10 @@ type exporterFile struct {
 	TLS         *exporterTLSFile  `yaml:"tls"`
 	Compression string            `yaml:"compression"`
 	// H2C is true or false, read as text so a wrong value is named.
-	H2C         string `yaml:"h2c"`
+	H2C string `yaml:"h2c"`
+	// Temporality and MetricInterval are read only for the telemetry
+	// section. Exporters get no metrics, so there they are ignored
+	// (Peter, 2026-11-21).
 	Temporality string `yaml:"temporality"`
 	QueueSize   *int   `yaml:"queueSize"`
 	// The intervals are durations, such as 15s.
@@ -642,16 +643,12 @@ type loader struct {
 func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 	label := "exporter " + f.Endpoint
 	e := Exporter{
-		Endpoint:  f.Endpoint,
-		Gzip:      true,
-		Delta:     f.Temporality == "delta",
-		QueueSize: 10_000,
-		Headers:   map[string]string{},
-		// A data point a minute is what Grafana Cloud's standard pricing
-		// covers (Peter, 2026-11-01).
-		MetricInterval: l.interval(label, "metricInterval", f.MetricInterval, time.Minute),
-		LogInterval:    l.interval(label, "logInterval", f.LogInterval, 15*time.Second),
-		TraceInterval:  l.interval(label, "traceInterval", f.TraceInterval, 15*time.Second),
+		Endpoint:      f.Endpoint,
+		Gzip:          true,
+		QueueSize:     10_000,
+		Headers:       map[string]string{},
+		LogInterval:   l.interval(label, "logInterval", f.LogInterval, 15*time.Second),
+		TraceInterval: l.interval(label, "traceInterval", f.TraceInterval, 15*time.Second),
 	}
 	e.URL = l.endpoint(label, f.Endpoint)
 	switch f.Compression {
@@ -670,11 +667,6 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 		e.H2C = true
 	default:
 		l.problem("%s: h2c must be true or false", label)
-	}
-	switch f.Temporality {
-	case "", "cumulative", "delta":
-	default:
-		l.problem("%s: temporality must be cumulative or delta", label)
 	}
 	if f.QueueSize != nil {
 		e.QueueSize = *f.QueueSize

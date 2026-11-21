@@ -1,5 +1,5 @@
-// Package export sends records, their traces and the hotline.requests
-// counter over OTLP.
+// Package export sends records and their traces over OTLP, and writes
+// them to files and the console.
 // Every exporter gets its own queue, so one that is down never holds up
 // the others or the calls.
 package export
@@ -14,23 +14,18 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/config"
-	"hotline-proxy/internal/labels"
 )
 
 // Timing says how long one send to an exporter may take, retries
@@ -62,14 +57,10 @@ type Exporters struct {
 	// scratch holds buffers to write a record or a call's spans in,
 	// before they are copied to their own exact size.
 	scratch sync.Pool
-	// labels keeps the records counter's label sets, made once each.
-	labels labels.Kept
 }
 
 // exporter is the pipeline of one otlp exporter, with its own resource.
 type exporter struct {
-	metrics  *sdkmetric.MeterProvider
-	requests metric.Int64Counter
 	// queue holds the written records and spans the written spans, both
 	// sent with transport.
 	queue     *queue[[]byte]
@@ -98,8 +89,7 @@ type fileExporter struct {
 // spans.
 type Call struct {
 	// Event is the record's event name: empty for a call, which is
-	// hotline.request, or SessionEvent for a WebSocket session. Only a
-	// call counts in hotline.requests (Peter, 2026-11-18).
+	// hotline.request, or SessionEvent for a WebSocket session.
 	Event string
 	Trace trace.SpanContext
 	At    time.Time
@@ -130,16 +120,6 @@ const fileInterval = 100 * time.Millisecond
 
 // fileQueueSize is how many calls wait for a file exporter at most.
 const fileQueueSize = 10_000
-
-// counted are the record attributes the hotline.requests counter carries.
-func counted(kv attribute.KeyValue) bool {
-	switch kv.Key {
-	case "hotline.integration.id", semconv.URLTemplateKey, semconv.HTTPRequestMethodKey,
-		semconv.HTTPResponseStatusCodeKey, semconv.ErrorTypeKey:
-		return true
-	}
-	return false
-}
 
 // Setup is what New needs: the exporters from the config, where the
 // console writes, the roots TLS trusts, and how the proxy describes and
@@ -203,7 +183,6 @@ func New(setup Setup) (*Exporters, error) {
 	}
 	for _, e := range exporters {
 		t := newHTTPTransport(e, tlsFor(e, roots), service.Version)
-		metrics := metricSender(e, roots, timing)
 		up := &atomic.Int64{}
 		up.Store(1)
 		setup := queueSetup{endpoint: e.Endpoint, size: e.QueueSize, logger: logger, up: up}
@@ -214,22 +193,15 @@ func New(setup Setup) (*Exporters, error) {
 		spanSetup := setup
 		spanSetup.labels = signal(e, "span")
 		spanSetup.interval = e.TraceInterval
-		counted := countedMetrics{Exporter: metrics, sent: stats.sent, dropped: stats.dropped, labels: signal(e, "count"), up: up}
 		res := describe(service, e.Resource)
 		written := resourceOf(res.Attributes())
 		d := exporter{
-			metrics: sdkmetric.NewMeterProvider(sdkmetric.WithResource(res),
-				sdkmetric.WithReader(sdkmetric.NewPeriodicReader(counted,
-					sdkmetric.WithInterval(e.MetricInterval),
-					sdkmetric.WithTimeout(timing.Timeout)))),
 			queue:     newItemQueue("records", records, t, written, timing.Timeout, logSetup),
 			spans:     newItemQueue("spans", spans, t, written, timing.Timeout, spanSetup),
 			transport: t,
 			up:        up,
 			place:     attribute.NewSet(exporterLabel(e)),
 		}
-		// The name and unit are fixed and valid, so there is no error to handle.
-		d.requests, _ = d.metrics.Meter("hotline-proxy").Int64Counter("hotline.requests", metric.WithUnit("{request}"))
 		// The batch line sends records too, at the same time as the record
 		// queue, so it has its own zipper.
 		batchZip := t.newZipper()
@@ -303,15 +275,6 @@ const (
 	retryMost  = 5 * time.Second
 )
 
-// metricSender sends an exporter's metrics over HTTP.
-func metricSender(e config.Exporter, roots *x509.CertPool, timing Timing) sdkmetric.Exporter {
-	temporality := sdkmetric.DefaultTemporalitySelector
-	if e.Delta {
-		temporality = delta
-	}
-	return httpMetrics(e, tlsFor(e, roots), timing, temporality)
-}
-
 // tlsFor is the TLS setup for an exporter, nil for a plain one.
 func tlsFor(e config.Exporter, roots *x509.CertPool) *tls.Config {
 	if e.URL.Scheme != "https" {
@@ -320,41 +283,8 @@ func tlsFor(e config.Exporter, roots *x509.CertPool) *tls.Config {
 	return exporterTLS(e, roots)
 }
 
-// httpMetrics sends metrics over HTTP as protobuf, to /v1/metrics after the
-// endpoint's own path.
-func httpMetrics(e config.Exporter, tlsConfig *tls.Config, timing Timing, temporality sdkmetric.TemporalitySelector) sdkmetric.Exporter {
-	base := strings.TrimSuffix(e.URL.Path, "/")
-	compression := otlpmetrichttp.NoCompression
-	if e.Gzip {
-		compression = otlpmetrichttp.GzipCompression
-	}
-	options := []otlpmetrichttp.Option{
-		otlpmetrichttp.WithEndpoint(e.URL.Host),
-		otlpmetrichttp.WithURLPath(base + "/v1/metrics"),
-		otlpmetrichttp.WithHeaders(e.Headers),
-		otlpmetrichttp.WithCompression(compression),
-		otlpmetrichttp.WithTimeout(timing.Timeout),
-		otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{Enabled: true, InitialInterval: retryFirst, MaxInterval: retryMost, MaxElapsedTime: timing.Timeout}),
-		otlpmetrichttp.WithTemporalitySelector(temporality),
-		otlpmetrichttp.WithTLSClientConfig(tlsConfig),
-	}
-	if tlsConfig == nil {
-		options = append(options, otlpmetrichttp.WithInsecure())
-	}
-	if e.H2C {
-		// The library's own client cannot speak h2c.
-		options = append(options, otlpmetrichttp.WithHTTPClient(httpClient(e, tlsConfig)))
-	}
-	metrics, _ := otlpmetrichttp.New(context.Background(), options...)
-	return metrics
-}
-
-func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
-	return metricdata.DeltaTemporality
-}
-
-// Call queues one call for every exporter: its record, its count and
-// its spans for each OTLP exporter, one line for each file, and its
+// Call queues one call for every exporter: its record and its spans for
+// each OTLP exporter, one line for each file, and its
 // lines on the console. It never blocks: a full queue refuses what is new,
 // and an exporter that keeps the ledger notes the record it dropped, to
 // list it in the record of the record's batch.
@@ -402,9 +332,8 @@ func (s *Exporters) line(c Call, withContent bool) []byte {
 // event is the record's event name.
 func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
 
-// record queues one log record and counts it when it is a call. It
-// never blocks: a full queue refuses the new record. It adds to taken
-// whether each exporter took it.
+// record queues one log record for every OTLP exporter. It never
+// blocks: a full queue refuses the new record, and the ledger notes it.
 // The record is written once, for every exporter.
 func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)
@@ -412,22 +341,9 @@ func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyVal
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
-	// Room for the five on the stack, so the list costs no memory to make.
-	counter := make([]attribute.KeyValue, 0, 5)
-	for _, kv := range attrs {
-		if counted(kv) {
-			counter = append(counter, kv)
-		}
-	}
-	// One set for every exporter.
-	counts := metric.WithAttributeSet(s.labels.Set(counter...))
-	call := c.event() == CallEvent
 	for _, d := range s.exporters {
 		if !d.queue.add(written) {
 			d.batches.dropped(c.Ledger)
-		}
-		if call {
-			d.requests.Add(ctx, 1, counts)
 		}
 	}
 }
@@ -463,7 +379,7 @@ func (s *Exporters) Shutdown(ctx context.Context) error {
 		errs = append(errs, b.shutdown(ctx))
 	}
 	for _, d := range s.exporters {
-		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx), d.metrics.Shutdown(ctx))
+		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx))
 		d.transport.close()
 	}
 	for _, f := range s.local() {

@@ -26,7 +26,7 @@ QueueUrl:
 6. **Text is cut** at 256 characters.
 7. **A promise.** A mark is the spec author's promise that the field holds no secret and no personal data. Mark only fields like queue names, ids of things (not of people) and kinds.
 8. **Full records only.** Calls with a known integration and api get these fields. They are covered by the record's hash with the rest of the record ([proxy-ledger.md](proxy-ledger.md)).
-9. **Not in the counter.** The fields go into records only, never into `hotline.requests`, since a field could have very many values and make the counter costly (Peter, 2026-10-31).
+9. **Not in the counter.** The fields go into records only, never into `hotline.requests`, since a field could have very many values and make the counter costly (Peter, 2026-10-31). The counter itself was removed on 2026-11-21: exporters get no metrics.
 
 ## Headers
 

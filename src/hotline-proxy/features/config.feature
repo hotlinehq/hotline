@@ -27,16 +27,6 @@ Feature: Loading the config file
     When the proxy loads it
     Then it loads together with both of its specs
 
-  Scenario Outline: Exporter temporality
-    Given an exporter that <sets>
-    When the proxy loads the config
-    Then the exporter's temporality is <temporality>
-
-    Examples:
-      | sets                        | temporality |
-      | does not set temporality    | cumulative  |
-      | sets temporality to delta   | delta       |
-
   Scenario Outline: Api defaults
     Given an api that <sets>
     When the proxy loads the config
@@ -112,11 +102,11 @@ Feature: Loading the config file
       | there are no listeners                               |
       | an integration has no id                             |
       | there are no exporters                               |
-      | an exporter's temporality is neither cumulative nor delta |
+      | the telemetry section's temporality is neither cumulative nor delta |
       | an exporter's endpoint is not a valid address        |
       | an exporter's queueSize is zero                      |
       | the ledger's maxRecords is zero                      |
-      | an exporter's metricInterval is zero                 |
+      | the telemetry section's metricInterval is zero       |
       | an exporter's logInterval is not a duration          |
       | an exporter's traceInterval is negative              |
       | an exporter's endpoint has no http:// or https://    |

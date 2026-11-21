@@ -4,7 +4,7 @@ Agreed with Peter on 2026-10-31, reworked with him on 2026-11-01 (from 27 metric
 
 ## What it does
 
-The proxy sends numbers about itself as OpenTelemetry metrics (numbers sent once a minute, or as often as `telemetry.otlp.metricInterval` says) to the collector the `telemetry` section names, and nowhere else: never mixed with the records and counts of vendor calls. An operator builds a Grafana board and alerts on them, such as "an exporter has been down for 5 minutes", "a reload failed" or "the certificate expires within 7 days". This replaces a detail page on `/readyz` (health checks, decision 5).
+The proxy sends numbers about itself as OpenTelemetry metrics (numbers sent once a minute, or as often as `telemetry.otlp.metricInterval` says, as running totals unless `telemetry.otlp.temporality` is `delta`) to the collector the `telemetry` section names, and nowhere else: never mixed with the records and counts of vendor calls. An operator builds a Grafana board and alerts on them, such as "an exporter has been down for 5 minutes", "a reload failed" or "the certificate expires within 7 days". This replaces a detail page on `/readyz` (health checks, decision 5).
 
 ```yaml
 telemetry:
@@ -29,8 +29,8 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `hotline.app_tls.failures` | count | `{connection}` | `error.type`, and `hotline.ingress=connect` inside a tunnel | app connections that failed to set up TLS with the proxy, before any call, so no record exists for them | `hotline_app_tls_failures_total` |
 | `hotline.exporter.up` | gauge, 1 or 0 | none | `hotline.exporter` | 1 while sends to the exporter work, 0 from the first failed send until one works again | `hotline_exporter_up` |
 | `hotline.exporter.queue.size` | up and down count | `{item}` | `hotline.exporter`, `hotline.signal` (`record`, `span`) | records or spans waiting to be sent | `hotline_exporter_queue_size` |
-| `hotline.exporter.sent` | count | `{item}` | `hotline.exporter`, `hotline.signal` | records, spans or counts delivered | `hotline_exporter_sent_total` |
-| `hotline.exporter.dropped` | count | `{item}` | `hotline.exporter`, `hotline.signal`, `hotline.drop.reason` (`queue_full`, `send_failed`) | records, spans or counts lost: the queue overflowed, or the receiver refused the send or could not be reached | `hotline_exporter_dropped_total` |
+| `hotline.exporter.sent` | count | `{item}` | `hotline.exporter`, `hotline.signal` | records or spans delivered | `hotline_exporter_sent_total` |
+| `hotline.exporter.dropped` | count | `{item}` | `hotline.exporter`, `hotline.signal`, `hotline.drop.reason` (`queue_full`, `send_failed`) | records or spans lost: the queue overflowed, or the receiver refused the send or could not be reached | `hotline_exporter_dropped_total` |
 | `hotline.config.reload_failed` | gauge, 1 or 0 | none | none | 1 while the last reload failed and the proxy still runs the config before it | `hotline_config_reload_failed` |
 | `hotline.config.restart_needed` | gauge, 1 or 0 | none | none | 1 while a changed listen address, exporter or telemetry setting waits for a restart | `hotline_config_restart_needed` |
 | `hotline.certificate.not_after` | gauge | `s` | `hotline.certificate.use` (`<listener>.<part>`, such as `apps.tls`, `apps.connect` or `admin.tls`) | when the proxy's own certificate or the CONNECT certificate authority expires, in seconds since 1970 | `hotline_certificate_not_after_seconds` |
@@ -40,7 +40,7 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `go.memory.used`, `go.memory.limit`, `go.memory.gc.goal`, `go.goroutine.count` | gauges | `By`, `{goroutine}` | as the standard says | the Go runtime's memory and goroutines; the limit only when `GOMEMLIMIT` is set | `go_memory_used_bytes` and so on |
 | `go.memory.allocated` | count | `By` | as the standard says | memory the program handed out since it started, counting memory freed again; the load test divides its growth by the calls made | `go_memory_allocated_bytes_total` |
 
-`hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record`, `span` or `count` (the `hotline.requests` numbers).
+`hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record` or `span`. It was also `count`, for the `hotline.requests` counter, until that counter was removed (Peter, 2026-11-21).
 
 `error.type` on a call is the record's error type, such as `dns_error`. On a failed TLS setup it is `tls_untrusted_by_app` (the app refused the certificate), `plain_http` (plain HTTP on the TLS port), `tls_version` (only TLS versions the proxy does not take) or `tls_handshake_failed`.
 

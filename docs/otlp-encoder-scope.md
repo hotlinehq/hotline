@@ -26,7 +26,7 @@ Why joining bytes works: an OTLP request is a resource (the sender's labels), ho
 
 ## Out of scope
 
-- The counter `hotline.requests` and the proxy's own numbers for the `telemetry` section. They stay on the normal OpenTelemetry metrics library, as do startup and admin messages. OpenTelemetry stays the facade (the front door of the code) for everything except these two hot messages. If the counter shows up in the profile after the rest is fixed, it gets its own proposal.
+- The proxy's own numbers for the `telemetry` section. They stay on the normal OpenTelemetry metrics library, as do startup and admin messages. OpenTelemetry stays the facade (the front door of the code) for everything except these two hot messages. The `hotline.requests` counter, once on that library too, was removed on 2026-11-21.
 - Any config change, any change of a field or its meaning, any change of the signature rules.
 - Making the trace optional. A product choice for Peter, listed below. The encoder keeps it a simple on or off switch, but the switch is not built here.
 - Grafana Alloy, or any sidecar that does the encoding for us.
