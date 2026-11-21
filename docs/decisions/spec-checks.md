@@ -21,3 +21,10 @@ Full wording in [docs/proxy-spec-checks.md](../proxy-spec-checks.md).
 17. A form body is always an object, even when every name in it is a number (found by fuzzing, 2026-11-18). Such a body, `0=x`, was turned into a list and stopped the proxy.
 
 - Which parts run is a list, `checks`, on the api (Peter, 2026-11-08): `path`, `query`, `headers`, `cookies`, `body`, `status`, `response-headers`, `response-body`, and `messages` since 2026-11-19 ([websockets.md](websockets.md), item 21). Omitted means all, `[]` means the route only, an unknown name stops the start. No body copy is kept unless a body part is picked (a spec that names its action in the body keeps the request body). Detail: [docs/proxy-spec-checks.md](../proxy-spec-checks.md).
+
+## Edge proxy: spec versions and webhooks (Peter, 2026-11-21, planned, not built)
+
+Plan: [docs/spec-support/roadmap.md](../spec-support/roadmap.md).
+
+18. The edge proxy reads OpenAPI 3.2 only, replacing item 9's "only OpenAPI 3.1". 3.1 and older are refused, since spec files are easy to rewrite to 3.2, and every spec in `specs/` and the tests moves to 3.2 in one go. Revisit if a 3.1 rule turns out to clash with 3.2, so a file can't be moved over by changing its version line alone.
+19. Webhook support is minimal: only the app calling the vendor, such as setting up webhook endpoints or posting to a vendor's webhook address, with the secret in that address never recorded. Calls from the vendor to the app are out of scope, so a spec's `webhooks` and `callbacks` sections are loaded and ignored.
