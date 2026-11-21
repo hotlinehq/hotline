@@ -3,12 +3,15 @@ package proxy_test
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"compress/flate"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,17 +20,23 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"go.yaml.in/yaml/v3"
 )
 
-// liveSocket is what the live spec's vendor does, and what both ends of
-// the WebSocket sent.
-type liveSocket struct {
+// scriptedVendor is the WebSocket vendor of the message scenarios, the fake
+// Kraken or the tool spec's vendor: what its spec is, what it does, and what
+// both ends of the WebSocket sent.
+type scriptedVendor struct {
 	spec  string
 	extra string
-	// at is the place of the live integration in the config.
+	// id, host and path are the integration, the vendor's host and the
+	// address the app opens.
+	id, host, path string
+	// at is the place of the integration in the config.
 	at int
-	// send are the messages the vendor sends once the WebSocket opens.
-	send [][]byte
+	// send are the messages the vendor sends once the WebSocket opens;
+	// answer are the ones it sends once the app's first message comes.
+	send, answer [][]byte
 	// closeCode and closeReason, when set, are the close message the
 	// vendor sends at once.
 	closeCode   uint16
@@ -42,84 +51,84 @@ type liveSocket struct {
 	sent bytes.Buffer
 }
 
+// krakenSpec is the shared Kraken spec, as the repository holds it.
+const krakenSpec = "../../specs/kraken/spot-websocket/v2.openapi.yaml"
+
 func websocketMessageSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the live spec$`, func() error {
-		w.live = &liveSocket{spec: liveSpec, at: len(w.integrations)}
-		w.addIntegration("")
-		w.useLiveSpec()
-		w.vendor("api.shop.test").setAnswer(w.liveVendor)
+	sc.Step(`^the Kraken spec$`, func() error {
+		spec, err := os.ReadFile(filepath.FromSlash(krakenSpec))
+		if err != nil {
+			return err
+		}
+		w.useScripted(&scriptedVendor{spec: string(spec), id: "trading-bot", host: "ws-auth.kraken.test", path: "/v2"})
 		return nil
 	})
-	sc.Step(`^the live spec, where (.+)$`, func(change string) error {
-		edits, known := liveSpecEdits()[change]
+	sc.Step(`^the tool spec$`, func() error {
+		w.useScripted(&scriptedVendor{spec: toolSpec, id: "talon-shop-a", host: "api.shop.test", path: "/live"})
+		return nil
+	})
+	sc.Step(`^the Kraken spec, where (.+)$`, func(change string) error {
+		edits, known := krakenSpecEdits()[change]
 		if !known {
-			return failf("no change %q to the live spec", change)
+			return failf("no change %q to the Kraken spec", change)
 		}
-		for _, edit := range edits {
-			if !strings.Contains(w.live.spec, edit[0]) {
-				return failf("the live spec has no %q to change", edit[0])
-			}
-			w.live.spec = strings.Replace(w.live.spec, edit[0], edit[1], 1)
+		spec, err := editSpec(w.scripted.spec, edits)
+		if err != nil {
+			return err
 		}
-		if change == "toolCallAgain matches on toolCall alone as well" {
-			w.live.spec += "    toolCallAgain:\n      type: object\n      properties:\n        toolCall: { type: object, x-hotline-match: true }\n"
-		}
-		w.useLiveSpec()
+		w.scripted.spec = spec
+		w.writeScriptedSpec()
 		return nil
 	})
-	sc.Step(`^the live spec, checking only messages$`, func() error {
-		w.live.extra = "    checks: [messages]\n"
-		w.useLiveSpec()
+	sc.Step(`^the Kraken spec, checking only messages$`, func() error {
+		w.scripted.extra = "    checks: [messages]\n"
+		w.writeScriptedSpec()
 		return nil
 	})
-	sc.Step(`^the live spec, checking only headers and status$`, func() error {
-		w.live.extra = "    checks: [headers, status]\n"
-		w.useLiveSpec()
+	sc.Step(`^the Kraken spec, checking only headers and status$`, func() error {
+		w.scripted.extra = "    checks: [headers, status]\n"
+		w.writeScriptedSpec()
 		return nil
 	})
-	sc.Step(`^the live spec with an overlay that adds reason to toolResponse's required fields$`, func() error {
-		w.writeFile("specs/reason.overlay.yaml", `overlay: 1.1.0
-info: { title: reason required, version: "1" }
+	sc.Step(`^the Kraken spec with an overlay that adds cl_ord_id to add_order's required params$`, func() error {
+		w.writeFile("specs/cl-ord-id.overlay.yaml", `overlay: 1.1.0
+info: { title: cl_ord_id required, version: "1" }
 actions:
-  - target: $.components.schemas.toolResponse.properties.toolResponse.properties.functionResponses.items
-    update: { required: [reason] }
+  - target: $.components.schemas.addOrder.properties.params
+    update: { required: [cl_ord_id] }
 `)
-		w.live.extra = "    overlays: [./specs/reason.overlay.yaml]\n"
-		w.useLiveSpec()
+		w.scripted.extra = "    overlays: [./specs/cl-ord-id.overlay.yaml]\n"
+		w.writeScriptedSpec()
 		return nil
 	})
-	sc.Step(`^the live vendor sends (.+)$`, func(messages string) error {
-		for _, one := range strings.Split(messages, ", then ") {
-			m, err := liveMessage(one)
-			if err != nil {
-				return err
-			}
-			w.live.send = append(w.live.send, m)
-		}
+	sc.Step(`^the (?:Kraken|tool) vendor sends (.+)$`, func(messages string) error {
+		return w.scripted.script(&w.scripted.send, messages)
+	})
+	sc.Step(`^the Kraken vendor answers the app's first message with (.+)$`, func(messages string) error {
+		return w.scripted.script(&w.scripted.answer, messages)
+	})
+	sc.Step(`^the Kraken vendor closes with (\d+) "([^"]*)"$`, func(code int, reason string) error {
+		w.scripted.closeCode, w.scripted.closeReason = uint16(code), reason //nolint:gosec // a close code the scenario writes
 		return nil
 	})
-	sc.Step(`^the live vendor closes with (\d+) "([^"]*)"$`, func(code int, reason string) error {
-		w.live.closeCode, w.live.closeReason = uint16(code), reason //nolint:gosec // a close code the scenario writes
+	sc.Step(`^the Kraken vendor agrees to (.*permessage-deflate.*)$`, func(extensions string) error {
+		w.scripted.deflate = extensions
+		w.scripted.packer = &packer{alone: strings.Contains(extensions, "client_no_context_takeover")}
 		return nil
 	})
-	sc.Step(`^the live vendor agrees to (.*permessage-deflate.*)$`, func(extensions string) error {
-		w.live.deflate = extensions
-		w.live.packer = &packer{alone: strings.Contains(extensions, "client_no_context_takeover")}
+	sc.Step(`^the Kraken vendor answers each ping with a pong$`, func() error {
+		// The scripted vendor always does.
 		return nil
 	})
-	sc.Step(`^the live vendor answers each ping with a pong$`, func() error {
-		// The live vendor always does.
-		return nil
-	})
-	sc.Step(`^an app opens the live WebSocket$`, func() error {
+	sc.Step(`^an app opens the (?:Kraken|tool) WebSocket$`, func() error {
 		var extra []string
-		if w.live.deflate != "" {
+		if w.scripted.deflate != "" {
 			extra = append(extra, "Sec-WebSocket-Extensions: permessage-deflate")
 		}
-		return w.openSocketTo("forward_proxy", "api.shop.test", "/live", "talon-shop-a", extra...)
+		return w.openSocketTo("forward_proxy", w.scripted.host, w.scripted.path, w.scripted.id, extra...)
 	})
-	sc.Step(`^an app opens a WebSocket to the live spec's /other and sends "(\w+)"$`, func(text string) error {
-		if err := w.openSocketTo("forward_proxy", "api.shop.test", "/other", "talon-shop-a"); err != nil {
+	sc.Step(`^an app opens a WebSocket to the tool spec's /other and sends "(\w+)"$`, func(text string) error {
+		if err := w.openSocketTo("forward_proxy", w.scripted.host, "/other", w.scripted.id); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(w.socket.conn, text); err != nil {
@@ -152,7 +161,7 @@ actions:
 			"3 bytes of a masked frame header":                      {0x81, 0x85, 0x11},
 			"a ping header without its payload":                     frameOf(0x9, true, false, []byte("ping"), true)[:6],
 			"the first frame of a message in frames":                first,
-			"half a frame's payload":                                frameOf(0x1, true, false, toolResponse("call-7"), true)[:40],
+			"half a frame's payload":                                frameOf(0x1, true, false, addOrder(7), true)[:40],
 			"a packed message that can't be unpacked":               frameOf(0x1, true, true, []byte{0xff, 0xff, 0xff, 0xff}, true),
 		}[what]
 		if frames == nil {
@@ -160,8 +169,8 @@ actions:
 		}
 		return w.appWrite(frames)
 	})
-	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|toolResponse)|a (?:packed )?toolResponse|toolResponse |\{).+)$`, w.appSends)
-	sc.Step(`^the app closes the live WebSocket$`, func() error {
+	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|add_order)|a (?:packed )?batch_add|a toolResponse|add_order |toolResponse |\{).+)$`, w.appSends)
+	sc.Step(`^the app closes the (?:Kraken|tool) WebSocket$`, func() error {
 		if err := w.appWrite(frameOf(0x8, true, false, []byte{0x03, 0xe8}, true)); err != nil {
 			return err
 		}
@@ -243,16 +252,16 @@ actions:
 		}
 		return nil
 	})
-	sc.Step(`^the live vendor got all (\d+) bytes of the message unchanged$`, func(size int) error {
+	sc.Step(`^the Kraken vendor got all (\d+) bytes of the message unchanged$`, func(size int) error {
 		r, err := w.messageRecord(1)
 		if err != nil {
 			return err
 		}
-		return errors.Join(has(r.attrs, "hotline.websocket.message.size", size), w.live.unchanged())
+		return errors.Join(has(r.attrs, "hotline.websocket.message.size", size), w.scripted.unchanged())
 	})
-	sc.Step(`^the live vendor got every byte as the app sent it$`, func() error {
+	sc.Step(`^the Kraken vendor got every byte as the app sent it$`, func() error {
 		w.settle()
-		return w.live.unchanged()
+		return w.scripted.unchanged()
 	})
 	sc.Step(`^each message record's span is a "websocket message" span under the "websocket session" span$`, func() error {
 		messages := w.messageRecords()
@@ -330,69 +339,159 @@ actions:
 	})
 }
 
-// liveSpecEdits are the changes a scenario can make to the live spec,
-// each a list of texts to replace once.
-func liveSpecEdits() map[string][][2]string {
+// specEdit sets the value at a JSON pointer in a spec, as YAML; an empty
+// value deletes it. A list index one past the end adds to the list.
+type specEdit struct{ at, to string }
+
+// krakenSpecEdits are the changes a scenario can make to its copy of the
+// Kraken spec; the shared file never changes.
+func krakenSpecEdits() map[string][]specEdit {
 	const (
-		toolCallLine      = `            messages: [{ $ref: "#/components/x-async-api/messages/toolCall" }]`
-		sessionInfoLine   = `            messages: [{ $ref: "#/components/x-async-api/messages/sessionInfo" }]`
-		serverContentLine = `            messages: [{ $ref: "#/components/x-async-api/messages/serverContent" }]`
-		responsePayload   = `        payload: { $ref: "#/components/schemas/toolResponse" }`
-		sessionPayload    = `        payload: { $ref: "#/components/schemas/sessionInfo" }`
-		toolCallLocation  = `"$message.payload#/toolCall/functionCalls/0/id"`
+		route      = "/paths/~1v2/get"
+		operations = route + "/x-async-api/operations/"
+		messages   = "/components/x-async-api/messages/"
+		schemas    = "/components/schemas/"
 	)
-	return map[string][][2]string{
-		`sessionInfo also marks session.kind with const "text"`: {{"kind: { type: string }", "kind: { type: string, x-hotline-match: true, const: text }"}},
-		"toolCall has no x-hotline-match":                       {{"          x-hotline-match: true # toolCall\n", ""}},
-		"an x-hotline-match sits inside functionCalls":          {{"name: { type: string } # toolCall name", "name: { type: string, x-hotline-match: true }"}},
-		"toolCallAgain matches on toolCall alone as well": {
-			{serverContentLine, strings.TrimSuffix(serverContentLine, "]") + `, { $ref: "#/components/x-async-api/messages/toolCallAgain" }]`},
-			{"  x-async-api:\n    messages:\n", "  x-async-api:\n    messages:\n      toolCallAgain: { payload: { $ref: \"#/components/schemas/toolCallAgain\" } }\n"},
+	return map[string][]specEdit{
+		"ping has no x-hotline-match":                       {{schemas + "ping/properties/method/x-hotline-match", ""}},
+		"an x-hotline-match sits inside batch_add's orders": {{schemas + "batchAdd/properties/params/properties/orders/items", "{type: object, properties: {side: {type: string, x-hotline-match: true}}}"}},
+		"pingAgain matches on method ping as well": {
+			{operations + "ping/messages/1", `{$ref: "#/components/x-async-api/messages/pingAgain"}`},
+			{messages + "pingAgain", `{payload: {$ref: "#/components/schemas/pingAgain"}}`},
+			{schemas + "pingAgain", "{type: object, properties: {method: {const: ping, x-hotline-match: true}}}"},
 		},
-		"toolCall's x-hotline-match is yes":             {{"x-hotline-match: true # toolCall", "x-hotline-match: yes # toolCall"}},
-		"a field of toolResponse points nowhere":        {{"response: { type: object }", `response: { $ref: "#/components/schemas/nothing" }`}},
-		"toolCall is not JSON Schema":                   {{"required: [toolCall]", "required: 5"}},
-		"x-async-api is a list":                         {{"      x-async-api:\n        operations:\n", "      x-async-api: [nothing]\n      x-unused:\n        operations:\n"}},
-		"x-async-api also holds channels":               {{"        operations:\n", "        channels: {}\n        operations:\n"}},
-		"toolCall's action is publish":                  {{"            action: send\n", "            action: publish\n"}},
-		"toolCall's messages is 5":                      {{toolCallLine, "            messages: 5"}},
-		"sessionInfo lists a message written in place":  {{sessionInfoLine, "            messages: [{ payload: { type: object } }]"}},
-		"sessionInfo lists a message that is not there": {{sessionInfoLine, `            messages: [{ $ref: "#/components/x-async-api/messages/nothing" }]`}},
-		"sessionInfo's payload is written in place":     {{sessionPayload, "        payload: { type: object }"}},
-		"sessionInfo's payload points nowhere":          {{sessionPayload, `        payload: { $ref: "#/components/schemas/nothing" }`}},
-		"the vendor's messages mix JSON and audio/pcm":  {{`        payload: { $ref: "#/components/schemas/toolCall" }`, `        payload: { $ref: "#/components/schemas/toolCall" }` + "\n        contentType: audio/pcm"}},
-		"sessionInfo lists 5":                           {{sessionInfoLine, "            messages: [5]"}},
-		"sessionInfo has no payload":                    {{sessionPayload, "        summary: no payload"}},
-		"serverContent also lists toolCall": {
-			{serverContentLine, strings.TrimSuffix(serverContentLine, "]") + `, { $ref: "#/components/x-async-api/messages/toolCall" }]`},
-		},
-		"toolCall's reply names a channel":          {{"            reply:\n", "            reply:\n              channel: { $ref: \"#/channels/live\" }\n"}},
-		"toolCall's correlationId is in a header":   {{toolCallLocation, `"$message.header#/id"`}},
-		"toolCall's correlationId is not a pointer": {{toolCallLocation, `"toolCall.functionCalls.0.id"`}},
-		"the app's messages mix JSON and audio/pcm": {{responsePayload, responsePayload + "\n        contentType: audio/pcm"}},
-		"the app's messages are audio/pcm": {
-			{responsePayload, responsePayload + "\n        contentType: audio/pcm"},
-			{sessionPayload, sessionPayload + "\n        contentType: audio/pcm"},
-		},
-		"the route still uses x-hotline-messages":  {{"      x-async-api:\n", "      x-hotline-messages: { fromApp: [] }\n      x-async-api:\n"}},
-		"toolCall marks its id x-hotline-id-tuple": {{"id: { type: string } # toolCall id", "id: { type: string, x-hotline-id-tuple: tool-call }"}},
+		"ping's x-hotline-match is yes":                {{schemas + "ping/properties/method/x-hotline-match", "yes"}},
+		"a field of add_order points nowhere":          {{schemas + "addOrder/properties/params/properties/side", `{$ref: "#/components/schemas/nothing"}`}},
+		"add_order is not JSON Schema":                 {{schemas + "addOrder/required", "5"}},
+		"x-async-api is a list":                        {{route + "/x-async-api", "[nothing]"}},
+		"x-async-api also holds channels":              {{route + "/x-async-api/channels", "{}"}},
+		"ping's action is publish":                     {{operations + "ping/action", "publish"}},
+		"ping's messages is 5":                         {{operations + "ping/messages", "5"}},
+		"heartbeat lists a message written in place":   {{operations + "heartbeat/messages/0", "{payload: {type: object}}"}},
+		"heartbeat lists 5":                            {{operations + "heartbeat/messages/0", "5"}},
+		"heartbeat has no payload":                     {{messages + "heartbeat", "{summary: no payload}"}},
+		"heartbeat's payload points nowhere":           {{messages + "heartbeat/payload", `{$ref: "#/components/schemas/nothing"}`}},
+		"heartbeat lists a message that is not there":  {{operations + "heartbeat/messages/0", `{$ref: "#/components/x-async-api/messages/nothing"}`}},
+		"heartbeat's payload is written in place":      {{messages + "heartbeat/payload", "{type: object}"}},
+		"status also lists heartbeat":                  {{operations + "status/messages/1", `{$ref: "#/components/x-async-api/messages/heartbeat"}`}},
+		"ping's reply names a channel":                 {{operations + "ping/reply/channel", `{$ref: "#/channels/v2"}`}},
+		"ping's correlationId is in a header":          {{messages + "ping/correlationId", `{location: "$message.header#/req_id"}`}},
+		"ping's correlationId is not a pointer":        {{messages + "ping/correlationId", "{location: req_id}"}},
+		"the app's messages mix JSON and audio/pcm":    {{messages + "ping/contentType", "audio/pcm"}},
+		"the vendor's messages mix JSON and audio/pcm": {{messages + "heartbeat/contentType", "audio/pcm"}},
+		"every message is audio/pcm":                   {{route + "/x-async-api/defaultContentType", "audio/pcm"}},
+		"the route still uses x-hotline-messages":      {{route + "/x-hotline-messages", "{fromApp: []}"}},
+		"ping marks its req_id x-hotline-id-tuple":     {{schemas + "ping/properties/req_id/x-hotline-id-tuple", "ping"}},
 	}
 }
 
-// useLiveSpec writes the live spec and puts its integration in its place.
-func (w *world) useLiveSpec() {
-	w.integrations[w.live.at] = integration("talon-shop-a", w.specAPI("api.shop.test", w.live.spec, w.live.extra))
+// editSpec makes the edits to a spec written in YAML.
+func editSpec(spec string, edits []specEdit) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(spec), &doc); err != nil {
+		return "", err
+	}
+	for _, e := range edits {
+		var to *yaml.Node
+		if e.to != "" {
+			var value yaml.Node
+			if err := yaml.Unmarshal([]byte(e.to), &value); err != nil {
+				return "", err
+			}
+			to = value.Content[0]
+		}
+		if err := setAt(doc.Content[0], strings.Split(e.at, "/")[1:], to); err != nil {
+			return "", fmt.Errorf("%s: %w", e.at, err)
+		}
+	}
+	out, err := yaml.Marshal(&doc)
+	return string(out), err
 }
 
-// liveVendor is the live spec's vendor: it switches to a WebSocket, sends
-// its messages, answers pings and close messages, and keeps every byte the
+// setAt puts value at the path under node, or deletes what is there when
+// value is nil. Path parts are escaped as in a JSON pointer.
+func setAt(node *yaml.Node, path []string, value *yaml.Node) error {
+	key := strings.NewReplacer("~1", "/", "~0", "~").Replace(path[0])
+	last := len(path) == 1
+	switch node.Kind {
+	case yaml.MappingNode:
+		for i := 0; i < len(node.Content); i += 2 {
+			if node.Content[i].Value != key {
+				continue
+			}
+			switch {
+			case !last:
+				return setAt(node.Content[i+1], path[1:], value)
+			case value == nil:
+				node.Content = slices.Delete(node.Content, i, i+2)
+			default:
+				node.Content[i+1] = value
+			}
+			return nil
+		}
+		if !last || value == nil {
+			return failf("the spec has no %q", key)
+		}
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+		return nil
+	case yaml.SequenceNode:
+		i, err := strconv.Atoi(key)
+		switch {
+		case err != nil || i < 0 || i > len(node.Content) || (i == len(node.Content) && (!last || value == nil)):
+			return failf("the list has no item %q", key)
+		case !last:
+			return setAt(node.Content[i], path[1:], value)
+		case value == nil:
+			node.Content = slices.Delete(node.Content, i, i+1)
+		case i == len(node.Content):
+			node.Content = append(node.Content, value)
+		default:
+			node.Content[i] = value
+		}
+		return nil
+	}
+	return failf("%q is inside a value that holds nothing", key)
+}
+
+// useScripted makes v the scenario's WebSocket vendor, with its
+// integration and spec.
+func (w *world) useScripted(v *scriptedVendor) {
+	v.at = len(w.integrations)
+	w.scripted = v
+	w.addIntegration("")
+	w.writeScriptedSpec()
+	w.vendor(v.host).setAnswer(w.scriptedVendor)
+}
+
+// writeScriptedSpec writes the vendor's spec and puts its integration in
+// its place.
+func (w *world) writeScriptedSpec() {
+	v := w.scripted
+	w.integrations[v.at] = integration(v.id, w.specAPI(v.host, v.spec, v.extra))
+}
+
+// script adds the messages, joined with ", then ", to a list of what the
+// vendor sends.
+func (v *scriptedVendor) script(list *[][]byte, messages string) error {
+	for _, one := range strings.Split(messages, ", then ") {
+		m, err := scriptedMessage(one)
+		if err != nil {
+			return err
+		}
+		*list = append(*list, m)
+	}
+	return nil
+}
+
+// scriptedVendor switches to a WebSocket, sends its messages, answers the
+// app's first message, pings and close messages, and keeps every byte the
 // app sent.
-func (w *world) liveVendor(rw http.ResponseWriter, r *http.Request) {
-	l := w.live
+func (w *world) scriptedVendor(rw http.ResponseWriter, r *http.Request) {
+	v := w.scripted
 	rw.Header().Set("Connection", "Upgrade")
 	rw.Header().Set("Upgrade", "websocket")
-	if l.deflate != "" {
-		rw.Header().Set("Sec-WebSocket-Extensions", l.deflate)
+	if v.deflate != "" {
+		rw.Header().Set("Sec-WebSocket-Extensions", v.deflate)
 	}
 	rw.WriteHeader(http.StatusSwitchingProtocols)
 	conn, buf, err := http.NewResponseController(rw).Hijack()
@@ -400,31 +499,37 @@ func (w *world) liveVendor(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
-	if r.URL.Path != "/live" {
+	if r.URL.Path != v.path {
 		_, _ = io.Copy(io.Discard, buf)
 		return
 	}
-	for _, m := range l.send {
+	for _, m := range v.send {
 		_, _ = conn.Write(frameOf(0x1, true, false, m, false))
 	}
-	if l.closeCode != 0 {
-		payload := binary.BigEndian.AppendUint16(nil, l.closeCode)
-		_, _ = conn.Write(frameOf(0x8, true, false, append(payload, l.closeReason...), false))
+	if v.closeCode != 0 {
+		payload := binary.BigEndian.AppendUint16(nil, v.closeCode)
+		_, _ = conn.Write(frameOf(0x8, true, false, append(payload, v.closeReason...), false))
 	}
 	in := bufio.NewReader(io.TeeReader(buf, writerFunc(func(p []byte) (int, error) {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		return l.got.Write(p)
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		return v.got.Write(p)
 	})))
+	answered := false
 	for {
 		op, payload, err := readFrame(in)
 		switch {
 		case err != nil:
 			return
+		case (op == 0x1 || op == 0x2) && !answered:
+			answered = true
+			for _, m := range v.answer {
+				_, _ = conn.Write(frameOf(0x1, true, false, m, false))
+			}
 		case op == 0x9:
 			_, _ = conn.Write(frameOf(0xa, true, false, payload, false))
 		case op == 0x8:
-			if l.closeCode == 0 {
+			if v.closeCode == 0 {
 				_, _ = conn.Write(frameOf(0x8, true, false, payload, false))
 			}
 			return
@@ -438,20 +543,20 @@ type writerFunc func(p []byte) (int, error)
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // unchanged says whether the vendor got exactly what the app sent.
-func (l *liveSocket) unchanged() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !bytes.Equal(l.got.Bytes(), l.sent.Bytes()) {
-		return failf("the vendor got %d bytes, the app sent %d, and they differ", l.got.Len(), l.sent.Len())
+func (v *scriptedVendor) unchanged() error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !bytes.Equal(v.got.Bytes(), v.sent.Bytes()) {
+		return failf("the vendor got %d bytes, the app sent %d, and they differ", v.got.Len(), v.sent.Len())
 	}
 	return nil
 }
 
 // appWrite sends bytes from the app, and keeps them.
 func (w *world) appWrite(b []byte) error {
-	w.live.mu.Lock()
-	w.live.sent.Write(b)
-	w.live.mu.Unlock()
+	w.scripted.mu.Lock()
+	w.scripted.sent.Write(b)
+	w.scripted.mu.Unlock()
 	_, err := w.socket.conn.Write(b)
 	return err
 }
@@ -473,8 +578,9 @@ func (w *world) untilClose() error {
 func (w *world) appSends(what string) error {
 	pings := regexp.MustCompile(`^(\d+) pings and reads (\d+) pongs$`)
 	audio := regexp.MustCompile(`^(\d+) bytes of audio as a binary frame$`)
-	large := regexp.MustCompile(`^a (packed )?toolResponse (?:of|that unpacks to) (\d+) MiB(?: with id "([^"]+)")?$`)
-	packed := regexp.MustCompile(`^(\d+) toolResponse messages, packed$`)
+	large := regexp.MustCompile(`^a (packed )?batch_add (?:of|that unpacks to) (\d+) MiB(?: with req_id (\d+))?$`)
+	tool := regexp.MustCompile(`^a toolResponse of (\d+) MiB with id "([^"]+)"$`)
+	packed := regexp.MustCompile(`^(\d+) add_order messages, packed$`)
 	plain := regexp.MustCompile(`^(.+?)(?: as a (binary) frame| split into (\d+) frames, with a ping after the first)?$`)
 	for _, part := range strings.Split(what, ", then ") {
 		var err error
@@ -497,17 +603,22 @@ func (w *world) appSends(what string) error {
 		case large.MatchString(part):
 			m := large.FindStringSubmatch(part)
 			mib, _ := strconv.Atoi(m[2])
-			err = w.appMessage(bigToolResponse(mib<<20, m[3]), m[1] != "")
+			reqID, _ := strconv.Atoi(m[3])
+			err = w.appMessage(bigBatchAdd(mib<<20, max(reqID, 1)), m[1] != "")
+		case tool.MatchString(part):
+			m := tool.FindStringSubmatch(part)
+			mib, _ := strconv.Atoi(m[1])
+			err = w.appMessage(bigToolResponse(mib<<20, m[2]), false)
 		case packed.MatchString(part):
 			n, _ := strconv.Atoi(packed.FindStringSubmatch(part)[1])
 			for i := range n {
-				if err = w.appMessage(toolResponse(fmt.Sprintf("call-%d", i+1)), true); err != nil {
+				if err = w.appMessage(addOrder(i+1), true); err != nil {
 					return err
 				}
 			}
 		default:
 			m := plain.FindStringSubmatch(part)
-			message, err := liveMessage(m[1])
+			message, err := scriptedMessage(m[1])
 			if err != nil {
 				return err
 			}
@@ -536,7 +647,7 @@ func (w *world) appMessage(message []byte, pack bool) error {
 	if !pack {
 		return w.appWrite(frameOf(0x1, true, false, message, true))
 	}
-	return w.appWrite(frameOf(0x1, true, true, w.live.packer.pack(message), true))
+	return w.appWrite(frameOf(0x1, true, true, w.scripted.packer.pack(message), true))
 }
 
 // messageRecords are the message records, by their index, once the proxy
@@ -571,47 +682,62 @@ func says(attrs map[string]any, pairs string) error {
 	return errors.Join(errs...)
 }
 
-// liveMessage is the text of a message written in a scenario: JSON as it
-// is, or toolCall, toolResponse, toolError or serverContent with their ids
-// or counts.
-func liveMessage(text string) ([]byte, error) {
+// krakenTime is the time Kraken's replies carry, the same in every run.
+const krakenTime = "2026-11-21T10:00:00.000000Z"
+
+// scriptedMessage is the text of a message written in a scenario: JSON as
+// it is, a Kraken message with its req_id, or a message of the tool spec
+// with its ids.
+func scriptedMessage(text string) ([]byte, error) {
+	reqID := regexp.MustCompile(`with req_id (\d+)(?: for "([^"]+)")?$`).FindStringSubmatch(text)
 	ids := regexp.MustCompile(`"([^"]+)"`)
 	var found []string
 	for _, m := range ids.FindAllStringSubmatch(text, -1) {
 		found = append(found, m[1])
 	}
+	reply := func(method, orderID string) []byte {
+		return fmt.Appendf(nil, `{"method":%q,"req_id":%s,"success":true,"result":{"order_id":%q},"time_in":%q,"time_out":%q}`,
+			method, reqID[1], orderID, krakenTime, krakenTime)
+	}
 	switch {
 	case strings.HasPrefix(text, "{"):
 		return []byte(text), nil
+	case text == "a heartbeat":
+		return []byte(`{"channel":"heartbeat"}`), nil
+	case strings.HasPrefix(text, "add_order with req_id ") && reqID != nil:
+		n, _ := strconv.Atoi(reqID[1])
+		return addOrder(n), nil
+	case strings.HasPrefix(text, "add_order's reply with req_id ") && reqID != nil:
+		return reply("add_order", cmp.Or(reqID[2], "OQCLML-BW3P3-BUCMWZ")), nil
+	case strings.HasPrefix(text, "cancel_order's reply with req_id ") && reqID != nil && reqID[2] != "":
+		return reply("cancel_order", reqID[2]), nil
+	case strings.HasPrefix(text, "a failed subscribe with req_id ") && reqID != nil:
+		return fmt.Appendf(nil, `{"method":"subscribe","req_id":%s,"success":false,"error":"Currency pair not supported NOPE/USD","time_in":%q,"time_out":%q}`,
+			reqID[1], krakenTime, krakenTime), nil
 	case strings.HasPrefix(text, "toolCall with id"):
 		var calls []string
 		for _, id := range found {
 			calls = append(calls, `{"id":"`+id+`","name":"orderStatus"}`)
 		}
 		return []byte(`{"toolCall":{"functionCalls":[` + strings.Join(calls, ",") + `]}}`), nil
-	case strings.HasPrefix(text, "toolError with id"):
-		return []byte(`{"toolError":{"id":"` + found[0] + `","message":"no such order"}}`), nil
 	case strings.HasPrefix(text, "toolResponse with id"):
-		return toolResponse(found[0]), nil
-	case strings.HasPrefix(text, "serverContent with totalTokenCount "):
-		count := strings.TrimPrefix(text, "serverContent with totalTokenCount ")
-		return []byte(`{"serverContent":{"turnComplete":true},"usageMetadata":{"totalTokenCount":` + count + `}}`), nil
+		return []byte(`{"toolResponse":{"functionResponses":[{"id":"` + found[0] + `","name":"orderStatus","response":{"status":"sent"}}]}}`), nil
 	}
 	return nil, failf("no message %q", text)
 }
 
-func toolResponse(id string) []byte {
-	return []byte(`{"toolResponse":{"functionResponses":[{"id":"` + id + `","name":"orderStatus","response":{"status":"sent"}}]}}`)
+// addOrder is a limit order to buy BTC/USD, with its req_id.
+func addOrder(reqID int) []byte {
+	return fmt.Appendf(nil, `{"method":"add_order","req_id":%d,"params":{"order_type":"limit","side":"buy","order_qty":1.2,"limit_price":97000.5,"symbol":"BTC/USD","token":"t-not-real"}}`, reqID)
 }
 
-// bigToolResponse is a toolResponse of size bytes, its id first, then a
-// list and an object that close before its long text.
-func bigToolResponse(size int, id string) []byte {
-	if id == "" {
-		id = "call-1"
-	}
-	head := `{"toolResponse":{"functionResponses":[{"id":"` + id + `","name":"orderStatus","tags":["a"],"meta":{},"response":{"text":"`
-	tail := `"}}]}}`
+// bigBatchAdd is a batch_add of size bytes, its req_id first, then a list
+// of orders and their objects that close before its long token.
+func bigBatchAdd(size, reqID int) []byte {
+	head := fmt.Sprintf(`{"method":"batch_add","req_id":%d,"params":{"symbol":"BTC/USD","orders":[`+
+		`{"order_type":"limit","side":"buy","order_qty":1,"limit_price":97000.5},`+
+		`{"order_type":"limit","side":"sell","order_qty":1,"limit_price":97010.5}],"token":"`, reqID)
+	tail := `"}}`
 	return []byte(head + strings.Repeat("a", size-len(head)-len(tail)) + tail)
 }
 
@@ -729,10 +855,19 @@ func (p *packer) pack(message []byte) []byte {
 	return bytes.Clone(bytes.TrimSuffix(p.buf.Bytes(), []byte{0x00, 0x00, 0xff, 0xff}))
 }
 
-// liveSpec is a shop api whose GET /live switches to a WebSocket and lists
-// its operations and messages; GET /other switches too, with none listed.
-const liveSpec = `openapi: 3.1.0
-info: { title: shop live, version: "1" }
+// bigToolResponse is a toolResponse of size bytes, its id first, then
+// its long text, inside the list of responses.
+func bigToolResponse(size int, id string) []byte {
+	head := `{"toolResponse":{"functionResponses":[{"id":"` + id + `","name":"orderStatus","response":{"text":"`
+	tail := `"}}]}}`
+	return []byte(head + strings.Repeat("a", size-len(head)-len(tail)) + tail)
+}
+
+// toolSpec is a shop api whose GET /live switches to a WebSocket and lists
+// tool calls sent by the vendor, shaped like Gemini Live's, for the cases
+// Kraken has no message for; GET /other switches too, with none listed.
+const toolSpec = `openapi: 3.1.0
+info: { title: shop tool calls, version: "1" }
 paths:
   /live:
     get:
@@ -748,12 +883,6 @@ paths:
           toolError:
             action: send
             messages: [{ $ref: "#/components/x-async-api/messages/toolError" }]
-          sessionInfo:
-            action: receive
-            messages: [{ $ref: "#/components/x-async-api/messages/sessionInfo" }]
-          serverContent:
-            action: send
-            messages: [{ $ref: "#/components/x-async-api/messages/serverContent" }]
   /other:
     get:
       responses:
@@ -770,17 +899,13 @@ components:
       toolError:
         payload: { $ref: "#/components/schemas/toolError" }
         correlationId: { location: "$message.payload#/toolError/id" }
-      sessionInfo:
-        payload: { $ref: "#/components/schemas/sessionInfo" }
-      serverContent:
-        payload: { $ref: "#/components/schemas/serverContent" }
   schemas:
     toolCall:
       type: object
       required: [toolCall]
       properties:
         toolCall:
-          x-hotline-match: true # toolCall
+          x-hotline-match: true
           type: object
           required: [functionCalls]
           properties:
@@ -790,8 +915,8 @@ components:
                 type: object
                 required: [id, name]
                 properties:
-                  id: { type: string } # toolCall id
-                  name: { type: string } # toolCall name
+                  id: { type: string }
+                  name: { type: string }
     toolResponse:
       type: object
       required: [toolResponse]
@@ -821,22 +946,5 @@ components:
           properties:
             id: { type: string }
             message: { type: string }
-    sessionInfo:
-      type: object
-      required: [type, session]
-      properties:
-        type: { x-hotline-match: true, const: session.info }
-        session:
-          type: object
-          properties:
-            kind: { type: string }
-            parent: { $ref: "#/components/schemas/sessionInfo" }
-    serverContent:
-      type: object
-      properties:
-        serverContent: { x-hotline-match: true, type: object }
-        usageMetadata:
-          type: object
-          properties:
-            totalTokenCount: { type: integer, x-hotline-record: gemini.tokens.total }
+            cause: { $ref: "#/components/schemas/toolError" }
 `

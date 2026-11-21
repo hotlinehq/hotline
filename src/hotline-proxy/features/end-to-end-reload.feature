@@ -20,6 +20,9 @@ Feature: Reloading the config of the running program
     And the records carry two different config fingerprints
 
   Scenario: A changed config file is picked up with no signal
+    The file changes as soon as the proxy port listens, while the proxy
+    may still be starting. Each file is noted just before it is read, so a
+    change made after that, even during startup, is picked up.
     Given a fake OTLP receiver
     And the hotline-proxy program runs with integration test-shop for the test vendor
     When the config file changes

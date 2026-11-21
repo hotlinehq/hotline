@@ -7,4 +7,4 @@ The files are in `examples/aws-shop/floci/`; how it works is in its README.
 3. The shop and the proxy are unchanged. Hotline gets `tlsOrigination: false` and `allowInternalIPs: true` per api in `floci/hotline-proxy.yaml`; the AWS host names point to this machine through `/etc/hosts`, and Floci's port 4566 is published on port 80.
 4. Every integration has `content: full`, so the file exporter writes every call with headers and bodies to `floci/out/calls/calls.jsonl`. The workflow keeps it as an artifact. The OTLP exporter never gets the bodies.
 5. The proxy also sends its records, counts and traces to **Grafana Cloud** when the repository secrets `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set.
-6. The workflow `aws-shop-floci.yml` starts by hand only, to save quota.
+6. The workflow `aws-shop-floci.yml` runs after every merge to main, and can still be started by hand (Peter, 2026-11-21; it started by hand only before, to save quota).

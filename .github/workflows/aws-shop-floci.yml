@@ -3,9 +3,12 @@ name: aws-shop-floci
 # Floci, a free local copy of AWS: Terraform makes the resources, the proxy
 # records every call in full to a file, and the file is kept as an artifact.
 # When the Grafana Cloud secrets are set, the proxy also sends its usual
-# records, counts and traces there. Started by hand only, so it uses no
-# quota unless somebody asks for a run.
+# records, counts and traces there. Runs after every merge to main, and by
+# hand (Peter, 2026-11-21).
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:

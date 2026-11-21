@@ -12,7 +12,7 @@ import (
 func main() {
 	var cfg run.Config
 	flag.StringVar(&cfg.Proxy, "proxy", "", "the built hotline-proxy program (required)")
-	flag.StringVar(&cfg.Spec, "spec", "", "the spec the proxy checks calls against: SSM's, S3's for xml, load/live/live.openapi.yaml or load/live/kraken.openapi.yaml for the WebSocket shapes (required)")
+	flag.StringVar(&cfg.Spec, "spec", "", "the spec the proxy checks calls against: SSM's, S3's for xml, load/live/live.openapi.yaml or specs/kraken/spot-websocket/v2.openapi.yaml for the WebSocket shapes (required)")
 	flag.StringVar(&cfg.K6, "k6", "", "the k6 program (default: the one on the path)")
 	flag.StringVar(&cfg.OutDir, "out", "load/results", "where the run folders go")
 	flag.StringVar(&cfg.Shape, "shape", "small-json", "the call shape: small-json, medium-json, large-json, huge-json, slow or xml; or a WebSocket one, live-plain, live-alone or live-context (Gemini Live), kraken-plain, kraken-alone or kraken-context (Kraken market data); these need the k6 of make k6")
