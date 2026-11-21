@@ -1,16 +1,16 @@
 Feature: How OpenTelemetry data is sent
   The proxy sends OTLP over HTTP as protobuf (a compact binary format) to
-  /v1/logs, /v1/metrics and /v1/traces after the endpoint's own path. gRPC
+  /v1/logs and /v1/traces after the endpoint's own path. gRPC
   is not offered: its port usually takes nothing else, and HTTP goes
   through the load balancers, proxies and firewalls companies already
   have (Peter, 2026-11-08). Only the config file says how data is sent:
   the standard OTEL_EXPORTER_OTLP_* environment variables are ignored
   (Peter, 2026-10-30). Tests use a fake OTLP receiver over HTTP.
 
-  Scenario: Records, counts and spans over HTTP
+  Scenario: Records and spans over HTTP
     Given a receiver
     When a call ends
-    Then the receiver gets the record on /v1/logs and the count on /v1/metrics
+    Then the receiver gets the record on /v1/logs and the spans on /v1/traces
     And every request is sent as application/x-protobuf
 
   Scenario: A path in the endpoint is kept

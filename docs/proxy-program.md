@@ -12,7 +12,7 @@ The proxy from slice 1 runs as one program, `hotline-proxy`, in `src/hotline-pro
 6. **Stopping.** On SIGTERM (what Kubernetes sends to stop a program) or SIGINT (Ctrl+C), the proxy stops taking new calls, lets calls in progress finish, and sends every queued record. It takes at most 25 seconds, set with `--shutdown-timeout`, so it ends before Kubernetes' usual 30 second limit. A second signal cuts the stop short.
 7. **Exit codes.** 0 after a clean stop. 1 when it cannot start (config refused, trust file refused, port taken), or when a stop ran out of time or was cut short. 2 for a wrong command line.
 8. **Trust file.** `--trust-file` names a PEM file (the usual text format for certificates) of extra trusted certificate authorities for vendor certificates, added on top of the system's own. The vendor's certificate is still always checked. The end-to-end tests use it to trust their test vendor.
-9. **Fixed settings.** One send may take at most 10 seconds. How often each exporter sends is in its config: `metricInterval` (60s), `logInterval` and `traceInterval` (15s each). Each run gets a new random `service.instance.id`.
+9. **Fixed settings.** One send may take at most 10 seconds. How often each exporter sends is in its config: `logInterval` and `traceInterval` (15s each); the `telemetry` section's `metricInterval` is 60s by default. Each run gets a new random `service.instance.id`.
 
 ## End-to-end tests
 

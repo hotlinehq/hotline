@@ -107,13 +107,6 @@ func ingressSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return hasNo(record, "server.address")
 	})
-	sc.Step(`^hotline.requests goes up by one$`, func() error {
-		counts := w.counts()
-		if len(counts) == 0 || counts[len(counts)-1].value != 1 {
-			return failf("got the counts %+v, want one call", counts)
-		}
-		return nil
-	})
 	sc.Step(`^the proxy port uses TLS with a certificate the app trusts$`, func() error {
 		w.proxyCert = w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(w.proxyCert, w.proxyCert)

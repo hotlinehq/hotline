@@ -44,6 +44,7 @@ The proxy is built in small slices, tests first. Each item, with its decisions i
 
 - Say "ingress", never "door", for the ways apps reach the proxy (Peter, 2026-10-29).
 - Breaking changes to the config and the records are allowed (Peter, 2026-11-19).
+- Exporters get records and spans only, no metrics; the control plane computes counts and latencies from records ([decisions/proxy-telemetry.md](docs/decisions/proxy-telemetry.md), Peter, 2026-11-21).
 - The load test uses k6 (Peter, 2026-10-27).
 
 ## Decisions by topic

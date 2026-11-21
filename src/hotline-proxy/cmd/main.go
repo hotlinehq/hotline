@@ -310,6 +310,12 @@ func serve(logger *slog.Logger, o proxy.Options, stop stopping, signals, reloads
 		logger.Error("hotline proxy stopped with calls or records left", "reason", fmt.Sprint(context.Cause(ctx)), "error", err.Error())
 		return exitFail
 	}
+	if cause := context.Cause(ctx); cause != nil {
+		// A stop that was cut short or ran out of time fails, even when
+		// nothing was left to send.
+		logger.Error("hotline proxy stopped early", "reason", cause.Error())
+		return exitFail
+	}
 	logger.Info("hotline proxy stopped")
 	return exitOK
 }

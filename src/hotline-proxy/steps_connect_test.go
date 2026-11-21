@@ -130,7 +130,7 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 			if err := w.waitForRecords(len(w.sentRecords) + 1); err != nil {
 				return err
 			}
-			records, _ := w.receivers[0].got()
+			records := w.receivers[0].got()
 			w.sentRecords = records
 		}
 		return nil
@@ -152,7 +152,7 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 			if err := w.waitForRecords(len(w.sentRecords) + 1); err != nil {
 				return err
 			}
-			records, _ := w.receivers[0].got()
+			records := w.receivers[0].got()
 			w.sentRecords = records
 		}
 		return nil

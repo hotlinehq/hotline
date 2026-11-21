@@ -10,6 +10,11 @@ import (
 // turned off by name.
 type Telemetry struct {
 	Exporter Exporter
+	// MetricInterval is how often the numbers are sent.
+	MetricInterval time.Duration
+	// Delta sends each sum as the change since the last send, not as the
+	// running total since the start.
+	Delta bool
 	// Disable are metric names, each exact or ending in * for every name
 	// that starts with what is before it.
 	Disable []string
@@ -60,7 +65,20 @@ func (l *loader) telemetry(f *telemetryFile, now time.Time) *Telemetry {
 		l.warnings = append(l.warnings, "there is no telemetry section, so the proxy's own telemetry is not sent")
 		return nil
 	}
-	t := &Telemetry{Exporter: l.exporter(*f.OTLP, now), Disable: f.Disable}
+	label := "telemetry.otlp"
+	t := &Telemetry{
+		Exporter: l.exporter(*f.OTLP, now),
+		// A data point a minute is what Grafana Cloud's standard pricing
+		// covers (Peter, 2026-11-01).
+		MetricInterval: l.interval(label, "metricInterval", f.OTLP.MetricInterval, time.Minute),
+		Delta:          f.OTLP.Temporality == "delta",
+		Disable:        f.Disable,
+	}
+	switch f.OTLP.Temporality {
+	case "", "cumulative", "delta":
+	default:
+		l.problem("%s: temporality must be cumulative or delta", label)
+	}
 	// The exporter gets only metrics.
 	if f.OTLP.LogInterval != nil {
 		l.warnings = append(l.warnings, "telemetry.otlp.logInterval is ignored: the telemetry section gets only metrics")

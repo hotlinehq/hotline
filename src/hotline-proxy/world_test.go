@@ -511,7 +511,7 @@ func (w *world) config() string {
 			extra = w.exporterExtra[i]
 		}
 		b.WriteString(extra)
-		for _, name := range []string{"metricInterval", "logInterval", "traceInterval"} {
+		for _, name := range []string{"logInterval", "traceInterval"} {
 			if !w.unsetIntervals && !strings.Contains(extra, name) {
 				b.WriteString("      " + name + ": 20ms\n")
 			}
@@ -867,7 +867,7 @@ func (w *world) settle() {
 // proxy has sent everything.
 func (w *world) records() []receivedRecord {
 	w.settle()
-	records, _ := w.receivers[0].got()
+	records := w.receivers[0].got()
 	return records
 }
 
@@ -878,20 +878,6 @@ func (w *world) record() (map[string]any, error) {
 		return nil, fmt.Errorf("%w: want exactly one record, got %d", errNoRecord, len(records))
 	}
 	return records[0].attrs, nil
-}
-
-// counts waits for the first count before the shutdown, because shutting
-// down cancels a send in flight, and with delta totals that send's count is
-// gone for good.
-func (w *world) counts() []receivedCount {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if _, counts := w.receivers[0].got(); len(counts) > 0 {
-			break
-		}
-	}
-	w.settle()
-	_, counts := w.receivers[0].got()
-	return counts
 }
 
 // syncBuffer collects the proxy's own log lines.
@@ -942,7 +928,7 @@ func mustURL(raw string) *url.URL {
 func (w *world) waitForRecords(n int) error {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if records, _ := w.receivers[0].got(); len(records) >= n {
+		if records := w.receivers[0].got(); len(records) >= n {
 			return nil
 		}
 		time.Sleep(5 * time.Millisecond)

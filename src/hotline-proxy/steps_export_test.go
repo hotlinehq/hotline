@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
 func exportSteps(sc *godog.ScenarioContext, w *world) {
@@ -56,16 +55,6 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^service.version is still the proxy's own$`, func() error {
 		return has(w.records()[0].resource, "service.version", "1.0.0-test")
 	})
-	sc.Step(`^the hotline.requests counter carries the same resource$`, func() error {
-		counts := w.counts()
-		if len(counts) == 0 {
-			return failf("no count arrived")
-		}
-		if fmt.Sprint(counts[0].resource) != fmt.Sprint(w.records()[0].resource) {
-			return failf("the counter's resource is %v, the record's %v", counts[0].resource, w.records()[0].resource)
-		}
-		return nil
-	})
 	sc.Step(`^two exporters, the second with the resource deployment.environment.name staging$`, func() error {
 		w.receivers = append(w.receivers, newReceiver())
 		w.exporterExtra = []string{"", "      resource:\n        deployment.environment.name: staging\n"}
@@ -73,7 +62,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the first gets the proxy's own resource, with no deployment.environment.name$`, func() error {
 		w.settle()
-		records, _ := w.receivers[0].got()
+		records := w.receivers[0].got()
 		if len(records) != 1 {
 			return failf("the first exporter got %d records", len(records))
 		}
@@ -83,7 +72,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return has(records[0].resource, "service.name", "hotline-proxy")
 	})
 	sc.Step(`^the second gets deployment.environment.name staging$`, func() error {
-		records, _ := w.receivers[1].got()
+		records := w.receivers[1].got()
 		if len(records) != 1 {
 			return failf("the second exporter got %d records", len(records))
 		}
@@ -160,47 +149,24 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 
-	sc.Step(`^hotline.requests goes up by one, with unit \{request\}$`, func() error {
-		counts := w.counts()
-		if len(counts) == 0 {
-			return failf("no count arrived")
-		}
-		last := counts[len(counts)-1]
-		if last.value != 1 || last.unit != "{request}" || !last.monotonic {
-			return failf("got %+v, want 1 {request} that only goes up", last)
-		}
-		return nil
-	})
-	sc.Step(`^it carries hotline.integration.id, url.template, http.request.method, http.response.status_code and error.type$`, func() error {
-		counts := w.counts()
-		attrs := counts[len(counts)-1].attrs
-		if err := hasAll(attrs, "hotline.integration.id", "url.template", "http.request.method", "http.response.status_code"); err != nil {
-			return err
-		}
-		for key := range attrs {
-			switch key {
-			case "hotline.integration.id", "url.template", "http.request.method", "http.response.status_code", "error.type":
-			default:
-				return failf("the counter carries %s", key)
+	sc.Step(`^the receiver gets nothing on /v1/metrics$`, func() error {
+		w.settle()
+		for _, seen := range w.receivers[0].requests() {
+			if strings.HasSuffix(seen.path, "/v1/metrics") {
+				return failf("the receiver got a send on %s", seen.path)
 			}
 		}
 		return nil
 	})
-	sc.Step(`^a not-passed call ends$`, func() error {
-		w.appID = ""
-		return w.defaultCall()
+	sc.Step(`^an exporter that sets metricInterval to 0s and temporality to weekly$`, func() error {
+		w.exporterExtra = []string{"      metricInterval: 0s\n      temporality: weekly\n"}
+		return nil
 	})
-	sc.Step(`^hotline.requests carries no (\S+)$`, func(name string) error {
-		counts := w.counts()
-		if len(counts) == 0 {
-			return failf("no count arrived")
-		}
-		return hasNo(counts[len(counts)-1].attrs, name)
-	})
-
-	sc.Step(`^an exporter that (does not set temporality|sets temporality to delta)$`, func(sets string) error {
-		if sets == "sets temporality to delta" {
-			w.exporterExtra = []string{"      temporality: delta\n"}
+	sc.Step(`^the proxy logs no warning about metricInterval or temporality$`, func() error {
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, "level=WARN") && (strings.Contains(line, "metricInterval") || strings.Contains(line, "temporality")) {
+				return failf("the proxy warned: %s", line)
+			}
 		}
 		return nil
 	})
@@ -208,7 +174,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		w.unsetIntervals = true
 		return nil
 	})
-	sc.Step(`^an exporter that sets (metricInterval|logInterval|traceInterval) to 1h$`, func(name string) error {
+	sc.Step(`^an exporter that sets (logInterval|traceInterval) to 1h$`, func(name string) error {
 		w.exporterExtra = []string{"      " + name + ": 1h\n"}
 		return nil
 	})
@@ -219,16 +185,16 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the record, its spans and the count arrive when the proxy stops$`, func() error {
+	sc.Step(`^the record and its spans arrive when the proxy stops$`, func() error {
 		w.settle()
-		if got := w.arrived(); len(got) != 3 {
+		if got := w.arrived(); len(got) != 2 {
 			return failf("got only %v", got)
 		}
 		return nil
 	})
-	sc.Step(`^no (count|record|span) arrives within a second, but the others do$`, func(signal string) error {
+	sc.Step(`^no (record|span) arrives within a second, but the others do$`, func(signal string) error {
 		err := w.eventually(func() error {
-			if got := w.arrived(); len(got) < 2 {
+			if got := w.arrived(); len(got) < 1 {
 				return failf("got only %v", got)
 			}
 			return nil
@@ -242,7 +208,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the (count|record|span) arrives when the proxy stops$`, func(signal string) error {
+	sc.Step(`^the (record|span) arrives when the proxy stops$`, func(signal string) error {
 		w.settle()
 		if got := w.arrived(); !slices.Contains(got, signal) {
 			return failf("no %s arrived, got %v", signal, got)
@@ -258,44 +224,15 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the (?:totals are|exporter's temporality is) (cumulative|delta)$`, func(kind string) error {
-		if w.resp == nil {
-			if err := w.defaultCall(); err != nil {
-				return err
-			}
-		}
-		want := map[string]metrics.AggregationTemporality{
-			"cumulative": metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
-			"delta":      metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
-		}[kind]
-		counts := w.counts()
-		if len(counts) == 0 {
-			return failf("no count arrived")
-		}
-		for _, c := range counts {
-			if c.temporality != want {
-				return failf("got %v totals, want %s", c.temporality, kind)
-			}
-		}
-		return nil
-	})
-	sc.Step(`^no histogram is sent$`, func() error {
-		w.settle()
-		if w.receivers[0].histograms > 0 {
-			return failf("got %d histograms", w.receivers[0].histograms)
-		}
-		return nil
-	})
 	sc.Step(`^two exporters$`, func() error {
 		w.receivers = append(w.receivers, newReceiver())
 		return nil
 	})
-	sc.Step(`^both get the same record and count$`, func() error {
+	sc.Step(`^both get the same record and spans$`, func() error {
 		w.settle()
-		first, firstCounts := w.receivers[0].got()
-		second, secondCounts := w.receivers[1].got()
+		first, second := w.receivers[0].got(), w.receivers[1].got()
 		if len(first) != 1 || len(second) != 1 || fmt.Sprint(first[0].attrs) != fmt.Sprint(second[0].attrs) ||
-			len(firstCounts) == 0 || len(secondCounts) == 0 {
+			len(w.receivers[0].spans()) == 0 || len(w.receivers[0].spans()) != len(w.receivers[1].spans()) {
 			return failf("the exporters got %v and %v", first, second)
 		}
 		return nil
@@ -401,7 +338,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the exporter gets every span of the first call$`, func() error {
-		records, _ := w.receivers[0].got()
+		records := w.receivers[0].got()
 		if len(records) != 2 {
 			return failf("the exporter got %d records, want 2", len(records))
 		}
@@ -427,7 +364,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^it gets no span of the second call$`, func() error {
-		records, _ := w.receivers[0].got()
+		records := w.receivers[0].got()
 		second := records[1].traceID
 		for _, s := range w.receivers[0].spans() {
 			if s.traceID == second {
@@ -487,26 +424,21 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return err
 	})
 	sc.Step(`^they are sent first, within a time limit$`, func() error {
-		if records, _ := w.receivers[0].got(); len(records) != 1 || w.appTook > 5*time.Second {
+		if records := w.receivers[0].got(); len(records) != 1 || w.appTook > 5*time.Second {
 			return failf("got %d records after %v", len(records), w.appTook)
 		}
 		return nil
 	})
 }
 
-// arrived names what the first receiver has got so far: record, span and
-// count.
+// arrived names what the first receiver has got so far: record and span.
 func (w *world) arrived() []string {
 	var got []string
-	records, counts := w.receivers[0].got()
-	if len(records) > 0 {
+	if len(w.receivers[0].got()) > 0 {
 		got = append(got, "record")
 	}
 	if len(w.receivers[0].spans()) > 0 {
 		got = append(got, "span")
-	}
-	if len(counts) > 0 {
-		got = append(got, "count")
 	}
 	return got
 }

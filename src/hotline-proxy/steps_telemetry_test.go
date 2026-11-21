@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
 func telemetrySteps(sc *godog.ScenarioContext, w *world) {
@@ -91,17 +92,64 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the telemetry receiver gets no log records$`, func() error {
 		w.settle()
-		if records, _ := w.telemetry.got(); len(records) > 0 {
+		if records := w.telemetry.got(); len(records) > 0 {
 			return failf("the telemetry receiver got %d records", len(records))
 		}
 		return nil
 	})
-	sc.Step(`^the product receiver gets no metric but hotline.requests$`, func() error {
+	sc.Step(`^the product receiver gets no metric$`, func() error {
 		w.settle()
-		for _, p := range w.receivers[0].metricPoints() {
-			if p.name != "hotline.requests" {
-				return failf("the product receiver got %s", p.name)
+		if points := w.receivers[0].metricPoints(); len(points) > 0 {
+			return failf("the product receiver got %s", points[0].name)
+		}
+		return nil
+	})
+	sc.Step(`^the telemetry section (does not set temporality|sets temporality to delta)$`, func(sets string) error {
+		if sets == "sets temporality to delta" {
+			w.telemetryExtra = "    temporality: delta\n"
+		}
+		return nil
+	})
+	sc.Step(`^the telemetry receiver is plain and offers h2c$`, func() error {
+		w.telemetry.stop()
+		w.telemetry = newReceiverWith(receiverSetup{h2c: true})
+		return nil
+	})
+	sc.Step(`^the telemetry section sets h2c to true$`, func() error {
+		w.telemetryExtra = "    h2c: true\n"
+		return nil
+	})
+	sc.Step(`^every request to the telemetry receiver came over HTTP/2.0$`, func() error {
+		w.settle()
+		seen := w.telemetry.requests()
+		if len(seen) == 0 {
+			return failf("the telemetry receiver got no request")
+		}
+		for _, s := range seen {
+			if s.proto != "HTTP/2.0" {
+				return failf("a request to %s came over %s, want HTTP/2.0", s.path, s.proto)
 			}
+		}
+		return nil
+	})
+	sc.Step(`^the telemetry sums are (cumulative|delta)$`, func(kind string) error {
+		w.settle()
+		want := map[string]metrics.AggregationTemporality{
+			"cumulative": metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			"delta":      metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
+		}[kind]
+		sums := 0
+		for _, p := range w.telemetry.metricPoints() {
+			if p.kind != "sum" {
+				continue
+			}
+			sums++
+			if p.temporality != want {
+				return failf("%s has %v totals, want %s", p.name, p.temporality, kind)
+			}
+		}
+		if sums == 0 {
+			return failf("the telemetry receiver got no sum")
 		}
 		return nil
 	})

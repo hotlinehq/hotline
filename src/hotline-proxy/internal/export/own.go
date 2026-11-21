@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"slices"
+	"strings"
 	"sync/atomic"
 
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -33,8 +35,8 @@ func NewOwn(t *config.Telemetry, roots *x509.CertPool, service Service, timing T
 	}
 	options := []sdkmetric.Option{
 		sdkmetric.WithResource(describe(service, t.Exporter.Resource)),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricSender(t.Exporter, roots, timing),
-			sdkmetric.WithInterval(t.Exporter.MetricInterval),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricSender(t, roots, timing),
+			sdkmetric.WithInterval(t.MetricInterval),
 			sdkmetric.WithTimeout(timing.Timeout))),
 	}
 	// Five of the runtime's numbers are enough (Peter, 2026-11-01), with
@@ -127,7 +129,7 @@ func exporterLabel(e config.Exporter) attribute.KeyValue {
 	return attribute.String("hotline.exporter", e.Endpoint)
 }
 
-// signal names an exporter and what it sends: record, span or count.
+// signal names an exporter and what it sends: record or span.
 func signal(e config.Exporter, what string) attribute.Set {
 	return attribute.NewSet(exporterLabel(e), attribute.String("hotline.signal", what))
 }
@@ -135,30 +137,6 @@ func signal(e config.Exporter, what string) attribute.Set {
 // dropReason adds why items were dropped to an exporter's labels.
 func dropReason(set attribute.Set, reason string) metric.MeasurementOption {
 	return metric.WithAttributes(append(set.ToSlice(), attribute.String("hotline.drop.reason", reason))...)
-}
-
-// countedMetrics counts the data points each send of hotline.requests
-// carried, and keeps the exporter's state.
-type countedMetrics struct {
-	sdkmetric.Exporter
-	sent    metric.Int64Counter
-	dropped metric.Int64Counter
-	labels  attribute.Set
-	up      *atomic.Int64
-}
-
-func (c countedMetrics) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
-	err := c.Exporter.Export(ctx, rm)
-	n := 0
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			// Exporters get only the hotline.requests sum.
-			sum, _ := m.Data.(metricdata.Sum[int64])
-			n += len(sum.DataPoints)
-		}
-	}
-	measured(ctx, c.sent, c.dropped, n, c.labels, err, c.up)
-	return err
 }
 
 // measured counts n sent or lost, and keeps the state of the exporter.
@@ -170,4 +148,47 @@ func measured(ctx context.Context, sent, dropped metric.Int64Counter, n int, set
 	}
 	up.Store(1)
 	sent.Add(ctx, int64(n), metric.WithAttributeSet(set))
+}
+
+// metricSender sends the proxy's own numbers to the telemetry section's
+// collector over HTTP.
+func metricSender(t *config.Telemetry, roots *x509.CertPool, timing Timing) sdkmetric.Exporter {
+	temporality := sdkmetric.DefaultTemporalitySelector
+	if t.Delta {
+		temporality = delta
+	}
+	return httpMetrics(t.Exporter, tlsFor(t.Exporter, roots), timing, temporality)
+}
+
+// httpMetrics sends metrics over HTTP as protobuf, to /v1/metrics after the
+// endpoint's own path.
+func httpMetrics(e config.Exporter, tlsConfig *tls.Config, timing Timing, temporality sdkmetric.TemporalitySelector) sdkmetric.Exporter {
+	base := strings.TrimSuffix(e.URL.Path, "/")
+	compression := otlpmetrichttp.NoCompression
+	if e.Gzip {
+		compression = otlpmetrichttp.GzipCompression
+	}
+	options := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpoint(e.URL.Host),
+		otlpmetrichttp.WithURLPath(base + "/v1/metrics"),
+		otlpmetrichttp.WithHeaders(e.Headers),
+		otlpmetrichttp.WithCompression(compression),
+		otlpmetrichttp.WithTimeout(timing.Timeout),
+		otlpmetrichttp.WithRetry(otlpmetrichttp.RetryConfig{Enabled: true, InitialInterval: retryFirst, MaxInterval: retryMost, MaxElapsedTime: timing.Timeout}),
+		otlpmetrichttp.WithTemporalitySelector(temporality),
+		otlpmetrichttp.WithTLSClientConfig(tlsConfig),
+	}
+	if tlsConfig == nil {
+		options = append(options, otlpmetrichttp.WithInsecure())
+	}
+	if e.H2C {
+		// The library's own client cannot speak h2c.
+		options = append(options, otlpmetrichttp.WithHTTPClient(httpClient(e, tlsConfig)))
+	}
+	metrics, _ := otlpmetrichttp.New(context.Background(), options...)
+	return metrics
+}
+
+func delta(sdkmetric.InstrumentKind) metricdata.Temporality {
+	return metricdata.DeltaTemporality
 }

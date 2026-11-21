@@ -12,7 +12,6 @@ exporters:                        # one or more; each gets the same data
       endpoint: http://hotline-control-plane.hotline:4318    # the control plane's ingestion, OTLP over HTTP
   - otlp:
       endpoint: http://otel-collector.observability:4318     # the customer's own collector
-      temporality: delta
       # h2c: true                 # HTTP/2 without TLS, when the collector takes it
   # - otlp:                      # a hosted collector with TLS and a login token
   #     endpoint: https://otel.example.com:4318

@@ -171,7 +171,7 @@ These protect the customer's traffic. Breaking one is a bug even if tests pass.
 ## 8. OpenTelemetry
 
 - Use the standard names from `go.opentelemetry.io/otel/semconv` constants wherever one exists. Hotline-only fields use the `hotline.` prefix and match the spec's tables exactly.
-- One log record per call (`event.name = hotline.request`), the `hotline.requests` counter, optional spans. Data for customers and the proxy's own health data go to separate exporters, never mixed.
+- One log record per call (`event.name = hotline.request`) and optional spans. Exporters get no metrics: the control plane works out counts and latencies from the records (Peter, 2026-11-21). Data for customers and the proxy's own health data go to separate exporters, never mixed.
 - Use `log/slog` for the proxy's own logs. When tracing is on, route it through the OpenTelemetry slog bridge (`go.opentelemetry.io/contrib/bridges/otelslog`) so log lines carry the trace and span IDs.
 
 ## 9. Before you hand work back

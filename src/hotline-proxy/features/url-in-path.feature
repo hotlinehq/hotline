@@ -82,7 +82,6 @@ Feature: The vendor URL in path ingress
     When an app sends "GET /https:/api.talon.one/v2/x" with "Host: localhost:8080"
     Then the proxy answers 400
     And the record's ID is talon-shop-a
-    And hotline.requests goes up by one
 
   Scenario: A call over TLS to the proxy
     Given the proxy port uses TLS with a certificate the app trusts

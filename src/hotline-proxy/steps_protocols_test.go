@@ -34,10 +34,8 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		use(receiverSetup{path: path})
 		return nil
 	})
-	sc.Step(`^the receiver gets the record on /v1/logs and the count on /v1/metrics$`, func() error {
-		if len(w.counts()) == 0 {
-			return failf("no count arrived")
-		}
+	sc.Step(`^the receiver gets the record on /v1/logs and the spans on /v1/traces$`, func() error {
+		w.settle()
 		if got := len(w.records()); got != 1 {
 			return failf("the receiver got %d records, want 1", got)
 		}
@@ -45,7 +43,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		for _, seen := range w.receivers[0].requests() {
 			paths = append(paths, seen.path)
 		}
-		if !slices.Contains(paths, "/v1/logs") || !slices.Contains(paths, "/v1/metrics") {
+		if !slices.Contains(paths, "/v1/logs") || !slices.Contains(paths, "/v1/traces") {
 			return failf("the receiver got requests to %v", paths)
 		}
 		return nil
@@ -215,7 +213,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		return logSends()
 	}
 	sc.Step(`^the record arrives on the second try$`, func() error {
-		sends := sendsBeforeStop(func() bool { records, _ := w.receivers[0].got(); return len(records) > 0 })
+		sends := sendsBeforeStop(func() bool { records := w.receivers[0].got(); return len(records) > 0 })
 		if got := len(w.records()); got != 1 {
 			return failf("the receiver got %d records, want 1", got)
 		}

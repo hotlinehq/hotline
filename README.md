@@ -132,9 +132,7 @@ ledger:                                 # the evidence ledger; the values shown 
 exporters:                              # one or more; each gets the same records and spans
   - otlp:                               # plain HTTP
       endpoint: http://otel-collector.observability:4318
-      temporality: delta                # counters as changes; cumulative (default) as running totals
       queueSize: 10000                  # records waiting; when full, new ones are refused and counted
-      metricInterval: 60s
       logInterval: 15s
       traceInterval: 15s
       # h2c: true                       # HTTP/2 without TLS, when the collector takes it
@@ -158,6 +156,8 @@ exporters:                              # one or more; each gets the same record
 telemetry:                              # the proxy's own health numbers, kept apart from the records
   otlp:                                 # the same settings as an otlp exporter
     endpoint: http://otel-collector.observability:4318
+    metricInterval: 60s                 # how often the numbers go out
+    temporality: delta                  # sums as changes; cumulative (default) as running totals
   disable: [go.*]                       # metrics to turn off, by name or prefix
   pprof: false                          # true serves Go's profile pages on the admin port
 ```

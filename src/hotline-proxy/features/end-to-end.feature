@@ -17,7 +17,6 @@ Feature: Calling through the proxy, end to end
     Then the app gets the test vendor's status, headers and body unchanged
     And the test vendor got the call over https and never saw Proxy-Authorization
     And the receiver got one hotline.request record with hotline.ingress forward_proxy and ID test-shop
-    And the receiver saw hotline.requests go up by one
     And the record holds the redacted url.full and no secret
 
     Examples:

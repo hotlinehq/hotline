@@ -359,7 +359,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return nil
 	})
 	sc.Step(`^the receiver got the call's record$`, func() error {
-		records, _ := p.receiver.got()
+		records := p.receiver.got()
 		if len(records) != 1 {
 			return failf("the receiver got %d records, want 1", len(records))
 		}
@@ -454,7 +454,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return failf("the proxy port still takes calls %d seconds after the signal", to)
 	})
 	sc.Step(`^the receiver got no records$`, func() error {
-		if records, _ := p.receiver.got(); len(records) != 0 {
+		if records := p.receiver.got(); len(records) != 0 {
 			return failf("the receiver got %d records", len(records))
 		}
 		return nil
@@ -556,19 +556,6 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 			return err
 		}
 		return has(record, "hotline.integration.id", "test-shop")
-	})
-	sc.Step(`^the receiver saw hotline.requests go up by one$`, func() error {
-		if err := p.stop(); err != nil {
-			return err
-		}
-		_, counts := p.receiver.got()
-		if len(counts) == 0 {
-			return failf("no count arrived")
-		}
-		if last := counts[len(counts)-1]; last.value != 1 {
-			return failf("hotline.requests is %d, want 1", last.value)
-		}
-		return nil
 	})
 	sc.Step(`^the record holds the redacted url.full and no secret$`, func() error {
 		record, err := p.record()
@@ -788,7 +775,7 @@ integrations:
 // configLabels are the hotline.config.version of each record, each checked
 // to be the config's file name, a + and a fingerprint.
 func (p *program) configLabels() ([]string, error) {
-	records, _ := p.receiver.got()
+	records := p.receiver.got()
 	got := make([]string, 0, len(records))
 	for _, r := range records {
 		label, _ := r.attrs["hotline.config.version"].(string)
@@ -889,7 +876,7 @@ func (p *program) record() (map[string]any, error) {
 	if err := p.stop(); err != nil {
 		return nil, err
 	}
-	records, _ := p.receiver.got()
+	records := p.receiver.got()
 	if len(records) != 1 {
 		return nil, fmt.Errorf("%w: want exactly one record, got %d", errNoRecord, len(records))
 	}

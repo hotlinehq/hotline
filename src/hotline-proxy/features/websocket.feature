@@ -76,13 +76,6 @@ Feature: WebSocket sessions
     Then the session record has the call record's trace_id
     And the session record's span is a "websocket session" span under the call's "hotline call" span, starting when the call ends
 
-  Scenario: hotline.requests counts the WebSocket once, with status 101
-    The session is not counted, as a CONNECT tunnel that opens fine is not.
-    Given the shop vendor accepts a WebSocket upgrade, reads 5 bytes, sends "ok" and closes
-    When an app opens a WebSocket to the shop through the forward_proxy ingress
-    And the app sends "hello" and reads "ok"
-    Then hotline.requests counts 1 call, with http.response.status_code 101
-
   Scenario: A session still open at stop is ended and recorded
     Given the shop vendor accepts a WebSocket upgrade and keeps it open until the app closes
     When an app opens a WebSocket to the shop through the forward_proxy ingress
