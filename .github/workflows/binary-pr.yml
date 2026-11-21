@@ -1,7 +1,9 @@
 # On pull requests that change the proxy's code or its Dockerfile: builds and
 # checks the programs and the image, and publishes nothing. A pull request that
 # only changes the load test, docs or any workflow builds nothing (Peter,
-# 2026-11-02). The jobs are in binary-build.yml. Detail:
+# 2026-11-02). The jobs are in binary-build.yml and binary-package.yml.
+# Signing the Mac program and smoke-linux run only on release, so a pull
+# request shows no skipped jobs (Peter, 2026-11-21). Detail:
 # docs/proxy-binaries.md.
 name: binary pr
 on:
@@ -15,3 +17,9 @@ permissions:
 jobs:
   binaries:
     uses: ./.github/workflows/binary-build.yml
+
+  package:
+    needs: binaries
+    uses: ./.github/workflows/binary-package.yml
+    with:
+      label: ${{ needs.binaries.outputs.label }}
