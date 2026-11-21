@@ -58,6 +58,7 @@ Open only the file for the topic at hand.
 - Internal address guard: [docs/decisions/internal-guard.md](docs/decisions/internal-guard.md)
 - Host header ingress: [docs/decisions/host-header.md](docs/decisions/host-header.md)
 - Spec checks and shared apis: [docs/decisions/spec-checks.md](docs/decisions/spec-checks.md)
+- Edge proxy spec support (OpenAPI 3.2 only, minimal webhooks; the gaps, support list and roadmap): [docs/spec-support/roadmap.md](docs/spec-support/roadmap.md)
 - Transparent redirect: [docs/decisions/transparent-redirect.md](docs/decisions/transparent-redirect.md)
 - CONNECT ingress: [docs/decisions/connect.md](docs/decisions/connect.md)
 - Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
