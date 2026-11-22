@@ -23,6 +23,7 @@ A trace is a set of spans; a span is one step with a start time and an end time.
 | `response spec check` | internal | the vendor's response ended | the response's check ended. Full records with a response only |
 | `wait for check worker`, under each spec check | internal | the check joined the line | a worker took it, or it was skipped as overloaded |
 
+- A streamed response adds a `stream` span under `hotline call`, from its headers reaching the app to its end, failed when the stream was cut, and a `stream item` span for each item under it, from its first byte to its last, with `item spec check` and `wait for check worker` under that when it was checked (Peter, 2026-11-21, M2). `hotline call`, `vendor call` and its steps all end when the headers reach the app.
 - A step that did not happen has no span: no `dns lookup` for an IP address, no `vendor tls handshake` for plain http, none of the three on a reused connection.
 - Each side is checked against the spec as soon as it is whole, alongside the call: the request while the proxy waits for the vendor, the response while the proxy sends it on (Peter, 2026-10-31). Both spans sit under `hotline call` and may end after it. A request never sent, such as when the vendor refused the connection, is checked when the call ends. The record waits for both checks, but the app never does.
 - A refused call, and a `CONNECT` tunnel whose TLS setup failed, have only `hotline call` (with `app tls handshake` for the tunnel, when it was timed).

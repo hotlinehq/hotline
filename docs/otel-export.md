@@ -76,6 +76,8 @@ One OpenTelemetry log record per call, sent once the response has gone back to t
 
 A WebSocket's opening call is recorded as soon as its `101` reaches the app, like any other call: its response has no body (`http.response.body.size` is 0 and `hotline.response.body.hash` is the hash of no bytes), and its time ends at the `101`. What follows the `101` belongs to the session, which gets a record of its own when it ends: see [WebSocket sessions](#websocket-sessions) (Peter, 2026-11-18). Before, a WebSocket had one record, made at its end: it counted the vendor's frames as the response body and the whole session as the call's time.
 
+A streamed response whose spec gives its media type an `itemSchema` (OpenAPI 3.2), such as Anthropic's `text/event-stream`, is recorded the same way: once its headers reach the app, with no response body and its time ending there. Its events belong to the stream, which gets a record of its own when it ends, and each event gets a record too: see [Streamed responses](#streamed-responses) (Peter, 2026-11-21, M2, Q1 to Q3).
+
 - Event name: `hotline.request`.
 - Timestamp: when the call reached the proxy.
 - Trace id, span id and flags, in the log record's own OpenTelemetry fields, not in attributes. The trace id and flags are the app's, read from its call in the integration's `traceFormat` (`w3c` by default, or `b3`, `xray`, `jaeger`); when the app sent none, the proxy makes a new trace id. The span id is always a new one for the proxy's step. Detail: [proxy-trace-context.md](proxy-trace-context.md).
@@ -138,7 +140,7 @@ The proxy checks each full-record call against the vendor's spec, after the resp
 | `hotline.schema.response.errors` | list of maps | Problems with the response, at most 20. |
 | `hotline.schema.request.errors_total` | whole number | How many request problems there were, only when more than 20. |
 | `hotline.schema.response.errors_total` | whole number | The same for the response. |
-| `hotline.schema.skipped` | text | Why part of the check did not run: `no_spec_route`, `body_too_large`, `unsupported_content_type` or `streaming`. |
+| `hotline.schema.skipped` | text | Why part of the check did not run: `no_spec_route`, `body_too_large`, `unsupported_content_type` or `streaming` (a streamed response whose spec gives no `itemSchema`). |
 
 Each problem is a map with these keys. It never holds a value from the call.
 
@@ -226,9 +228,47 @@ Each message of a session whose route lists its messages gets one log record, se
 | `hotline.schema.*` | | The spec check, as for a call's body: from the app under `request`, from the vendor under `response`. `hotline.schema.skipped` is `body_too_large` over 2 MiB after unpacking, `overloaded` when its check, or its reading, gave way, `unsupported_content_type` for a side that is not JSON. None for an `unknown` message, or when the api's `checks` leave out `messages`. |
 | fields marked `x-hotline-record` | | Copied as sent, such as Gemini's `usageMetadata.totalTokenCount`; never added up. |
 
+### Streamed responses
+
+A streamed response whose media type has an `itemSchema` in the spec gets one more log record when the stream ends, however it ends (Peter, 2026-11-21, M2, Q3). Today that is `text/event-stream`, Server-Sent Events, read by the rules of the HTML standard. A response sent whole, or one whose spec gives no `itemSchema`, has no stream record and is skipped as `streaming`, as before.
+
+- Event name: `hotline.stream`.
+- Timestamp: when the response's headers reached the app.
+- Trace id and flags: the call's. Span id: the `stream` span's.
+- It goes into the ledger like a call's record, and `hotline-proxy verify` checks it.
+- A stream still open when the proxy stops is ended and recorded as `cut`, within the stop's time.
+- The console shows it in two lines, like a WebSocket session: who and where, then `<< ended`, its items, how many broke the spec, its size and how long it was open (Q5).
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `hotline.integration.id`, `hotline.ingress`, `client.address`, `server.address` | text | As in the call's record. A captured stream also names its program, as the call does. |
+| `hotline.stream.items` | number | The events delivered: those with data, each ended by a blank line. An event left open when the stream ended is not counted. |
+| `hotline.stream.items_invalid` | number | The items whose check found the spec broken. |
+| `hotline.stream.size` | number | Bytes the vendor sent after the headers, as they passed, without TLS. |
+| `hotline.stream.hash` | text | The hash of those bytes, made as a body's hash is, with the side `stream` and the stream's trace and span ids ([proxy-ledger.md](proxy-ledger.md)). |
+| `hotline.stream.duration_us` | number | How long the stream was open, from its headers reaching the app to its end, in whole microseconds. |
+| `hotline.stream.end` | text | `complete` when the vendor ended the stream and the app got all of it; `cut` when the vendor broke off, the app left or the proxy stopped. |
+
+### Stream items
+
+Each event of a streamed response gets one log record, sent once the event has passed and its check has ended, after the call's record (Peter, 2026-11-21, M2, Q1). The event is checked against the `itemSchema` as the object OpenAPI 3.2 gives it: `data` as text, and `event`, `id` and `retry` when the event sets them. The events go on to the app as they come and never wait for a check.
+
+- Event name: `hotline.stream.item`.
+- Timestamp: when the event's first byte passed.
+- Trace id and flags: the call's. Span id: the item's own `stream item` span.
+- It goes into the ledger like a call's record, and `hotline-proxy verify` checks it. The console shows no line for it.
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `hotline.integration.id`, `hotline.ingress` | text | As in the stream record. |
+| `hotline.stream.item.index` | number | 1, 2, 3 in the order the events ended. |
+| `hotline.stream.item.size` | number | The event's bytes as sent, its blank line included. |
+| `hotline.schema.*` | | The check, under `response`. `hotline.schema.skipped` is `body_too_large` for an event over 2 MiB, and `overloaded` when the spec check line was full. None when the api's `checks` leave out `responseBody`. |
+| fields marked `x-hotline-record` | | Copied as sent, such as Anthropic's event name, `anthropic.stream.event`. |
+
 ## Signal 2: the trace of each call
 
-One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. The one exception is `websocket message`, which also carries its record's `hotline.websocket.operation`, `hotline.websocket.message.role` and `messaging.message.conversation_id`, so a query in the trace store can group a request with its replies (Peter, 2026-11-21, Q4). A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Each of its messages has a `websocket message` span under `websocket session`, from the message's first byte to its last, sent with the message's record, with `message spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-19). Detail: [proxy-traces.md](proxy-traces.md).
+One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. The one exception is `websocket message`, which also carries its record's `hotline.websocket.operation`, `hotline.websocket.message.role` and `messaging.message.conversation_id`, so a query in the trace store can group a request with its replies (Peter, 2026-11-21, Q4). A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Each of its messages has a `websocket message` span under `websocket session`, from the message's first byte to its last, sent with the message's record, with `message spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-19). A streamed response is the same: a `stream` span under `hotline call`, from the headers reaching the app to the stream's end, failed when the stream was cut, and under it a `stream item` span for each event, from its first byte to its last, with `item spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-21, M2, Q2). Detail: [proxy-traces.md](proxy-traces.md).
 
 ## Signal 3: the proxy's own numbers
 

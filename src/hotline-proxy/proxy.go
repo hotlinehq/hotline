@@ -318,6 +318,9 @@ func (p *Proxy) Drain() {
 // until the end, /readyz with no.
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.Drain()
+	// A streamed response holds its connection busy, so the stop ends those
+	// still open first, and each is recorded (Peter, 2026-11-21, M2).
+	p.handler.endStreams()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
 	// a listener that lasts until the tunnels' server closes the tunnel.
 	// Tunnels still being set up are cut short.

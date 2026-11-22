@@ -64,6 +64,7 @@ Open only the file for the topic at hand.
 - Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
 - Glossary words (certificate authority, transparent, response, exporter): [docs/decisions/glossary.md](docs/decisions/glossary.md)
 - WebSockets (slice 1: bytes and a session record; slice 2: each message named by `x-hotline-match`, checked, and recorded with a span of its own; messages written in AsyncAPI's shapes under `x-async-api`, with operation, role and correlation id on each record and span, a Kraken load case, and the message scenarios on the shared Kraken spec in `specs/kraken`): [docs/decisions/websockets.md](docs/decisions/websockets.md)
+- Streamed responses (roadmap M2: each Server-Sent Event checked against 3.2's `itemSchema`, a record and a span per item, a stream record at the end, split like WebSocket; Anthropic's messages stream first; a `support` app in the shop): [docs/decisions/streamed-responses.md](docs/decisions/streamed-responses.md)
 - Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Console exporter (two coloured lines per call on standard output, like mitmdump): [docs/decisions/console-export.md](docs/decisions/console-export.md)

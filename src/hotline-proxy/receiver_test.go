@@ -130,6 +130,10 @@ type receiver struct {
 	sessions []receivedRecord
 	// messages are the WebSocket message records, kept apart too.
 	messages []receivedRecord
+	// streams and items are the records of streamed responses and of their
+	// items, kept apart as well.
+	streams []receivedRecord
+	items   []receivedRecord
 	// down refuses every log export, until it is back.
 	down bool
 	// refused counts the call records refused while down.
@@ -308,6 +312,10 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					list = &r.sessions
 				case "hotline.websocket.message":
 					list = &r.messages
+				case "hotline.stream":
+					list = &r.streams
+				case "hotline.stream.item":
+					list = &r.items
 				default:
 					r.taken++
 				}
@@ -422,6 +430,18 @@ func (r *receiver) sessionRecords() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]receivedRecord(nil), r.sessions...)
+}
+
+func (r *receiver) streamRecords() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.streams...)
+}
+
+func (r *receiver) itemRecords() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.items...)
 }
 
 func (r *receiver) spans() []receivedSpan {

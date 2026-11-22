@@ -330,6 +330,7 @@ func (b *builder) response(marks map[string]map[string]mark, m map[string]any, p
 		})
 	}
 	r.check = b.responseCheck(r, where)
+	r.items = b.items(m, pointer, where, code)
 	return r
 }
 

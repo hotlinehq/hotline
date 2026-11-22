@@ -70,6 +70,11 @@ type handler struct {
 	// sessions are the WebSockets open now, each by its *call, so a stop
 	// can end them.
 	sessions sync.Map
+	// streams are the streamed responses open now, each by its *call, and
+	// ending says the stop has ended them, so one that opens later ends at
+	// once.
+	streams sync.Map
+	ending  atomic.Bool
 }
 
 // connects says whether CONNECT is an ingress on the listener, in cfg.
@@ -171,7 +176,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, deadlineKey{}, h.clock.Now().Add(c.timeout))
 	ctx = httptrace.WithClientTrace(ctx, c.clientTrace())
 	defer c.finish()
-	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done(), switched: c.Switched}
+	app := &toApp{ResponseWriter: w, appLeft: r.Context().Done(), switched: c.Switched, flushed: c.flushed}
 	c.app = app
 	if err := h.forward.Forward(ctx, app, r, c); err != nil {
 		c.fail(app, err)
@@ -231,6 +236,11 @@ type toApp struct {
 	hijacked bool
 	// switched is told when the app has the 101 and the WebSocket starts.
 	switched func()
+	// flushed is told once, when the response's headers are first sent on
+	// to the app.
+	flushed     func()
+	wroteHeader bool
+	sentHeader  bool
 }
 
 // Switched passes on that the app has the 101 (see forward.Switcher).
@@ -239,6 +249,7 @@ func (a *toApp) Switched() { a.switched() }
 func (a *toApp) WriteHeader(status int) {
 	a.check()
 	a.ResponseWriter.WriteHeader(status)
+	a.wroteHeader = a.wroteHeader || status >= 200
 }
 
 func (a *toApp) Write(b []byte) (int, error) {
@@ -257,6 +268,10 @@ func (a *toApp) FlushError() error {
 	}
 	err := http.NewResponseController(a.ResponseWriter).Flush()
 	a.err = cmp.Or(a.err, err)
+	if a.wroteHeader && !a.sentHeader {
+		a.sentHeader = true
+		a.flushed()
+	}
 	return err
 }
 
@@ -451,6 +466,9 @@ type call struct {
 	// session is the WebSocket that follows a 101, if the vendor
 	// switched to one.
 	session *session
+	// stream is the streamed response whose items the spec describes, if the
+	// vendor sent one.
+	stream *responseStream
 	// plan is what the call checks and keeps for that.
 	plan checkPlan
 	// reqCheck and responseCheck check each side against the spec as soon as
@@ -513,10 +531,18 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	toVendor, upgrade := resp.Body.(io.Writer)
 	upgrade = upgrade && resp.StatusCode == http.StatusSwitchingProtocols
 	body := resp.Body
-	if upgrade {
+	items := c.items(resp)
+	switch {
+	case upgrade:
 		// What follows a 101 is the session's, not the call's: the call's
 		// response has no body, and ends here (Peter, 2026-11-18).
 		c.session = c.newSession(resp, toVendor)
+		body = http.NoBody
+	case items != nil:
+		// What follows the headers is the stream's, not the call's: the
+		// call's response has no body, and the stream reads its bytes as
+		// items (Peter, 2026-11-21, M2).
+		c.stream = c.newStream(items, resp.Body)
 		body = http.NoBody
 	}
 	c.respBody = &tap{
@@ -531,13 +557,19 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 		},
 	}
 	c.mark(func() { c.resp = resp; c.status = resp.StatusCode })
-	if upgrade {
+	switch {
+	case upgrade:
 		c.respBody.finish()
 		// The session carries bytes both ways, so the proxy must be able
 		// to write to the vendor too. It may stay quiet for as long as
 		// both sides like.
 		resp.Body = upgraded{tap: c.session.fromVendor, Writer: c.session.fromApp}
-	} else {
+	case c.stream != nil:
+		// The call's own, empty, body is never read: the call ends, and
+		// its response is checked, once the headers reach the app.
+		c.stream.bytes.wait = c.waitForVendor
+		resp.Body = c.stream.bytes
+	default:
 		c.respBody.wait = c.waitForVendor
 		resp.Body = c.respBody
 	}
@@ -558,6 +590,24 @@ func (c *call) clientTrace() *httptrace.ClientTrace {
 		GotConn:              c.gotConn,
 		WroteRequest:         c.wroteRequest,
 		GotFirstResponseByte: func() { c.mark(func() { c.firstByte = c.h.clock.Now() }) },
+	}
+}
+
+// items are the items of a response whose spec gives an itemSchema for it;
+// nil for any other. A spec that names its action in the body finds its
+// route only in the request's check, so its responses are not read as items.
+func (c *call) items(resp *http.Response) *spec.Items {
+	if c.api == nil || c.plan.routeInBody {
+		return nil
+	}
+	return c.api.Spec.Items(c.route, resp.StatusCode, resp.Header)
+}
+
+// flushed is told when the response's headers first reached the app. For a
+// stream, the call ends there.
+func (c *call) flushed() {
+	if c.stream != nil {
+		c.streamOpened()
 	}
 }
 

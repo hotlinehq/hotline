@@ -226,6 +226,10 @@ type world struct {
 	// scripted is the WebSocket vendor of the message scenarios: what it
 	// does, and what both ends sent.
 	scripted *scriptedVendor
+	// streaming is the fake Anthropic of the streamed response scenarios, and
+	// open the app's open stream.
+	streaming *streamingVendor
+	open      *openStream
 	// h2 is the app's HTTP/2 connection for tunnels, and h2Reused says
 	// the last tunnel shared it.
 	h2        *http.Transport
@@ -276,6 +280,9 @@ func newWorld() (*world, error) {
 }
 
 func (w *world) close() {
+	if w.open != nil {
+		_ = w.open.conn.Close()
+	}
 	for _, c := range w.tunnels {
 		_ = c.Close()
 	}

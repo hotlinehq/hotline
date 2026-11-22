@@ -200,6 +200,22 @@ _Avoid_: frame (that is a piece of a message), event, packet
 The record of one message of a WebSocket session, `hotline.websocket.message`, with its index, direction, name, sizes, ids and spec check. It is not counted as a call.
 _Avoid_: message event, frame record
 
+**Streamed response**:
+A response sent as a series of items while the vendor works, such as Server-Sent Events, whose spec gives its media type an `itemSchema`. The call ends when its headers reach the app; what follows is the stream.
+_Avoid_: streamed reply, chunked response
+
+**Item**:
+One piece of a streamed response, checked on its own against the `itemSchema`: for Server-Sent Events, one event with data, ended by a blank line.
+_Avoid_: chunk (that is how the bytes happened to arrive), message (that is a WebSocket's)
+
+**Stream record**:
+The record of a streamed response, `hotline.stream`, written when it ends: its items, how many broke the spec, its bytes and their hash, how long it was open, and whether it ended whole or was cut. It is not counted as a call.
+_Avoid_: second record
+
+**Item record**:
+The record of one item of a streamed response, `hotline.stream.item`, with its index, size and spec check. It is not counted as a call.
+_Avoid_: event record, chunk record
+
 **Trace**:
 A call's steps as OpenTelemetry spans (DNS, connect, TLS, first byte and the rest), each with its start and end. The timings live here.
 _Avoid_: timings record, span list

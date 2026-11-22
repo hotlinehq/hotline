@@ -28,6 +28,7 @@ A console exporter may stand alone or next to `otlp` and `file` exporters. There
 - The request line: the call's time, the integration, the method and the address as the record has it (`url.full`), so a secret in the query is shown as `REDACTED`, as in the record. A call with no spec shows only its host, unless its integration has `urlFull` or `content: full` on (Peter, 2026-11-12).
 - The response line: `<<` ends just before the method. Then the status and its name, the proxy's failure when there is one (the record's `error.type`), the response's size, the total time, and the check status when the call has a spec.
 - A WebSocket session, when it ends, gets two lines of its own (Peter, 2026-11-18): the time it opened, the integration, `WebSocket` and the host; then `<< ended`, the bytes the app sent and received after the `101`, and how long it was open.
+- A streamed response, when it ends, gets two lines of its own (Peter, 2026-11-21, M2, Q5): the time its headers reached the app, the integration, `stream` and the host; then `<< ended`, its items, how many broke the spec (red when any did, green when none), its size and how long it was open. Its items get no line.
 - The findings line, for an invalid call: what the checks found on each side, written "part place rule expected", never a value from the call.
 - No headers, no bodies, no spans, no metrics. `content: full` never reaches the console.
 
