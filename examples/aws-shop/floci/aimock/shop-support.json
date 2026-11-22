@@ -1,0 +1,67 @@
+{
+  "fixtures": [
+    {
+      "match": {
+        "userMessage": "A-1001",
+        "hasToolResult": false,
+        "toolName": "lookUpOrder"
+      },
+      "response": {
+        "toolCalls": [
+          {
+            "name": "lookUpOrder",
+            "arguments": {
+              "orderId": "A-1001"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "userMessage": "A-1001",
+        "hasToolResult": true,
+        "toolName": "lookUpOrder"
+      },
+      "response": {
+        "content": "Yes, your order A-1001 is paid."
+      }
+    },
+    {
+      "match": {
+        "userMessage": "A-4040",
+        "hasToolResult": false,
+        "toolName": "lookUpOrder"
+      },
+      "response": {
+        "toolCalls": [
+          {
+            "name": "lookUpOrder",
+            "arguments": {
+              "orderId": "A-4040"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "match": {
+        "userMessage": "A-4040",
+        "hasToolResult": true,
+        "toolName": "lookUpOrder"
+      },
+      "response": {
+        "content": "I can't find an order A-4040. Please check the number."
+      }
+    },
+    {
+      "match": {
+        "userMessage": "Hello",
+        "toolName": "lookUpOrder"
+      },
+      "response": {
+        "content": "Hello! Which order can I help you with?"
+      }
+    }
+  ]
+}

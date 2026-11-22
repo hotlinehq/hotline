@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"io"
+	"mime"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +14,7 @@ import (
 
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
+	"hotline-proxy/internal/ledger"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
 )
@@ -33,8 +36,9 @@ type responseStream struct {
 	// bytes is what the vendor sends after the headers, counted and hashed
 	// with the stream's span as it passes on to the app.
 	bytes *tap
-	// read cuts the bytes into stream items; only the tap that passes them uses it.
-	read      sseReader
+	// read cuts the bytes into stream items, by the response's media type;
+	// only the tap that passes them uses it.
+	read      streamItemReader
 	itemCount int64
 	// opened is when the headers reached the app; zero while they have not.
 	// appLeft says the app was gone by then: the call record says so,
@@ -55,13 +59,17 @@ type responseStream struct {
 
 // newStream sets up the stream of a response that has stream items in the spec, and
 // the tap its bytes pass through.
-func (c *call) newStream(itemSchema *spec.ItemSchema, body io.ReadCloser) *responseStream {
+func (c *call) newStream(itemSchema *spec.ItemSchema, header http.Header, body io.ReadCloser) *responseStream {
 	s := &responseStream{
 		c: c, span: tracectx.NewSpanID(), itemSchema: itemSchema, checked: c.api.Checks.Has(config.PartResponseBody),
 		called: make(chan struct{}),
 	}
-	s.bytes = &tap{ReadCloser: body, mac: c.h.bodyHash("stream", c.trace.WithSpanID(s.span)), stream: s}
-	s.read.delivered = s.checkStreamItem
+	s.bytes = &tap{
+		ReadCloser: body, mac: c.h.bodyHash("stream", c.trace.WithSpanID(s.span)), stream: s,
+		saver: bodySaver{limit: saved(c.integration), expect: -1},
+	}
+	mediaType, _, _ := mime.ParseMediaType(header.Get("Content-Type"))
+	s.read = newStreamItemReader(mediaType, s.checkStreamItem)
 	return s
 }
 
@@ -71,6 +79,10 @@ func (s *responseStream) pass(p []byte) {
 		s.read.pass(p, s.c.h.clock.Now())
 	}
 }
+
+// endedWhole says the vendor ended the stream whole, so a stream item left open
+// is read as its format says.
+func (s *responseStream) endedWhole() { s.read.end() }
 
 // streamOpened is called once the response's headers have reached the app: the call
 // ends there and is recorded now, while the stream goes on. The proxy keeps
@@ -114,7 +126,7 @@ func (h *handler) endStreams() {
 }
 
 // checkStreamItem starts the check of one stream item, and records it once the check ends.
-func (s *responseStream) checkStreamItem(e sseEvent) {
+func (s *responseStream) checkStreamItem(e streamItem) {
 	s.itemCount++
 	index := s.itemCount
 	var check *specCheck
@@ -139,7 +151,7 @@ func (s *responseStream) checkStreamItem(e sseEvent) {
 
 // record builds a stream item's record and its span, with the check's step under
 // it.
-func (s *responseStream) record(index int64, e sseEvent, check *specCheck) finished {
+func (s *responseStream) record(index int64, e streamItem, check *specCheck) finished {
 	var found spec.Checked
 	ran := s.checked
 	switch {
@@ -209,8 +221,31 @@ func (c *call) streamRecord(end time.Time) finished {
 		ID: s.span, Parent: c.trace.SpanID(), Name: "stream", Kind: trace.SpanKindInternal,
 		Start: opened, End: end, Status: export.FailedIf(how == "cut"),
 	}
+	var content []attribute.KeyValue
+	if c.integration.Content.Full {
+		var hash attribute.KeyValue
+		content, hash = s.content()
+		attrs = append(attrs, hash)
+	}
 	return finished{
 		event: export.StreamEvent, cfg: c.cfg, chain: c.integration.Name, sc: c.trace.WithSpanID(s.span), at: opened,
-		attrs: attrs, spans: []export.Span{span},
+		attrs: attrs, spans: []export.Span{span}, content: content,
 	}
+}
+
+// content is what content: full adds to the stream record for the file
+// exporters: the first maxBodySize bytes of the stream, as bytes, and a
+// flag when the stream was longer. As for a call, the record's
+// hotline.content.hash covers the content but the body, which
+// hotline.stream.hash covers already.
+func (s *responseStream) content() (content []attribute.KeyValue, hash attribute.KeyValue) {
+	body, cut := s.bytes.savedBody()
+	if cut {
+		content = append(content, attribute.Bool("hotline.content.stream.body.truncated", true))
+	}
+	hash = attribute.String("hotline.content.hash", ledger.Text(s.c.h.hashes.Content(content)))
+	if len(body) > 0 {
+		content = append(content, attribute.ByteSlice("hotline.content.stream.body", body))
+	}
+	return content, hash
 }

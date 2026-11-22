@@ -196,6 +196,92 @@ Feature: Streamed responses checked item by item
     Then there is one call record and one stream record
     And the stream record says hotline.stream.end cut
 
+  # JSON Lines and JSON sequences: one stream item per line or per record
+
+  Scenario Outline: Each line of a JSON Lines response is a stream item, checked on its own
+    Given the order feed spec
+    And the feed vendor streams <type> bytes "{\"id\":\"A-1001\",\"total\":12.5}\n{\"id\":\"A-1002\",\"total\":3}\n"
+    When the app reads the order feed
+    Then there are 2 stream item records, each hotline.schema.status valid
+    And stream item record 2 says shop.order.id A-1002, hotline.stream.item.index 2
+    And the stream record says hotline.stream.items 2, hotline.stream.items_invalid 0, hotline.stream.end complete
+
+    Examples:
+      | type                 |
+      | application/jsonl    |
+      | application/x-ndjson |
+
+  Scenario Outline: A broken line says what broke
+    Given the order feed spec
+    And the feed vendor streams application/jsonl bytes <bytes>
+    When the app reads the order feed
+    Then stream item record 1's response results are <results>
+
+    Examples:
+      | bytes                         | results               |
+      | "{\"id\":\"A-1001\"}\n"        | body $.total required |
+      | "not json\n"                  | body $ json           |
+
+  Scenario Outline: Lines are read by the JSON Lines rules
+    Given the order feed spec
+    And the feed vendor streams application/jsonl bytes <bytes>
+    When the app reads the order feed
+    Then there are <items> stream item records, each hotline.schema.status valid
+
+    Examples:
+      | what                                    | bytes                                                                          | items |
+      | an empty line is not a stream item      | "\n{\"id\":\"A-1001\",\"total\":1}\n\n\n{\"id\":\"A-1002\",\"total\":2}\n"       | 2     |
+      | lines may end with CR LF                | "{\"id\":\"A-1001\",\"total\":1}\r\n{\"id\":\"A-1002\",\"total\":2}\r\n"         | 2     |
+      | the last line needs no line end         | "{\"id\":\"A-1001\",\"total\":1}\n{\"id\":\"A-1002\",\"total\":2}"               | 2     |
+
+  Scenario: A JSON Lines response the vendor breaks off is cut, without its last part
+    Given the order feed spec
+    And the feed vendor streams application/jsonl bytes "{\"id\":\"A-1001\",\"total\":1}\n{\"id\":\"A-10", then breaks off
+    When the app reads the order feed
+    Then there are 1 stream item records
+    And the stream record says hotline.stream.items 1, hotline.stream.end cut
+
+  Scenario: A line over 2 MiB is not checked, and the next one still is
+    Given the order feed spec
+    And the feed vendor streams a JSON Lines order of 3 MiB, then one small order
+    When the app reads the order feed
+    Then stream item record 1 says hotline.schema.skipped body_too_large, hotline.stream.item.size 3145728
+    And stream item record 2 says hotline.schema.status valid
+
+  Scenario Outline: Each record of a JSON sequence is a stream item, checked on its own
+    A record starts with the record separator, byte 0x1E, and ends with a
+    line feed (RFC 7464).
+    Given the order feed spec
+    And the feed vendor streams <type> bytes "\x1e{\"id\":\"A-1001\",\"total\":12.5}\n\x1e{\"total\":3}\n"
+    When the app reads the order feed
+    Then stream item record 1 says shop.order.id A-1001, hotline.schema.status valid
+    And stream item record 2's response results are body $.id required
+    And the stream record says hotline.stream.items 2, hotline.stream.items_invalid 1, hotline.stream.end complete
+
+    Examples:
+      | type                     |
+      | application/json-seq     |
+      | application/geo+json-seq |
+
+  Scenario Outline: Records are read by the JSON sequence rules
+    Given the order feed spec
+    And the feed vendor streams application/json-seq bytes <bytes>
+    When the app reads the order feed
+    Then there are <items> stream item records, each hotline.schema.status valid
+
+    Examples:
+      | what                                  | bytes                                                                       | items |
+      | an empty record is not a stream item  | "\x1e\x1e{\"id\":\"A-1001\",\"total\":1}\n\x1e\n"                                  | 1     |
+      | a record may span lines               | "\x1e{\"id\":\n\"A-1001\",\n\"total\":1}\n"                                     | 1     |
+      | the last record needs no line feed    | "\x1e{\"id\":\"A-1001\",\"total\":1}\n\x1e{\"id\":\"A-1002\",\"total\":2}"      | 2     |
+
+  Scenario: A JSON Lines response whose spec gives no itemSchema is skipped
+    Given the order feed spec, without the itemSchema of application/jsonl
+    And the feed vendor streams application/jsonl bytes "{\"id\":\"A-1001\",\"total\":1}\n"
+    When the app reads the order feed
+    Then the record says hotline.schema.skipped=streaming
+    And there are 0 stream item records
+
   # What else sees it
 
   Scenario: The console shows the call and the stream, not each event
@@ -220,6 +306,31 @@ Feature: Streamed responses checked item by item
     And hotline-proxy is stopped
     And I run hotline-proxy verify calls
     Then it exits with 0
+
+  Scenario: Under full content the file keeps the stream, and verify checks it
+    The stream's bytes are kept in the stream record's line, as a call's
+    response body is in the call's, and checked against hotline.stream.hash.
+    Given a file exporter writing to the folder calls
+    And the support integration has content full and maxBodySize 1MiB
+    And the Anthropic vendor streams the response "Hello!"
+    When the app asks for a streamed message
+    And hotline-proxy is stopped
+    And I run hotline-proxy verify calls
+    Then it exits with 0
+    And it prints that 2 kept bodies match their hash
+    And the stream line's hotline.content.stream.body is the response "Hello!" as the vendor sent it
+
+  Scenario: Under full content a long stream is cut and flagged
+    Given a file exporter writing to the folder calls
+    And the support integration has content full and maxBodySize 256
+    And the Anthropic vendor streams the response "Hello!"
+    When the app asks for a streamed message
+    And hotline-proxy is stopped
+    And I run hotline-proxy verify calls
+    Then it exits with 0
+    And it prints that 1 kept bodies match their hash
+    And it prints that 1 kept body was cut short and could not be checked
+    And the stream line's hotline.content.stream.body is the first 256 bytes of the response "Hello!", with hotline.content.stream.body.truncated true
 
   Scenario: The api key is in no record
     Given the Anthropic vendor streams the response "Hello!"

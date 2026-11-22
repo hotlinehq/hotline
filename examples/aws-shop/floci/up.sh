@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # up.sh starts Floci, a free local copy of AWS, and makes the shop's AWS
 # resources in it with Terraform (or OpenTofu, whichever is installed). It
-# also starts the fake Gemini Live for the shop's assistant: aimock, behind
-# a small TLS front.
+# also starts the fake Gemini Live for the shop's assistant and the fake
+# Anthropic for support: aimock, behind a small TLS front.
 #
 # How the shop's calls reach Floci: the shop sends each call to Hotline as a
 # plain http call to AWS's own host name, such as sqs.eu-west-1.amazonaws.com.
@@ -15,7 +15,9 @@
 # How the assistant reaches the fake Gemini Live: it opens wss:// to
 # Google's own host name through Hotline's CONNECT ingress, as it would reach
 # Google. That name also points to this machine, where a TLS front on port
-# 443 passes the bytes on to aimock, which speaks plain ws:// only. The
+# 443 passes the bytes on to aimock, which speaks plain ws:// only. Support
+# reaches the fake Anthropic the same way, at api.anthropic.com: aimock plays
+# both on one port, and its streamed responses pass the same front. The
 # front's certificate, and Hotline's certificate authority for CONNECT, come from a test
 # certificate authority made here, in out/tls; run.sh makes the proxy and the shop trust
 # it. Linux only: Go on macOS ignores SSL_CERT_FILE (Peter, 2026-11-18, the
@@ -33,6 +35,7 @@ image="${FLOCI_IMAGE:-floci/floci:2.4.0}"
 aimock_image="${AIMOCK_IMAGE:-ghcr.io/copilotkit/aimock:1.48.0@sha256:51d8e426ff99f42fa8050bb06548ff541adef2d759e5f83a33bdbf1b47a5f29d}"
 front_image="${FRONT_IMAGE:-alpine/socat:1.8.1.1@sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0}"
 gemini=generativelanguage.googleapis.com
+anthropic=api.anthropic.com
 region=eu-west-1
 account=192325781350
 marker="# hotline-floci"
@@ -50,8 +53,10 @@ for h in "${hosts[@]}"; do
   grep -q "[[:space:]]${name}[[:space:]]*${marker}\$" /etc/hosts ||
     echo "127.0.0.1 ${name} ${marker}" | as_root tee -a /etc/hosts >/dev/null
 done
-grep -q "[[:space:]]${gemini}[[:space:]]*${marker}\$" /etc/hosts ||
-  echo "127.0.0.1 ${gemini} ${marker}" | as_root tee -a /etc/hosts >/dev/null
+for name in "$gemini" "$anthropic"; do
+  grep -q "[[:space:]]${name}[[:space:]]*${marker}\$" /etc/hosts ||
+    echo "127.0.0.1 ${name} ${marker}" | as_root tee -a /etc/hosts >/dev/null
+done
 
 echo "Making the test certificate authority and the TLS front's certificate"
 tls=out/tls
@@ -61,13 +66,13 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 \
   -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign 2>/dev/null
 openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
   -subj "/CN=${gemini}" -keyout "$tls/front-key.pem" -out "$tls/front.csr" 2>/dev/null
-printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\n' "$gemini" >"$tls/front.ext"
+printf 'subjectAltName=DNS:%s,DNS:%s\nextendedKeyUsage=serverAuth\n' "$gemini" "$anthropic" >"$tls/front.ext"
 openssl x509 -req -in "$tls/front.csr" -CA "$tls/ca.pem" -CAkey "$tls/ca-key.pem" -CAcreateserial \
   -days 2 -extfile "$tls/front.ext" -out "$tls/front.pem" 2>/dev/null
 cat "$tls/front.pem" "$tls/front-key.pem" >"$tls/front-bundle.pem"
 chmod 644 "$tls"/*.pem
 
-echo "Starting the fake Gemini Live: aimock ($aimock_image) behind a TLS front"
+echo "Starting the fake Gemini Live and the fake Anthropic: aimock ($aimock_image) behind a TLS front"
 as_root docker rm -f hotline-aimock hotline-gemini-front >/dev/null 2>&1 || true
 as_root docker network create hotline-gemini >/dev/null 2>&1 || true
 as_root docker run -d --name hotline-aimock --network hotline-gemini \

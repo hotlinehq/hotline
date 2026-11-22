@@ -1,7 +1,9 @@
 // Command aws-shop is Hotline's example of a Go app using AWS through the
-// proxy: a small shop made of four apps, each its own Hotline integration.
+// proxy: a small shop made of six apps, each its own Hotline integration.
 // checkout takes payments, invoices makes the invoice PDFs, mailer mails
-// them and refunds starts credit notes. See README.md.
+// them, refunds starts credit notes, and assistant and support answer
+// questions about orders, over Gemini Live and Anthropic's streamed
+// Messages api. See README.md.
 package main
 
 import (
@@ -33,6 +35,7 @@ const usage = `usage:
   aws-shop mailer work [--out FOLDER] [--once]   sends with SES from $MAIL_FROM, or writes to FOLDER
   aws-shop refunds start --order A-1001 --amount 10.00 --reason returned
   aws-shop assistant ask --question TEXT          one question about an order, answered by Gemini Live
+  aws-shop support ask --question TEXT            one customer question about an order, answered by Claude, streamed
 
 every command also takes:
   --proxy URL        Hotline's forward proxy, such as http://localhost:8080; each app adds
@@ -52,6 +55,10 @@ AWS resources, each from its environment variable, else Peter's own:
 the assistant's Gemini Live settings:
   GEMINI_API_KEY (required), GEMINI_MODEL (default gemini-live-2.5-flash),
   GEMINI_BASE_URL (another address than Google's, such as a fake Gemini)
+
+support's Anthropic settings:
+  ANTHROPIC_API_KEY (required), ANTHROPIC_MODEL (default claude-opus-5-5),
+  ANTHROPIC_BASE_URL (another address than Anthropic's, such as a fake Anthropic)
 `
 
 // commands lists each app's commands.
@@ -62,6 +69,7 @@ func commands() map[string][]string {
 		"mailer":    {"work"},
 		"refunds":   {"start"},
 		"assistant": {"ask"},
+		"support":   {"ask"},
 	}
 }
 
@@ -132,10 +140,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 // integrationOf is the app's integration ID in Hotline: its own name, but
-// shop-assistant for the assistant.
+// shop-assistant for the assistant and shop-support for support.
 func integrationOf(app string) string {
-	if app == "assistant" {
-		return "shop-assistant"
+	if app == "assistant" || app == "support" {
+		return "shop-" + app
 	}
 	return app
 }
@@ -166,7 +174,7 @@ func missingFlags(command string, o options) string {
 		return "--out, or MAIL_FROM to send with SES"
 	case command == "refunds start" && (o.order == "" || o.amount == "" || o.reason == ""):
 		return "--order, --amount and --reason"
-	case command == "assistant ask" && o.question == "":
+	case (command == "assistant ask" || command == "support ask") && o.question == "":
 		return "--question"
 	}
 	return ""
@@ -259,6 +267,12 @@ func carryOut(ctx context.Context, a shop.App, command string, o options, cutoff
 			return err
 		}
 		_, _ = fmt.Fprintln(stdout, answer)
+	case "shop-support ask":
+		// The answer is printed as it streams in.
+		if err := support(ctx, a, o, stdout); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintln(stdout)
 	}
 	return nil
 }
@@ -281,4 +295,19 @@ func ask(ctx context.Context, a shop.App, o options) (string, error) {
 	}
 	defer func() { _ = live.Close() }()
 	return a.Ask(ctx, live, o.question)
+}
+
+// support asks Claude the customer's question through Hotline, as
+// shop-support, and prints the answer as it streams in.
+func support(ctx context.Context, a shop.App, o options, stdout io.Writer) error {
+	client, err := shop.SupportClient(o.proxy, a.Name)
+	if err != nil {
+		return err
+	}
+	c := shop.Claude{
+		APIKey: os.Getenv("ANTHROPIC_API_KEY"), Model: cmp.Or(os.Getenv("ANTHROPIC_MODEL"), "claude-opus-5-5"),
+		BaseURL: os.Getenv("ANTHROPIC_BASE_URL"), HTTPClient: client,
+	}
+	_, err = a.Support(ctx, c, o.question, stdout)
+	return err
 }

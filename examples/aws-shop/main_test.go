@@ -16,6 +16,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"hotline-example/aws-shop/internal/fakeanthropic"
 	"hotline-example/aws-shop/internal/fakeaws"
 	"hotline-example/aws-shop/internal/fakes3"
 	"hotline-example/aws-shop/internal/fakesqs"
@@ -253,6 +254,38 @@ var _ = Describe("The aws-shop program", func() {
 		})
 	})
 
+	Describe("support ask", func() {
+		BeforeEach(func() {
+			GinkgoT().Setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+		})
+
+		It("prints the answer as it streams in, as integration shop-support", func() {
+			claude := fakeanthropic.Start(fakeanthropic.Text("I can only help ", "with orders."))
+			DeferCleanup(claude.Close)
+			GinkgoT().Setenv("ANTHROPIC_BASE_URL", claude.URL)
+			Expect(run("support", "ask", "--question", "Hello!")).To(Equal(0), stderr.String())
+			Expect(stdout.String()).To(Equal("I can only help with orders.\n"))
+			Expect(claude.Requests()[0]["model"]).To(Equal("claude-opus-5-5"))
+		})
+
+		It("stops before calling when ANTHROPIC_API_KEY is not set", func() {
+			GinkgoT().Setenv("ANTHROPIC_API_KEY", "")
+			Expect(run("support", "ask", "--question", "Hello!")).To(Equal(1))
+			Expect(stderr.String()).To(ContainSubstring("set ANTHROPIC_API_KEY"))
+		})
+
+		It("says so when Anthropic can't be reached", func() {
+			GinkgoT().Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+			Expect(run("support", "ask", "--question", "Hello!")).To(Equal(1))
+			Expect(stderr.String()).NotTo(BeEmpty())
+		})
+
+		It("reports a proxy address it can't read", func() {
+			GinkgoT().Setenv("HOTLINE_PROXY", "http://[::1")
+			Expect(run("support", "ask", "--question", "Hello!")).To(Equal(1))
+		})
+	})
+
 	It("reports a proxy address it can't read", func() {
 		GinkgoT().Setenv("HOTLINE_PROXY", "://nope")
 		Expect(run("invoices", "list")).To(Equal(1))
@@ -278,6 +311,7 @@ var _ = Describe("The aws-shop program", func() {
 		Entry("mail without a folder", "mailer", "work"),
 		Entry("a refund without a reason", "refunds", "start", "--order", "A-1001", "--amount", "1.00"),
 		Entry("a question to the assistant left out", "assistant", "ask"),
+		Entry("a question to support left out", "support", "ask"),
 	)
 })
 

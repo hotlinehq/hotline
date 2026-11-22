@@ -46,9 +46,9 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| Only JSON (and `+json`), XML and `application/x-www-form-urlencoded` bodies are read. `multipart/form-data` (file uploads: OpenAI files, Twilio media), `text/plain`, `application/octet-stream` and NDJSON are skipped as `unsupported_content_type`. | Medium to high: uploads are common | [code] `check.go` reads |
+| Only JSON (and `+json`), XML and `application/x-www-form-urlencoded` bodies are read. `multipart/form-data` (file uploads: OpenAI files, Twilio media), `text/plain`, `application/octet-stream` and NDJSON sent whole, with no `itemSchema`, are skipped as `unsupported_content_type`. | Medium to high: uploads are common | [code] `check.go` reads |
 | `encoding` (per-field content types in forms and multipart) is ignored. | Low to medium | [inferred] never read |
-| Fixed on 2026-11-22 (M2, first part): each Server-Sent Event (`text/event-stream`) is checked against its `itemSchema`. JSON Lines and JSON sequences are still skipped as `streaming`, as is a stream whose spec gives no `itemSchema`. | High for AI vendors | [code] `items.go`, `sse.go` |
+| Fixed on 2026-11-22 (M2): each Server-Sent Event (`text/event-stream`), each JSON Lines line and each JSON sequence record is checked against its `itemSchema`. A stream whose spec gives no `itemSchema` is still skipped as `streaming`. | High for AI vendors | [code] `stream.go`, `sse.go`, `lines.go` |
 | Bodies over 2 MiB are skipped (`body_too_large`). | Medium | [code], a chosen limit |
 | Unknown response headers are not reported; a status the spec doesn't list is. | Low | [code] |
 
@@ -94,7 +94,7 @@ If katydid replaces santhosh: `contains`, `prefixItems`, `propertyNames` and `un
 
 ## What looks worth doing first
 
-1. Server-Sent Events: done (M2), each event is checked. JSON Lines and JSON sequences are next.
+1. Streamed responses: done (M2). Each Server-Sent Event, JSON Lines line and JSON sequence record is checked.
 2. Multipart bodies: at least check the non-file fields.
 3. Server variables in the host: done (M1), the base path is kept.
 4. AsyncAPI traits: done (M1), they refuse the spec.

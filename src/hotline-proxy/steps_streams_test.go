@@ -3,7 +3,9 @@ package proxy_test
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +28,14 @@ import (
 type streamingVendor struct {
 	spec  string
 	extra string
+	// integration is added to the support integration's YAML, after its apis.
+	integration string
+	// host is the vendor's host, and contentType what it streams; empty,
+	// the fake Anthropic's and Server-Sent Events.
+	host        string
+	contentType string
+	// breaksOff says the vendor breaks off once it has sent everything.
+	breaksOff bool
 	// at is the place of the integration in the config.
 	at int
 	// events are the events it streams, each with the blank line that
@@ -68,6 +78,12 @@ const (
 // anthropicSpec is the Anthropic spec, as the repository holds it.
 const anthropicSpec = "../../specs/anthropic/messages/2023-06-01.openapi.yaml"
 
+// The made-up order feed, streamed as JSON Lines or JSON sequences.
+const (
+	feedHost = "feed.shop.test"
+	feedSpec = "testdata/streams/order-feed.openapi.yaml"
+)
+
 // helloResponse is the stream of Anthropic's streaming docs, which says
 // "Hello!": eight events.
 func helloResponse() [][]byte {
@@ -107,6 +123,37 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		w.vendor(anthropicHost).setAnswer(w.streamingVendor)
 		return nil
 	})
+	sc.Step(`^the order feed spec$`, w.useFeedSpec)
+	sc.Step(`^the order feed spec, without the itemSchema of application/jsonl$`, func() error {
+		if err := w.useFeedSpec(); err != nil {
+			return err
+		}
+		cut := "            application/jsonl:\n              itemSchema:\n                $ref: \"#/components/schemas/Order\"\n"
+		if !strings.Contains(w.streaming.spec, cut) {
+			return failf("the order feed spec has no itemSchema for application/jsonl to take out")
+		}
+		w.streaming.spec = strings.Replace(w.streaming.spec, cut, "            application/jsonl: {}\n", 1)
+		w.writeStreamingSpec()
+		return nil
+	})
+	sc.Step(`^the feed vendor streams (\S+) bytes (?s)(".*")$`, func(contentType, quoted string) error {
+		w.streaming.contentType = contentType
+		return w.streamBytes(quoted)
+	})
+	sc.Step(`^the feed vendor streams (\S+) bytes (".*"), then breaks off$`, func(contentType, quoted string) error {
+		w.streaming.contentType, w.streaming.breaksOff = contentType, true
+		return w.streamBytes(quoted)
+	})
+	sc.Step(`^the feed vendor streams a JSON Lines order of 3 MiB, then one small order$`, func() error {
+		head, tail := `{"id":"A-1001","total":1,"note":"`, `"}`+"\n"
+		big := head + strings.Repeat("a", 3<<20-len(head)-len(tail)) + tail
+		w.streaming.contentType = "application/jsonl"
+		w.streaming.events = [][]byte{[]byte(big), []byte(`{"id":"A-1002","total":2}` + "\n")}
+		return nil
+	})
+	sc.Step(`^the app reads the order feed$`, func() error {
+		return w.send(request{method: "GET", target: "https://" + feedHost + "/orders/feed", headers: []string{basic(anthropicApp + ":x")}, length: -1})
+	})
 	sc.Step(`^the Anthropic spec, without the itemSchema$`, func() error {
 		cut := "            text/event-stream:\n              itemSchema:\n                $ref: \"#/components/schemas/StreamEvent\"\n"
 		if !strings.Contains(w.streaming.spec, cut) {
@@ -140,15 +187,7 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		w.streaming.events, w.streaming.breakInside = helloResponse(), n
 		return nil
 	})
-	sc.Step(`^the Anthropic vendor streams the bytes (?s)(".*")$`, func(quoted string) error {
-		// A table cell turns \n into a new line; the rest is Go's quoting.
-		raw, err := strconv.Unquote(strings.ReplaceAll(quoted, "\n", `\n`))
-		if err != nil {
-			return err
-		}
-		w.streaming.raw = []byte(raw)
-		return nil
-	})
+	sc.Step(`^the Anthropic vendor streams the bytes (?s)(".*")$`, w.streamBytes)
 	sc.Step(`^the Anthropic vendor streams a content_block_delta of 3 MiB, then the response "Hello!"$`, func() error {
 		head := `event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"`
 		tail := `"}}` + "\n\n"
@@ -416,6 +455,17 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the fourth line is "([^"]*)" with the stream's size and the time it was open$`, func(want string) error {
 		return w.consoleLine(3, `^ *`+regexp.QuoteMeta(want)+` \d+(\.\d)? (B|KiB|MiB) \d+\.\d ms$`)
 	})
+	sc.Step(`^the support integration has content full and maxBodySize (\S+)$`, func(size string) error {
+		w.streaming.integration = "    content: full\n    maxBodySize: " + size + "\n"
+		w.writeStreamingSpec()
+		return nil
+	})
+	sc.Step(`^the stream line's hotline.content.stream.body is the response "Hello!" as the vendor sent it$`, func() error {
+		return w.streamLineKeeps(bytes.Join(helloResponse(), nil), false)
+	})
+	sc.Step(`^the stream line's hotline.content.stream.body is the first 256 bytes of the response "Hello!", with hotline.content.stream.body.truncated true$`, func() error {
+		return w.streamLineKeeps(bytes.Join(helloResponse(), nil)[:256], true)
+	})
 	sc.Step(`^no record or span holds the app's api key$`, func() error {
 		w.settle()
 		r := w.receivers[0]
@@ -453,11 +503,35 @@ func anthropicRequest(stream bool) request {
 	}
 }
 
+// useFeedSpec puts the order feed in the Anthropic spec's place in the
+// support integration.
+func (w *world) useFeedSpec() error {
+	spec, err := os.ReadFile(filepath.FromSlash(feedSpec))
+	if err != nil {
+		return err
+	}
+	w.streaming.spec, w.streaming.host = string(spec), feedHost
+	w.writeStreamingSpec()
+	w.vendor(feedHost).setAnswer(w.streamingVendor)
+	return nil
+}
+
+// streamBytes has the vendor stream the bytes, quoted as Go quotes them.
+func (w *world) streamBytes(quoted string) error {
+	// A table cell turns \n into a new line; the rest is Go's quoting.
+	raw, err := strconv.Unquote(strings.ReplaceAll(quoted, "\n", `\n`))
+	if err != nil {
+		return err
+	}
+	w.streaming.raw = []byte(raw)
+	return nil
+}
+
 // writeStreamingSpec writes the fake Anthropic's spec and puts its
 // integration in its place.
 func (w *world) writeStreamingSpec() {
 	v := w.streaming
-	w.integrations[v.at] = integration(anthropicApp, w.specAPI(anthropicHost, v.spec, v.extra))
+	w.integrations[v.at] = integration(anthropicApp, w.specAPI(cmp.Or(v.host, anthropicHost), v.spec, v.extra)) + v.integration
 }
 
 // streamingVendor answers as the fake Anthropic: the whole message, or its
@@ -473,7 +547,7 @@ func (w *world) streamingVendor(rw http.ResponseWriter, r *http.Request) {
 	if v.holdsHeaders {
 		v.waitForStop()
 	}
-	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Content-Type", cmp.Or(v.contentType, "text/event-stream"))
 	rw.Header().Set("Cache-Control", "no-cache")
 	rw.WriteHeader(http.StatusOK)
 	flush := http.NewResponseController(rw).Flush
@@ -491,6 +565,9 @@ func (w *world) streamingVendor(rw http.ResponseWriter, r *http.Request) {
 			panic(http.ErrAbortHandler)
 		}
 		v.write(rw, flush, piece)
+	}
+	if v.breaksOff {
+		panic(http.ErrAbortHandler)
 	}
 	if v.waits {
 		select {
@@ -642,4 +719,28 @@ func (w *world) spanByID(id string) *receivedSpan {
 		}
 	}
 	return nil
+}
+
+// streamLineKeeps checks the stream body the file's stream line keeps, and
+// whether it says the stream was cut short.
+func (w *world) streamLineKeeps(want []byte, cut bool) error {
+	lines, err := w.allFileLines(0)
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		if line["event"] != "hotline.stream" {
+			continue
+		}
+		attrs, _ := line["attributes"].(map[string]any)
+		got, err := base64.StdEncoding.DecodeString(sprint(attrs["hotline.content.stream.body"]))
+		if err != nil || !bytes.Equal(got, want) {
+			return failf("the stream line keeps %q, want %q", got, want)
+		}
+		if truncated, _ := attrs["hotline.content.stream.body.truncated"].(bool); truncated != cut {
+			return failf("the stream line's truncated flag is %v, want %v", truncated, cut)
+		}
+		return nil
+	}
+	return failf("the file has no stream line")
 }

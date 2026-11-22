@@ -14,23 +14,13 @@ import (
 // data lines of an event are joined with a line break; an event with no
 // data is never delivered; a field the standard doesn't know is ignored.
 
-// sseEvent is one event that was delivered: its fields as OpenAPI 3.2
-// reads them, written as a JSON object for the check, its size as sent,
-// and when its first and last bytes passed.
-type sseEvent struct {
-	// asJSON is the event as JSON; nil when the event was over keptBody, so
-	// it was not kept.
-	asJSON     []byte
-	size       int64
-	start, end time.Time
-}
-
 // sseReader cuts a stream into its events as the bytes pass. It keeps only
 // the event being read, at most keptBody of it, and hands each event on as
-// it ends.
+// it ends. An event still open when the stream ends is dropped, as the
+// standard says.
 type sseReader struct {
 	// delivered is told each event as it ends.
-	delivered func(sseEvent)
+	delivered func(streamItem)
 
 	// started says a byte of the stream passed; the first may be a byte
 	// order mark, which is dropped.
@@ -100,6 +90,10 @@ func (r *sseReader) pass(p []byte, at time.Time) {
 		}
 	}
 }
+
+// end drops an event the stream left open: the HTML standard never
+// delivers an event that no blank line ended.
+func (r *sseReader) end() { r.reset() }
 
 // skipMark drops a byte order mark at the very start of the stream, and
 // says whether b was part of it.
@@ -191,7 +185,7 @@ func digits(value []byte) bool {
 
 // deliver hands the event on, written as the object OpenAPI 3.2 checks.
 func (r *sseReader) deliver(at time.Time) {
-	e := sseEvent{size: r.size, start: r.start, end: at}
+	e := streamItem{size: r.size, start: r.start, end: at}
 	if !r.tooBig {
 		e.asJSON, _ = json.Marshal(struct { //nolint:errchkjson // text, text pointers and a number always encode
 			Data  string  `json:"data"`

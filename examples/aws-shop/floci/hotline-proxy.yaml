@@ -4,8 +4,9 @@
 # copy of AWS over plain http), every integration's full traffic written to
 # floci/out/calls/calls.jsonl, and, when run.sh finds Grafana Cloud settings,
 # a second exporter that sends the usual records to Grafana Cloud. The
-# shop's assistant reaches the fake Gemini Live through the CONNECT ingress,
-# with the test certificate authority up.sh makes in out/tls.
+# shop's assistant and support reach the fake Gemini Live and the fake
+# Anthropic through the CONNECT ingress, with the test certificate authority
+# up.sh makes in out/tls.
 
 admin:
   address: tcp://:8081
@@ -15,7 +16,7 @@ certs:
 listeners:
   apps:
     address: tcp://:8080
-    connect: { cert: floci-test }   # the assistant's wss:// to Gemini Live comes as CONNECT
+    connect: { cert: floci-test }   # the assistant's wss:// to Gemini Live and support's https:// to Anthropic come as CONNECT
 
 exporters:
   - file:
@@ -150,6 +151,11 @@ apis:
     allowInternalIPs: true  # the fake Gemini Live runs on this machine
     spec: ../../../specs/google/gemini-live/v1beta.openapi.yaml
 
+  anthropic-messages:              # support's streamed Claude responses; aimock and the same TLS front stand in for Anthropic
+    hosts: [api.anthropic.com]
+    allowInternalIPs: true  # the fake Anthropic runs on this machine
+    spec: ../../../specs/anthropic/messages/2023-06-01.openapi.yaml
+
 # Each app is one integration: its ID is the user name the app puts in the
 # proxy address, such as http://checkout:x@localhost:8080.
 integrations:
@@ -172,3 +178,7 @@ integrations:
   - id: shop-assistant
     apis: [gemini-live, aws-dynamodb-orders]
     content: full           # bodies and all headers go to the file exporter; the Gemini key is hidden by the spec
+
+  - id: shop-support
+    apis: [anthropic-messages, aws-dynamodb-orders]
+    content: full           # bodies, all headers and each stream go to the file exporter; the Anthropic key is hidden
