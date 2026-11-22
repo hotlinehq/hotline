@@ -152,6 +152,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			ConfigPath:    w.writeFile("second.yaml", config),
 			Resolver:      w.network,
 			Dialer:        w.network,
+			Packets:       w.network,
 			RootCAs:       w.authority.pool,
 			Clock:         proxy.SystemClock{},
 			Logger:        slog.New(slog.DiscardHandler),

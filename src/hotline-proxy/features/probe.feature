@@ -5,7 +5,10 @@ Feature: Probing a vendor the proxy cannot connect to
   Many integrations calling the same endpoint share one probe, and probes
   back off while the failures go on (Peter, 2026-11-21). Every call record
   carries proof of the latest probe of its endpoint while its failures go
-  on (Peter, 2026-11-22).
+  on (Peter, 2026-11-22). When the vendor's port gives no answer or cannot
+  be reached, the probe also traces the path to the vendor, router by
+  router, and asks whether the vendor's machine is up (slice 2, Peter,
+  2026-11-22).
 
   # Starting a probe
 
@@ -147,6 +150,54 @@ Feature: Probing a vendor the proxy cannot connect to
     And the proxy is stopped with no time left
     Then no probe is exported
 
+  # Where the path stops (slice 2)
+
+  Scenario Outline: The path trace tells where a silent vendor's packets stop
+    Given <situation>
+    When an app calls the vendor through the proxy
+    Then the probe's record has hotline.probe.side <side> and hotline.probe.verdict <verdict>
+    And its path answers are path_reaches_vendor <path> and host_up <host>
+    And the probe's body says "<says>"
+
+    Examples:
+      | situation                                                                      | side        | verdict                | path        | host        | says                          |
+      | a vendor whose firewall drops our packets, and whose machine answers UDP       | vendor_side | silent_drop_at_vendor  | yes         | yes         | most likely drops our IP      |
+      | a vendor whose firewall drops our packets, and whose machine answers only ping | vendor_side | silent_drop_at_vendor  | yes         | yes         | most likely drops our IP      |
+      | a vendor whose firewall drops our packets, where ping is not allowed           | between     | silent_drop            | no          | no          | most likely                   |
+      | a path whose packets stop after our own router                                 | our_side    | path_stops_on_our_side | no          | no          | after router 1 (10.0.0.1)     |
+      | a path whose packets stop after a public router                                | between     | silent_drop            | no          | no          | after router 2 (198.51.100.2) |
+      | a path where no router answers                                                 | between     | silent_drop            | no          | no          | quiet from the first router   |
+      | a firewall on the way that answers "administratively prohibited"               | vendor_side | rejected_by_firewall   | yes         | yes         | 198.51.100.2                  |
+      | a firewall of ours on the way that answers "administratively prohibited"       | our_side    | rejected_by_firewall   | no          | no          | 10.0.0.1                      |
+      | a router on the way that says the vendor's machine cannot be reached           | between     | unreachable            | no          | no          | 198.51.100.2 reports          |
+      | a vendor whose firewall drops our packets, where path probes cannot run        | between     | no_answer              | not_checked | not_checked | did not answer                |
+
+  Scenario: Each router is a span of the path's trace
+    Given a vendor whose firewall drops our packets, and whose machine answers UDP
+    When an app calls the vendor through the proxy
+    Then the probe's trace has spans "name_resolves", "path_reaches_vendor", "host_up" and "port_accepts_us", in that order
+    And the span "path_reaches_vendor" has "hop" spans under it for tcp with hotline.probe.hop.ttl 1 to 6, and for udp 1 to 4
+    And the first hop span has hotline.probe.hop.from "203.0.113.1", hotline.probe.hop.answer "time_exceeded" and network.transport "tcp"
+    And the probe's hotline.probe.path_reaches_vendor.evidence has a line "tcp ttl 1: time exceeded from 203.0.113.1"
+
+  Scenario: The trace gives up after three silent routers in a row
+    Given a path where no router answers
+    When an app calls the vendor through the proxy
+    Then the span "path_reaches_vendor" has "hop" spans under it for tcp with hotline.probe.hop.ttl 1 to 3, and for udp 1 to 3
+
+  Scenario: A refusal sends no path packets
+    Given the vendor refuses connections
+    When an app calls the vendor through the proxy
+    Then one probe of "api.talon.one:443" is exported
+    And the proxy sent no path packets
+    And its path answers are path_reaches_vendor not_checked and host_up not_checked
+
+  Scenario: The path trace goes no further than maxHops
+    Given the api for "api.talon.one" has "probe: { maxHops: 2 }"
+    And a vendor whose firewall drops our packets, and whose machine answers UDP
+    When an app calls the vendor through the proxy
+    Then no TCP or UDP path packet crossed more than 2 routers
+
   # What is exported
 
   Scenario: The probe's log record
@@ -245,6 +296,8 @@ Feature: Probing a vendor the proxy cannot connect to
       | probe: { backoff: { first: 0s } }               | api talon-one: probe: backoff.first "0s" must be a duration above zero        |
       | probe: { backoff: { first: 20m, longest: 5m } } | api talon-one: probe: backoff.first 20m0s is longer than backoff.longest 5m0s |
       | probe: { probeTimeout: -1s }                    | api talon-one: probe: probeTimeout "-1s" must be a duration above zero        |
+      | probe: { maxHops: 0 }                           | api talon-one: probe: maxHops 0 must be from 1 to 64                          |
+      | probe: { maxHops: 65 }                          | api talon-one: probe: maxHops 65 must be from 1 to 64                         |
 
   Scenario: An unknown probe setting is a warning
     Given the api for "api.talon.one" has "probe: { colour: red }"

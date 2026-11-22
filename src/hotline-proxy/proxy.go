@@ -59,6 +59,8 @@ type Options struct {
 	ConfigPath string
 	Resolver   Resolver
 	Dialer     Dialer
+	// Packets sends the packets of a probe's path trace.
+	Packets PacketSender
 	// RootCAs are the trusted certificate authorities, for vendors and for
 	// collectors over TLS: the system's own and any extra ones.
 	RootCAs *x509.CertPool
@@ -181,7 +183,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	h.book = newBook(o.Clock, exporters, cfg, o.InstanceID, o.Version, h.cfg.Load)
 	// Probes connect as calls do, with the same resolver, dialer and
 	// certificate authorities.
-	h.probes = newProbes(o.Clock, &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}, o.RootCAs, h.cfg.Load, h.book)
+	h.probes = newProbes(o.Clock, &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}, o.Packets, o.RootCAs, h.cfg.Load, h.book)
 	o.Logger.Info("ledger batches", "every", cfg.Ledger.Every.String(), "max_records", cfg.Ledger.MaxRecords)
 	workers := o.CheckWorkers
 	if workers == 0 {

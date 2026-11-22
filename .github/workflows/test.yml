@@ -28,6 +28,10 @@ jobs:
             go.work.sum
       - name: check the Mac signing script
         run: bash .github/scripts/sign-mac-program-test.sh
+      # The path probe's ping tests need the ICMP socket an ordinary user
+      # may open. Docker allows it by default; this runner does not.
+      - name: let the tests ping
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
       - name: run tests
         run: |
           make clean-cache

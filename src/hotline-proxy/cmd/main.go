@@ -26,6 +26,7 @@ import (
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/overlay"
+	"hotline-proxy/internal/pathprobe"
 )
 
 // Exit codes.
@@ -178,6 +179,7 @@ func run(args []string, stdout, stderr io.Writer, signals, reloads <-chan os.Sig
 		ConfigPath:    *configPath,
 		Resolver:      net.DefaultResolver,
 		Dialer:        &net.Dialer{},
+		Packets:       pathprobe.Sender{},
 		RootCAs:       roots,
 		Clock:         proxy.SystemClock{},
 		Logger:        logger,

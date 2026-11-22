@@ -221,8 +221,12 @@ The record of one stream item of a streamed response, `hotline.stream.item`, wit
 _Avoid_: event record, chunk record
 
 **Probe**:
-A check of a vendor's host and port after calls to it fail to connect: DNS, the TCP connect and TLS, to say which side of the connection the problem is on. One record (`hotline.probe`) and one trace each, shared by every integration calling that host and port, and backing off while the failures go on.
+A check of a vendor's host and port after calls to it fail to connect: DNS, the path trace (when the port gives no answer), the TCP connect and TLS, to say which side of the connection the problem is on. One record (`hotline.probe`) and one trace each, shared by every integration calling that host and port, and backing off while the failures go on.
 _Avoid_: diagnosis, health check (that is `/livez` and `/readyz`), connection check (a check is a spec check)
+
+**Path trace**:
+The part of a probe that sends packets which may cross only 1 router, then 2, and so on, over TCP and UDP, to see how far the packets get towards the vendor, as `traceroute` does. Each packet is a `hop` span.
+_Avoid_: traceroute (the tool), path probe (the whole probe is the probe)
 
 **Trace**:
 A call's steps as OpenTelemetry spans (DNS, connect, TLS, first byte and the rest), each with its start and end. The timings live here.

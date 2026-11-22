@@ -124,6 +124,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	websocketMessageSteps(sc, w)
 	streamSteps(sc, w)
 	probeSteps(sc, w)
+	pathSteps(sc, w)
 }
 
 var errCheck = errors.New("check failed")

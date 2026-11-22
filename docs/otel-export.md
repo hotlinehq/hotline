@@ -281,13 +281,13 @@ When a call fails to connect (`error.type` `dns_error`, `dns_timeout`, `connecti
 |---|---|---|
 | `server.address`, `server.port` | text, number | The vendor's host and port, as the call used them. |
 | `hotline.probe.side` | text | Where the first "no" points: `our_side`, `between`, `vendor_side`, or `none` when every answer is yes. |
-| `hotline.probe.verdict` | text | `dns_name_not_found`, `dns_failed`, `refused_by_vendor`, `no_answer`, `unreachable`, `tls_cut_by_vendor`, `tls_certificate_failed`, `tls_failed` or `reachable_now`. |
-| `hotline.probe.<question>.answer` | text | `yes`, `no` or `not_checked`, for `name_resolves`, `port_accepts_us` and `tls_works`. |
-| `hotline.probe.<question>.evidence` | list of texts | What the check saw, such as the addresses, or `192.0.2.10:443 answered with a reset`. |
+| `hotline.probe.verdict` | text | `dns_name_not_found`, `dns_failed`, `refused_by_vendor`, `no_answer`, `unreachable`, `silent_drop_at_vendor`, `silent_drop`, `path_stops_on_our_side`, `rejected_by_firewall`, `tls_cut_by_vendor`, `tls_certificate_failed`, `tls_failed` or `reachable_now`. |
+| `hotline.probe.<question>.answer` | text | `yes`, `no` or `not_checked`, for `name_resolves`, `path_reaches_vendor`, `host_up`, `port_accepts_us` and `tls_works`. |
+| `hotline.probe.<question>.evidence` | list of texts | What the check saw, such as the addresses, `192.0.2.10:443 answered with a reset`, or one line per packet of the path trace, such as `tcp ttl 2: time exceeded from 198.51.100.2`. |
 
 While a host and port has probes, every call record to it carries `hotline.probe.record_hash` and `hotline.probe.trace_id` of the latest probe, and a failed one also `hotline.probe.side`, `hotline.probe.verdict` and `hotline.probe.time` (when that probe ended, RFC 3339 in UTC). Once a call connects again, or no call failed for `quietAfter`, nothing is attached.
 
-The probe's trace has a root span `probe`, with `server.address`, `server.port`, `hotline.probe.side` and `hotline.probe.verdict`, linked to the call span of the failed call that made it due, and under it one span per question asked (`name_resolves`, `port_accepts_us`, `tls_works`) with `hotline.probe.question`, `hotline.probe.answer`, `hotline.probe.points_to` and `hotline.probe.evidence`.
+The probe's trace has a root span `probe`, with `server.address`, `server.port`, `hotline.probe.side` and `hotline.probe.verdict`, linked to the call span of the failed call that made it due, and under it one span per question asked (`name_resolves`, `path_reaches_vendor`, `host_up`, `port_accepts_us`, `tls_works`) with `hotline.probe.question`, `hotline.probe.answer`, `hotline.probe.points_to` and `hotline.probe.evidence`. The path is traced only when the vendor's port gave no answer or could not be reached; then each packet of the trace is a span `hop` under `path_reaches_vendor`, with `hotline.probe.hop.ttl`, `hotline.probe.hop.answer` (`time_exceeded`, `port_unreachable`, `prohibited`, `unreachable`, `silence`, `connected`, `reset` or `not_sent`), `hotline.probe.hop.from`, `hotline.probe.hop.icmp_type`, `hotline.probe.hop.icmp_code` and `network.transport` (`tcp` or `udp`).
 
 ## Signal 2: the trace of each call
 
