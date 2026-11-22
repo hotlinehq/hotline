@@ -51,6 +51,7 @@ A line looks like this, spread out here to read:
 
 - The attributes are the record every exporter gets, with the same names ([otel-export.md](otel-export.md)): numbers are numbers, header values are lists of text.
 - The names of the line's own fields follow OpenTelemetry's data model for logs and spans. The line is not OTLP's own JSON (`resourceLogs` and so on), so the OpenTelemetry Collector cannot read the file back; the `otlp` exporters are the way to a collector.
+- A probe's line (`hotline.probe`) also has `body`, the verdict as a sentence, and its root span has `links`, each with `trace_id` and `span_id`: the failed call that made the probe due ([decisions/probe.md](decisions/probe.md)).
 - A line shows up at most 100 ms after the call's record is made, or sooner once 512 wait. The record is made once the response has gone back to the app and the spec checks have ended, as for every exporter.
 
 To follow calls as they come: `tail -f calls/calls.jsonl | jq .`

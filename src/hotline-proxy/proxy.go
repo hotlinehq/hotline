@@ -179,6 +179,9 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
 	h.book = newBook(o.Clock, exporters, cfg, o.InstanceID, o.Version, h.cfg.Load)
+	// Probes connect as calls do, with the same resolver, dialer and
+	// certificate authorities.
+	h.probes = newProbes(o.Clock, &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}, o.RootCAs, h.cfg.Load, h.book)
 	o.Logger.Info("ledger batches", "every", cfg.Ledger.Every.String(), "max_records", cfg.Ledger.MaxRecords)
 	workers := o.CheckWorkers
 	if workers == 0 {
@@ -350,6 +353,9 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		skipped := p.handler.checks.stop(true)
 		p.handler.logger.Warn("stop ran out of time, skipped the spec checks still waiting", "skipped", skipped)
 	}
+	// Every call is recorded, so no failure makes a probe due any more;
+	// those already due finish, and their records go in the ledger too.
+	p.handler.probes.stop(ctx)
 	for _, t := range p.transports {
 		t.CloseIdleConnections()
 	}

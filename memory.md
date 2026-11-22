@@ -56,6 +56,7 @@ The proxy is built in small slices, tests first. Each item, with its decisions i
 Open only the file for the topic at hand.
 
 - Slice 1: [docs/decisions/slice-1.md](docs/decisions/slice-1.md)
+- Probes of vendors whose calls fail to connect: [docs/decisions/probe.md](docs/decisions/probe.md)
 - Program: [docs/decisions/program.md](docs/decisions/program.md)
 - TLS from apps: [docs/decisions/tls-from-apps.md](docs/decisions/tls-from-apps.md)
 - Vendor URL in path: [docs/decisions/url-in-path.md](docs/decisions/url-in-path.md)

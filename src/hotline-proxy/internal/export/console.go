@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -135,6 +136,8 @@ func (c *consoleExporter) lines(call Call) []byte {
 		return c.sessionLines(call)
 	case StreamEvent:
 		return c.streamLines(call)
+	case ProbeEvent:
+		return c.probeLine(call)
 	case MessageEvent, StreamItemEvent:
 		// A session may send many messages a second, such as audio, and a
 		// model's answer streams hundreds of stream items: the console shows the
@@ -219,6 +222,36 @@ func (c *consoleExporter) lines(call Call) []byte {
 	if len(found) > 0 {
 		l.b.WriteString("\n")
 	}
+	return l.b.Bytes()
+}
+
+// probeLine writes a probe in one line: when, PROBE, the vendor endpoint,
+// the side of the connection the problem is on, and the verdict in a
+// sentence (Peter, 2026-11-22).
+func (c *consoleExporter) probeLine(call Call) []byte {
+	l := &consoleLines{color: c.color}
+	var host, side string
+	var port int64
+	for _, kv := range call.Attrs {
+		switch kv.Key {
+		case semconv.ServerAddressKey:
+			host = kv.Value.AsString()
+		case semconv.ServerPortKey:
+			port = kv.Value.AsInt64()
+		case "hotline.probe.side":
+			side = kv.Value.AsString()
+		}
+	}
+	colour := red
+	if side == "none" {
+		colour = green
+	}
+	l.style(call.At.Local().Format("15:04:05.000"), dim)
+	l.word("PROBE", bold, colour)
+	l.word(printable(net.JoinHostPort(host, strconv.FormatInt(port, 10))), bold)
+	l.word(printable(side), colour)
+	l.word(printable(call.Body))
+	l.b.WriteString("\n")
 	return l.b.Bytes()
 }
 

@@ -126,11 +126,15 @@ func appendList[T any](b []byte, items []T, value func(T) attribute.Value) []byt
 }
 
 // appendRecord writes the content of one LogRecord message, without its
-// own tag and length, so it fits any batch.
-func appendRecord(b []byte, event string, at, observed time.Time, severity log.Severity, sc trace.SpanContext, attrs []attribute.KeyValue) []byte {
+// own tag and length, so it fits any batch. A record with no body, every
+// one but a probe's, leaves the body out.
+func appendRecord(b []byte, event string, at, observed time.Time, severity log.Severity, sc trace.SpanContext, body string, attrs []attribute.KeyValue) []byte {
 	b = appendFixed64(b, 1, nanos(at))
 	b = appendVarint(b, 2, uint64(severity)) //nolint:gosec // a level is a small positive number
 	b = appendText(b, 3, severity.String())
+	if body != "" {
+		b = appendValue(b, 5, attribute.StringValue(body))
+	}
 	for _, kv := range attrs {
 		b = appendKeyValue(b, 6, kv)
 	}
@@ -174,6 +178,15 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 	b = appendFixed64(b, 8, nanos(s.End))
 	for _, kv := range s.Attrs {
 		b = appendKeyValue(b, 9, kv)
+	}
+	for _, link := range s.Links {
+		var start int
+		b, start = openField(b, 13)
+		traceID, spanID := link.TraceID(), link.SpanID()
+		b = appendBytes(b, 1, traceID[:])
+		b = appendBytes(b, 2, spanID[:])
+		b = appendFixed32(b, 6, uint32(link.TraceFlags())|flagHasIsRemote)
+		b = closeField(b, start)
 	}
 	var status int
 	b, status = openField(b, 15)

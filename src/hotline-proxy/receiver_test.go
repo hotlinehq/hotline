@@ -38,6 +38,8 @@ type receivedRecord struct {
 	traceID string
 	spanID  string
 	flags   uint32
+	// body is the record's text, when it is one.
+	body string
 }
 
 // receivedSpan is one span the fake OTLP receiver got, the ids in hex.
@@ -58,6 +60,9 @@ type receivedSpan struct {
 	flags    uint32
 	attrs    map[string]any
 	resource map[string]any
+	// links are the spans this one links to, each as trace id and span id
+	// in hex, joined by a slash.
+	links []string
 }
 
 // receivedPoint is one data point of any metric the receiver got.
@@ -134,6 +139,8 @@ type receiver struct {
 	// items, kept apart as well.
 	streams []receivedRecord
 	items   []receivedRecord
+	// probes are the records of the probes of vendors, kept apart too.
+	probes []receivedRecord
 	// down refuses every log export, until it is back.
 	down bool
 	// refused counts the call records refused while down.
@@ -316,6 +323,8 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					list = &r.streams
 				case "hotline.stream.item":
 					list = &r.items
+				case "hotline.probe":
+					list = &r.probes
 				default:
 					r.taken++
 				}
@@ -328,6 +337,7 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					attrs:          values(lr.GetAttributes()),
 					traceID:        hex.EncodeToString(lr.GetTraceId()),
 					spanID:         hex.EncodeToString(lr.GetSpanId()),
+					body:           lr.GetBody().GetStringValue(),
 					flags:          lr.GetFlags(),
 				})
 			}
@@ -399,7 +409,12 @@ func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceSe
 		res := values(rs.GetResource().GetAttributes())
 		for _, ss := range rs.GetScopeSpans() {
 			for _, s := range ss.GetSpans() {
+				var links []string
+				for _, l := range s.GetLinks() {
+					links = append(links, hex.EncodeToString(l.GetTraceId())+"/"+hex.EncodeToString(l.GetSpanId()))
+				}
 				r.spanList = append(r.spanList, receivedSpan{
+					links:    links,
 					traceID:  hex.EncodeToString(s.GetTraceId()),
 					spanID:   hex.EncodeToString(s.GetSpanId()),
 					parent:   hex.EncodeToString(s.GetParentSpanId()),
@@ -442,6 +457,14 @@ func (r *receiver) streamItemRecords() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]receivedRecord(nil), r.items...)
+}
+
+// probeRecords are the probe records the receiver got, in the order they
+// came.
+func (r *receiver) probeRecords() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.probes...)
 }
 
 func (r *receiver) spans() []receivedSpan {

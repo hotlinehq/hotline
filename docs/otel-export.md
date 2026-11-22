@@ -268,6 +268,27 @@ Each stream item of a streamed response (an event, a JSON line or a JSON sequenc
 | `hotline.schema.*` | | The check, under `response`. `hotline.schema.skipped` is `body_too_large` for a stream item over 2 MiB, and `overloaded` when the spec check line was full. None when the api's `checks` leave out `responseBody`. |
 | fields marked `x-hotline-record` | | Copied as sent, such as Anthropic's event name, `anthropic.stream.event`. |
 
+### Probes
+
+When a call fails to connect (`error.type` `dns_error`, `dns_timeout`, `connection_refused`, `connection_timeout`, `destination_unavailable`, `tls_certificate_error` or `tls_protocol_error`), the proxy probes the vendor's host and port apart from the call, and sends one record per probe ([decisions/probe.md](decisions/probe.md), Peter, 2026-11-22). One probe serves every integration calling that host and port, and probes back off while the failures go on.
+
+- Event name: `hotline.probe`. Severity: WARN, or INFO for `reachable_now`. Body: the verdict as a plain sentence.
+- Timestamp: when the probe started. Trace id and span id: the probe's own trace, its `probe` span.
+- It goes into the ledger on the chain `hotline.probe`, and `hotline-proxy verify` checks it.
+- The console prints one line: the time, `PROBE`, the host and port, the side and the sentence.
+
+| Attribute | Type | What it holds |
+|---|---|---|
+| `server.address`, `server.port` | text, number | The vendor's host and port, as the call used them. |
+| `hotline.probe.side` | text | Where the first "no" points: `our_side`, `between`, `vendor_side`, or `none` when every answer is yes. |
+| `hotline.probe.verdict` | text | `dns_name_not_found`, `dns_failed`, `refused_by_vendor`, `no_answer`, `unreachable`, `tls_cut_by_vendor`, `tls_certificate_failed`, `tls_failed` or `reachable_now`. |
+| `hotline.probe.<question>.answer` | text | `yes`, `no` or `not_checked`, for `name_resolves`, `port_accepts_us` and `tls_works`. |
+| `hotline.probe.<question>.evidence` | list of texts | What the check saw, such as the addresses, or `192.0.2.10:443 answered with a reset`. |
+
+While a host and port has probes, every call record to it carries `hotline.probe.record_hash` and `hotline.probe.trace_id` of the latest probe, and a failed one also `hotline.probe.side`, `hotline.probe.verdict` and `hotline.probe.time` (when that probe ended, RFC 3339 in UTC). Once a call connects again, or no call failed for `quietAfter`, nothing is attached.
+
+The probe's trace has a root span `probe`, with `server.address`, `server.port`, `hotline.probe.side` and `hotline.probe.verdict`, linked to the call span of the failed call that made it due, and under it one span per question asked (`name_resolves`, `port_accepts_us`, `tls_works`) with `hotline.probe.question`, `hotline.probe.answer`, `hotline.probe.points_to` and `hotline.probe.evidence`.
+
 ## Signal 2: the trace of each call
 
 One trace per call, to every exporter, with the same resource labels as the records: `hotline call` for the whole call, and under it a span for each step that happened, such as `routing`, `vendor call` with `dns lookup`, `tcp connect`, `vendor tls handshake`, `send call`, `wait for vendor` and `receive response` under it, and `response to app`, with `request spec check` and `response spec check` for the spec checks. `hotline call` has the record's trace id and span id, and sits under the app's span when the app sent one. Spans hold nothing the record holds: only `hotline.connection.reused` on `vendor call` and `dns.question.name` on `dns lookup`. The one exception is `websocket message`, which also carries its record's `hotline.websocket.operation`, `hotline.websocket.message.role` and `messaging.message.conversation_id`, so a query in the trace store can group a request with its replies (Peter, 2026-11-21, Q4). A WebSocket session has one span more, `websocket session`, sent with its own record: a child of `hotline call`, from the `101` reaching the app, where `hotline call` ends, to the session's end (Peter, 2026-11-18). Each of its messages has a `websocket message` span under `websocket session`, from the message's first byte to its last, sent with the message's record, with `message spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-19). A streamed response is the same: a `stream` span under `hotline call`, from the headers reaching the app to the stream's end, failed when the stream was cut, and under it a `stream item` span for each event, from its first byte to its last, with `item spec check` and `wait for check worker` under it when it was checked (Peter, 2026-11-21, M2, Q2). Detail: [proxy-traces.md](proxy-traces.md).

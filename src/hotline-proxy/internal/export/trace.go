@@ -20,6 +20,9 @@ type Span struct {
 	End    time.Time
 	Status Status
 	Attrs  []attribute.KeyValue
+	// Links are spans of other traces this one follows from, such as the
+	// failed call that made a probe due.
+	Links []trace.SpanContext
 }
 
 // Status is how a step ended, with OpenTelemetry's three span statuses.

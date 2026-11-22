@@ -75,6 +75,9 @@ model {
         technology 'internal/config'
         description 'Reads the config, specs and certs; reloads within 5 seconds or on kill -HUP'
       }
+      probes = component 'Probes' {
+        description 'When calls fail to connect, checks the vendor\'s host and port (DNS, TCP, TLS) to say which side the problem is on; one per host and port, with backoff, 2 workers'
+      }
       admin = component 'Admin port' '/livez and /readyz, optional pprof pages'
       telemetry = component 'Own telemetry' 'The proxy\'s own numbers, sent if telemetry is set'
 
@@ -84,6 +87,9 @@ model {
       tap -> checker 'body copies'
       checker -> recorder 'check results'
       forwarder -> recorder 'step timings'
+      recorder -> probes 'failed connection'
+      probes -> ledger 'probe record'
+      probes -> exporters 'probe record, trace'
       recorder -> ledger 'record hash'
       recorder -> exporters 'record, trace'
       ledger -> exporters 'signed batch'
@@ -107,6 +113,7 @@ model {
   macApps -> captureHelper 'chosen apps\' connections'
   captureHelper -> hotline.proxy.ingress 'CONNECT over a socket file'
   hotline.proxy.guard -> vendors 'calls, unchanged, HTTPS'
+  hotline.proxy.probes -> vendors 'DNS lookup, TCP connect, TLS handshake'
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
   hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
   hotline.proxy.exporters -> hotline.folder 'JSON lines'

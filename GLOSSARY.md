@@ -216,6 +216,10 @@ _Avoid_: second record
 The record of one stream item of a streamed response, `hotline.stream.item`, with its index, size and spec check. It is not counted as a call.
 _Avoid_: event record, chunk record
 
+**Probe**:
+A check of a vendor's host and port after calls to it fail to connect: DNS, the TCP connect and TLS, to say which side of the connection the problem is on. One record (`hotline.probe`) and one trace each, shared by every integration calling that host and port, and backing off while the failures go on.
+_Avoid_: diagnosis, health check (that is `/livez` and `/readyz`), connection check (a check is a spec check)
+
 **Trace**:
 A call's steps as OpenTelemetry spans (DNS, connect, TLS, first byte and the rest), each with its start and end. The timings live here.
 _Avoid_: timings record, span list

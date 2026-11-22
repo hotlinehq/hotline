@@ -23,6 +23,9 @@ const (
 	// Server-Sent Event (Peter, 2026-11-21, M2, Q1 and Q3).
 	StreamEvent     = "hotline.stream"
 	StreamItemEvent = "hotline.stream.item"
+	// ProbeEvent is the event of a probe's line: a check of a vendor
+	// endpoint after calls to it failed to connect (Peter, 2026-11-22).
+	ProbeEvent = "hotline.probe"
 	// BatchEvent is the event of a ledger batch's line.
 	BatchEvent = "hotline.ledger.batch"
 	// TraceSpans is the attribute of a call's line that holds its spans.

@@ -17,7 +17,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -239,8 +241,14 @@ type network struct {
 	hang map[string]bool
 	// unreachable lists addresses with no route.
 	unreachable map[string]bool
-	lookups     int
-	dials       int
+	// refusalsLeft is how many more connections to each address are refused, as
+	// a vendor whose server is down for a moment refuses them.
+	refusalsLeft map[string]int
+	// namesAfterLookup are the addresses a name resolves to after its next lookup,
+	// as when a vendor's DNS changes.
+	namesAfterLookup map[string][]netip.Addr
+	lookups          int
+	dials            int
 	// dialed are the addresses the proxy tried to connect to.
 	dialed []string
 	// lookupTime is how long each answered lookup takes.
@@ -251,10 +259,12 @@ type network struct {
 
 func newNetwork() *network {
 	return &network{
-		names:       map[string][]netip.Addr{},
-		routes:      map[string]string{},
-		hang:        map[string]bool{},
-		unreachable: map[string]bool{},
+		names:            map[string][]netip.Addr{},
+		routes:           map[string]string{},
+		hang:             map[string]bool{},
+		unreachable:      map[string]bool{},
+		refusalsLeft:     map[string]int{},
+		namesAfterLookup: map[string][]netip.Addr{},
 	}
 }
 
@@ -262,6 +272,10 @@ func (n *network) LookupNetIP(ctx context.Context, _, host string) ([]netip.Addr
 	n.mu.Lock()
 	n.lookups++
 	ips, found := n.names[host]
+	if next, changes := n.namesAfterLookup[host]; changes {
+		n.names[host] = next
+		delete(n.namesAfterLookup, host)
+	}
 	hang := n.hang[host]
 	lookupTime := n.lookupTime
 	n.mu.Unlock()
@@ -283,8 +297,14 @@ func (n *network) DialContext(ctx context.Context, network, address string) (net
 	n.dialed = append(n.dialed, address)
 	local, found := n.routes[address]
 	hang, unreachable := n.hang[address], n.unreachable[address]
+	refused := n.refusalsLeft[address] > 0
+	if refused {
+		n.refusalsLeft[address]--
+	}
 	n.mu.Unlock()
 	switch {
+	case refused:
+		return nil, &net.OpError{Op: "dial", Net: network, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 	case hang:
 		n.stuck()
 		<-ctx.Done()
@@ -322,6 +342,13 @@ func (n *network) setUnreachable(address string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.unreachable[address] = true
+}
+
+// refuseNext refuses the next connection to address.
+func (n *network) refuseNext(address string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.refusalsLeft[address]++
 }
 
 func (n *network) counts() (int, int) {

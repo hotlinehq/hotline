@@ -25,7 +25,9 @@ Support talks to Anthropic over `https://api.anthropic.com` the same way: up.sh 
 
 ## Grafana Cloud
 
-When `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set, the proxy also sends its usual records, counts and traces there (never the bodies: only the file gets those). The endpoint is the OTLP address from the Grafana Cloud portal. The authorization is `Basic ` and the base64 of `<instance id>:<token>`, a token with the write scopes for metrics, logs and traces. They are repository secrets in the workflow, never files.
+When `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set, the proxy also sends its usual records, counts and traces there (never the bodies: only the file gets those). The endpoint is the OTLP address from the Grafana Cloud portal. The authorization is `Basic ` and the base64 of `<instance id>:<token>`, a token with the write scopes for metrics, logs and traces. In the workflow they are built from the repository secrets `GRAFANA_OTLP_USERNAME` and `K6_PROMETHEUS_RW_PASSWORD` and the variable `GRAFANA_OTLP_ENDPOINT`, as the lint workflow does, never from files.
+
+The story ends with a call, on purpose, to SQS on a port where nothing listens, so a probe shows there: Hotline checks the vendor's host and port (DNS, the TCP connect, TLS) and says which side of the connection the problem is on. In Grafana's Explore, the probe's record is `{service_name="hotline-proxy"} | event_name="hotline.probe"` in Loki, with `hotline_probe_side` and `hotline_probe_verdict` (on Floci `vendor_side` and `refused_by_vendor`); its trace is `{ name = "probe" }` in Tempo. The failed call's own record has `error_type` `connection_refused`.
 
 ## The workflow
 

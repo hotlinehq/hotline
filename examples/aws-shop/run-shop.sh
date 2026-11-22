@@ -19,6 +19,9 @@
 #   7. two mistakes on purpose, which still reach AWS and which Hotline
 #      reports: a broken invoice job, and a write to a table that is not
 #      checkout's own
+#   7. a vendor that cannot be reached, on purpose: a call to SQS on a port
+#      where nothing listens, which Hotline probes to say which side of the
+#      connection the problem is on
 #
 # It expects Hotline to be running already, and reads the usual AWS
 # settings (AWS_PROFILE, AWS_REGION, ...), HOTLINE_PROXY, the assistant's
@@ -39,6 +42,8 @@
 #                empty: the email is written to ./mail, not sent)
 #   WRONG_TABLE  the table for the second mistake (default orders-archive,
 #                a table that doesn't exist, so nothing is written there)
+#   DOWN_URL     the address of the vendor that cannot be reached (default
+#                SQS's host on port 9, where nothing listens)
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -46,6 +51,7 @@ export HOTLINE_PROXY="${HOTLINE_PROXY:-http://localhost:8080}"
 order="${ORDER:-A-$(date +%Y%m%d%H%M%S)}"
 send_to="${SEND_TO:-success@simulator.amazonses.com}"
 wrong_table="${WRONG_TABLE:-orders-archive}"
+down_url="${DOWN_URL:-http://sqs.eu-west-1.amazonaws.com:9/}"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -147,6 +153,17 @@ mistake "checkout sends a broken invoice job" \
 mistake "checkout writes an order to the table $wrong_table" \
   env ORDERS_TABLE="$wrong_table" "$work/aws-shop" checkout pay --order "$order" --language en
 
+# unreachable calls a vendor address where nothing listens, through Hotline,
+# as the invoices app. Hotline answers 502 or 504 at once and, apart from the
+# call, probes the address: DNS, the TCP connect and TLS (Peter, 2026-11-22).
+unreachable() {
+  local status
+  status=$(curl -s -o /dev/null -m 40 -w '%{http_code}' -x "$HOTLINE_PROXY" -U invoices:x "$down_url" || true)
+  echo "Hotline answered $status"
+  [[ "$status" == 502 || "$status" == 504 ]]
+}
+mistake "invoices calls SQS on a port where nothing listens" unreachable
+
 echo
 echo "== Summary"
 printf '  %s\n' "${summary[@]}"
@@ -166,4 +183,8 @@ The topic passes the broken job to the invoices queue. The next time the
 invoices worker runs, its ReceiveMessage is reported too, with
 body \$.Messages[0].Body.eventId required, and the worker leaves the job on
 the queue until SQS moves it to the dead letter queue.
+The call to the port where nothing listens has error.type
+connection_refused or connection_timeout, and a probe record
+(hotline.probe) with its trace says which side the problem is on: on Floci
+hotline.probe.verdict refused_by_vendor, on the vendor's side.
 EOF

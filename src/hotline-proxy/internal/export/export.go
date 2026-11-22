@@ -95,6 +95,9 @@ type Call struct {
 	At    time.Time
 	// Attrs is the record every exporter gets.
 	Attrs []attribute.KeyValue
+	// Body is the record's text, when it has one: a probe's verdict in a
+	// sentence. Calls have none.
+	Body  string
 	Spans []Span
 	// Content, under content: full, is what file exporters get besides
 	// the record: every header and the bodies, under hotline.content.*
@@ -209,7 +212,7 @@ func New(setup Setup) (*Exporters, error) {
 			body := appendBatch(nil, written, items)
 			return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
 		}, func(b Batch, attrs []attribute.KeyValue) []byte {
-			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, attrs)
+			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, "", attrs)
 		})
 		s.exporters = append(s.exporters, d)
 		s.batches = append(s.batches, d.batches)
@@ -337,7 +340,7 @@ func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
 // The record is written once, for every exporter.
 func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], c.event(), c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), attrs)
+	b := appendRecord((*scratch)[:0], c.event(), c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), c.Body, attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
@@ -349,7 +352,8 @@ func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyVal
 }
 
 // level is INFO unless something went wrong: WARN when the call or the response
-// broke the spec or the vendor refused the call (a 4xx), ERROR when the
+// broke the spec, the vendor refused the call (a 4xx) or a probe found a
+// problem, ERROR when the
 // vendor failed (a 5xx) or the call failed in the proxy.
 func level(attrs []attribute.KeyValue) log.Severity {
 	severity := log.SeverityInfo
@@ -366,6 +370,12 @@ func level(attrs []attribute.KeyValue) log.Severity {
 			}
 		case "hotline.schema.request.errors", "hotline.schema.response.errors":
 			severity = log.SeverityWarn
+		case "hotline.probe.verdict":
+			// A probe that found a problem is a warning; one that found
+			// the vendor reachable again is not (Peter, 2026-11-22).
+			if kv.Value.AsString() != "reachable_now" {
+				severity = log.SeverityWarn
+			}
 		}
 	}
 	return severity

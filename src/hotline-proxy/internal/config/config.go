@@ -82,6 +82,8 @@ type Config struct {
 	// entry's settings filled in where it says nothing.
 	integrations map[string]*Integration
 	notPassed    *Integration
+	// probes are the probe settings of each host an api names.
+	probes map[string]Probe
 }
 
 // Integration is one integration's settings, with its trace, url and
@@ -254,6 +256,9 @@ type file struct {
 		// Checks picks the parts of a call to check; left out means all.
 		Checks   *[]string    `yaml:"checks"`
 		Settings settingsFile `yaml:",inline"`
+		// Probe says how the proxy probes the api's hosts when calls fail
+		// to connect.
+		Probe *probeFile `yaml:"probe"`
 	} `yaml:"apis"`
 	Exporters []struct {
 		OTLP *exporterFile     `yaml:"otlp"`
@@ -432,6 +437,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		Warnings:     warnings,
 		NotPassed:    Settings{TLSOrigination: true, VendorTimeout: time.Minute},
 		integrations: map[string]*Integration{},
+		probes:       map[string]Probe{},
 	}
 	// Each integration's own settings, as the config writes them; the
 	// not-passed entry's fill the gaps once every entry is read.
@@ -491,8 +497,15 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			Settings: l.settings(label, a.Settings, Settings{TLSOrigination: true, VendorTimeout: time.Minute}),
 			Spec:     l.spec(label, a.Spec, a.Overlays),
 		}
+		probe := l.probe(label, a.Probe)
 		for _, host := range a.Hosts {
-			hosts[name] = append(hosts[name], strings.ToLower(host))
+			host = strings.ToLower(host)
+			hosts[name] = append(hosts[name], host)
+			if other, seen := c.probes[host]; seen {
+				c.probes[host] = carefuller(probe, other)
+				continue
+			}
+			c.probes[host] = probe
 		}
 	}
 	for _, in := range f.Integrations {
