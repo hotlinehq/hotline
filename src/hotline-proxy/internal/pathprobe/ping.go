@@ -4,6 +4,7 @@ package pathprobe
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 	"time"
@@ -16,12 +17,24 @@ import (
 // ctx again.
 const pollMillis = 10
 
+// validTTL says why a TTL cannot be sent, if it cannot.
+func validTTL(ttl int) error {
+	if ttl < 1 || ttl > 255 {
+		return fmt.Errorf("%w: %d", ErrTTL, ttl)
+	}
+	return nil
+}
+
 // ping sends one ICMP echo on the ICMP socket an ordinary user may open:
 // always on macOS, and on Linux when the system's ping_group_range lets the
 // proxy's group, as Docker sets it. Elsewhere the ping is not sent, and the
 // answer says why.
 func ping(ctx context.Context, to netip.Addr, ttl int) Answer {
-	c, err := icmp.ListenPacket("udp4", "0.0.0.0")
+	err := validTTL(ttl)
+	var c *icmp.PacketConn
+	if err == nil {
+		c, err = icmp.ListenPacket("udp4", "0.0.0.0")
+	}
 	if err == nil {
 		defer func() { _ = c.Close() }()
 		err = c.IPv4PacketConn().SetTTL(ttl)

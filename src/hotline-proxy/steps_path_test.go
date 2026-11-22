@@ -183,6 +183,10 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no TCP or UDP path packet crossed more than (\d+) routers$`, func(most int) error {
+		// The probe runs after the call; its record says it has ended.
+		if _, err := w.onlyProbe(); err != nil {
+			return err
+		}
 		w.network.mu.Lock()
 		defer w.network.mu.Unlock()
 		for _, p := range w.network.packets {

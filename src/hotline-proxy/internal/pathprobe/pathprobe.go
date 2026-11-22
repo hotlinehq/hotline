@@ -74,6 +74,10 @@ type Answer struct {
 // built yet.
 var ErrIPv6 = errors.New("pathprobe: path probes over IPv6 are not built yet")
 
+// ErrTTL is a TTL outside 1 to 255. macOS takes such a TTL without a word
+// and sends the packet anyway, so the check is ours, the same everywhere.
+var ErrTTL = errors.New("pathprobe: a TTL must be from 1 to 255")
+
 // Sender sends path probe packets on this machine.
 type Sender struct{}
 
