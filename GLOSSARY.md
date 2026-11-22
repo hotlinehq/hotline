@@ -201,19 +201,19 @@ The record of one message of a WebSocket session, `hotline.websocket.message`, w
 _Avoid_: message event, frame record
 
 **Streamed response**:
-A response sent as a series of items while the vendor works, such as Server-Sent Events, whose spec gives its media type an `itemSchema`. The call ends when its headers reach the app; what follows is the stream.
+A response sent as a series of stream items while the vendor works, such as Server-Sent Events, whose spec gives its media type an `itemSchema`. The call ends when its headers reach the app; what follows is the stream.
 _Avoid_: streamed reply, chunked response
 
-**Item**:
+**Stream item**:
 One piece of a streamed response, checked on its own against the `itemSchema`: for Server-Sent Events, one event with data, ended by a blank line.
-_Avoid_: chunk (that is how the bytes happened to arrive), message (that is a WebSocket's)
+_Avoid_: item on its own (too general), chunk (that is how the bytes happened to arrive), message (that is a WebSocket's)
 
 **Stream record**:
-The record of a streamed response, `hotline.stream`, written when it ends: its items, how many broke the spec, its bytes and their hash, how long it was open, and whether it ended whole or was cut. It is not counted as a call.
+The record of a streamed response, `hotline.stream`, written when it ends: its stream items, how many broke the spec, its bytes and their hash, how long it was open, and whether it ended whole or was cut. It is not counted as a call.
 _Avoid_: second record
 
-**Item record**:
-The record of one item of a streamed response, `hotline.stream.item`, with its index, size and spec check. It is not counted as a call.
+**Stream item record**:
+The record of one stream item of a streamed response, `hotline.stream.item`, with its index, size and spec check. It is not counted as a call.
 _Avoid_: event record, chunk record
 
 **Trace**:

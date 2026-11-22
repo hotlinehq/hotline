@@ -19,13 +19,13 @@ Feature: Streamed responses checked item by item
 
   # Each event checked
 
-  Scenario: Every event of a good stream is an item record, checked and valid
+  Scenario: Every event of a good stream is an stream item record, checked and valid
     Given the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And there are 8 item records, each hotline.schema.status valid
-    And item record 1 says anthropic.stream.event message_start, hotline.stream.item.index 1
-    And item record 8 says anthropic.stream.event message_stop, hotline.stream.item.index 8
+    And there are 8 stream item records, each hotline.schema.status valid
+    And stream item record 1 says anthropic.stream.event message_start, hotline.stream.item.index 1
+    And stream item record 8 says anthropic.stream.event message_stop, hotline.stream.item.index 8
     And the stream record says hotline.stream.items 8, hotline.stream.items_invalid 0, hotline.stream.end complete
     And the ledger holds the call first, then the 8 items, then the stream
 
@@ -33,16 +33,16 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor streams the response "Hello!", with event 4's data {"type":"content_block_delta","index":0,"delta":{"type":"text_delta"}}
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And item record 4 says anthropic.stream.event content_block_delta, hotline.schema.status invalid
-    And item record 4's response results are body $.data.delta.text required
-    And item records 1 to 3 say hotline.schema.status valid
-    And item records 5 to 8 say hotline.schema.status valid
+    And stream item record 4 says anthropic.stream.event content_block_delta, hotline.schema.status invalid
+    And stream item record 4's response results are body $.data.delta.text required
+    And stream item records 1 to 3 say hotline.schema.status valid
+    And stream item records 5 to 8 say hotline.schema.status valid
     And the stream record says hotline.stream.items 8, hotline.stream.items_invalid 1
 
   Scenario Outline: What the spec does not allow is reported
     Given the Anthropic vendor streams the bytes <bytes>
     When the app asks for a streamed message
-    Then item record 1's response results are <results>
+    Then stream item record 1's response results are <results>
 
     Examples:
       | bytes                                                      | results                   |
@@ -56,7 +56,7 @@ Feature: Streamed responses checked item by item
   Scenario Outline: Events are read by the rules of the HTML standard
     Given the Anthropic vendor streams the bytes <bytes>
     When the app asks for a streamed message
-    Then there are <items> item records, each hotline.schema.status valid
+    Then there are <items> stream item records, each hotline.schema.status valid
 
     Examples:
       | what                                         | bytes                                                                  | items |
@@ -75,26 +75,26 @@ Feature: Streamed responses checked item by item
     the first line, whose field the standard then doesn't know.
     Given the Anthropic vendor streams the bytes "\xef\xbbevent: ping\ndata: {\"type\":\"ping\"}\n\n"
     When the app asks for a streamed message
-    Then item record 1's response results are body $.event required
+    Then stream item record 1's response results are body $.event required
 
   Scenario: An event split across many pieces is read as one
     Given the Anthropic vendor streams the response "Hello!", one byte at a time
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And there are 8 item records, each hotline.schema.status valid
+    And there are 8 stream item records, each hotline.schema.status valid
 
   Scenario: retry and id are read as the HTML standard says
     retry is a whole number, kept only when it is all digits; id is text.
     The Anthropic spec says nothing about either, so both pass.
     Given the Anthropic vendor streams the bytes "id: 7\nretry: 3000\nevent: ping\ndata: {\"type\":\"ping\"}\n\n"
     When the app asks for a streamed message
-    Then there are 1 item records, each hotline.schema.status valid
+    Then there are 1 stream item records, each hotline.schema.status valid
 
   Scenario Outline: retry is kept only when it is all digits
     Given the Anthropic spec, where every event needs a retry
     And the Anthropic vendor streams the bytes <bytes>
     When the app asks for a streamed message
-    Then item record 1 says hotline.schema.status <status>
+    Then stream item record 1 says hotline.schema.status <status>
 
     Examples:
       | what                       | bytes                                                         | status  |
@@ -108,7 +108,7 @@ Feature: Streamed responses checked item by item
   Scenario: The call is recorded once the response's headers reach the app, before the stream ends
     Given the Anthropic vendor streams message_start, then waits for the app to read it
     When the app asks for a streamed message and reads 1 event
-    Then a call record and an item record arrive while the stream is open
+    Then a call record and an stream item record arrive while the stream is open
     And the stream's call record says http.response.status_code 200, gen_ai.request.model claude-opus-5-5, hotline.schema.status valid
 
   Scenario: The call record has no response body; the stream record counts and hashes it
@@ -125,7 +125,7 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message
     Then the stream record's span is a "stream" span under the call's "hotline call" span, starting when the call ends
-    And each item record's span is a "stream item" span under the "stream" span
+    And each stream item record's span is a "stream item" span under the "stream" span
     And each "stream item" span has an "item spec check" span under it, with a "wait for check worker" span under that
 
   Scenario: A response sent whole is checked as before
@@ -134,7 +134,7 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor answers the message "Hello!" whole
     When the app asks for a message
     Then the record says hotline.schema.status=valid
-    And there are 0 item records
+    And there are 0 stream item records
     And there is no stream record
 
   Scenario: A streamed response whose spec gives no itemSchema is still skipped
@@ -142,7 +142,7 @@ Feature: Streamed responses checked item by item
     And the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message
     Then the record says hotline.schema.skipped=streaming
-    And there are 0 item records
+    And there are 0 stream item records
 
   # Limits: the stream never waits
 
@@ -150,8 +150,8 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor streams a content_block_delta of 3 MiB, then the response "Hello!"
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And item record 1 says hotline.schema.skipped body_too_large, hotline.stream.item.size 3145728
-    And item record 2 says anthropic.stream.event message_start, hotline.schema.status valid
+    And stream item record 1 says hotline.schema.skipped body_too_large, hotline.stream.item.size 3145728
+    And stream item record 2 says anthropic.stream.event message_start, hotline.schema.status valid
 
   Scenario: A full spec check line drops item checks, never a byte of the stream
     As in spec-check-line.feature, one worker is kept busy by the check of
@@ -164,22 +164,22 @@ Feature: Streamed responses checked item by item
     And the Anthropic vendor streams the response "Hello!"
     When the app sends a large order, then asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And item record 1 says hotline.schema.skipped overloaded
-    And item record 8 says hotline.schema.status valid
+    And stream item record 1 says hotline.schema.skipped overloaded
+    And stream item record 8 says hotline.schema.status valid
 
   Scenario: Without responseBody in checks, items are recorded but not checked
     Given the Anthropic spec, checking only headers and status
     And the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message
-    Then there are 8 item records
-    And item record 1 has no hotline.schema.status, anthropic.stream.event
+    Then there are 8 stream item records
+    And stream item record 1 has no hotline.schema.status, anthropic.stream.event
 
   # How the stream ended
 
   Scenario: A stream the vendor breaks off is recorded as cut, without its last part
     Given the Anthropic vendor streams the response "Hello!", breaking off inside event 5
     When the app asks for a streamed message
-    Then there are 4 item records
+    Then there are 4 stream item records
     And the stream record says hotline.stream.items 4, hotline.stream.end cut
 
   Scenario: A stream still open at stop is ended and recorded
@@ -213,7 +213,7 @@ Feature: Streamed responses checked item by item
     Then the fourth line is "<< ended 8 items 1 invalid" with the stream's size and the time it was open
     And the stream's "1 invalid" is red
 
-  Scenario: hotline-proxy verify checks the stream and item records too
+  Scenario: hotline-proxy verify checks the stream and stream item records too
     Given a file exporter writing to the folder calls
     And the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message

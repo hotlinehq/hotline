@@ -212,16 +212,16 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^a call record and an item record arrive while the stream is open$`, func() error {
+	sc.Step(`^a call record and an stream item record arrive while the stream is open$`, func() error {
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			if len(w.receivers[0].got()) > 0 && len(w.receivers[0].itemRecords()) > 0 {
+			if len(w.receivers[0].got()) > 0 && len(w.receivers[0].streamItemRecords()) > 0 {
 				if len(w.receivers[0].streamRecords()) > 0 {
 					return failf("the stream record arrived while the stream was open")
 				}
 				return nil
 			}
 		}
-		return failf("no call record and item record arrived while the stream was open")
+		return failf("no call record and stream item record arrived while the stream was open")
 	})
 	sc.Step(`^the stream's call record has no response body, and the hash of no body$`, func() error {
 		call, err := w.callRecord()
@@ -238,54 +238,54 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return says(call.attrs, pairs)
 	})
-	sc.Step(`^there are (\d+) item records$`, func(n int) error {
-		if got := w.itemRecords(); len(got) != n {
-			return failf("there are %d item records, want %d", len(got), n)
+	sc.Step(`^there are (\d+) stream item records$`, func(n int) error {
+		if got := w.streamItemRecords(); len(got) != n {
+			return failf("there are %d stream item records, want %d", len(got), n)
 		}
 		return nil
 	})
-	sc.Step(`^there are (\d+) item records, each (.+)$`, func(n int, pairs string) error {
-		got := w.itemRecords()
+	sc.Step(`^there are (\d+) stream item records, each (.+)$`, func(n int, pairs string) error {
+		got := w.streamItemRecords()
 		if len(got) != n {
-			return failf("there are %d item records, want %d", len(got), n)
+			return failf("there are %d stream item records, want %d", len(got), n)
 		}
 		var errs []error
 		for i, r := range got {
 			if err := says(r.attrs, pairs); err != nil {
-				errs = append(errs, fmt.Errorf("item record %d: %w", i+1, err))
+				errs = append(errs, fmt.Errorf("stream item record %d: %w", i+1, err))
 			}
 		}
 		return errors.Join(errs...)
 	})
-	sc.Step(`^item record (\d+) says (.+)$`, func(n int, pairs string) error {
-		r, err := w.itemRecord(n)
+	sc.Step(`^stream item record (\d+) says (.+)$`, func(n int, pairs string) error {
+		r, err := w.streamItemRecord(n)
 		if err != nil {
 			return err
 		}
 		return says(r.attrs, pairs)
 	})
-	sc.Step(`^item records (\d+) to (\d+) say (.+)$`, func(from, to int, pairs string) error {
+	sc.Step(`^stream item records (\d+) to (\d+) say (.+)$`, func(from, to int, pairs string) error {
 		var errs []error
 		for n := from; n <= to; n++ {
-			r, err := w.itemRecord(n)
+			r, err := w.streamItemRecord(n)
 			if err == nil {
 				err = says(r.attrs, pairs)
 			}
 			if err != nil {
-				errs = append(errs, fmt.Errorf("item record %d: %w", n, err))
+				errs = append(errs, fmt.Errorf("stream item record %d: %w", n, err))
 			}
 		}
 		return errors.Join(errs...)
 	})
-	sc.Step(`^item record (\d+) has no (.+)$`, func(n int, keys string) error {
-		r, err := w.itemRecord(n)
+	sc.Step(`^stream item record (\d+) has no (.+)$`, func(n int, keys string) error {
+		r, err := w.streamItemRecord(n)
 		if err != nil {
 			return err
 		}
 		return hasNo(r.attrs, regexp.MustCompile(`, | or `).Split(keys, -1)...)
 	})
-	sc.Step(`^item record (\d+)'s response results are (.+)$`, func(n int, want string) error {
-		r, err := w.itemRecord(n)
+	sc.Step(`^stream item record (\d+)'s response results are (.+)$`, func(n int, want string) error {
+		r, err := w.streamItemRecord(n)
 		if err != nil {
 			return err
 		}
@@ -314,9 +314,9 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		items := w.itemRecords()
+		items := w.streamItemRecords()
 		if len(items) != n {
-			return failf("want %d item records, got %d", n, len(items))
+			return failf("want %d stream item records, got %d", n, len(items))
 		}
 		// Items may reach the ledger in any order, as their checks end.
 		for _, item := range items {
@@ -372,19 +372,19 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^each item record's span is a "stream item" span under the "stream" span$`, func() error {
+	sc.Step(`^each stream item record's span is a "stream item" span under the "stream" span$`, func() error {
 		s, err := w.streamRecord()
 		if err != nil {
 			return err
 		}
-		items := w.itemRecords()
+		items := w.streamItemRecords()
 		if len(items) == 0 {
-			return failf("there are no item records")
+			return failf("there are no stream item records")
 		}
 		for i, r := range items {
 			span := w.spanByID(r.spanID)
 			if span == nil || span.name != "stream item" || span.parent != s.spanID || r.traceID != s.traceID {
-				return failf("item record %d's span is %v, want a \"stream item\" span under %s", i+1, span, s.spanID)
+				return failf("stream item record %d's span is %v, want a \"stream item\" span under %s", i+1, span, s.spanID)
 			}
 		}
 		return nil
@@ -420,7 +420,7 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		w.settle()
 		r := w.receivers[0]
 		var all strings.Builder
-		for _, list := range [][]receivedRecord{r.got(), r.streamRecords(), r.itemRecords()} {
+		for _, list := range [][]receivedRecord{r.got(), r.streamRecords(), r.streamItemRecords()} {
 			for _, rec := range list {
 				all.WriteString(sprint(rec.attrs))
 			}
@@ -612,22 +612,22 @@ func (w *world) streamRecord() (receivedRecord, error) {
 	return streams[0], nil
 }
 
-// itemRecords are the item records, by their index, once the proxy has
+// streamItemRecords are the stream item records, by their index, once the proxy has
 // sent everything.
-func (w *world) itemRecords() []receivedRecord {
+func (w *world) streamItemRecords() []receivedRecord {
 	w.settle()
-	records := w.receivers[0].itemRecords()
+	records := w.receivers[0].streamItemRecords()
 	slices.SortFunc(records, func(a, b receivedRecord) int {
 		return strings.Compare(fmt.Sprintf("%09v", a.attrs["hotline.stream.item.index"]), fmt.Sprintf("%09v", b.attrs["hotline.stream.item.index"]))
 	})
 	return records
 }
 
-// itemRecord is the item record with index n.
-func (w *world) itemRecord(n int) (receivedRecord, error) {
-	records := w.itemRecords()
+// streamItemRecord is the stream item record with index n.
+func (w *world) streamItemRecord(n int) (receivedRecord, error) {
+	records := w.streamItemRecords()
 	if n < 1 || n > len(records) {
-		return receivedRecord{}, failf("there are %d item records, want a record %d", len(records), n)
+		return receivedRecord{}, failf("there are %d stream item records, want a record %d", len(records), n)
 	}
 	r := records[n-1]
 	return r, has(r.attrs, "hotline.stream.item.index", n)

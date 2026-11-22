@@ -438,7 +438,7 @@ func (r *receiver) streamRecords() []receivedRecord {
 	return append([]receivedRecord(nil), r.streams...)
 }
 
-func (r *receiver) itemRecords() []receivedRecord {
+func (r *receiver) streamItemRecords() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]receivedRecord(nil), r.items...)

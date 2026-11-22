@@ -41,11 +41,11 @@ type responseStream struct {
 	// while the stream goes on writing to the app.
 	opened  time.Time
 	appLeft bool
-	// recording counts the item records not yet made, and invalid the
+	// recording counts the stream item records not yet made, and invalid the
 	// items whose check found a problem, for the stream record.
 	recording sync.WaitGroup
 	invalid   atomic.Int64
-	// called closes once the call's record is handed on: every item record
+	// called closes once the call's record is handed on: every stream item record
 	// waits for it, and the stream record for them, so a reader gets the
 	// call first and the stream last. The forwarder sends a stream's
 	// headers before it reads a byte of the body, so no item comes before
