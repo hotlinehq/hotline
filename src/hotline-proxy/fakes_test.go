@@ -241,14 +241,14 @@ type network struct {
 	hang map[string]bool
 	// unreachable lists addresses with no route.
 	unreachable map[string]bool
-	// refuse is how many more connections to each address are refused, as
+	// refusalsLeft is how many more connections to each address are refused, as
 	// a vendor whose server is down for a moment refuses them.
-	refuse map[string]int
-	// later are the addresses a name resolves to after its next lookup,
+	refusalsLeft map[string]int
+	// namesAfterLookup are the addresses a name resolves to after its next lookup,
 	// as when a vendor's DNS changes.
-	later   map[string][]netip.Addr
-	lookups int
-	dials   int
+	namesAfterLookup map[string][]netip.Addr
+	lookups          int
+	dials            int
 	// dialed are the addresses the proxy tried to connect to.
 	dialed []string
 	// lookupTime is how long each answered lookup takes.
@@ -259,12 +259,12 @@ type network struct {
 
 func newNetwork() *network {
 	return &network{
-		names:       map[string][]netip.Addr{},
-		routes:      map[string]string{},
-		hang:        map[string]bool{},
-		unreachable: map[string]bool{},
-		refuse:      map[string]int{},
-		later:       map[string][]netip.Addr{},
+		names:            map[string][]netip.Addr{},
+		routes:           map[string]string{},
+		hang:             map[string]bool{},
+		unreachable:      map[string]bool{},
+		refusalsLeft:     map[string]int{},
+		namesAfterLookup: map[string][]netip.Addr{},
 	}
 }
 
@@ -272,9 +272,9 @@ func (n *network) LookupNetIP(ctx context.Context, _, host string) ([]netip.Addr
 	n.mu.Lock()
 	n.lookups++
 	ips, found := n.names[host]
-	if next, changes := n.later[host]; changes {
+	if next, changes := n.namesAfterLookup[host]; changes {
 		n.names[host] = next
-		delete(n.later, host)
+		delete(n.namesAfterLookup, host)
 	}
 	hang := n.hang[host]
 	lookupTime := n.lookupTime
@@ -297,9 +297,9 @@ func (n *network) DialContext(ctx context.Context, network, address string) (net
 	n.dialed = append(n.dialed, address)
 	local, found := n.routes[address]
 	hang, unreachable := n.hang[address], n.unreachable[address]
-	refused := n.refuse[address] > 0
+	refused := n.refusalsLeft[address] > 0
 	if refused {
-		n.refuse[address]--
+		n.refusalsLeft[address]--
 	}
 	n.mu.Unlock()
 	switch {
@@ -348,7 +348,7 @@ func (n *network) setUnreachable(address string) {
 func (n *network) refuseNext(address string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.refuse[address]++
+	n.refusalsLeft[address]++
 }
 
 func (n *network) counts() (int, int) {

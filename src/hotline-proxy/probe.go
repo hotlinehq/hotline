@@ -55,40 +55,40 @@ type probes struct {
 	book   *book
 
 	mu        sync.Mutex
-	endpoints map[string]*endpoint
-	// waiting are the probes due, in the order they became due, each
-	// endpoint at most once, and ready wakes a worker when one is added or
+	schedules map[string]*probeSchedule
+	// dueJobs are the probes due, in the order they became due, each
+	// endpoint at most once, and jobAdded wakes a worker when one is added or
 	// the probes stop.
-	waiting []probeJob
-	ready   *sync.Cond
-	stopped bool
+	dueJobs  []probeJob
+	jobAdded *sync.Cond
+	stopped  bool
 	// cancel ends the probes still running, when a stop runs out of time.
 	cancel  context.CancelFunc
 	workers sync.WaitGroup
 }
 
-// endpoint is one vendor endpoint's probe schedule. It exists from the
+// probeSchedule is one vendor endpoint's probe schedule. It exists from the
 // first failed call until a call connects, or no call fails for a while.
-type endpoint struct {
+type probeSchedule struct {
 	key    string
 	target probeTarget
 	// running says a probe is waiting for a worker or running.
 	running bool
-	// pending says a call failed while a probe ran or before the next was
-	// due, so the next probe starts once it is due. cause is the last
+	// failedMeanwhile says a call failed while a probe ran or before the next was
+	// due, so the next probe starts once it is due. causeSpan is the last
 	// failed call's span, which the probe links to.
-	pending bool
-	cause   trace.SpanContext
-	// wait is how long after the next probe starts the one after it may
+	failedMeanwhile bool
+	causeSpan       trace.SpanContext
+	// nextWait is how long after the next probe starts the one after it may
 	// start; zero before the first.
-	wait        time.Duration
+	nextWait    time.Duration
 	dueAt       time.Time
-	due         Timer
+	dueTimer    Timer
 	lastFailure time.Time
-	quiet       Timer
-	// latest is the latest probe that finished, which call records point
+	quietTimer  Timer
+	// latestProbe is the latest probe that finished, which call records point
 	// to; nil until one has.
-	latest *probeLink
+	latestProbe *probeLink
 }
 
 // probeTarget is what a probe needs to know about the endpoint, from the
@@ -105,8 +105,8 @@ type probeTarget struct {
 
 // probeJob is a probe waiting for a worker.
 type probeJob struct {
-	e     *endpoint
-	cause trace.SpanContext
+	e         *probeSchedule
+	causeSpan trace.SpanContext
 }
 
 // probeLink is what a call record carries of the latest probe of its
@@ -128,105 +128,105 @@ const (
 	failedToConnect callOutcome = iota
 	// connected is a call that reached its vendor, whatever it answered.
 	connected
-	// otherOutcome is a call that never tried, such as one to an internal
+	// neverTried is a call that never tried, such as one to an internal
 	// IP the proxy refused.
-	otherOutcome
+	neverTried
 )
 
 func newProbes(clock Clock, dial *dialer, roots *x509.CertPool, current func() *config.Config, b *book) *probes {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &probes{
 		clock: clock, dial: dial, roots: roots, config: current, book: b,
-		endpoints: map[string]*endpoint{}, cancel: cancel,
+		schedules: map[string]*probeSchedule{}, cancel: cancel,
 	}
-	p.ready = sync.NewCond(&p.mu)
+	p.jobAdded = sync.NewCond(&p.mu)
 	p.workers.Add(probeWorkers)
 	for range probeWorkers {
 		go func() {
 			defer p.workers.Done()
-			for job, found := p.next(); found; job, found = p.next() {
-				p.run(ctx, job)
+			for job, found := p.nextJob(); found; job, found = p.nextJob() {
+				p.runProbe(ctx, job)
 			}
 		}()
 	}
 	return p
 }
 
-// next waits for a due probe. Once the probes stop, the ones still due are
+// nextJob waits for a due probe. Once the probes stop, the ones still due are
 // handed out, then none.
-func (p *probes) next() (probeJob, bool) {
+func (p *probes) nextJob() (probeJob, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for len(p.waiting) == 0 && !p.stopped {
-		p.ready.Wait()
+	for len(p.dueJobs) == 0 && !p.stopped {
+		p.jobAdded.Wait()
 	}
-	if len(p.waiting) == 0 {
+	if len(p.dueJobs) == 0 {
 		return probeJob{}, false
 	}
-	job := p.waiting[0]
-	p.waiting = p.waiting[1:]
+	job := p.dueJobs[0]
+	p.dueJobs = p.dueJobs[1:]
 	return job, true
 }
 
-// seen tells the probes how a call to an endpoint went, from its record,
+// noteCall tells the probes how a call to an endpoint went, from its record,
 // and gives back the latest probe of that endpoint for the record to carry,
 // or nil when there is none. A failed connection starts a probe, at once or
 // once the next is due; a call that connected ends the endpoint's
 // schedule.
-func (p *probes) seen(t probeTarget, outcome callOutcome, cause trace.SpanContext) *probeLink {
+func (p *probes) noteCall(t probeTarget, outcome callOutcome, cause trace.SpanContext) *probeLink {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	key := net.JoinHostPort(t.host, t.port)
-	e := p.endpoints[key]
+	e := p.schedules[key]
 	var latest *probeLink
 	if e != nil {
-		latest = e.latest
+		latest = e.latestProbe
 	}
 	switch outcome {
 	case connected:
 		if e != nil {
-			p.end(e)
+			p.endSchedule(e)
 		}
 		return latest
-	case otherOutcome:
+	case neverTried:
 		return latest
 	}
 	settings := p.config().ProbeFor(t.host)
 	if !settings.Enabled {
 		if e != nil {
-			p.end(e)
+			p.endSchedule(e)
 		}
 		return nil
 	}
 	if e == nil {
-		e = &endpoint{key: key, due: noTimer{}}
-		e.quiet = p.clock.AfterFunc(settings.QuietAfter, func() { p.quietCheck(e) })
-		p.endpoints[key] = e
+		e = &probeSchedule{key: key, dueTimer: noTimer{}}
+		e.quietTimer = p.clock.AfterFunc(settings.QuietAfter, func() { p.quietCheck(e) })
+		p.schedules[key] = e
 	}
 	// The newest call's settings: a reload may have changed them.
 	e.target = t
-	e.lastFailure, e.cause = p.clock.Now(), cause
+	e.lastFailure, e.causeSpan = p.clock.Now(), cause
 	if e.running || e.lastFailure.Before(e.dueAt) {
-		e.pending = true
+		e.failedMeanwhile = true
 		return latest
 	}
-	p.start(e)
+	p.queueProbe(e)
 	return latest
 }
 
-// start hands a probe of e to the workers. It is called with p.mu held.
-func (p *probes) start(e *endpoint) {
-	e.running, e.pending = true, false
-	p.waiting = append(p.waiting, probeJob{e: e, cause: e.cause})
-	p.ready.Signal()
+// queueProbe hands a probe of e to the workers. It is called with p.mu held.
+func (p *probes) queueProbe(e *probeSchedule) {
+	e.running, e.failedMeanwhile = true, false
+	p.dueJobs = append(p.dueJobs, probeJob{e: e, causeSpan: e.causeSpan})
+	p.jobAdded.Signal()
 }
 
-// end stops e's schedule: the next failure probes at once again. It is
+// endSchedule stops e's schedule: the next failure probes at once again. It is
 // called with p.mu held.
-func (p *probes) end(e *endpoint) {
-	e.due.Stop()
-	e.quiet.Stop()
-	delete(p.endpoints, e.key)
+func (p *probes) endSchedule(e *probeSchedule) {
+	e.dueTimer.Stop()
+	e.quietTimer.Stop()
+	delete(p.schedules, e.key)
 }
 
 // noTimer is the wait of an endpoint with no probe due yet.
@@ -234,42 +234,42 @@ type noTimer struct{}
 
 func (noTimer) Stop() bool { return false }
 
-// current says e is still the schedule of its endpoint, not one a
+// stillScheduled says e is still the schedule of its endpoint, not one a
 // connected call or a quiet spell ended. It is called with p.mu held.
-func (p *probes) current(e *endpoint) bool {
-	return !p.stopped && p.endpoints[e.key] == e
+func (p *probes) stillScheduled(e *probeSchedule) bool {
+	return !p.stopped && p.schedules[e.key] == e
 }
 
 // dueNow runs when e's next probe is due: it starts when a call failed
 // since the last one. A schedule that ended has nothing due.
-func (p *probes) dueNow(e *endpoint) {
+func (p *probes) dueNow(e *probeSchedule) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.current(e) && e.pending && !e.running {
-		p.start(e)
+	if p.stillScheduled(e) && e.failedMeanwhile && !e.running {
+		p.queueProbe(e)
 	}
 }
 
 // quietCheck ends e's schedule once no call to it has failed for
 // quietAfter, or waits again until then.
-func (p *probes) quietCheck(e *endpoint) {
+func (p *probes) quietCheck(e *probeSchedule) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	left := e.lastFailure.Add(p.config().ProbeFor(e.target.host).QuietAfter).Sub(p.clock.Now())
 	switch {
-	case !p.current(e):
+	case !p.stillScheduled(e):
 		// A schedule that ended has nothing to wait for.
 	case left > 0:
-		e.quiet = p.clock.AfterFunc(left, func() { p.quietCheck(e) })
+		e.quietTimer = p.clock.AfterFunc(left, func() { p.quietCheck(e) })
 	default:
-		p.end(e)
+		p.endSchedule(e)
 	}
 }
 
-// run probes one endpoint, records what it found, and sets when the next
+// runProbe probes one endpoint, records what it found, and sets when the next
 // probe may start: first after backoff.first, then after twice as long
 // each time, up to backoff.longest (Peter, 2026-11-21).
-func (p *probes) run(ctx context.Context, job probeJob) {
+func (p *probes) runProbe(ctx context.Context, job probeJob) {
 	e := job.e
 	p.mu.Lock()
 	t := e.target
@@ -283,36 +283,36 @@ func (p *probes) run(ctx context.Context, job probeJob) {
 		// says nothing about the vendor.
 		return
 	}
-	f := found.finished(t, cfg, start, p.clock.Now(), job.cause)
+	f := found.recordAndTrace(t, cfg, start, p.clock.Now(), job.causeSpan)
 	f.validText()
 	hash := p.book.record(recordContext(f.sc), f)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e.running = false
-	if !p.current(e) {
+	if !p.stillScheduled(e) {
 		return
 	}
-	e.latest = &probeLink{recordHash: hash, traceID: f.sc.TraceID(), side: found.side, verdict: found.verdict, ended: f.spans[0].End}
+	e.latestProbe = &probeLink{recordHash: hash, traceID: f.sc.TraceID(), side: found.side, verdict: found.verdict, ended: f.spans[0].End}
 	// The waits of the config in use now: a reload applies from the next
 	// wait. One that turned the probe off ends the schedule at the next
 	// failure.
 	settings = p.config().ProbeFor(t.host)
-	wait := cmp.Or(e.wait, settings.First)
+	wait := cmp.Or(e.nextWait, settings.First)
 	wait = min(wait, settings.Longest)
-	e.wait = min(2*wait, settings.Longest)
+	e.nextWait = min(2*wait, settings.Longest)
 	e.dueAt = start.Add(wait)
-	e.due = p.clock.AfterFunc(max(e.dueAt.Sub(p.clock.Now()), 0), func() { p.dueNow(e) })
+	e.dueTimer = p.clock.AfterFunc(max(e.dueAt.Sub(p.clock.Now()), 0), func() { p.dueNow(e) })
 }
 
 // stop ends every schedule and lets the probes already due finish, within
 // the time ctx allows; those still running then are dropped.
 func (p *probes) stop(ctx context.Context) {
 	p.mu.Lock()
-	for _, e := range p.endpoints {
-		p.end(e)
+	for _, e := range p.schedules {
+		p.endSchedule(e)
 	}
 	p.stopped = true
-	p.ready.Broadcast()
+	p.jobAdded.Broadcast()
 	p.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
@@ -385,19 +385,19 @@ func (p *probes) probe(ctx context.Context, t probeTarget, timeout time.Duration
 
 	ips, verdict := p.resolve(ctx, t, timeout, name)
 	if verdict != "" {
-		return f.with(verdict, endpoint)
+		return f.withVerdict(verdict, endpoint)
 	}
 	encryption.evidence = []string{"not checked: the vendor's port did not accept us"}
 	conn, verdict := p.connect(ctx, net.JoinHostPort(ips[0].String(), t.port), timeout, port)
 	if verdict != "" {
-		return f.with(verdict, endpoint)
+		return f.withVerdict(verdict, endpoint)
 	}
 	defer func() { _ = conn.Close() }()
 	if !t.tls {
 		encryption.evidence = []string{"not checked: calls to " + endpoint + " use plain HTTP"}
-		return f.with("reachable_now", endpoint)
+		return f.withVerdict("reachable_now", endpoint)
 	}
-	return f.with(p.handshake(ctx, conn, t.host, timeout, encryption), endpoint)
+	return f.withVerdict(p.handshake(ctx, conn, t.host, timeout, encryption), endpoint)
 }
 
 // resolve answers name_resolves: it looks up the host as a call does, and
@@ -408,7 +408,7 @@ func (p *probes) resolve(ctx context.Context, t probeTarget, timeout time.Durati
 		q.answer, q.evidence = answerYes, []string{t.host + " is an IP address, so there is no name to look up"}
 		return []netip.Addr{ip}, ""
 	}
-	ctx, _, done := p.step(ctx, timeout)
+	ctx, _, done := p.stepContext(ctx, timeout)
 	q.start = p.clock.Now()
 	ips, err := p.dial.lookup(ctx, t.host)
 	q.end = p.clock.Now()
@@ -442,7 +442,7 @@ func (p *probes) resolve(ctx context.Context, t probeTarget, timeout time.Durati
 // that has no way there, points between, as only the path probes of a
 // later slice can tell where it stops.
 func (p *probes) connect(ctx context.Context, address string, timeout time.Duration, q *question) (net.Conn, string) {
-	ctx, timedOut, done := p.step(ctx, timeout)
+	ctx, timedOut, done := p.stepContext(ctx, timeout)
 	defer done()
 	q.start = p.clock.Now()
 	conn, err := p.dial.dialer.DialContext(ctx, "tcp", address)
@@ -469,7 +469,7 @@ func (p *probes) connect(ctx context.Context, address string, timeout time.Durat
 // handshake answers tls_works with one TLS handshake, checked as a call's
 // is, with the call's host name.
 func (p *probes) handshake(ctx context.Context, conn net.Conn, host string, timeout time.Duration, q *question) string {
-	ctx, timedOut, done := p.step(ctx, timeout)
+	ctx, timedOut, done := p.stepContext(ctx, timeout)
 	defer done()
 	client := tls.Client(conn, &tls.Config{ServerName: host, RootCAs: p.roots, MinVersion: tls.VersionTLS12})
 	q.start = p.clock.Now()
@@ -496,9 +496,9 @@ func (p *probes) handshake(ctx context.Context, conn net.Conn, host string, time
 	return "tls_failed"
 }
 
-// step is the context of one step of a probe, which ends after timeout by
+// stepContext is the context of one step of a probe, which ends after timeout by
 // the proxy's clock. timedOut says whether it did; done ends the wait.
-func (p *probes) step(ctx context.Context, timeout time.Duration) (context.Context, func() bool, func()) {
+func (p *probes) stepContext(ctx context.Context, timeout time.Duration) (context.Context, func() bool, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	var mu sync.Mutex
 	over := false
@@ -524,9 +524,9 @@ func millis(d time.Duration) string {
 	return strconv.FormatFloat(float64(d.Microseconds())/1000, 'f', 1, 64) + " ms"
 }
 
-// with sets the side from the first "no", and the verdict and its
+// withVerdict sets the side from the first "no", and the verdict and its
 // sentence.
-func (f probeFound) with(verdict, endpoint string) probeFound {
+func (f probeFound) withVerdict(verdict, endpoint string) probeFound {
 	f.side, f.verdict = sideNone, verdict
 	for _, q := range f.questions {
 		if q.answer == answerNo {
@@ -562,10 +562,10 @@ func verdictSentence(verdict, endpoint string) string {
 	return endpoint + " can be reached now: the failure has passed."
 }
 
-// finished is the probe's record and trace: a root span "probe", linked
+// recordAndTrace is the probe's record and trace: a root span "probe", linked
 // to the failed call that made the probe due, and under it one span for
 // each question asked.
-func (f probeFound) finished(t probeTarget, cfg *config.Config, start, end time.Time, cause trace.SpanContext) finished {
+func (f probeFound) recordAndTrace(t probeTarget, cfg *config.Config, start, end time.Time, cause trace.SpanContext) finished {
 	port, _ := strconv.Atoi(t.port)
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID: tracectx.W3C.NewTraceID(start), SpanID: tracectx.NewSpanID(), TraceFlags: trace.FlagsSampled,

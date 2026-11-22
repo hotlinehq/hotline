@@ -139,7 +139,7 @@ func (c *call) record(end time.Time) finished {
 			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
 		}
 	}
-	attrs = probeAttrs(attrs, c.h.probes.seen(c.probeTarget(), c.outcome(failed), c.trace), failed.errorType != "")
+	attrs = probeAttrs(attrs, c.h.probes.noteCall(c.probeTarget(), c.outcome(failed), c.trace), failed.errorType != "")
 	// Every body that passed has its hash, minimal record or full, an
 	// empty one too, so each is in the ledger (Peter, 2026-11-16).
 	attrs = append(attrs, attribute.String("hotline.request.body.hash", c.reqBody.hashed()))
@@ -171,7 +171,7 @@ func (c *call) outcome(failed failure) callOutcome {
 	case c.peer != "":
 		return connected
 	}
-	return otherOutcome
+	return neverTried
 }
 
 // content is what content: full adds to the record for the file

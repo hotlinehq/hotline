@@ -21,8 +21,8 @@ import (
 // many integrations call it.
 type probeScene struct {
 	w *world
-	// probe is the probe line of the Talon.One api, when the scenario sets one.
-	probe string
+	// probeSetting is the probe line of the Talon.One api, when the scenario sets one.
+	probeSetting string
 	// twoAPIs, when set, are the probe lines of two apis for Talon.One, each
 	// called by its own integration.
 	twoAPIs []string
@@ -30,16 +30,16 @@ type probeScene struct {
 	integrations int
 	// plainHTTP calls the vendor over http, on port 80.
 	plainHTTP bool
-	// start is when the first call of the scenario was made.
-	start time.Time
+	// firstCallAt is when the first call of the scenario was made.
+	firstCallAt time.Time
 }
 
 // probeIDs are the integrations a probe scenario may use.
 func probeIDs() []string { return []string{"talon-shop-a", "talon-shop-b", "talon-shop-c"} }
 
-// ready writes the scenario's integrations and apis, unless a step did, and
+// writeConfig writes the scenario's integrations and apis, unless a step did, and
 // uses a test clock, so a wait of minutes passes at once.
-func (s *probeScene) ready() {
+func (s *probeScene) writeConfig() {
 	w := s.w
 	if w.clock == nil {
 		w.clock = &fakeClock{}
@@ -54,14 +54,14 @@ func (s *probeScene) ready() {
 			w.addIntegration(integration(probeIDs()[0], w.talonAPI(extra+s.twoAPIs[0])))
 			w.addIntegration(integration(probeIDs()[1], w.talonAPI(extra+s.twoAPIs[1])))
 		default:
-			api := w.talonAPI(extra + s.probe)
+			api := w.talonAPI(extra + s.probeSetting)
 			for _, id := range probeIDs()[:max(s.integrations, 1)] {
 				w.addIntegration(integration(id, api))
 			}
 		}
 	}
-	if s.start.IsZero() {
-		s.start = w.clock.Now()
+	if s.firstCallAt.IsZero() {
+		s.firstCallAt = w.clock.Now()
 	}
 }
 
@@ -73,15 +73,15 @@ func (w *world) talonAddress(port string) string {
 	return net.JoinHostPort(w.vendor("api.talon.one").ip.String(), port)
 }
 
-// refuse makes the Talon.One vendor refuse connections on port, and accept
+// refuseOn makes the Talon.One vendor refuse connections on port, and accept
 // sends them to it again.
-func (w *world) refuse(port string) {
+func (w *world) refuseOn(port string) {
 	l := listenLocal()
 	w.routeTo("api.talon.one", port, l)
 	_ = l.Close()
 }
 
-func (w *world) accept(port string) {
+func (w *world) acceptOn(port string) {
 	v := w.vendor("api.talon.one")
 	// The vendor's first server answers https on port 443.
 	w.network.route(w.talonAddress(port), v.servers[0].Listener.Addr().String())
@@ -173,7 +173,7 @@ func (w *world) probeSituation(situation string) error {
 		w.network.refuseNext(w.talonAddress("443"))
 	case "a vendor that refused one call and whose name now resolves only to an internal IP":
 		w.network.refuseNext(w.talonAddress("443"))
-		w.network.later["api.talon.one"] = []netip.Addr{netip.MustParseAddr("10.0.0.7")}
+		w.network.namesAfterLookup["api.talon.one"] = []netip.Addr{netip.MustParseAddr("10.0.0.7")}
 	case "a vendor that refused one call and then never answers, while no time passes":
 		w.network.refuseNext(w.talonAddress("443"))
 		w.network.setHang(w.talonAddress("443"))
@@ -194,7 +194,7 @@ func (w *world) probeSituation(situation string) error {
 			}
 		})
 	case "a vendor called by its IP address that refuses the connection":
-		w.refuse("443")
+		w.refuseOn("443")
 		w.target = "https://" + v.ip.String() + "/v2/customer_sessions/1"
 	}
 	return nil
@@ -248,21 +248,21 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^a vendor host whose name resolves to a private IP and to a public IP that refuses the connection$`, func() error {
 		v := w.vendor("api.talon.one")
-		w.refuse("443")
+		w.refuseOn("443")
 		w.network.resolve("api.talon.one", v.ip, netip.MustParseAddr("10.1.2.3"), v.ip)
 		return nil
 	})
 	sc.Step(`^the vendor refuses connections$`, func() error {
-		w.refuse("443")
+		w.refuseOn("443")
 		return nil
 	})
 	sc.Step(`^the vendor refuses connections on ports 443 and 8443$`, func() error {
-		w.refuse("443")
-		w.refuse("8443")
+		w.refuseOn("443")
+		w.refuseOn("8443")
 		return nil
 	})
 	sc.Step(`^the api for "api.talon.one" has "([^"]+)"$`, func(setting string) error {
-		s.probe = probeLine(setting)
+		s.probeSetting = probeLine(setting)
 		return nil
 	})
 	sc.Step(`^two apis for "api.talon.one", one with "([^"]+)" and one with no probe settings$`, func(setting string) error {
@@ -275,22 +275,22 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^an app calls the vendor through the proxy$`, func() error {
-		s.ready()
+		s.writeConfig()
 		return w.defaultCall()
 	})
 	sc.Step(`^an app with no integration ID calls the vendor through the proxy$`, func() error {
-		s.ready()
+		s.writeConfig()
 		w.appID = ""
 		return w.defaultCall()
 	})
 	sc.Step(`^the proxy starts with it$`, func() error {
-		s.ready()
+		s.writeConfig()
 		_ = w.start()
 		return nil
 	})
 	sc.Step(`^(\d+) calls from three integrations fail within one second$`, func(n int) error {
 		s.integrations = 3
-		s.ready()
+		s.writeConfig()
 		for i := range n {
 			if err := s.failingCall(probeIDs()[i%3]); err != nil {
 				return err
@@ -299,7 +299,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an app calls each port through the proxy$`, func() error {
-		s.ready()
+		s.writeConfig()
 		if err := w.defaultCall(); err != nil {
 			return err
 		}
@@ -307,7 +307,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 		return w.defaultCall()
 	})
 	everyMinute := func(n int) error {
-		s.ready()
+		s.writeConfig()
 		for range n {
 			if s.twoAPIs != nil {
 				if err := s.failingCall(probeIDs()[1]); err != nil {
@@ -325,7 +325,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a call to it fails every minute for (\d+) minutes?(?: more)?$`, everyMinute)
 	sc.Step(`^a call through each api fails every minute for (\d+) minutes$`, everyMinute)
 	sc.Step(`^the vendor accepts connections again and a call succeeds$`, func() error {
-		w.accept("443")
+		w.acceptOn("443")
 		w.appID = probeIDs()[0]
 		if err := w.defaultCall(); err != nil {
 			return err
@@ -349,7 +349,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a call to it fails again 1 minute later$`, func() error {
 		w.clock.pass(time.Minute)
 		w.settleProbes()
-		w.refuse("443")
+		w.refuseOn("443")
 		return s.failingCall(probeIDs()[0])
 	})
 	sc.Step(`^no call to it fails for (\d+) minutes$`, func(n int) error {
@@ -397,7 +397,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 		var got []int
 		for _, r := range w.probesOf(endpoint) {
 			at := time.Unix(0, int64(r.timestamp)) //nolint:gosec // nanoseconds since 1970 fit until 2262
-			got = append(got, int(math.Round(at.Sub(s.start).Minutes())))
+			got = append(got, int(math.Round(at.Sub(s.firstCallAt).Minutes())))
 		}
 		slices.Sort(got)
 		if want := minutes(list); !slices.Equal(got, want) {
