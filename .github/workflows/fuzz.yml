@@ -4,7 +4,7 @@
 # too slowly or stop answering. See docs/decisions/fuzzing.md.
 #
 # Each target runs for 5 minutes on its own GitHub machine, all side by
-# side. The five through the proxy's ways in are in fuzz_test.go; the seven
+# side. The six through the proxy's ways in are in fuzz_test.go; the eight
 # straight at the parsers are built only with the fuzz tag. When a target
 # finds an input, the job fails and saves the input as the artifact
 # fuzz-<target>. Nothing is pushed: a person adds the input to
@@ -47,9 +47,11 @@ jobs:
           - { target: FuzzRequestBody, package: ., tags: '' }
           - { target: FuzzResponse, package: ., tags: '' }
           - { target: FuzzVerify, package: ., tags: '' }
+          - { target: FuzzStreamedResponse, package: ., tags: '' }
           - { target: FuzzReadHello, package: ., tags: fuzz }
           - { target: FuzzSentID, package: ., tags: fuzz }
           - { target: FuzzWireFrames, package: ., tags: fuzz }
+          - { target: FuzzSSEEvents, package: ., tags: fuzz }
           - { target: FuzzForm, package: ./internal/spec/read, tags: fuzz }
           - { target: FuzzXML, package: ./internal/spec/read, tags: fuzz }
           - { target: FuzzDecodeJSON, package: ./internal/santhosh, tags: fuzz }

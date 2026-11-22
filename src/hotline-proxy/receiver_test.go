@@ -526,6 +526,7 @@ func (r *receiver) forget() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records, r.batches, r.sessions, r.messages, r.points = nil, nil, nil, nil, nil
+	r.streams, r.items = nil, nil
 	r.spanList, r.seen = nil, nil
 }
 

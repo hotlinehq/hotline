@@ -478,10 +478,12 @@ func (w *world) streamingVendor(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 	flush := http.NewResponseController(rw).Flush
 	_ = flush()
+	v.mu.Lock()
 	pieces := v.events
 	if v.raw != nil {
 		pieces = [][]byte{v.raw}
 	}
+	v.mu.Unlock()
 	for i, piece := range pieces {
 		if v.breakInside == i+1 {
 			v.write(rw, flush, piece[:len(piece)/2])
