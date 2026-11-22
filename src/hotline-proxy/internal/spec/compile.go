@@ -158,13 +158,20 @@ func str(m map[string]any, key string) string {
 }
 
 // checks builds the checks of one route. template is the route as the
-// spec writes it, method in lower case.
-func (b *builder) checks(template, method, where string) *checks {
+// spec writes it, and operationKeys say where the operation sits in its
+// path item: ["get"], or ["additionalOperations", "COPY"].
+func (b *builder) checks(template string, operationKeys []string, where string) *checks {
 	itemPointer := "/paths" + token(template)
 	itemValue, _ := b.at(itemPointer)
 	item, itemPointer := b.object(itemValue, itemPointer, where)
-	opPointer := itemPointer + token(method)
-	op, _ := item[method].(map[string]any)
+	var pointer strings.Builder
+	pointer.WriteString(itemPointer)
+	op := item
+	for _, key := range operationKeys {
+		pointer.WriteString(token(key))
+		op, _ = op[key].(map[string]any)
+	}
+	opPointer := pointer.String()
 	c := &checks{marks: map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "response": {}}}
 	c.params = b.params(c.marks, where, item["parameters"], itemPointer+"/parameters", op["parameters"], opPointer+"/parameters")
 	c.security = b.security(op)

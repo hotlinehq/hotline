@@ -119,16 +119,68 @@ components:
       properties:
         role:
           enum: [user, assistant]
+        # Text, or a list of blocks. Written with a list of types, not a
+        # oneOf, so a broken block reports its own problems.
         content:
-          oneOf:
-            - type: string
-            - type: array
-              items:
-                type: object
-                required: [type]
-                properties:
-                  type:
-                    type: string
+          type: [string, array]
+          items:
+            $ref: "#/components/schemas/InputBlock"
+    # A block of a message the app sends. The four kinds an app sends most
+    # are checked in full. Any other kind Anthropic adds goes to
+    # OtherInputBlock, which only needs a type, so a new kind is never
+    # flagged.
+    InputBlock:
+      oneOf:
+        - $ref: "#/components/schemas/TextInput"
+        - $ref: "#/components/schemas/ImageInput"
+        - $ref: "#/components/schemas/ToolUseInput"
+        - $ref: "#/components/schemas/ToolResultInput"
+        - $ref: "#/components/schemas/OtherInputBlock"
+      discriminator:
+        propertyName: type
+        mapping:
+          text: TextInput
+          image: ImageInput
+          tool_use: ToolUseInput
+          tool_result: ToolResultInput
+        defaultMapping: OtherInputBlock
+    TextInput:
+      type: object
+      required: [type, text]
+      properties:
+        type: {const: text}
+        text: {type: string}
+    ImageInput:
+      type: object
+      required: [type, source]
+      properties:
+        type: {const: image}
+        source:
+          type: object
+          required: [type]
+          properties:
+            type: {enum: [base64, url, file]}
+    ToolUseInput:
+      type: object
+      required: [type, id, name, input]
+      properties:
+        type: {const: tool_use}
+        id: {type: string}
+        name: {type: string}
+        input: {type: object}
+    ToolResultInput:
+      type: object
+      required: [type, tool_use_id]
+      properties:
+        type: {const: tool_result}
+        tool_use_id: {type: string}
+    OtherInputBlock:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          not: {enum: [text, image, tool_use, tool_result]}
     Message:
       type: object
       required: [id, type, role, content, model, stop_reason, usage]
@@ -283,23 +335,54 @@ components:
           minimum: 0
         delta:
           $ref: "#/components/schemas/Delta"
+    # A delta's type says which kind it is. The discriminator lets a broken
+    # delta report the problems of its own kind, such as a text_delta with
+    # no text, in place of one bare oneOf problem.
     Delta:
+      oneOf:
+        - $ref: "#/components/schemas/TextDelta"
+        - $ref: "#/components/schemas/InputJSONDelta"
+        - $ref: "#/components/schemas/CitationsDelta"
+        - $ref: "#/components/schemas/ThinkingDelta"
+        - $ref: "#/components/schemas/SignatureDelta"
+      discriminator:
+        propertyName: type
+        mapping:
+          text_delta: TextDelta
+          input_json_delta: InputJSONDelta
+          citations_delta: CitationsDelta
+          thinking_delta: ThinkingDelta
+          signature_delta: SignatureDelta
+    TextDelta:
       type: object
-      required: [type]
+      required: [type, text]
       properties:
-        type:
-          enum: [text_delta, input_json_delta, citations_delta, thinking_delta, signature_delta]
-      allOf:
-        - if: {required: [type], properties: {type: {const: text_delta}}}
-          then: {required: [text], properties: {text: {type: string}}}
-        - if: {required: [type], properties: {type: {const: input_json_delta}}}
-          then: {required: [partial_json], properties: {partial_json: {type: string}}}
-        - if: {required: [type], properties: {type: {const: thinking_delta}}}
-          then: {required: [thinking], properties: {thinking: {type: string}}}
-        - if: {required: [type], properties: {type: {const: signature_delta}}}
-          then: {required: [signature], properties: {signature: {type: string}}}
-        - if: {required: [type], properties: {type: {const: citations_delta}}}
-          then: {required: [citation], properties: {citation: {type: object}}}
+        type: {const: text_delta}
+        text: {type: string}
+    InputJSONDelta:
+      type: object
+      required: [type, partial_json]
+      properties:
+        type: {const: input_json_delta}
+        partial_json: {type: string}
+    CitationsDelta:
+      type: object
+      required: [type, citation]
+      properties:
+        type: {const: citations_delta}
+        citation: {type: object}
+    ThinkingDelta:
+      type: object
+      required: [type, thinking]
+      properties:
+        type: {const: thinking_delta}
+        thinking: {type: string}
+    SignatureDelta:
+      type: object
+      required: [type, signature]
+      properties:
+        type: {const: signature_delta}
+        signature: {type: string}
     ContentBlockStop:
       type: object
       required: [type, index]

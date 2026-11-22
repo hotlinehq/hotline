@@ -83,6 +83,8 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	listenerSteps(sc, w)
 	checksSteps(sc, w)
 	specSteps(sc, w)
+	methodsSteps(sc, w)
+	discriminatorSteps(sc, w)
 	ingressSteps(sc, w)
 	integrationSteps(sc, w)
 	forwardSteps(sc, w)

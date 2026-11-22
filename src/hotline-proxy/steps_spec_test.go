@@ -8,7 +8,7 @@ import (
 )
 
 func specSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^a call is ([A-Z]+) (/\S*)$`, func(method, path string) error {
+	sc.Step(`^a call is ([A-Za-z]+) (/\S*)$`, func(method, path string) error {
 		return w.call(method, "https://"+hostOf(w.target)+path)
 	})
 	sc.Step(`^the route template is (\S+)$`, func(template string) error {

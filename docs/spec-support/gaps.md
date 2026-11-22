@@ -17,7 +17,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| Fixed on 2026-11-21 (M0): only `openapi: 3.2.*` loads now. Its new parts (`QUERY` method, `additionalOperations`, `itemSchema` for streamed bodies, `in: querystring`) load but are skipped quietly until built. | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
+| Fixed on 2026-11-21 (M0): only `openapi: 3.2.*` loads now. Its new parts load but are skipped quietly until built; `itemSchema` was built in M2, and `QUERY` and `additionalOperations` in M3 (2026-11-22). `in: querystring` is still skipped. | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
 | A standalone AsyncAPI file is not read. Messages exist only inside an OpenAPI file, under `x-async-api`. | Medium | [code] `messages.go` |
 
 ## 2. OpenAPI: servers and paths
@@ -64,7 +64,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| `discriminator` is not used. `oneOf` and `anyOf` still check, but the mapping is not enforced and an error names no branch. | Low to medium | [inferred]: not a JSON Schema keyword |
+| Fixed on 2026-11-22 (M3): a failed `oneOf` or `anyOf` with a `discriminator` reports the problems of the branch its field picks, using `mapping`, the schema names and `defaultMapping`. Pass or fail is unchanged, as OpenAPI says. The `allOf` form is loaded and ignored. | Low to medium | [code] `discriminator.go`, santhosh `branch.go` |
 | Formats checked: only date-time, date, email, uuid, uri, ipv4, ipv6, int32, int64. Others (hostname, time, duration, uri-reference, regex and more) pass anything. Unknown formats pass too. | Low | [code] `ignoredFormats` |
 | `contentMediaType` with `contentSchema` is checked only for `application/json`, with optional base64. Other inner types are not. | Low | [code] `jsonText` |
 | Remote `$ref` and `$id` addresses outside the spec are refused. | Low | [code] `outside` loader |

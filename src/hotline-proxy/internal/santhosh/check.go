@@ -82,15 +82,20 @@ func types(s *jsonschema.Schema) []string {
 // validate checks a value against a schema and turns what is wrong into
 // findings about part, sorted by place. base names the value: a
 // parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, part, base string) []spec.Finding {
+func validate(s *jsonschema.Schema, notes branchNotes, instance any, part, base string) []spec.Finding {
 	var invalid *jsonschema.ValidationError
 	if !errors.As(s.Validate(instance), &invalid) {
 		return nil
 	}
-	var leaves []*jsonschema.ValidationError
-	collect(invalid, &leaves)
+	r := reportedErrors{notes: notes, instance: instance}
+	r.collect(invalid)
 	var findings []spec.Finding
-	for _, e := range leaves {
+	for _, n := range r.noBranch {
+		// A choice's discriminator names no branch: the place is the
+		// property, and the expected values come from the spec.
+		findings = append(findings, spec.Finding{Part: part, Place: placeOf(base, instance, n.location), Rule: "discriminator", Expected: strings.Join(n.values, ", ")})
+	}
+	for _, e := range r.leaves {
 		place := placeOf(base, instance, e.InstanceLocation)
 		switch k := e.ErrorKind.(type) {
 		case *kind.Required:
@@ -131,21 +136,44 @@ func rule(k jsonschema.ErrorKind) string {
 	return path[len(path)-1]
 }
 
+// reportedErrors gathers the errors of one failed check that say what is
+// wrong, and so become findings.
+type reportedErrors struct {
+	notes    branchNotes
+	instance any
+	leaves   []*jsonschema.ValidationError
+	// noBranch are the failed choices whose branch note picks no branch.
+	noBranch []noBranchPicked
+}
+
 // collect finds the errors that say what is wrong, leaving out those that
 // only group others. For anyOf, oneOf and not the error itself is kept:
-// the errors of each choice would only confuse.
-func collect(e *jsonschema.ValidationError, leaves *[]*jsonschema.ValidationError) {
+// the errors of each choice would only confuse. A choice with a branch
+// note is the exception: the errors of the branch its value picks are
+// kept in its place (Peter, 2026-11-22, Q1).
+func (r *reportedErrors) collect(e *jsonschema.ValidationError) {
 	switch e.ErrorKind.(type) {
-	case *kind.AnyOf, *kind.OneOf, *kind.Not:
-		*leaves = append(*leaves, e)
+	case *kind.AnyOf, *kind.OneOf:
+		branch, noBranch := r.notes.pickedBranch(e, valueAt(r.instance, e.InstanceLocation))
+		switch {
+		case branch != nil:
+			r.collect(branch)
+		case noBranch != nil:
+			r.noBranch = append(r.noBranch, *noBranch)
+		default:
+			r.leaves = append(r.leaves, e)
+		}
+		return
+	case *kind.Not:
+		r.leaves = append(r.leaves, e)
 		return
 	}
 	if len(e.Causes) == 0 {
-		*leaves = append(*leaves, e)
+		r.leaves = append(r.leaves, e)
 		return
 	}
 	for _, cause := range e.Causes {
-		collect(cause, leaves)
+		r.collect(cause)
 	}
 }
 
@@ -154,6 +182,25 @@ func collect(e *jsonschema.ValidationError, leaves *[]*jsonschema.ValidationErro
 func placeOf(base string, instance any, location []string) string {
 	var b strings.Builder
 	b.WriteString(base)
+	walk(instance, location, func(token string, inList bool) {
+		if inList {
+			b.WriteString("[" + token + "]")
+		} else {
+			b.WriteString("." + token)
+		}
+	})
+	return b.String()
+}
+
+// valueAt is the value at a location in the instance.
+func valueAt(instance any, location []string) any {
+	return walk(instance, location, func(string, bool) {})
+}
+
+// walk follows a location into the instance, reading on inside a string
+// that holds JSON, and gives the value it ends at. step hears each token
+// it follows, and whether it is a place in a list.
+func walk(instance any, location []string, step func(token string, inList bool)) any {
 	for _, token := range location {
 		if token == insideJSON {
 			// The value is JSON text; the place carries on inside it.
@@ -164,16 +211,16 @@ func placeOf(base string, instance any, location []string) string {
 		}
 		if list, ok := instance.([]any); ok {
 			i, _ := strconv.Atoi(token)
-			b.WriteString("[" + token + "]")
+			step(token, true)
 			instance = list[i]
 			continue
 		}
-		b.WriteString("." + token)
+		step(token, false)
 		if m, ok := instance.(map[string]any); ok {
 			instance = m[token]
 		}
 	}
-	return b.String()
+	return instance
 }
 
 // expected is what the spec asks for, taken from the schema, never from
