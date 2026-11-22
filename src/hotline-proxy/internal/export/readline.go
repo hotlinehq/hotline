@@ -19,10 +19,10 @@ const (
 	// (Peter, 2026-11-19, WebSocket slice 2, Q1).
 	MessageEvent = "hotline.websocket.message"
 	// StreamEvent is the event of a streamed response's line, written when the
-	// stream ends, and ItemEvent that of one item of it, such as one
+	// stream ends, and StreamItemEvent that of one stream item of it, such as one
 	// Server-Sent Event (Peter, 2026-11-21, M2, Q1 and Q3).
-	StreamEvent = "hotline.stream"
-	ItemEvent   = "hotline.stream.item"
+	StreamEvent     = "hotline.stream"
+	StreamItemEvent = "hotline.stream.item"
 	// BatchEvent is the event of a ledger batch's line.
 	BatchEvent = "hotline.ledger.batch"
 	// TraceSpans is the attribute of a call's line that holds its spans.

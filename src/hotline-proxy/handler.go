@@ -476,7 +476,7 @@ type call struct {
 	// session is the WebSocket that follows a 101, if the vendor
 	// switched to one.
 	session *session
-	// stream is the streamed response whose items the spec describes, if the
+	// stream is the streamed response whose stream items the spec describes, if the
 	// vendor sent one.
 	stream *responseStream
 	// plan is what the call checks and keeps for that.
@@ -541,18 +541,18 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 	toVendor, upgrade := resp.Body.(io.Writer)
 	upgrade = upgrade && resp.StatusCode == http.StatusSwitchingProtocols
 	body := resp.Body
-	items := c.items(resp)
+	itemSchema := c.itemSchema(resp)
 	switch {
 	case upgrade:
 		// What follows a 101 is the session's, not the call's: the call's
 		// response has no body, and ends here (Peter, 2026-11-18).
 		c.session = c.newSession(resp, toVendor)
 		body = http.NoBody
-	case items != nil:
+	case itemSchema != nil:
 		// What follows the headers is the stream's, not the call's: the
 		// call's response has no body, and the stream reads its bytes as
-		// items (Peter, 2026-11-21, M2).
-		c.stream = c.newStream(items, resp.Header, resp.Body)
+		// stream items (Peter, 2026-11-21, M2).
+		c.stream = c.newStream(itemSchema, resp.Header, resp.Body)
 		c.app.headersFirst = true
 		body = http.NoBody
 	}
@@ -604,10 +604,10 @@ func (c *call) clientTrace() *httptrace.ClientTrace {
 	}
 }
 
-// items are the items of a response whose spec gives an itemSchema for it;
+// itemSchema is the item schema of a response whose spec gives one for it;
 // nil for any other. A spec that names its action in the body finds its
-// route only in the request's check, so its responses are not read as items.
-func (c *call) items(resp *http.Response) *spec.ItemSchema {
+// route only in the request's check, so its responses are not read as stream items.
+func (c *call) itemSchema(resp *http.Response) *spec.ItemSchema {
 	if c.api == nil || c.plan.routeInBody {
 		return nil
 	}

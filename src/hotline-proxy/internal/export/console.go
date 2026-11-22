@@ -135,10 +135,10 @@ func (c *consoleExporter) lines(call Call) []byte {
 		return c.sessionLines(call)
 	case StreamEvent:
 		return c.streamLines(call)
-	case MessageEvent, ItemEvent:
+	case MessageEvent, StreamItemEvent:
 		// A session may send many messages a second, such as audio, and a
-		// model's answer streams hundreds of items: the console shows the
-		// session or the stream, not each message or item (Peter,
+		// model's answer streams hundreds of stream items: the console shows the
+		// session or the stream, not each message or stream item (Peter,
 		// 2026-11-21, M2, Q5).
 		return nil
 	}
@@ -264,7 +264,7 @@ func (c *consoleExporter) sessionLines(call Call) []byte {
 }
 
 // streamLines writes the end of a streamed response in the call's two lines:
-// who and where, then how many items came, how many broke the spec, the
+// who and where, then how many stream items came, how many broke the spec, the
 // stream's size and how long it was open.
 func (c *consoleExporter) streamLines(call Call) []byte {
 	l := &consoleLines{color: c.color}

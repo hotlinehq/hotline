@@ -78,7 +78,7 @@ func (r *sseReader) pass(p []byte, at time.Time) {
 		case b == '\n' || b == '\r':
 			r.afterCR = b == '\r'
 			r.endLine()
-			r.ending(at)
+			r.endEventIfBlank(at)
 		default:
 			r.afterCR = false
 			if !r.tooBig {
@@ -120,8 +120,8 @@ func (r *sseReader) skipMark(b byte) bool {
 	return false
 }
 
-// ending ends the event, after a line end, when that line was blank.
-func (r *sseReader) ending(at time.Time) {
+// endEventIfBlank ends the event, after a line end, when that line was blank.
+func (r *sseReader) endEventIfBlank(at time.Time) {
 	if !r.blank {
 		return
 	}
@@ -187,7 +187,7 @@ func digits(value []byte) bool {
 func (r *sseReader) deliver(at time.Time) {
 	e := streamItem{size: r.size, start: r.start, end: at}
 	if !r.tooBig {
-		e.json, _ = json.Marshal(struct { //nolint:errchkjson // text, text pointers and a number always encode
+		e.asJSON, _ = json.Marshal(struct { //nolint:errchkjson // text, text pointers and a number always encode
 			Data  string  `json:"data"`
 			Event *string `json:"event,omitempty"`
 			ID    *string `json:"id,omitempty"`

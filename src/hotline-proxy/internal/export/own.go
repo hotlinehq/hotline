@@ -129,8 +129,8 @@ func exporterLabel(e config.Exporter) attribute.KeyValue {
 	return attribute.String("hotline.exporter", e.Endpoint)
 }
 
-// signal names an exporter and what it sends: record or span.
-func signal(e config.Exporter, what string) attribute.Set {
+// signalLabels names an exporter and what it sends: record or span.
+func signalLabels(e config.Exporter, what string) attribute.Set {
 	return attribute.NewSet(exporterLabel(e), attribute.String("hotline.signal", what))
 }
 

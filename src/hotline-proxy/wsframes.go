@@ -14,13 +14,13 @@ import (
 )
 
 // A WebSocket's frames, read as they pass (RFC 6455). Each way of a
-// session whose route lists its messages is a wire. The bytes pass on at
-// once; a copy of them waits for the wire's reader, which reads the frames,
+// session whose route lists its messages is a session side. The bytes pass on at
+// once; a copy of them waits for the side's reader, which reads the frames,
 // unpacks them when they are compressed, and hands each whole message on
 // to be named, checked and recorded (Peter, 2026-11-19, WebSocket slice 2).
 
 var (
-	// errLost says the copy of a wire's bytes stopped, because it could not
+	// errLost says the copy of a session side's bytes stopped, because it could not
 	// fit in the check line's memory.
 	errLost = errors.New("websocket: the copy of the messages did not fit in specChecks.queueMemory")
 	// errBrokenFrames says the bytes are not WebSocket frames the proxy can
@@ -54,10 +54,10 @@ type chunk struct {
 	held int64
 }
 
-// wire is one way of a session: what the app sends, or what the vendor
+// sessionSide is one way of a session: what the app sends, or what the vendor
 // sends.
-type wire struct {
-	r       *reading
+type sessionSide struct {
+	r       *messageReader
 	fromApp bool
 	// unpack is set when the 101 agreed to permessage-deflate.
 	unpack *inflater
@@ -65,7 +65,7 @@ type wire struct {
 
 	mu   sync.Mutex
 	more *sync.Cond
-	scan scanner
+	scan frameScanner
 	// seen are the messages whose last byte passed, not yet read.
 	seen   []seenMessage
 	chunks []chunk
@@ -82,8 +82,8 @@ type wire struct {
 	buf          []byte
 }
 
-func newWire(r *reading, fromApp bool, unpack *inflater) *wire {
-	w := &wire{r: r, fromApp: fromApp, unpack: unpack, done: make(chan struct{})}
+func newSessionSide(r *messageReader, fromApp bool, unpack *inflater) *sessionSide {
+	w := &sessionSide{r: r, fromApp: fromApp, unpack: unpack, done: make(chan struct{})}
 	w.more = sync.NewCond(&w.mu)
 	go w.read()
 	return w
@@ -95,7 +95,7 @@ func newWire(r *reading, fromApp bool, unpack *inflater) *wire {
 // memory, and when that is full, the copy stops for good (Peter,
 // 2026-11-19, Q17 and Q26). It also finds where each message ends, so the
 // messages are numbered in the order they passed.
-func (w *wire) pass(p []byte) {
+func (w *sessionSide) pass(p []byte) {
 	if len(p) == 0 {
 		return
 	}
@@ -103,7 +103,7 @@ func (w *wire) pass(p []byte) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.scan.feed(p, at, func(start time.Time) {
-		w.seen = append(w.seen, seenMessage{index: w.r.next.Add(1), start: start, end: at})
+		w.seen = append(w.seen, seenMessage{index: w.r.messageCount.Add(1), start: start, end: at})
 	})
 	defer w.more.Signal()
 	if w.lost {
@@ -122,7 +122,7 @@ func (w *wire) pass(p []byte) {
 
 // end says no more bytes come, which the forwarder makes sure of: the
 // reader reads what is left and stops.
-func (w *wire) end() {
+func (w *sessionSide) end() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.ended = true
@@ -130,7 +130,7 @@ func (w *wire) end() {
 }
 
 // Read gives the reader the copied bytes, in order, waiting for more.
-func (w *wire) Read(p []byte) (int, error) {
+func (w *sessionSide) Read(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for len(w.chunks) == 0 {
@@ -155,9 +155,9 @@ func (w *wire) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// read reads the wire's messages until it ends, then records the
+// read reads the side's messages until it ends, then records the
 // messages it could not read.
-func (w *wire) read() {
+func (w *sessionSide) read() {
 	defer close(w.done)
 	fr := &frameReader{in: w, control: w.control}
 	err := w.messages(fr)
@@ -187,7 +187,7 @@ func (w *wire) read() {
 
 // release gives back the memory of the copies still waiting. It is
 // called locked.
-func (w *wire) release() {
+func (w *sessionSide) release() {
 	for _, c := range w.chunks {
 		w.r.c.h.checks.release(c.held)
 	}
@@ -196,7 +196,7 @@ func (w *wire) release() {
 
 // messages reads each message and hands it on, until the bytes end or
 // can't be read.
-func (w *wire) messages(fr *frameReader) error {
+func (w *sessionSide) messages(fr *frameReader) error {
 	if w.buf == nil {
 		w.buf = make([]byte, 32<<10)
 	}
@@ -218,7 +218,7 @@ func (w *wire) messages(fr *frameReader) error {
 		if err != nil {
 			return err
 		}
-		// The scanner saw this message end before its bytes were copied, so
+		// The frame scanner saw this message end before its bytes were copied, so
 		// it is first among those seen.
 		w.mu.Lock()
 		seen := w.seen[0]
@@ -230,7 +230,7 @@ func (w *wire) messages(fr *frameReader) error {
 
 // control handles a control frame: pings and pongs are counted, and the
 // session's first close message is kept.
-func (w *wire) control(op byte, payload []byte) {
+func (w *sessionSide) control(op byte, payload []byte) {
 	switch op {
 	case opPing:
 		w.pings++
@@ -276,7 +276,7 @@ type frame struct {
 	mask   [4]byte
 }
 
-// frameReader reads frames from a wire's copy, and hands each control
+// frameReader reads frames from a session side's copy, and hands each control
 // frame to control.
 type frameReader struct {
 	in      io.Reader
@@ -407,7 +407,7 @@ func (b *messageBody) next() error {
 	return nil
 }
 
-// unexpected is an error inside a message: the wire ending there is not
+// unexpected is an error inside a message: the session side ending there is not
 // the message's end.
 func unexpected(err error) error {
 	if errors.Is(err, io.EOF) {
@@ -416,9 +416,9 @@ func unexpected(err error) error {
 	return err
 }
 
-// scanner finds where each message ends as the bytes pass, from the frame
+// frameScanner finds where each message ends as the bytes pass, from the frame
 // headers alone. It neither unmasks nor keeps anything.
-type scanner struct {
+type frameScanner struct {
 	head    [14]byte
 	have    int
 	need    int
@@ -432,7 +432,7 @@ type scanner struct {
 
 // feed reads p, which passed at at, and calls ended for each message
 // whose last byte is in it.
-func (s *scanner) feed(p []byte, at time.Time, ended func(start time.Time)) {
+func (s *frameScanner) feed(p []byte, at time.Time, ended func(start time.Time)) {
 	for len(p) > 0 {
 		if s.payload {
 			n := min(s.left, uint64(len(p)))
@@ -497,7 +497,7 @@ func payloadLength(head []byte) uint64 {
 
 // frameEnd is the end of a frame: the message ends with a final data or
 // continuation frame.
-func (s *scanner) frameEnd(ended func(start time.Time)) {
+func (s *frameScanner) frameEnd(ended func(start time.Time)) {
 	s.payload, s.have = false, 0
 	if s.head[0]&0x0f < opClose && s.head[0]&0x80 != 0 {
 		s.inMessage = false

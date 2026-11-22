@@ -99,7 +99,7 @@ func (a App) Support(ctx context.Context, c Claude, question string, out io.Writ
 	messages := []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(question))}
 	var answer strings.Builder
 	for range supportTurns {
-		msg, err := streamed(ctx, client, anthropic.MessageNewParams{
+		msg, err := streamOneResponse(ctx, client, anthropic.MessageNewParams{
 			Model:     c.Model,
 			MaxTokens: 1024,
 			System:    []anthropic.TextBlockParam{{Text: supportPrompt}},
@@ -129,10 +129,10 @@ func (a App) Support(ctx context.Context, c Claude, question string, out io.Writ
 	return "", fmt.Errorf("%w after %d responses", ErrNoAnswer, supportTurns)
 }
 
-// streamed sends one request and reads its streamed response: each piece
+// streamOneResponse sends one request and reads its streamed response: each piece
 // of text goes to answer and to out as it comes, and the whole message is
 // put together for the tool calls and the reason it stopped.
-func streamed(ctx context.Context, client anthropic.Client, params anthropic.MessageNewParams, answer *strings.Builder, out io.Writer) (anthropic.Message, error) {
+func streamOneResponse(ctx context.Context, client anthropic.Client, params anthropic.MessageNewParams, answer *strings.Builder, out io.Writer) (anthropic.Message, error) {
 	stream := client.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 	var msg anthropic.Message

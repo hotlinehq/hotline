@@ -50,7 +50,7 @@ func FuzzWireFrames(f *testing.F) {
 	f.Add([]byte{0x01, 0x01, 'a', 0x89, 0x00, 0x80, 0x01, 'b'})
 	f.Add([]byte{0x80, 0x02, 'x', 'y', 0x81, 0x7e, 0x00, 0x01, 'z'})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var s scanner
+		var s frameScanner
 		seen := 0
 		s.feed(data, time.Time{}, func(time.Time) { seen++ })
 		fr := &frameReader{in: bytes.NewReader(data), control: func(byte, []byte) {}}
@@ -98,12 +98,12 @@ func FuzzSSEEvents(f *testing.F) {
 		}
 		var size int64
 		for i := range whole {
-			if !bytes.Equal(whole[i].json, bytewise[i].json) || whole[i].size != bytewise[i].size {
+			if !bytes.Equal(whole[i].asJSON, bytewise[i].asJSON) || whole[i].size != bytewise[i].size {
 				t.Fatalf("event %d read whole is %q, %d bytes; one byte at a time %q, %d bytes",
-					i+1, whole[i].json, whole[i].size, bytewise[i].json, bytewise[i].size)
+					i+1, whole[i].asJSON, whole[i].size, bytewise[i].asJSON, bytewise[i].size)
 			}
-			if whole[i].json != nil && !json.Valid(whole[i].json) {
-				t.Fatalf("event %d is not valid JSON: %q", i+1, whole[i].json)
+			if whole[i].asJSON != nil && !json.Valid(whole[i].asJSON) {
+				t.Fatalf("event %d is not valid JSON: %q", i+1, whole[i].asJSON)
 			}
 			size += whole[i].size
 		}
@@ -129,9 +129,9 @@ func FuzzLineItems(f *testing.F) {
 		read := func(step int) []streamItem {
 			var got []streamItem
 			delivered := func(e streamItem) { got = append(got, e) }
-			var r itemReader = &lineReader{held: heldItem{delivered: delivered}}
+			var r streamItemReader = &jsonLinesReader{current: openStreamItem{delivered: delivered}}
 			if seq {
-				r = &seqReader{held: heldItem{delivered: delivered}}
+				r = &jsonSeqReader{current: openStreamItem{delivered: delivered}}
 			}
 			at := time.Unix(0, 0)
 			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
@@ -150,12 +150,12 @@ func FuzzLineItems(f *testing.F) {
 		}
 		var size int64
 		for i := range whole {
-			if !bytes.Equal(whole[i].json, bytewise[i].json) || whole[i].size != bytewise[i].size {
+			if !bytes.Equal(whole[i].asJSON, bytewise[i].asJSON) || whole[i].size != bytewise[i].size {
 				t.Fatalf("stream item %d read whole is %q, %d bytes; one byte at a time %q, %d bytes",
-					i+1, whole[i].json, whole[i].size, bytewise[i].json, bytewise[i].size)
+					i+1, whole[i].asJSON, whole[i].size, bytewise[i].asJSON, bytewise[i].size)
 			}
-			if bytes.IndexByte(whole[i].json, ends) >= 0 {
-				t.Fatalf("stream item %d holds the byte that ends it: %q", i+1, whole[i].json)
+			if bytes.IndexByte(whole[i].asJSON, ends) >= 0 {
+				t.Fatalf("stream item %d holds the byte that ends it: %q", i+1, whole[i].asJSON)
 			}
 			size += whole[i].size
 		}

@@ -744,7 +744,7 @@ func (l *loader) secret(label string, s secret) string {
 	case s.written:
 		return s.value
 	case s.file != "":
-		l.reading(l.path(s.file))
+		l.noteRead(l.path(s.file))
 		data, err := os.ReadFile(l.path(s.file)) //nolint:gosec // the config names its secret files
 		if err != nil {
 			l.problem("%s: the file %s cannot be read", label, s.file)
@@ -762,7 +762,7 @@ func (l *loader) secret(label string, s secret) string {
 
 // certificate authorities reads a PEM file of certificates.
 func (l *loader) authorities(label, path string) []byte {
-	l.reading(l.path(path))
+	l.noteRead(l.path(path))
 	data, err := os.ReadFile(l.path(path)) //nolint:gosec // the config names its certificate files
 	if err != nil {
 		l.problem("%s: %s cannot be read: %v", label, path, err)
@@ -852,8 +852,8 @@ func (l *loader) pair(label string, f *pairFile, load func(certFile, keyFile str
 		return nil
 	}
 	t := &TLS{CertFile: l.path(f.Cert), KeyFile: l.path(f.Key)}
-	l.reading(t.CertFile)
-	l.reading(t.KeyFile)
+	l.noteRead(t.CertFile)
+	l.noteRead(t.KeyFile)
 	cert, err := load(t.CertFile, t.KeyFile, now)
 	if err != nil {
 		l.problems = append(l.problems, err)
@@ -878,9 +878,9 @@ func loadPair(label, certFile, keyFile string, now time.Time) (*tls.Certificate,
 	return &cert, nil
 }
 
-// reading notes a file as it is just before the load reads it, so a
+// noteRead notes a file as it is just before the load reads it, so a
 // change made while the load runs is seen by the next check.
-func (l *loader) reading(path string) {
+func (l *loader) noteRead(path string) {
 	if _, noted := l.read[path]; !noted {
 		l.read[path], _ = os.Stat(path)
 	}
@@ -900,12 +900,12 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 		return nil
 	}
 	path = l.path(path)
-	l.reading(path)
+	l.noteRead(path)
 	names := []string{path}
 	files := make([]overlay.File, 0, len(overlays))
 	for _, o := range overlays {
 		o = l.path(o)
-		l.reading(o)
+		l.noteRead(o)
 		names = append(names, o)
 		files = append(files, overlay.File{Name: o})
 	}

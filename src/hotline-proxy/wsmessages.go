@@ -14,19 +14,19 @@ import (
 	"hotline-proxy/internal/tracectx"
 )
 
-// reading is how a session whose route lists its messages reads them: one
-// wire each way, and what the session record says about them. Each message
+// messageReader is how a session whose route lists its messages reads them: one
+// session side each way, and what the session record says about them. Each message
 // gets a record and a span of its own (Peter, 2026-11-19, WebSocket slice
 // 2, Q1 and Q21).
-type reading struct {
+type messageReader struct {
 	c *call
 	// session is the session span's id, the parent of each message span.
 	session  trace.SpanID
 	messages *spec.Messages
 	// checked says the api's checks hold messages (Q27).
-	checked     bool
-	next        atomic.Int64
-	app, vendor *wire
+	checked      bool
+	messageCount atomic.Int64
+	app, vendor  *sessionSide
 
 	// closing says the proxy closed the vendor's side, and vendorFirst that
 	// the vendor's side ended before that.
@@ -48,15 +48,15 @@ type closeMessage struct {
 	reason  string
 }
 
-func newReading(c *call, session trace.SpanID, messages *spec.Messages, checked bool, app, vendor *inflater) *reading {
-	r := &reading{c: c, session: session, messages: messages, checked: checked}
-	r.app = newWire(r, true, app)
-	r.vendor = newWire(r, false, vendor)
+func newMessageReader(c *call, session trace.SpanID, messages *spec.Messages, checked bool, app, vendor *inflater) *messageReader {
+	r := &messageReader{c: c, session: session, messages: messages, checked: checked}
+	r.app = newSessionSide(r, true, app)
+	r.vendor = newSessionSide(r, false, vendor)
 	return r
 }
 
-// end says the session ended: both wires read what is left, and stop.
-func (r *reading) end() {
+// end says the session ended: both sides read what is left, and stop.
+func (r *messageReader) end() {
 	r.app.end()
 	r.vendor.end()
 }
@@ -64,7 +64,7 @@ func (r *reading) end() {
 // message names a whole message, starts its check, and records it once
 // the check ends. Its name and correlation id are found here, in a step never dropped
 // (Q14).
-func (r *reading) message(w *wire, seen seenMessage, m message) {
+func (r *messageReader) message(w *sessionSide, seen seenMessage, m message) {
 	named := r.messages.Name(w.fromApp, m.data)
 	body := spec.Body{Data: m.data, TooLarge: m.unpacked > int64(len(m.data))}
 	var check *specCheck
@@ -85,9 +85,9 @@ func (r *reading) message(w *wire, seen seenMessage, m message) {
 	})
 }
 
-// unread records a message the wire could not read, as overloaded when
+// unread records a message the session side could not read, as overloaded when
 // its copy did not fit in memory (Q26).
-func (r *reading) unread(w *wire, seen seenMessage, reason string) {
+func (r *messageReader) unread(w *sessionSide, seen seenMessage, reason string) {
 	r.mu.Lock()
 	if r.unreadFrom == 0 || seen.index < r.unreadFrom {
 		r.unreadFrom = seen.index
@@ -100,7 +100,7 @@ func (r *reading) unread(w *wire, seen seenMessage, reason string) {
 
 // record builds a message's record and its span, with the check's step
 // under it. m is nil for a message that was not read.
-func (r *reading) record(w *wire, seen seenMessage, m *message, named spec.Message, check *specCheck, skipped string) finished {
+func (r *messageReader) record(w *sessionSide, seen seenMessage, m *message, named spec.Message, check *specCheck, skipped string) finished {
 	var found spec.Checked
 	ran := true
 	switch {
@@ -168,7 +168,7 @@ func (r *reading) record(w *wire, seen seenMessage, m *message, named spec.Messa
 
 // closed keeps the session's first close message: its code and reason,
 // when it has them.
-func (r *reading) closed(fromApp bool, payload []byte) {
+func (r *messageReader) closed(fromApp bool, payload []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.shut != nil {
@@ -182,10 +182,10 @@ func (r *reading) closed(fromApp bool, payload []byte) {
 }
 
 // sessionAttrs is what the session record and span say about the
-// messages, once both wires are read, which it waits for: how the session ended (Q7), the
+// messages, once both sides are read, which it waits for: how the session ended (Q7), the
 // pings and pongs each way (Q24), and from which message on the messages
 // could not be read (Q26).
-func (r *reading) sessionAttrs() []attribute.KeyValue {
+func (r *messageReader) sessionAttrs() []attribute.KeyValue {
 	<-r.app.done
 	<-r.vendor.done
 	r.mu.Lock()
@@ -224,14 +224,14 @@ func side(app bool) string {
 	return "vendor"
 }
 
-// vendorWire passes the vendor's bytes to its wire as they are read, and
+// vendorSideTap passes the vendor's bytes to its session side as they are read, and
 // notes when the vendor's side ended before the proxy closed it.
-type vendorWire struct {
+type vendorSideTap struct {
 	io.ReadCloser
-	r *reading
+	r *messageReader
 }
 
-func (v *vendorWire) Read(p []byte) (int, error) {
+func (v *vendorSideTap) Read(p []byte) (int, error) {
 	n, err := v.ReadCloser.Read(p)
 	v.r.vendor.pass(p[:n])
 	if err != nil && !v.r.closing.Load() {
@@ -240,19 +240,19 @@ func (v *vendorWire) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (v *vendorWire) Close() error {
+func (v *vendorSideTap) Close() error {
 	v.r.closing.Store(true)
 	return v.ReadCloser.Close()
 }
 
-// appWire passes the app's bytes to its wire as they are written to the
+// appSideTap passes the app's bytes to its session side as they are written to the
 // vendor.
-type appWire struct {
+type appSideTap struct {
 	io.Writer
-	r *reading
+	r *messageReader
 }
 
-func (a appWire) Write(p []byte) (int, error) {
+func (a appSideTap) Write(p []byte) (int, error) {
 	n, err := a.Writer.Write(p)
 	a.r.app.pass(p[:n])
 	return n, err

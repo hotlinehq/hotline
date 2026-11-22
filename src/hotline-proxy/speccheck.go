@@ -134,30 +134,30 @@ func (c *call) specRoute() spec.Route {
 }
 
 // picked keeps what the check found in the parts the api checks. A part
-// left out leaves no result, and no skipped reason when it was the body
+// left out leaves no finding, and no skipped reason when it was the body
 // that would have been skipped.
 func picked(parts config.Parts, found spec.Checked, request bool) spec.Checked {
 	if parts == config.AllParts {
 		return found
 	}
-	results, body := &found.Response, config.PartResponseBody
+	findings, body := &found.Response, config.PartResponseBody
 	if request {
-		results, body = &found.Request, config.PartBody
+		findings, body = &found.Request, config.PartBody
 	}
-	kept := (*results)[:0]
-	for _, r := range *results {
+	kept := (*findings)[:0]
+	for _, r := range *findings {
 		if parts.Has(partOf(r.Part, request)) {
 			kept = append(kept, r)
 		}
 	}
-	*results = kept
+	*findings = kept
 	if !parts.Has(body) && found.Skipped != "no_spec_route" {
 		found.Skipped = ""
 	}
 	return found
 }
 
-// partOf is the checks entry that a result's part belongs to.
+// partOf is the checks entry that a finding's part belongs to.
 func partOf(part string, request bool) config.Parts {
 	switch part {
 	case "query":

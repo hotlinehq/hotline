@@ -102,12 +102,12 @@ type Call struct {
 	Content []attribute.KeyValue
 	// Ledger is the record's place in its ledger batch. An exporter
 	// that drops the record lists it there in the batch's record.
-	Ledger Entry
+	Ledger LedgerEntry
 }
 
-// Entry is a record's place in its ledger batch: the batch, its index in
+// LedgerEntry is a record's place in its ledger batch: the batch, its index in
 // it, and its hash.
-type Entry struct {
+type LedgerEntry struct {
 	Batch string
 	Index int
 	Hash  string
@@ -188,10 +188,10 @@ func New(setup Setup) (*Exporters, error) {
 		setup := queueSetup{endpoint: e.Endpoint, size: e.QueueSize, logger: logger, up: up}
 		setup.sent, setup.dropped = stats.sent, stats.dropped
 		logSetup := setup
-		logSetup.labels = signal(e, "record")
+		logSetup.labels = signalLabels(e, "record")
 		logSetup.interval = e.LogInterval
 		spanSetup := setup
-		spanSetup.labels = signal(e, "span")
+		spanSetup.labels = signalLabels(e, "span")
 		spanSetup.interval = e.TraceInterval
 		res := describe(service, e.Resource)
 		written := resourceOf(res.Attributes())

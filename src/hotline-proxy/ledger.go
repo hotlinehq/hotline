@@ -27,8 +27,8 @@ type book struct {
 	clock     Clock
 	exporters *export.Exporters
 	instance  string
-	// run, when the config names the instance, is this run's own random id.
-	run     string
+	// runID, when the config names the instance, is this run's own random id.
+	runID   string
 	version string
 	config  func() *config.Config
 	// hashes makes the record and trace hashes, reusing its writers.
@@ -38,11 +38,11 @@ type book struct {
 	key    ledger.Key
 	keyAt  time.Time
 	chains map[string]*chain
-	// ended are the chains a reload closed with a last batch. A record of
+	// closedChains are the chains a reload closed with a last batch. A record of
 	// a call that started before that reload goes on the same chain.
-	ended map[string]*chain
-	timer Timer
-	every time.Duration
+	closedChains map[string]*chain
+	timer        Timer
+	every        time.Duration
 	// stopped is set once the last batches went out.
 	stopped bool
 }
@@ -75,12 +75,12 @@ type openBatch struct {
 func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
 		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current,
-		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, ended: map[string]*chain{}, every: cfg.Ledger.Every,
+		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
 		// A named instance keeps the random id next to it, so two runs of
 		// the same name are told apart.
-		b.instance, b.run = cfg.Ledger.Instance, instanceID
+		b.instance, b.runID = cfg.Ledger.Instance, instanceID
 	}
 	b.timer = clock.AfterFunc(b.every, b.tick)
 	return b
@@ -105,8 +105,8 @@ func (b *book) record(ctx context.Context, f finished) {
 	ch := b.chains[name]
 	if ch == nil {
 		// A chain a reload ended goes on, for a call that started before.
-		ch = b.ended[name]
-		delete(b.ended, name)
+		ch = b.closedChains[name]
+		delete(b.closedChains, name)
 		if ch == nil {
 			ch = &chain{name: name}
 		}
@@ -133,7 +133,7 @@ func (b *book) record(ctx context.Context, f finished) {
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
 	b.exporters.Call(ctx, export.Call{
 		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
-		Ledger: export.Entry{Batch: open.id, Index: len(open.leaves), Hash: hash},
+		Ledger: export.LedgerEntry{Batch: open.id, Index: len(open.leaves), Hash: hash},
 	})
 	open.leaves = append(open.leaves, sum)
 	if len(open.leaves) >= open.maxRecords {
@@ -172,7 +172,7 @@ func (b *book) reloaded(cfg *config.Config) {
 		if cfg.Integration(name).Name != name {
 			b.close(ch, true)
 			delete(b.chains, name)
-			b.ended[name] = ch
+			b.closedChains[name] = ch
 		}
 	}
 }
@@ -189,7 +189,7 @@ func (b *book) stop() {
 	}
 	// A record that comes late, after a stop that ran out of time, starts
 	// a chain that no batch closes.
-	b.chains, b.ended = map[string]*chain{}, map[string]*chain{}
+	b.chains, b.closedChains = map[string]*chain{}, map[string]*chain{}
 }
 
 // close signs the chain's open batch and sends its batch record. Only a
@@ -215,8 +215,8 @@ func (b *book) close(ch *chain, last bool) {
 		attribute.String("hotline.batch.version", b.version),
 		attribute.String("hotline.batch.config", open.config),
 	}
-	if b.run != "" {
-		attrs = append(attrs, attribute.String("hotline.batch.run", b.run))
+	if b.runID != "" {
+		attrs = append(attrs, attribute.String("hotline.batch.run", b.runID))
 	}
 	if ch.previous != "" {
 		attrs = append(attrs, attribute.String("hotline.batch.previous", ch.previous))

@@ -19,11 +19,11 @@ import (
 // ErrRefused is a send the collector did not take.
 var ErrRefused = errors.New("export: the collector refused the send")
 
-// kind is what a send carries: records or spans.
-type kind int
+// signal is what a send carries: records or spans.
+type signal int
 
 const (
-	records kind = iota
+	records signal = iota
 	spans
 )
 
@@ -38,7 +38,7 @@ func (b busy) Error() string { return b.err.Error() }
 // sendWithRetry sends body, and tries again while the collector is busy and
 // the send's time allows: first after about a second, then at most every
 // few seconds, or later when the collector asks.
-func sendWithRetry(ctx context.Context, t *httpTransport, k kind, z *zipper, body []byte, timeout time.Duration) error {
+func sendWithRetry(ctx context.Context, t *httpTransport, k signal, z *zipper, body []byte, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	backoff := retryFirst
@@ -139,7 +139,7 @@ func httpClient(e config.Exporter, tlsConfig *tls.Config) *http.Client {
 }
 
 // post sends body, gzipped with z unless z is nil.
-func (t *httpTransport) post(ctx context.Context, k kind, z *zipper, body []byte) error {
+func (t *httpTransport) post(ctx context.Context, k signal, z *zipper, body []byte) error {
 	if z != nil {
 		body = z.zip(body)
 	}

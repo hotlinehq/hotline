@@ -14,10 +14,10 @@ import (
 	"hotline-proxy/internal/spec/read"
 )
 
-// Result is one thing a check found: the part of the call, the place in it,
+// Finding is one thing a check found: the part of the call, the place in it,
 // the rule it broke and what the spec expects. It never holds a value from
 // the call.
-type Result struct {
+type Finding struct {
 	Part     string
 	Place    string
 	Rule     string
@@ -50,8 +50,8 @@ type Exchange struct {
 // Checked is what the checks found on each side, and why some checks were
 // left out, if any were.
 type Checked struct {
-	Request  []Result
-	Response []Result
+	Request  []Finding
+	Response []Finding
 	Skipped  string
 	// Copied are the marked fields of both bodies.
 	Copied []Field
@@ -122,9 +122,9 @@ type response struct {
 	body    *bodySpec
 	// check checks the headers and body against the schemas.
 	check ResponseCheck
-	// items are the items of the streamed media types whose content gives
+	// itemSchemas are the item schemas of the streamed media types whose content gives
 	// an itemSchema, by media type, lower case; nil when none does.
-	items map[string]*ItemSchema
+	itemSchemas map[string]*ItemSchema
 }
 
 const (
@@ -159,7 +159,7 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 		return Checked{Skipped: "no_spec_route"}
 	}
 	c := Checked{
-		Request: r.checks.request.Meta(e.EscapedPath, e.RawQuery, e.Header),
+		Request: r.checks.request.Params(e.EscapedPath, e.RawQuery, e.Header),
 		Copied:  r.checks.copiedHeaders(e.Header),
 	}
 	query, _ := url.ParseQuery(e.RawQuery)
@@ -167,12 +167,12 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	cookies := map[string]string{}
 	read.Cookies(e.Header, cookies)
 	c.Request = append(c.Request, r.checks.loggedIn(e.Header, query, cookies)...)
-	results, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
-	c.Request = append(c.Request, results...)
+	findings, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
+	c.Request = append(c.Request, findings...)
 	c.Skipped = skipped
 	if reads != 0 {
-		results, copied := r.checks.request.Body(content, reads, e.Body.Data)
-		c.Request = append(c.Request, results...)
+		findings, copied := r.checks.request.Body(content, reads, e.Body.Data)
+		c.Request = append(c.Request, findings...)
 		c.Copied = append(c.Copied, copied...)
 	}
 	return c
@@ -192,23 +192,23 @@ func (s *Spec) CheckResponse(found Route, e Exchange) Checked {
 	}
 	rp := r.checks.response(e.Status)
 	if rp == nil {
-		c.Response = []Result{{Part: partStatus, Place: strconv.Itoa(e.Status), Rule: "not_in_spec"}}
+		c.Response = []Finding{{Part: partStatus, Place: strconv.Itoa(e.Status), Rule: "not_in_spec"}}
 		return c
 	}
-	c.Response = rp.check.Meta(e.ResponseHeader)
+	c.Response = rp.check.Headers(e.ResponseHeader)
 	if mt, _, _ := mime.ParseMediaType(e.ResponseHeader.Get("Content-Type")); sequential(mt) {
-		// A stream with an itemSchema is checked item by item, by ItemSchema.
-		if rp.items[mt] == nil {
+		// A stream with an itemSchema is checked stream item by stream item, by ItemSchema.
+		if rp.itemSchemas[mt] == nil {
 			c.Skipped = "streaming"
 		}
 		return c
 	}
-	results, skipped, content, reads := rp.body.gate(e.ResponseHeader.Get("Content-Type"), e.ResponseBody)
-	c.Response = append(c.Response, results...)
+	findings, skipped, content, reads := rp.body.gate(e.ResponseHeader.Get("Content-Type"), e.ResponseBody)
+	c.Response = append(c.Response, findings...)
 	c.Skipped = skipped
 	if reads != 0 {
-		results, copied := rp.check.Body(content, reads, e.ResponseBody.Data)
-		c.Response = append(c.Response, results...)
+		findings, copied := rp.check.Body(content, reads, e.ResponseBody.Data)
+		c.Response = append(c.Response, findings...)
 		c.Copied = copied
 	}
 	return c
@@ -225,15 +225,15 @@ func (c *checks) response(status int) *response {
 
 // unknownQuery reports query names the spec does not know. A login key
 // sent in the query, and a word the route needs, are known.
-func (s *Spec) unknownQuery(r route, query url.Values) []Result {
-	var results []Result
+func (s *Spec) unknownQuery(r route, query url.Values) []Finding {
+	var findings []Finding
 	for _, key := range slices.Sorted(maps.Keys(query)) {
 		isWord := slices.ContainsFunc(r.words, func(w queryWord) bool { return w.name == key })
 		if !s.secretQuery[key] && !isWord && !knownQuery(r.checks.params, key) {
-			results = append(results, Result{Part: "query", Place: key, Rule: "not_in_spec"})
+			findings = append(findings, Finding{Part: "query", Place: key, Rule: "not_in_spec"})
 		}
 	}
-	return results
+	return findings
 }
 
 func knownQuery(params []param, key string) bool {
@@ -248,16 +248,16 @@ func knownQuery(params []param, key string) bool {
 // loggedIn reports the credentials of the first way to log in when no way
 // is complete. Only whether a credential is there is checked, never its
 // value.
-func (c *checks) loggedIn(header http.Header, query url.Values, cookies map[string]string) []Result {
+func (c *checks) loggedIn(header http.Header, query url.Values, cookies map[string]string) []Finding {
 	if len(c.security) == 0 {
 		return nil
 	}
-	var first []Result
+	var first []Finding
 	for i, way := range c.security {
-		var missing []Result
+		var missing []Finding
 		for _, cred := range way {
 			if !cred.present(header, query, cookies) {
-				missing = append(missing, Result{Part: cred.in, Place: cred.name, Rule: "required"})
+				missing = append(missing, Finding{Part: cred.in, Place: cred.name, Rule: "required"})
 			}
 		}
 		if len(missing) == 0 {
@@ -287,15 +287,15 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 // body as and how to read it, 0 when the body is not checked. A body that
 // cannot be read, or is too large to check, is skipped, and the reason
 // returned.
-func (b *bodySpec) gate(contentType string, body Body) (results []Result, skipped string, content int, reads Reads) {
+func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, content int, reads Reads) {
 	empty := len(body.Data) == 0 && !body.TooLarge
 	switch {
 	case b == nil && empty:
 		return nil, "", 0, 0
 	case b == nil:
-		return []Result{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", 0, 0
+		return []Finding{{Part: partBody, Place: whole, Rule: "not_in_spec"}}, "", 0, 0
 	case empty && b.required:
-		return []Result{{Part: partBody, Place: whole, Rule: "required"}}, "", 0, 0
+		return []Finding{{Part: partBody, Place: whole, Rule: "required"}}, "", 0, 0
 	case empty:
 		return nil, "", 0, 0
 	}
@@ -309,7 +309,7 @@ func (b *bodySpec) gate(contentType string, body Body) (results []Result, skippe
 		for i, c := range b.content {
 			listed[i] = c.mediaType
 		}
-		return []Result{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", 0, 0
+		return []Finding{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", 0, 0
 	}
 	reads = c.reads(mediaType)
 	switch {

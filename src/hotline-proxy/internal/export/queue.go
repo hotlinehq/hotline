@@ -24,11 +24,11 @@ type queue[T any] struct {
 	export   func(context.Context, []T) error
 	close    func(context.Context) error
 	endpoint string
-	// what names the items in warnings: records or spans.
-	what     string
-	size     int
-	interval time.Duration
-	logger   *slog.Logger
+	// signalName names the signal in warnings: records or spans.
+	signalName string
+	size       int
+	interval   time.Duration
+	logger     *slog.Logger
 	// sent and dropped count what the queue did, with labels naming the
 	// exporter and the signal; up is the exporter's state.
 	sent    metric.Int64Counter
@@ -79,25 +79,25 @@ type queueSetup struct {
 	up      *atomic.Int64
 }
 
-func newQueue[T any](what string, export func(context.Context, []T) error, closeSender func(context.Context) error, s queueSetup) *queue[T] {
+func newQueue[T any](signalName string, export func(context.Context, []T) error, closeSender func(context.Context) error, s queueSetup) *queue[T] {
 	q := &queue[T]{
-		export:   export,
-		close:    closeSender,
-		endpoint: s.endpoint,
-		what:     what,
-		size:     s.size,
-		memory:   s.memory,
-		eager:    s.eager,
-		interval: s.interval,
-		logger:   s.logger,
-		sent:     s.sent,
-		dropped:  s.dropped,
-		labels:   s.labels,
-		up:       s.up,
-		ring:     make([]T, s.size),
-		full:     make(chan struct{}, 1),
-		stop:     make(chan struct{}),
-		stopped:  make(chan struct{}),
+		export:     export,
+		close:      closeSender,
+		endpoint:   s.endpoint,
+		signalName: signalName,
+		size:       s.size,
+		memory:     s.memory,
+		eager:      s.eager,
+		interval:   s.interval,
+		logger:     s.logger,
+		sent:       s.sent,
+		dropped:    s.dropped,
+		labels:     s.labels,
+		up:         s.up,
+		ring:       make([]T, s.size),
+		full:       make(chan struct{}, 1),
+		stop:       make(chan struct{}),
+		stopped:    make(chan struct{}),
 	}
 	go q.run()
 	return q
@@ -226,11 +226,11 @@ func (q *queue[T]) warnDropped(last bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.crowded.due(last) {
-		q.logger.Warn("export queue full, dropped the newest "+q.what, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
+		q.logger.Warn("export queue full, dropped the newest "+q.signalName, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
 		q.crowded.count, q.crowded.groups = 0, 0
 	}
 	if q.failed.due(last) {
-		q.logger.Warn("export failed, dropped the "+q.what+" it held", "endpoint", q.endpoint, "dropped", q.failed.count, "error", q.lastErr.Error())
+		q.logger.Warn("export failed, dropped the "+q.signalName+" it held", "endpoint", q.endpoint, "dropped", q.failed.count, "error", q.lastErr.Error())
 		q.failed.count = 0
 	}
 }
@@ -258,7 +258,7 @@ func (q *queue[T]) Shutdown(ctx context.Context) error {
 // newItemQueue is the queue of one kind of written items for one
 // exporter. A send writes the waiting items into one request, in a
 // buffer and a zipper the queue keeps, since its sends come one at a time.
-func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
+func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
 	var body []byte
 	z := t.newZipper()
 	send := func(ctx context.Context, items [][]byte) error {
@@ -266,7 +266,7 @@ func newItemQueue(what string, k kind, t *httpTransport, resource []byte, timeou
 		return sendWithRetry(ctx, t, k, z, body, timeout)
 	}
 	// The exporter closes the transport once both queues are done.
-	return newQueue(what, send, func(context.Context) error { return nil }, s)
+	return newQueue(signalName, send, func(context.Context) error { return nil }, s)
 }
 
 // weigh is the bytes an item holds: a written item's length, nothing for

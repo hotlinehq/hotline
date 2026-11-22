@@ -394,11 +394,11 @@ func indent(text, by string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// Written writes results the way the feature files do: "part place rule
+// Written writes findings the way the feature files do: "part place rule
 // expected", joined by "; ".
-func Written(results []spec.Result) string {
+func Written(findings []spec.Finding) string {
 	var all []string
-	for _, r := range results {
+	for _, r := range findings {
 		all = append(all, strings.Join(strings.Fields(r.Part+" "+r.Place+" "+r.Rule+" "+r.Expected), " "))
 	}
 	return strings.Join(all, "; ")

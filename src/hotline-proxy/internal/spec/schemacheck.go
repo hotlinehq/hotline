@@ -37,24 +37,24 @@ type Engine interface {
 // RequestCheck checks the request side of one route. It is safe to use
 // from many goroutines at once.
 type RequestCheck interface {
-	// Meta checks the parameters: each one there when required, and its
+	// Params checks the parameters: each one there when required, and its
 	// value against its schema. It gets the request as Go's http server
 	// gives it, unparsed.
-	Meta(escapedPath, rawQuery string, header http.Header) []Result
+	Params(escapedPath, rawQuery string, header http.Header) []Finding
 	// Body checks a body and copies its marked fields. content is the
 	// place in the route's Body list of the content it was sent as, and
 	// reads how to read it; spec has found both, and the body is not empty
 	// and small enough to check.
-	Body(content int, reads Reads, body []byte) ([]Result, []Field)
+	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
 }
 
 // ResponseCheck checks one response the spec lists, the way RequestCheck
 // checks a request.
 type ResponseCheck interface {
-	// Meta checks the response's headers.
-	Meta(header http.Header) []Result
+	// Headers checks the response's headers.
+	Headers(header http.Header) []Finding
 	// Body checks a response body, as RequestCheck.Body does.
-	Body(content int, reads Reads, body []byte) ([]Result, []Field)
+	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
 }
 
 // Reads is how a body is read before it is checked.
@@ -89,7 +89,7 @@ type ResponseSpec struct {
 type Param struct {
 	Name string
 	// In is path, query, header or cookie. It is also the Part of the
-	// results about it.
+	// findings about it.
 	In       string
 	Required bool
 	// Segment is, for a path value, which piece of the path split at "/"
@@ -105,8 +105,8 @@ type Param struct {
 	// Schema is nil when the spec gives none: the parameter is then only
 	// checked for being there.
 	Schema Schema
-	// What names the parameter in a problem, such as "query limit".
-	What string
+	// Label names the parameter in a problem, such as "query limit".
+	Label string
 }
 
 // Content is one type a body may be sent as.
@@ -118,9 +118,9 @@ type Content struct {
 	XML *read.XMLBody
 	// Marked are the fields the spec marks x-hotline-record.
 	Marked []Marked
-	// What names the content in a problem, such as "the request body
+	// Label names the content in a problem, such as "the request body
 	// application/json".
-	What string
+	Label string
 }
 
 // Marked is one body field the spec marks x-hotline-record. Its value is
