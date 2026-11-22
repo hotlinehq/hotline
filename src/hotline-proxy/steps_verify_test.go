@@ -566,6 +566,9 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return result.prints("kept bodies match their hash")
 	})
+	sc.Step(`^it prints that (\d+) kept bodies match their hash$`, func(n int) error {
+		return result.prints(fmt.Sprintf("%d kept bodies match their hash", n))
+	})
 	sc.Step(`^it prints that 1 kept body was cut short and could not be checked$`, func() error {
 		return result.prints("1 kept bodies were cut short and could not be checked")
 	})

@@ -1,0 +1,42 @@
+# A made-up feed of a shop's new orders, one order per stream item, in each
+# of the four line and sequence media types OpenAPI 3.2 names for
+# itemSchema: JSON Lines (application/jsonl and application/x-ndjson) and
+# JSON sequences (application/json-seq and any +json-seq type). The
+# streamed responses scenarios check its items.
+openapi: 3.2.0
+info:
+  title: Order feed
+  version: "1"
+servers:
+  - url: https://feed.shop.test
+paths:
+  /orders/feed:
+    get:
+      operationId: readOrderFeed
+      responses:
+        "200":
+          description: Every new order, as it comes.
+          content:
+            application/jsonl:
+              itemSchema:
+                $ref: "#/components/schemas/Order"
+            application/x-ndjson:
+              itemSchema:
+                $ref: "#/components/schemas/Order"
+            application/json-seq:
+              itemSchema:
+                $ref: "#/components/schemas/Order"
+            application/geo+json-seq:
+              itemSchema:
+                $ref: "#/components/schemas/Order"
+components:
+  schemas:
+    Order:
+      type: object
+      required: [id, total]
+      properties:
+        id:
+          type: string
+          x-hotline-record: shop.order.id
+        total:
+          type: number

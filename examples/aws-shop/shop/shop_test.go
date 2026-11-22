@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	"google.golang.org/genai"
 
+	"hotline-example/aws-shop/internal/fakeanthropic"
 	"hotline-example/aws-shop/internal/fakeaws"
 	"hotline-example/aws-shop/internal/fakes3"
 	"hotline-example/aws-shop/internal/fakesqs"
@@ -476,6 +478,158 @@ var _ = Describe("The shop's four apps", func() {
 			live := &fakeLive{script: []*genai.LiveServerMessage{toolCall("call-1", "A-1001")}, toolErr: io.ErrClosedPipe}
 			_, err := ask(live, "Where is order A-1001?")
 			Expect(err).To(MatchError(io.ErrClosedPipe))
+		})
+	})
+
+	Describe("support", func() {
+		// ask asks support one question of a fake Anthropic that streams
+		// the responses, and gives the answer and what was printed.
+		ask := func(claude *fakeanthropic.Anthropic, question string) (string, string, error) {
+			var printed bytes.Buffer
+			answer, err := app("shop-support").Support(ctx, shop.Claude{APIKey: "test-key", Model: "claude-opus-5-5", BaseURL: claude.URL}, question, &printed)
+			return answer, printed.String(), err
+		}
+		start := func(responses ...[]string) *fakeanthropic.Anthropic {
+			claude := fakeanthropic.Start(responses...)
+			DeferCleanup(claude.Close)
+			return claude
+		}
+		// toolResult is the tool result support sent in a request.
+		toolResult := func(request map[string]any) map[string]any {
+			messages := request["messages"].([]any)
+			last := messages[len(messages)-1].(map[string]any)
+			return last["content"].([]any)[0].(map[string]any)
+		}
+
+		It("answers about a paid order with the lookUpOrder tool, printing the answer as it streams in", func() {
+			pay()
+			claude := start(
+				fakeanthropic.ToolUse("toolu_1", "lookUpOrder", `{"orderId":"A-1001"}`),
+				fakeanthropic.Text("Order A-1001 ", "is paid."),
+			)
+			answer, printed, err := ask(claude, "Has my order A-1001 been paid?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("Order A-1001 is paid."))
+			Expect(printed).To(Equal("Order A-1001 is paid."))
+			requests := claude.Requests()
+			Expect(requests).To(HaveLen(2))
+			Expect(requests[0]["stream"]).To(BeTrue())
+			Expect(requests[0]["model"]).To(Equal("claude-opus-5-5"))
+			Expect(fmt.Sprint(requests[0]["system"])).To(ContainSubstring("support desk"))
+			Expect(fmt.Sprint(requests[0]["tools"])).To(ContainSubstring("lookUpOrder"))
+			result := toolResult(requests[1])
+			Expect(result["tool_use_id"]).To(Equal("toolu_1"))
+			Expect(fmt.Sprint(result["content"])).To(ContainSubstring(`"paidAt":"2026-11-01T10:00:00Z"`))
+			Expect(result["is_error"]).To(BeFalse())
+			Expect(claude.Keys()).To(Equal([]string{"Bearer test-key", "Bearer test-key"}))
+			Expect(aws.Targets()[len(aws.Targets())-1]).To(Equal("DynamoDB_20120810.GetItem"))
+		})
+
+		It("answers with the last response's text, and prints what the model said before it asked for the order on a line of its own", func() {
+			pay()
+			claude := start(
+				fakeanthropic.TextThenToolUse("Let me look.", "toolu_1", "lookUpOrder", `{"orderId":"A-1001"}`),
+				fakeanthropic.Text("Order A-1001 is paid."),
+			)
+			answer, printed, err := ask(claude, "Has my order A-1001 been paid?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("Order A-1001 is paid."))
+			Expect(printed).To(Equal("Let me look.\nOrder A-1001 is paid."))
+			Expect(toolResult(claude.Requests()[1])["tool_use_id"]).To(Equal("toolu_1"))
+		})
+
+		It("tells the model an order it can't find is not found", func() {
+			claude := start(fakeanthropic.ToolUse("toolu_1", "lookUpOrder", `{"orderId":"A-4040"}`), fakeanthropic.Text("I can't find order A-4040."))
+			answer, _, err := ask(claude, "Where is A-4040?")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("I can't find order A-4040."))
+			Expect(fmt.Sprint(toolResult(claude.Requests()[1])["content"])).To(ContainSubstring(`"status":"not found"`))
+		})
+
+		It("gives the model's response when it calls no tool", func() {
+			claude := start(fakeanthropic.Text("I can only help with orders. ", "Which order number?"))
+			answer, _, err := ask(claude, "Hello!")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(answer).To(Equal("I can only help with orders. Which order number?"))
+			Expect(claude.Requests()).To(HaveLen(1))
+		})
+
+		DescribeTable("tells the model a tool call it got wrong, without reading the table",
+			func(name, input, want string) {
+				before := len(aws.Targets())
+				claude := start(fakeanthropic.ToolUse("toolu_1", name, input), fakeanthropic.Text("Which order?"))
+				_, _, err := ask(claude, "Where is my order?")
+				Expect(err).NotTo(HaveOccurred())
+				result := toolResult(claude.Requests()[1])
+				Expect(fmt.Sprint(result["content"])).To(ContainSubstring(want))
+				Expect(result["is_error"]).To(BeTrue())
+				Expect(aws.Targets()).To(HaveLen(before))
+			},
+			Entry("no order number", "lookUpOrder", `{}`, "orderId is missing"),
+			Entry("a tool it doesn't have", "refund", `{"orderId":"A-1001"}`, "no such tool: refund"),
+		)
+
+		It("says so when the model ends its turn with no answer", func() {
+			_, _, err := ask(start(fakeanthropic.Text()), "Hello!")
+			Expect(err).To(MatchError(shop.ErrNoAnswer))
+		})
+
+		It("gives up when the model keeps asking for orders", func() {
+			call := fakeanthropic.ToolUse("toolu_1", "lookUpOrder", `{"orderId":"A-4040"}`)
+			_, _, err := ask(start(call, call, call, call), "Where is A-4040?")
+			Expect(err).To(MatchError(shop.ErrNoAnswer))
+			Expect(err).To(MatchError(ContainSubstring("after 4 responses")))
+		})
+
+		It("stops when the stream breaks off", func() {
+			_, _, err := ask(start(fakeanthropic.BreaksOff()), "Hello!")
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("stops when Anthropic answers with an error", func() {
+			_, _, err := ask(start(), "Hello!")
+			Expect(err).To(MatchError(ContainSubstring("500")))
+		})
+
+		It("stops when a streamed event can't be put together", func() {
+			// A delta for a content block that never started.
+			broken := []string{fakeanthropic.Text()[0], "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":3,\"delta\":{\"type\":\"text_delta\",\"text\":\"x\"}}\n\n"}
+			_, _, err := ask(start(broken), "Hello!")
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("says so when the order can't be read", func() {
+			// A proxy that nobody answers on: DynamoDB can't be reached.
+			a, err := shop.NewApp(ctx, "shop-support", shop.Settings{Proxy: "http://127.0.0.1:1"}, names, testAWS()...)
+			Expect(err).NotTo(HaveOccurred())
+			claude := start(fakeanthropic.ToolUse("toolu_1", "lookUpOrder", `{"orderId":"A-1001"}`))
+			_, err = a.Support(ctx, shop.Claude{APIKey: "test-key", BaseURL: claude.URL}, "Where is A-1001?", io.Discard)
+			Expect(err).To(MatchError(ContainSubstring("read the order")))
+		})
+
+		It("stops before calling when it has no api key", func() {
+			_, err := app("shop-support").Support(ctx, shop.Claude{}, "Hello!", io.Discard)
+			Expect(err).To(MatchError(shop.ErrNoAnthropicKey))
+		})
+
+		It("sends secure calls through the proxy, as the app's integration, and plain ones directly", func() {
+			client, err := shop.SupportClient("http://localhost:8080", "shop-support")
+			Expect(err).NotTo(HaveOccurred())
+			proxy := client.Transport.(*http.Transport).Proxy
+			secure, err := proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "api.anthropic.com"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(secure.String()).To(Equal("http://shop-support:x@localhost:8080"))
+			plain, err := proxy(&http.Request{URL: &url.URL{Scheme: "http", Host: "127.0.0.1:4010"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(plain).To(BeNil())
+		})
+
+		It("uses Go's own client without a proxy, and refuses a proxy address it can't read", func() {
+			client, err := shop.SupportClient("", "shop-support")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(client).To(BeNil())
+			_, err = shop.SupportClient("http://[::1", "shop-support")
+			Expect(err).To(HaveOccurred())
 		})
 	})
 

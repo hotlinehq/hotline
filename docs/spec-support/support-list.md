@@ -25,7 +25,7 @@ Already works on 3.1 and carries over to 3.2:
 
 New from 3.2:
 7. **Version 3.2 loads** (`openapi: 3.2.*`).
-8. **Streamed bodies with `itemSchema`.** 3.2's way to describe a body made of many items: Server-Sent Events (`text/event-stream`), JSON Lines and JSON sequences. Each event or line is checked against `itemSchema`. This closes the biggest gap: streamed responses from OpenAI and Anthropic. Server-Sent Events are built (M2); JSON Lines and JSON sequences are next.
+8. **Streamed bodies with `itemSchema`.** 3.2's way to describe a body made of many items: Server-Sent Events (`text/event-stream`), JSON Lines and JSON sequences. Each event or line is checked against `itemSchema`. This closes the biggest gap: streamed responses from OpenAI and Anthropic. All three are built (M2).
 9. **`QUERY` method,** and other methods listed under `additionalOperations`.
 10. **`in: querystring`:** the whole query described as one value with its own schema.
 11. **Cookie style** for cookie parameters.

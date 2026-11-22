@@ -76,7 +76,7 @@ One OpenTelemetry log record per call, sent once the response has gone back to t
 
 A WebSocket's opening call is recorded as soon as its `101` reaches the app, like any other call: its response has no body (`http.response.body.size` is 0 and `hotline.response.body.hash` is the hash of no bytes), and its time ends at the `101`. What follows the `101` belongs to the session, which gets a record of its own when it ends: see [WebSocket sessions](#websocket-sessions) (Peter, 2026-11-18). Before, a WebSocket had one record, made at its end: it counted the vendor's frames as the response body and the whole session as the call's time.
 
-A streamed response whose spec gives its media type an `itemSchema` (OpenAPI 3.2), such as Anthropic's `text/event-stream`, is recorded the same way: once its headers reach the app, with no response body and its time ending there. Its events belong to the stream, which gets a record of its own when it ends, and each event gets a record too: see [Streamed responses](#streamed-responses) (Peter, 2026-11-21, M2, Q1 to Q3).
+A streamed response whose spec gives its media type an `itemSchema` (OpenAPI 3.2), such as Anthropic's `text/event-stream`, or JSON Lines or a JSON sequence, is recorded the same way: once its headers reach the app, with no response body and its time ending there. Its events belong to the stream, which gets a record of its own when it ends, and each event gets a record too: see [Streamed responses](#streamed-responses) (Peter, 2026-11-21, M2, Q1 to Q3).
 
 - Event name: `hotline.request`.
 - Timestamp: when the call reached the proxy.
@@ -230,7 +230,7 @@ Each message of a session whose route lists its messages gets one log record, se
 
 ### Streamed responses
 
-A streamed response whose media type has an `itemSchema` in the spec gets one more log record when the stream ends, however it ends (Peter, 2026-11-21, M2, Q3). Today that is `text/event-stream`, Server-Sent Events, read by the rules of the HTML standard. A response sent whole, or one whose spec gives no `itemSchema`, has no stream record and is skipped as `streaming`, as before.
+A streamed response whose media type has an `itemSchema` in the spec gets one more log record when the stream ends, however it ends (Peter, 2026-11-21, M2, Q3). That is `text/event-stream`, Server-Sent Events, read by the rules of the HTML standard; JSON Lines (`application/jsonl`, `application/x-ndjson`), one stream item per line; and JSON sequences (`application/json-seq` and every `+json-seq` type), one stream item per record started by the record separator, byte 0x1E. A response sent whole, or one whose spec gives no `itemSchema`, has no stream record and is skipped as `streaming`, as before.
 
 - Event name: `hotline.stream`.
 - Timestamp: when the response's headers reached the app.
@@ -242,16 +242,18 @@ A streamed response whose media type has an `itemSchema` in the spec gets one mo
 | Attribute | Type | What it holds |
 |---|---|---|
 | `hotline.integration.id`, `hotline.ingress`, `client.address`, `server.address` | text | As in the call's record. A captured stream also names its program, as the call does. |
-| `hotline.stream.items` | number | The events delivered: those with data, each ended by a blank line. An event left open when the stream ended is not counted. |
+| `hotline.stream.items` | number | The stream items delivered: events with data, each ended by a blank line, or lines or records that are not empty. An event left open at the end is not counted; a last line or record is, unless the stream was cut. |
 | `hotline.stream.items_invalid` | number | The items whose check found the spec broken. |
 | `hotline.stream.size` | number | Bytes the vendor sent after the headers, as they passed, without TLS. |
 | `hotline.stream.hash` | text | The hash of those bytes, made as a body's hash is, with the side `stream` and the stream's trace and span ids ([proxy-ledger.md](proxy-ledger.md)). |
 | `hotline.stream.duration_us` | number | How long the stream was open, from its headers reaching the app to its end, in whole microseconds. |
 | `hotline.stream.end` | text | `complete` when the vendor ended the stream and the app got all of it; `cut` when the vendor broke off, the app left or the proxy stopped. |
 
+Under `content: full`, the file exporters also get `hotline.content.stream.body`, the stream's first `maxBodySize` bytes as base64, with `hotline.content.stream.body.truncated` true when it was longer, and `hotline.content.hash` over that flag. `hotline-proxy verify` checks the kept stream against `hotline.stream.hash` ([proxy-file-export.md](proxy-file-export.md)).
+
 ### Stream items
 
-Each event of a streamed response gets one log record, sent once the event has passed and its check has ended, after the call's record (Peter, 2026-11-21, M2, Q1). The event is checked against the `itemSchema` as the object OpenAPI 3.2 gives it: `data` as text, and `event`, `id` and `retry` when the event sets them. The events go on to the app as they come and never wait for a check.
+Each stream item of a streamed response (an event, a JSON line or a JSON sequence record) gets one log record, sent once it has passed and its check has ended, after the call's record (Peter, 2026-11-21, M2, Q1). An event is checked against the `itemSchema` as the object OpenAPI 3.2 gives it: `data` as text, and `event`, `id` and `retry` when the event sets them; a line or a record is checked as the JSON it holds. The events go on to the app as they come and never wait for a check.
 
 - Event name: `hotline.stream.item`.
 - Timestamp: when the event's first byte passed.
@@ -261,9 +263,9 @@ Each event of a streamed response gets one log record, sent once the event has p
 | Attribute | Type | What it holds |
 |---|---|---|
 | `hotline.integration.id`, `hotline.ingress` | text | As in the stream record. |
-| `hotline.stream.item.index` | number | 1, 2, 3 in the order the events ended. |
-| `hotline.stream.item.size` | number | The event's bytes as sent, its blank line included. |
-| `hotline.schema.*` | | The check, under `response`. `hotline.schema.skipped` is `body_too_large` for an event over 2 MiB, and `overloaded` when the spec check line was full. None when the api's `checks` leave out `responseBody`. |
+| `hotline.stream.item.index` | number | 1, 2, 3 in the order the stream items ended. |
+| `hotline.stream.item.size` | number | The stream item's bytes as sent: an event with its blank line, a line with its line end, a record with its separator. |
+| `hotline.schema.*` | | The check, under `response`. `hotline.schema.skipped` is `body_too_large` for a stream item over 2 MiB, and `overloaded` when the spec check line was full. None when the api's `checks` leave out `responseBody`. |
 | fields marked `x-hotline-record` | | Copied as sent, such as Anthropic's event name, `anthropic.stream.event`. |
 
 ## Signal 2: the trace of each call

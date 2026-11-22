@@ -201,11 +201,11 @@ The record of one message of a WebSocket session, `hotline.websocket.message`, w
 _Avoid_: message event, frame record
 
 **Streamed response**:
-A response sent as a series of stream items while the vendor works, such as Server-Sent Events, whose spec gives its media type an `itemSchema`. The call ends when its headers reach the app; what follows is the stream.
+A response sent as a series of stream items while the vendor works, such as Server-Sent Events, JSON Lines or a JSON sequence, whose spec gives its media type an `itemSchema`. The call ends when its headers reach the app; what follows is the stream.
 _Avoid_: streamed reply, chunked response
 
 **Stream item**:
-One piece of a streamed response, checked on its own against the `itemSchema`: for Server-Sent Events, one event with data, ended by a blank line.
+One piece of a streamed response, checked on its own against the `itemSchema`: for Server-Sent Events, one event with data, ended by a blank line; for JSON Lines, one line that is not empty; for a JSON sequence, one record, started by the record separator (byte 0x1E).
 _Avoid_: item on its own (too general), chunk (that is how the bytes happened to arrive), message (that is a WebSocket's)
 
 **Stream record**:

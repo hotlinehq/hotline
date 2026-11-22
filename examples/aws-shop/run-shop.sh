@@ -13,14 +13,18 @@
 #   4. refunds:  a refund starts the credit note workflow
 #   5. assistant: answers questions about orders over Gemini Live, with a
 #                tool that reads the order from the orders table
-#   6. two mistakes on purpose, which still reach AWS and which Hotline
+#   6. support:   answers a customer's question about an order with Claude,
+#                streamed, with a tool that reads the order from the orders
+#                table
+#   7. two mistakes on purpose, which still reach AWS and which Hotline
 #      reports: a broken invoice job, and a write to a table that is not
 #      checkout's own
 #
 # It expects Hotline to be running already, and reads the usual AWS
-# settings (AWS_PROFILE, AWS_REGION, ...), HOTLINE_PROXY and the assistant's
-# GEMINI_API_KEY. It runs in the Floci workflow (floci/run.sh), which also
-# starts a fake Gemini Live whose script knows the order A-1001. It stops at
+# settings (AWS_PROFILE, AWS_REGION, ...), HOTLINE_PROXY, the assistant's
+# GEMINI_API_KEY and support's ANTHROPIC_API_KEY. It runs in the Floci
+# workflow (floci/run.sh), which also starts a fake Gemini Live and a fake
+# Anthropic whose scripts know the order A-1001. It stops at
 # the first step that goes wrong, and says which.
 #
 #   HOTLINE_PROXY=http://localhost:8080 ./run-shop.sh
@@ -118,22 +122,25 @@ mailed() {
   return 1
 }
 
-# answers asks the assistant a question and checks the answer starts with
-# what is expected.
+# answers asks an app, the assistant or support, a question and checks the
+# answer starts with what is expected.
 answers() {
   local answer
-  answer="$(shop assistant ask --question "$1")" || return 1
+  answer="$(shop "$1" ask --question "$2")" || return 1
   echo "$answer"
-  [[ "$answer" == "$2"* ]] || { echo "expected an answer starting with: $2"; return 1; }
+  [[ "$answer" == "$3"* ]] || { echo "expected an answer starting with: $3"; return 1; }
 }
 
 step "checkout pays $order" shop checkout pay --order "$order" --language en --send-to "$send_to"
 step "invoices makes the invoice for $order" invoiced
 step "mailer mails the invoice of $order" mailed
 step "refunds starts a credit note for $order" shop refunds start --order "$order" --amount 10.00 --reason returned
-step "assistant answers about $order" answers "Where is order $order?" "Order $order is paid."
-step "assistant says it can't find the order A-4040" answers "Where is order A-4040?" "I can't find order A-4040."
-step "assistant answers a greeting without a tool" answers "Hello!" "I can only help with orders."
+step "assistant answers about $order" answers assistant "Where is order $order?" "Order $order is paid."
+step "assistant says it can't find the order A-4040" answers assistant "Where is order A-4040?" "I can't find order A-4040."
+step "assistant answers a greeting without a tool" answers assistant "Hello!" "I can only help with orders."
+step "support answers about $order, streamed" answers support "Has my order $order been paid?" "Yes, your order $order is paid."
+step "support says it can't find the order A-4040" answers support "Has my order A-4040 been paid?" "I can't find an order A-4040."
+step "support answers a greeting without a tool" answers support "Hello!" "Hello! Which order can I help you with?"
 
 mistake "checkout sends a broken invoice job" \
   shop checkout send --body "{\"schemaVersion\":1,\"orderId\":\"$order\"}"
@@ -146,9 +153,12 @@ printf '  %s\n' "${summary[@]}"
 cat <<EOF
 
 Each app is its own integration in Hotline: look for the integration IDs
-checkout, invoices, mailer, refunds and shop-assistant in the records. Each
-of the assistant's questions has an opening call to Gemini Live (status 101)
-and a session record (hotline.websocket.session) in the same trace. The steps above
+checkout, invoices, mailer, refunds, shop-assistant and shop-support in the
+records. Each of the assistant's questions has an opening call to Gemini Live
+(status 101) and a session record (hotline.websocket.session) in the same
+trace. Each of support's streamed responses has its call, a record for each
+event (hotline.stream.item), each checked against the Anthropic spec, and a
+stream record (hotline.stream) in the same trace. The steps above
 should have no results; the two mistakes should each have one:
   - the broken job:   body \$.Message.eventId required, and more, on SNS Publish
   - the wrong table:  body \$.TableName const orders
