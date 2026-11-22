@@ -23,6 +23,10 @@ Decisions already made, so a new session does not have to dig through old thread
 - Stable vendor specs live in `specs/<vendor>/<api>/<vendor version>.openapi.yaml` (for example `specs/aws/sqs/2012-11-05.openapi.yaml`), the vendor's api only. Overlays are test or example specific and live with them, never in `specs/`. Rules: [specs/README.md](specs/README.md) (Peter, 2026-10-30).
 - The proxy is its own Go module, `hotline-proxy`, in `src/hotline-proxy/`: the `proxy` package at the top, then `cmd/` (the program), `features/`, `internal/` and `testdata/`. The metrics code stays in module `hotline`, in `src/hotline/metrics/`. Both are listed in `go.work` (Peter, 2026-10-30).
 
+## Pull requests
+
+- Never put a link to the Claude session in a pull request description (Peter, 2026-11-22).
+
 ## Testing, in one line each
 
 - Proxy behaviour: Gherkin feature files in `src/hotline-proxy/features/`, run by godog. Everything else: Ginkgo and Gomega.
