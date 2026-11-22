@@ -193,12 +193,15 @@
   <!-- Row 4: config and admin -->
   <g filter="url(#shadow)">
     <rect x="620" y="800" width="330" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1006" y="800" width="316" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1006" y="800" width="150" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1172" y="800" width="150" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
   </g>
   <text x="640" y="831" font-size="17" font-weight="700" fill="#0F172A">Config loader</text>
   <text x="640" y="857" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">watches the file, reloads live</text>
-  <text x="1026" y="831" font-size="17" font-weight="700" fill="#0F172A">Admin port</text>
-  <text x="1026" y="857" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">health · ready · pprof</text>
+  <text x="1022" y="831" font-size="17" font-weight="700" fill="#0F172A">Admin port</text>
+  <text x="1022" y="857" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">health · ready · pprof</text>
+  <text x="1188" y="831" font-size="17" font-weight="700" fill="#0F172A">Probes</text>
+  <text x="1188" y="857" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">why a connect failed</text>
   <path d="M620,838 L604,838 L604,400 L660,400 L660,378" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
   <text x="672" y="396" font-size="13" fill="#64748B">integrations, specs, certs</text>
 

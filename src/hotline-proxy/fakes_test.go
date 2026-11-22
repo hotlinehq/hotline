@@ -17,7 +17,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -239,8 +241,14 @@ type network struct {
 	hang map[string]bool
 	// unreachable lists addresses with no route.
 	unreachable map[string]bool
-	lookups     int
-	dials       int
+	// refuse is how many more connections to each address are refused, as
+	// a vendor whose server is down for a moment refuses them.
+	refuse map[string]int
+	// later are the addresses a name resolves to after its next lookup,
+	// as when a vendor's DNS changes.
+	later   map[string][]netip.Addr
+	lookups int
+	dials   int
 	// dialed are the addresses the proxy tried to connect to.
 	dialed []string
 	// lookupTime is how long each answered lookup takes.
@@ -255,6 +263,8 @@ func newNetwork() *network {
 		routes:      map[string]string{},
 		hang:        map[string]bool{},
 		unreachable: map[string]bool{},
+		refuse:      map[string]int{},
+		later:       map[string][]netip.Addr{},
 	}
 }
 
@@ -262,6 +272,10 @@ func (n *network) LookupNetIP(ctx context.Context, _, host string) ([]netip.Addr
 	n.mu.Lock()
 	n.lookups++
 	ips, found := n.names[host]
+	if next, changes := n.later[host]; changes {
+		n.names[host] = next
+		delete(n.later, host)
+	}
 	hang := n.hang[host]
 	lookupTime := n.lookupTime
 	n.mu.Unlock()
@@ -283,8 +297,14 @@ func (n *network) DialContext(ctx context.Context, network, address string) (net
 	n.dialed = append(n.dialed, address)
 	local, found := n.routes[address]
 	hang, unreachable := n.hang[address], n.unreachable[address]
+	refused := n.refuse[address] > 0
+	if refused {
+		n.refuse[address]--
+	}
 	n.mu.Unlock()
 	switch {
+	case refused:
+		return nil, &net.OpError{Op: "dial", Net: network, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
 	case hang:
 		n.stuck()
 		<-ctx.Done()
@@ -322,6 +342,13 @@ func (n *network) setUnreachable(address string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.unreachable[address] = true
+}
+
+// refuseNext refuses the next connection to address.
+func (n *network) refuseNext(address string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.refuse[address]++
 }
 
 func (n *network) counts() (int, int) {

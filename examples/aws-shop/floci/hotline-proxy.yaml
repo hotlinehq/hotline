@@ -30,6 +30,14 @@ apis:
     spec: ../../../specs/aws/sqs/2012-11-05.openapi.yaml
     overlays: [../../../src/hotline-proxy/testdata/aws/invoices.overlay.yaml]
     vendorTimeout: 25s             # above SQS's 20 second long polling
+    # When calls fail to connect, Hotline probes the vendor's host and port
+    # and records which side the problem is on (hotline.probe). Probes are
+    # on for every api by default; these are the default settings, written
+    # out to show them. run-shop.sh calls SQS on a closed port on purpose.
+    probe:
+      enabled: true
+      backoff: { first: 1m, longest: 15m, quietAfter: 15m }   # waits between probes while calls keep failing
+      probeTimeout: 2s                                           # the longest each step (DNS, TCP, TLS) may take
 
   aws-sqs-mail:                    # the mail queue, fed by the shop bus
     hosts: [sqs.eu-west-1.amazonaws.com]

@@ -64,6 +64,8 @@ type handler struct {
 	checks *checkLine
 	// book puts every record in the ledger and hands it to the exporters.
 	book *book
+	// probes check the vendor endpoints whose calls fail to connect.
+	probes *probes
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup

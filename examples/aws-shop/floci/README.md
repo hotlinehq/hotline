@@ -25,6 +25,8 @@ The assistant talks to Gemini Live over `wss://generativelanguage.googleapis.com
 
 When `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set, the proxy also sends its usual records, counts and traces there (never the bodies: only the file gets those). The endpoint is the OTLP address from the Grafana Cloud portal. The authorization is `Basic ` and the base64 of `<instance id>:<token>`, a token with the write scopes for metrics, logs and traces. They are repository secrets in the workflow, never files.
 
+The story ends with a call, on purpose, to SQS on a port where nothing listens, so a probe shows there: Hotline checks the vendor's host and port (DNS, the TCP connect, TLS) and says which side of the connection the problem is on. In Grafana's Explore, the probe's record is `{service_name="hotline-proxy"} | event_name="hotline.probe"` in Loki, with `hotline_probe_side` and `hotline_probe_verdict` (on Floci `vendor_side` and `refused_by_vendor`); its trace is `{ name = "probe" }` in Tempo. The failed call's own record has `error_type` `connection_refused`.
+
 ## The workflow
 
 [.github/workflows/aws-shop-floci.yml](../../../.github/workflows/aws-shop-floci.yml) runs `run.sh` and keeps `out/calls/`, `run-shop.log` and `proxy.log` as the artifact `aws-shop-floci-calls`. It starts only by hand (Actions, then Run workflow).

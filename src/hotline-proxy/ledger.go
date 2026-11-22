@@ -94,7 +94,10 @@ func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, insta
 // the one in use now, so every record in a batch is of the config the
 // batch names. A record of another config closes the open batch first
 // (Peter, 2026-11-16).
-func (b *book) record(ctx context.Context, f finished) {
+//
+// It gives back the record's hash, so a later record can point to it, as
+// every call record points to the latest probe of its vendor.
+func (b *book) record(ctx context.Context, f finished) string {
 	cfg, name := f.cfg, f.chain
 	traceID, spanID := f.sc.TraceID().String(), f.sc.SpanID().String()
 	// The trace's hash needs nothing from the batch, so it is worked out
@@ -132,13 +135,14 @@ func (b *book) record(ctx context.Context, f finished) {
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
 	b.exporters.Call(ctx, export.Call{
-		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Spans: f.spans, Content: f.content,
+		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Body: f.body, Spans: f.spans, Content: f.content,
 		Ledger: export.LedgerEntry{Batch: open.id, Index: len(open.leaves), Hash: hash},
 	})
 	open.leaves = append(open.leaves, sum)
 	if len(open.leaves) >= open.maxRecords {
 		b.close(ch, false)
 	}
+	return hash
 }
 
 // tick closes every open batch, at the end of each window, and makes a new
@@ -169,7 +173,8 @@ func (b *book) reloaded(cfg *config.Config) {
 	defer b.mu.Unlock()
 	// Once stopped, the book has no chains left to end.
 	for name, ch := range b.chains {
-		if cfg.Integration(name).Name != name {
+		// The probes' chain belongs to no integration, and goes on.
+		if name != probeChain && cfg.Integration(name).Name != name {
 			b.close(ch, true)
 			delete(b.chains, name)
 			b.closedChains[name] = ch

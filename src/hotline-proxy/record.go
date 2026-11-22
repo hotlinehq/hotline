@@ -139,6 +139,7 @@ func (c *call) record(end time.Time) finished {
 			attrs = append(attrs, semconv.URLFull(c.sentAddress()))
 		}
 	}
+	attrs = probeAttrs(attrs, c.h.probes.seen(c.probeTarget(), c.outcome(failed), c.trace), failed.errorType != "")
 	// Every body that passed has its hash, minimal record or full, an
 	// empty one too, so each is in the ledger (Peter, 2026-11-16).
 	attrs = append(attrs, attribute.String("hotline.request.body.hash", c.reqBody.hashed()))
@@ -154,6 +155,23 @@ func (c *call) record(end time.Time) finished {
 		content = c.withBodies(content)
 	}
 	return finished{cfg: c.cfg, chain: c.integration.Name, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
+}
+
+// probeTarget is the call's vendor endpoint, as a probe of it needs it.
+func (c *call) probeTarget() probeTarget {
+	return probeTarget{host: c.host, port: c.port, tls: c.scheme == "https", allowInternal: c.transport == c.h.internal}
+}
+
+// outcome is what the call tells the probes of its endpoint: it failed to
+// connect, it connected, or it never tried.
+func (c *call) outcome(failed failure) callOutcome {
+	switch {
+	case connectFailure(failed.errorType):
+		return failedToConnect
+	case c.peer != "":
+		return connected
+	}
+	return otherOutcome
 }
 
 // content is what content: full adds to the record for the file
@@ -365,6 +383,9 @@ type finished struct {
 	sc    trace.SpanContext
 	at    time.Time
 	attrs []attribute.KeyValue
+	// body is the record's text: a probe's verdict in a sentence. Calls
+	// have none.
+	body  string
 	spans []export.Span
 	// content, under content: full, is what file exporters get besides the
 	// record.

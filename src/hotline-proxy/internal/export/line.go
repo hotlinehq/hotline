@@ -38,8 +38,11 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 		jsontext.String("event"), jsontext.String(c.event()),
 		jsontext.String("trace_id"), jsontext.String(c.Trace.TraceID().String()),
 		jsontext.String("span_id"), jsontext.String(c.Trace.SpanID().String()),
-		jsontext.String("resource"),
 	)
+	if c.Body != "" {
+		w.put(jsontext.String("body"), jsontext.String(c.Body))
+	}
+	w.put(jsontext.String("resource"))
 	w.object(resource)
 	w.put(jsontext.String("attributes"), jsontext.BeginObject)
 	w.entries(c.Attrs)
@@ -89,6 +92,16 @@ func (w lineWriter) span(s Span) {
 		jsontext.String("attributes"),
 	)
 	w.object(s.Attrs)
+	if len(s.Links) > 0 {
+		w.put(jsontext.String("links"), jsontext.BeginArray)
+		for _, link := range s.Links {
+			w.put(jsontext.BeginObject,
+				jsontext.String("trace_id"), jsontext.String(link.TraceID().String()),
+				jsontext.String("span_id"), jsontext.String(link.SpanID().String()),
+				jsontext.EndObject)
+		}
+		w.put(jsontext.EndArray)
+	}
 	w.put(jsontext.EndObject)
 }
 

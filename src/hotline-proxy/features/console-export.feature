@@ -27,10 +27,14 @@ Feature: Printing every call to the console
     And the third line is "request: query limit type integer", starting under the method
 
   Scenario: A call that got no response shows why
+    The probe of the vendor that follows gets a line of its own (Peter,
+    2026-11-22).
+
     Given the vendor refuses the connection
     When the app sends GET /orders
-    Then the console has 2 lines
+    Then the console has 3 lines
     And the second line starts with "<< 502 Bad Gateway connection_refused"
+    And the third line is the probe of the vendor, with "PROBE api.shop.test:443 vendor_side"
 
   Scenario: A call with no spec shows only its host, and no check status
     Its record has no address, as there is no spec to say what to hide.
