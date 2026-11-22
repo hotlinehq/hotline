@@ -328,15 +328,30 @@ func (v *verifier) checkRecord(r *lineRecord, b *lineBatch) {
 		at.Code, at.Message = "content_hash_mismatch", "the content kept with the record with span id "+safe(r.spanID)+" does not match its hotline.content.hash"
 		v.problems = append(v.problems, at)
 	}
-	for _, side := range []string{"request", "response"} {
-		v.checkKeptBody(r, side, at)
+	for _, body := range savedBodies() {
+		v.checkKeptBody(r, body, at)
+	}
+}
+
+// savedBody is a body content: full can save in a line, by its side, and
+// the attribute that holds its hash in the record.
+type savedBody struct{ side, hashAttribute string }
+
+// savedBodies are the bodies a line can save: a call's request and
+// response, and a stream record's stream.
+func savedBodies() []savedBody {
+	return []savedBody{
+		{"request", "hotline.request.body.hash"},
+		{"response", "hotline.response.body.hash"},
+		{"stream", "hotline.stream.hash"},
 	}
 }
 
 // checkKeptBody checks a body content: full kept in the line against the
 // record's hash of that body, unless it was cut short.
-func (v *verifier) checkKeptBody(r *lineRecord, side string, at finding) {
-	kept, found := r.attrs["hotline.content."+side+".body"].(string)
+func (v *verifier) checkKeptBody(r *lineRecord, body savedBody, at finding) {
+	side := body.side
+	saved, found := r.attrs["hotline.content."+side+".body"].(string)
 	if !found {
 		return
 	}
@@ -347,8 +362,8 @@ func (v *verifier) checkKeptBody(r *lineRecord, side string, at finding) {
 		v.notes = append(v.notes, note)
 		return
 	}
-	body, err := base64.StdEncoding.DecodeString(kept)
-	if err == nil && bodyHashOf(side, r.traceID, r.spanID, body) == r.text("hotline."+side+".body.hash") {
+	decoded, err := base64.StdEncoding.DecodeString(saved)
+	if err == nil && bodyHashOf(side, r.traceID, r.spanID, decoded) == r.text(body.hashAttribute) {
 		v.matched++
 		return
 	}

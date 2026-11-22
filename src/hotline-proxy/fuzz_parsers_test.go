@@ -79,9 +79,9 @@ func FuzzSSEEvents(f *testing.F) {
 	f.Add([]byte("\xef\xbb\xbfid: 7\r\nretry: 3000\r\ndata: a\r\ndata: b\r\n\r\n: comment\rdata\r\r"))
 	f.Add([]byte("\xef\xbbdata: x\n\nretry: +5\nid: a\x00b\nevent\ndata:\n\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		read := func(step int) []sseEvent {
-			var got []sseEvent
-			r := sseReader{delivered: func(e sseEvent) { got = append(got, e) }}
+		read := func(step int) []streamItem {
+			var got []streamItem
+			r := sseReader{delivered: func(e streamItem) { got = append(got, e) }}
 			at := time.Unix(0, 0)
 			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
 				r.pass(p[:min(step, len(p))], at)
@@ -98,17 +98,69 @@ func FuzzSSEEvents(f *testing.F) {
 		}
 		var size int64
 		for i := range whole {
-			if !bytes.Equal(whole[i].item, bytewise[i].item) || whole[i].size != bytewise[i].size {
+			if !bytes.Equal(whole[i].json, bytewise[i].json) || whole[i].size != bytewise[i].size {
 				t.Fatalf("event %d read whole is %q, %d bytes; one byte at a time %q, %d bytes",
-					i+1, whole[i].item, whole[i].size, bytewise[i].item, bytewise[i].size)
+					i+1, whole[i].json, whole[i].size, bytewise[i].json, bytewise[i].size)
 			}
-			if whole[i].item != nil && !json.Valid(whole[i].item) {
-				t.Fatalf("event %d is not valid JSON: %q", i+1, whole[i].item)
+			if whole[i].json != nil && !json.Valid(whole[i].json) {
+				t.Fatalf("event %d is not valid JSON: %q", i+1, whole[i].json)
 			}
 			size += whole[i].size
 		}
 		if size > int64(len(data)) {
 			t.Fatalf("the events count %d bytes of %d", size, len(data))
+		}
+	})
+}
+
+// FuzzLineItems reads made-up bytes as JSON Lines or as a JSON sequence,
+// whole and one byte at a time, and checks that both give the same stream
+// items, that none holds the byte that ends it, and that they never count
+// more bytes than were read.
+func FuzzLineItems(f *testing.F) {
+	f.Add([]byte("{\"id\":\"A-1\",\"total\":1}\r\n\n{\"id\":\"A-2\"}"), false)
+	f.Add([]byte("\x1e{\"id\":\"A-1\",\n\"total\":1}\n\x1e\n\x1e{\"id\":\"A-2\"}"), true)
+	f.Add([]byte("junk\x1e  \x1e{}\n"), true)
+	f.Fuzz(func(t *testing.T, data []byte, seq bool) {
+		ends := byte('\n')
+		if seq {
+			ends = recordSeparator
+		}
+		read := func(step int) []streamItem {
+			var got []streamItem
+			delivered := func(e streamItem) { got = append(got, e) }
+			var r itemReader = &lineReader{held: heldItem{delivered: delivered}}
+			if seq {
+				r = &seqReader{held: heldItem{delivered: delivered}}
+			}
+			at := time.Unix(0, 0)
+			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
+				r.pass(p[:min(step, len(p))], at)
+			}
+			r.end()
+			return got
+		}
+		start := time.Now()
+		whole, bytewise := read(len(data)+1), read(1)
+		if took := time.Since(start); took > parseWait {
+			t.Fatalf("reading the stream items took %v", took)
+		}
+		if len(whole) != len(bytewise) {
+			t.Fatalf("read whole: %d stream items; one byte at a time: %d", len(whole), len(bytewise))
+		}
+		var size int64
+		for i := range whole {
+			if !bytes.Equal(whole[i].json, bytewise[i].json) || whole[i].size != bytewise[i].size {
+				t.Fatalf("stream item %d read whole is %q, %d bytes; one byte at a time %q, %d bytes",
+					i+1, whole[i].json, whole[i].size, bytewise[i].json, bytewise[i].size)
+			}
+			if bytes.IndexByte(whole[i].json, ends) >= 0 {
+				t.Fatalf("stream item %d holds the byte that ends it: %q", i+1, whole[i].json)
+			}
+			size += whole[i].size
+		}
+		if size > int64(len(data)) {
+			t.Fatalf("the stream items count %d bytes of %d", size, len(data))
 		}
 	})
 }

@@ -196,7 +196,7 @@ func (s *Spec) CheckResponse(found Route, e Exchange) Checked {
 		return c
 	}
 	c.Response = rp.check.Meta(e.ResponseHeader)
-	if mt, _, _ := mime.ParseMediaType(e.ResponseHeader.Get("Content-Type")); mt == eventStream {
+	if mt, _, _ := mime.ParseMediaType(e.ResponseHeader.Get("Content-Type")); sequential(mt) {
 		// A stream with an itemSchema is checked item by item, by ItemSchema.
 		if rp.items[mt] == nil {
 			c.Skipped = "streaming"

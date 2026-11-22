@@ -241,6 +241,13 @@ type toApp struct {
 	flushed     func()
 	wroteHeader bool
 	sentHeader  bool
+	// headersFirst sends the headers on as soon as they are written, for a
+	// stream: its stream items wait for the call's record, which goes out
+	// once the headers reach the app, so the headers must not wait for a
+	// first write that may never succeed. The forwarder sends them first
+	// only for Server-Sent Events and a body of unknown length; a JSON
+	// Lines body of known length would wait.
+	headersFirst bool
 }
 
 // Switched passes on that the app has the 101 (see forward.Switcher).
@@ -250,6 +257,9 @@ func (a *toApp) WriteHeader(status int) {
 	a.check()
 	a.ResponseWriter.WriteHeader(status)
 	a.wroteHeader = a.wroteHeader || status >= 200
+	if a.headersFirst && a.wroteHeader {
+		_ = a.FlushError()
+	}
 }
 
 func (a *toApp) Write(b []byte) (int, error) {
@@ -542,7 +552,8 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 		// What follows the headers is the stream's, not the call's: the
 		// call's response has no body, and the stream reads its bytes as
 		// items (Peter, 2026-11-21, M2).
-		c.stream = c.newStream(items, resp.Body)
+		c.stream = c.newStream(items, resp.Header, resp.Body)
+		c.app.headersFirst = true
 		body = http.NoBody
 	}
 	c.respBody = &tap{

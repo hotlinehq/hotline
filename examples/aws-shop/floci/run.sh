@@ -81,8 +81,9 @@ export AWS_REGION=eu-west-1 AWS_ACCESS_KEY_ID=192325781350 AWS_SECRET_ACCESS_KEY
 export MAIL_FROM=shop@example.com HOTLINE_PROXY=http://localhost:8080
 # Floci starts empty, so the sample order A-1001 is new each run, and the
 # fake Gemini Live's script (aimock/shop-assistant.json) knows it. The key
-# is a test value: aimock takes any, and Hotline must hide it.
-export ORDER=A-1001 GEMINI_API_KEY=test-key-not-real-7c1e
+# is a test value: aimock takes any, and Hotline must hide it. The same goes
+# for support's fake Anthropic (aimock/shop-support.json) and its key.
+export ORDER=A-1001 GEMINI_API_KEY=test-key-not-real-7c1e ANTHROPIC_API_KEY=test-key-not-real-4b9d
 # Same name as the config's file exporter folder, whichever config is used.
 (cd .. && ./run-shop.sh) 2>&1 | tee out/run-shop.log
 
@@ -92,6 +93,21 @@ proxy_pid=
 # no record, not even under content: full.
 if grep -q "$GEMINI_API_KEY" out/calls/calls.jsonl out/proxy.log; then
   echo "The Gemini api key was written to out/calls/calls.jsonl or out/proxy.log"
+  exit 1
+fi
+# The SDK sends the Anthropic key as Authorization: Bearer, which Hotline
+# always hides, so it too is in no record.
+if grep -q "$ANTHROPIC_API_KEY" out/calls/calls.jsonl out/proxy.log; then
+  echo "The Anthropic api key was written to out/calls/calls.jsonl or out/proxy.log"
+  exit 1
+fi
+# Each of support's streamed responses is checked event by event against
+# the Anthropic spec: every stream record must be whole, with no broken event.
+streams="$(jq -s '[.[] | select(.event == "hotline.stream")] | length' out/calls/calls.jsonl)"
+broken="$(jq -s '[.[] | select(.event == "hotline.stream")
+  | select(.attributes["hotline.stream.items_invalid"] != 0 or .attributes["hotline.stream.end"] != "complete")] | length' out/calls/calls.jsonl)"
+if [[ "$streams" == 0 || "$broken" != 0 ]]; then
+  echo "Support's streams: $streams recorded, $broken cut or with a broken event (want at least 1, and 0)"
   exit 1
 fi
 echo

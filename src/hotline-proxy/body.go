@@ -47,6 +47,9 @@ func (t *tap) Read(p []byte) (int, error) {
 	t.keeper.add(p[:n])
 	if t.stream != nil {
 		t.stream.pass(p[:n])
+		if errors.Is(err, io.EOF) {
+			t.stream.ended()
+		}
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.err = err
