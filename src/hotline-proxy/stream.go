@@ -85,7 +85,7 @@ func (c *call) streamOpened() {
 	c.checkRequest(at)
 	c.checkResponse(at, resp)
 	c.h.streams.Store(c, struct{}{})
-	if c.h.ending.Load() {
+	if c.h.streamsEnded.Load() {
 		c.cancel()
 	}
 	c.h.recordThen(func() finished { return c.record(at) }, func() { close(c.stream.called) })
@@ -106,7 +106,7 @@ func (c *call) appFailed() bool {
 // connection to the app busy, so the servers' stop would wait for it
 // until the time to stop runs out.
 func (h *handler) endStreams() {
-	h.ending.Store(true)
+	h.streamsEnded.Store(true)
 	h.streams.Range(func(c, _ any) bool {
 		c.(*call).cancel()
 		return true

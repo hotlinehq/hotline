@@ -71,10 +71,10 @@ type handler struct {
 	// can end them.
 	sessions sync.Map
 	// streams are the streamed responses open now, each by its *call, and
-	// ending says the stop has ended them, so one that opens later ends at
+	// streamsEnded says the stop has ended them, so one that opens later ends at
 	// once.
-	streams sync.Map
-	ending  atomic.Bool
+	streams      sync.Map
+	streamsEnded atomic.Bool
 }
 
 // connects says whether CONNECT is an ingress on the listener, in cfg.
