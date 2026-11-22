@@ -1,13 +1,20 @@
 // The k6 script of the load test. Every setting comes from the environment:
-// URL (with the path and query), METHOD, SERVICE (ssm or s3, the service the
-// request is signed for), BODY and ACTION (SSM only), AUTH (1 to name an
-// integration to the proxy), RATE and DURATION.
+// URL (with the path and query), METHOD, SERVICE (ssm or s3, the service
+// the request is signed for, or anthropic for a streamed answer), BODY and
+// ACTION (SSM only), AUTH (1 to name an integration to the proxy), RATE and
+// DURATION.
 import http from 'k6/http';
 import { check } from 'k6';
 import encoding from 'k6/encoding';
 
 const signed = 'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261102/eu-west-1/' + __ENV.SERVICE + '/aws4_request, ';
-const headers = __ENV.SERVICE === 's3'
+const anthropic = {
+  'Content-Type': 'application/json',
+  // Made up: the fake vendor reads no key.
+  'X-Api-Key': 'sk-ant-load-test',
+  'Anthropic-Version': '2023-06-01',
+};
+const aws = __ENV.SERVICE === 's3'
   ? {
     'Authorization': signed + 'SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=00',
     'X-Amz-Date': '20261102T000000Z',
@@ -20,6 +27,7 @@ const headers = __ENV.SERVICE === 's3'
     'Authorization': signed + 'SignedHeaders=host;x-amz-date;x-amz-target, Signature=00',
     'X-Amz-Date': '20261102T000000Z',
   };
+const headers = __ENV.SERVICE === 'anthropic' ? anthropic : aws;
 if (__ENV.AUTH === '1') {
   headers['Proxy-Authorization'] = 'Basic ' + encoding.b64encode('bench-shop:');
 }

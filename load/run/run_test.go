@@ -133,6 +133,7 @@ var _ = DescribeTable("A run with the proxy at a tiny rate",
 	},
 	Entry("finishes an SSM call with no failures and writes every repeat", "small-json", "HOTLINE_SPEC"),
 	Entry("finishes an S3 listing in XML with no failures and writes every repeat", "xml", "HOTLINE_S3_SPEC"),
+	Entry("finishes a streamed Anthropic answer with no failures and writes every repeat", "stream-sse", "HOTLINE_ANTHROPIC_SPEC"),
 )
 
 var _ = Describe("The scenario line", func() {
@@ -164,6 +165,13 @@ var _ = Describe("The scenario line", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(line).To(Equal("scenario: xml (S3 ListObjectsV2, response about 7 KB), " +
 			"500 calls a second for 20s, 3 repeats, each direct then through the proxy"))
+	})
+
+	It("gives the streamed response an Anthropic message of 100 events", func() {
+		line, err := run.Scenario(run.Config{Shape: "stream-sse", Rate: 200, Duration: "20s", Repeats: 3})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(line).To(Equal("scenario: stream-sse (Anthropic messages, streamed in 100 events, response about 13 KB), " +
+			"200 calls a second for 20s, 3 repeats, each direct then through the proxy"))
 	})
 
 	It("refuses a shape it does not know", func() {

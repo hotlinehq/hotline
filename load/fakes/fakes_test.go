@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,6 +105,19 @@ var _ = Describe("The fake vendor", func() {
 		Expect(time.Since(began)).To(BeNumerically(">=", 50*time.Millisecond))
 	})
 
+	It("streams an Anthropic answer of 100 events, each sent on its own", func() {
+		start("stream-sse")
+		resp, err := http.Post("http://"+vendor.PlainAddr+"/v1/messages", "application/json", bytes.NewReader([]byte(`{}`)))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = resp.Body.Close() }()
+		Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.Count(string(body), "\n\n")).To(Equal(100))
+		Expect(string(body)).To(HavePrefix("event: message_start\n"))
+		Expect(string(body)).To(HaveSuffix("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+	})
+
 	It("keeps nothing of what it is sent", func() {
 		start("small-json")
 		big := bytes.Repeat([]byte("x"), 1<<20)
@@ -120,6 +134,7 @@ var _ = Describe("The fake vendor", func() {
 		Expect(fakes.Shapes()).To(HaveKey("huge-json"))
 		Expect(fakes.Shapes()).To(HaveKey("xml"))
 		Expect(fakes.Shapes()).To(HaveKey("slow"))
+		Expect(fakes.Shapes()).To(HaveKey("stream-sse"))
 	})
 })
 

@@ -4,6 +4,7 @@
 package fakes
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -22,11 +23,34 @@ import (
 )
 
 // Shape is one kind of call the vendor answers: the body it sends back,
-// its content type, and how long it waits before it answers.
+// its content type, and how long it waits before it answers. A streamed
+// shape also has Events, the body cut in the pieces the vendor sends one
+// at a time.
 type Shape struct {
 	Body        []byte
 	ContentType string
 	Delay       time.Duration
+	Events      [][]byte
+}
+
+// anthropicStream is Anthropic's streamed answer of n events, as its
+// streaming docs show it: the start of the message and of its one block of
+// text, a delta of a few words for each event in between, then the ends.
+func anthropicStream(n int) [][]byte {
+	event := func(name, data string) []byte { return []byte("event: " + name + "\ndata: " + data + "\n\n") }
+	events := [][]byte{
+		event("message_start", `{"type":"message_start","message":{"id":"msg_01load","type":"message","role":"assistant","content":[],`+
+			`"model":"claude-opus-5-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":25,"output_tokens":1}}}`),
+		event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
+	}
+	for i := range n - 5 {
+		events = append(events, event("content_block_delta",
+			fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"word %03d of the answer "}}`, i)))
+	}
+	return append(events,
+		event("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		event("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":95}}`),
+		event("message_stop", `{"type":"message_stop"}`))
 }
 
 // parameters is the body of an SSM GetParametersByPath response with n
@@ -47,8 +71,9 @@ func parameters(n int) []byte {
 // Shapes are the call shapes by name: a small JSON response (an SSM
 // GetParameter), JSON responses of about 30 KB, 115 KB and 500 KB (an SSM
 // GetParametersByPath of 105, 400 and 1780 parameters), an XML response of
-// about 7 KB (an S3 ListObjectsV2 of 50 files), and a small response after a
-// wait of 50 ms.
+// about 7 KB (an S3 ListObjectsV2 of 50 files), a small response after a
+// wait of 50 ms, and an Anthropic answer streamed as 100 Server-Sent Events
+// (about 13 KB).
 func Shapes() map[string]Shape {
 	const json = "application/x-amz-json-1.1"
 	small := []byte(`{"Parameter":{"Name":"/shop/db-url","Type":"String","Value":"postgres://db:5432/shop",` +
@@ -61,7 +86,9 @@ func Shapes() map[string]Shape {
 			`<Size>%d</Size><StorageClass>STANDARD</StorageClass></Contents>`, i, 1000+i)
 	}
 	xml.WriteString(`</ListBucketResult>`)
+	stream := anthropicStream(100)
 	return map[string]Shape{
+		"stream-sse":  {Body: bytes.Join(stream, nil), ContentType: "text/event-stream", Events: stream},
 		"small-json":  {Body: small, ContentType: json},
 		"medium-json": {Body: parameters(105), ContentType: json},
 		"large-json":  {Body: parameters(400), ContentType: json},
@@ -92,7 +119,17 @@ func StartVendor(s Shape) (*Vendor, error) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		time.Sleep(s.Delay)
 		w.Header().Set("Content-Type", s.ContentType)
-		_, _ = w.Write(s.Body)
+		if s.Events == nil {
+			_, _ = w.Write(s.Body)
+			return
+		}
+		// Each event leaves on its own, as a model sends its answer.
+		flush := http.NewResponseController(w).Flush
+		for _, e := range s.Events {
+			if _, err := w.Write(e); err != nil || flush() != nil {
+				return
+			}
+		}
 	})
 	v := &Vendor{CertPEM: certPEM}
 	for _, secure := range []bool{true, false} {

@@ -63,6 +63,10 @@ load: k6
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/s3/2006-03-01.openapi.yaml -shape xml -rate 500 -profile
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape large-json -rate 200
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape huge-json -rate 50
+	# Streamed responses: an Anthropic answer of 100 Server-Sent Events, each
+	# checked and recorded on its own, so 100 item records per call.
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 50
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 100 -profile
 	# WebSockets: Gemini Live sessions, each sending and getting 25 messages
 	# of audio a second, so 50 messages a second per session both ways.
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20

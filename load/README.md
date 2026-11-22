@@ -27,6 +27,8 @@ The fake vendor, receiver and k6 run on the same computer as the proxy, so the n
 
 `small-json` (SSM `GetParameter`, 200 bytes), `medium-json`, `large-json` and `huge-json` (SSM `GetParametersByPath`, about 30 KB, 115 KB and 500 KB), `slow` (small, after 50 ms) and `xml` (an S3 `ListObjectsV2` of 50 files, about 7 KB of XML). Run `xml` with the S3 spec: `-spec specs/aws/s3/2006-03-01.openapi.yaml`. The others take the SSM spec.
 
+A streamed response, `stream-sse`, is an Anthropic answer of 100 Server-Sent Events (about 13 KB), each sent and flushed on its own, checked against `specs/anthropic/messages/2023-06-01.openapi.yaml`: `-spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse`. Each call gives the proxy 100 items to check, each with a record and a span, so its cost per call is about 100 small calls' worth. The delay is to the last event. `make load` runs it at 50 and 100 calls a second (5,000 and 10,000 items a second).
+
 ## Judging a fix against main
 
 `make load-compare BASE_PROXY=<the built hotline-proxy of main>` runs one repeat of main and one of this checkout, taking turns, three times over for each of six lines (small 1000 a second, 30 KB at 400, 115 KB at 200 and 500, 500 KB at 50, XML at 500). Nothing is averaged. The table at the end (also in `load/results/compare.txt`) lists every repeat and gives the range of change of the branch against main: from its best repeat to its worst. If even the worst repeat is below main, the fix is real, not noise.
