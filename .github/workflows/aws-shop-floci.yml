@@ -32,17 +32,22 @@ jobs:
         with:
           terraform_version: '1.17.2'
           terraform_wrapper: false
+      - name: Grafana Cloud auth
+        # The same Grafana Cloud stack and secrets as the lint workflow. Without
+        # them nothing is sent to Grafana Cloud.
+        env:
+          OTLP_USER: ${{ secrets.GRAFANA_OTLP_USERNAME }}
+          OTLP_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
+          OTLP_ENDPOINT: ${{ vars.GRAFANA_OTLP_ENDPOINT }}
+        run: |
+          if [ -n "$OTLP_USER" ] && [ -n "$OTLP_PASSWORD" ] && [ -n "$OTLP_ENDPOINT" ]; then
+            auth="Basic $(printf '%s:%s' "$OTLP_USER" "$OTLP_PASSWORD" | base64 -w0)"
+            echo "::add-mask::$auth"
+            echo "GRAFANA_OTLP_AUTHORIZATION=$auth" >> "$GITHUB_ENV"
+            echo "GRAFANA_OTLP_ENDPOINT=$OTLP_ENDPOINT" >> "$GITHUB_ENV"
+          fi
       - name: run the shop story on Floci
         working-directory: examples/aws-shop/floci
-        env:
-          # Both are optional. Without them nothing is sent to Grafana Cloud.
-          # GRAFANA_OTLP_ENDPOINT: the OTLP address from the Grafana Cloud
-          #   portal, such as https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
-          # GRAFANA_OTLP_AUTHORIZATION: "Basic " and the base64 of
-          #   "<instance id>:<token>"; the token needs the write scopes for
-          #   metrics, logs and traces.
-          GRAFANA_OTLP_ENDPOINT: ${{ secrets.GRAFANA_OTLP_ENDPOINT }}
-          GRAFANA_OTLP_AUTHORIZATION: ${{ secrets.GRAFANA_OTLP_AUTHORIZATION }}
         run: ./run.sh
       - name: keep every call, in full, as an artifact
         if: always()
