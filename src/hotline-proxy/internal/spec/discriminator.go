@@ -1,25 +1,12 @@
 package spec
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 )
-
-// BranchNote is the key under which spec hands the engine what an OpenAPI
-// discriminator says, on a schema with oneOf or anyOf (Peter, 2026-11-22,
-// M3). Its value is an object:
-//
-//	{"property": "type", "values": {"text": 0, "image": 1}, "default": 1}
-//
-// values maps each value of the property to the position of its branch in
-// the oneOf or anyOf, counted from 0, and default, when there is one, is
-// the branch for a missing property or a value with no branch of its own.
-// Each position is a Go int. choice says which list the positions count
-// in: "oneOf" or "anyOf". The note never
-// changes pass or fail, as OpenAPI says of a discriminator: it only says
-// which branch's problems to report when the choice fails.
-const BranchNote = "x-hotline-branch"
 
 // noteBranches writes a BranchNote beside every discriminator in s that
 // sits next to a oneOf or anyOf, and reports a discriminator written
@@ -86,7 +73,7 @@ func (b *builder) branchNote(d map[string]any, keyword string, choice []any, whe
 		target, _ := mapping[value].(string)
 		i, found := b.branchIndex(target, branches, where, "mapping")
 		if found {
-			values[value] = i
+			values[value] = json.Number(strconv.Itoa(i))
 			mapped[i] = true
 		}
 		ok = ok && found
@@ -96,13 +83,13 @@ func (b *builder) branchNote(d map[string]any, keyword string, choice []any, whe
 	// mapped values, so a problem lists the values the spec gives.
 	for name, i := range branches {
 		if _, taken := values[name]; !taken && !mapped[i] {
-			values[name] = i
+			values[name] = json.Number(strconv.Itoa(i))
 		}
 	}
 	note := map[string]any{"property": property, "values": values, "choice": keyword}
 	if target, has := d["defaultMapping"].(string); has {
 		i, found := b.branchIndex(target, branches, where, "defaultMapping")
-		note["default"] = i
+		note["default"] = json.Number(strconv.Itoa(i))
 		ok = ok && found
 	}
 	return note, ok

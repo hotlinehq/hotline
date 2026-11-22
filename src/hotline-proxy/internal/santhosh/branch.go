@@ -1,8 +1,12 @@
 package santhosh
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
@@ -40,23 +44,68 @@ func branchVocabulary(notes branchNotes) *jsonschema.Vocabulary {
 			if !ok {
 				return nil, nil //nolint:nilnil // no such keyword here, as the library asks
 			}
-			keyword, _ := raw["choice"].(string)
-			choice, _ := obj[keyword].([]any)
-			property, _ := raw["property"].(string)
-			note := &branchNote{property: property, values: map[string]int{}, defaultBranch: -1, branches: len(choice), anyOf: keyword == "anyOf"}
-			values, _ := raw["values"].(map[string]any)
-			// spec writes each position as a Go int.
-			for value, i := range values {
-				note.values[value], _ = i.(int)
-			}
-			if i, has := raw["default"].(int); has {
-				note.defaultBranch = i
+			note, err := readBranchNote(raw, obj)
+			if err != nil {
+				return nil, err
 			}
 			notes[ctx.Enqueue(nil).Location] = note
 			// The note checks nothing, so it needs no compiled form.
 			return nil, nil //nolint:nilnil // nothing to check, as the library allows
 		},
 	}
+}
+
+// errBranchNote marks a branch note the engine cannot read. spec writes
+// every note, so this is a mistake in spec, and the spec is refused rather
+// than every value pointed at the first branch.
+var errBranchNote = errors.New("the branch note Hotline wrote cannot be read, a fault in Hotline")
+
+// readBranchNote reads the note spec wrote on a schema, obj, checking
+// every part of it.
+func readBranchNote(raw, obj map[string]any) (*branchNote, error) {
+	property, _ := raw["property"].(string)
+	if property == "" {
+		return nil, fmt.Errorf("%w: it names no property", errBranchNote)
+	}
+	keyword, _ := raw["choice"].(string)
+	choice, isChoice := obj[keyword].([]any)
+	if keyword != "oneOf" && keyword != "anyOf" || !isChoice {
+		return nil, fmt.Errorf("%w: it names no oneOf or anyOf beside it", errBranchNote)
+	}
+	values, isObject := raw["values"].(map[string]any)
+	if !isObject {
+		return nil, fmt.Errorf("%w: its values are not an object", errBranchNote)
+	}
+	note := &branchNote{property: property, values: map[string]int{}, defaultBranch: -1, branches: len(choice), anyOf: keyword == "anyOf"}
+	for _, value := range slices.Sorted(maps.Keys(values)) {
+		i, err := position(values[value], len(choice), value)
+		if err != nil {
+			return nil, err
+		}
+		note.values[value] = i
+	}
+	if v, has := raw["default"]; has {
+		i, err := position(v, len(choice), "the default")
+		if err != nil {
+			return nil, err
+		}
+		note.defaultBranch = i
+	}
+	return note, nil
+}
+
+// position reads a branch's position, a json.Number from 0 to one less
+// than the number of branches. what names it in a problem.
+func position(v any, branches int, what string) (int, error) {
+	n, _ := v.(json.Number)
+	i, err := strconv.Atoi(string(n))
+	if err != nil {
+		return 0, fmt.Errorf("%w: the position of %s is not a whole number", errBranchNote, what)
+	}
+	if i < 0 || i >= branches {
+		return 0, fmt.Errorf("%w: the position of %s is not a whole number from 0 to %d", errBranchNote, what, branches-1)
+	}
+	return i, nil
 }
 
 // noBranchPicked is a failed choice whose property is missing or holds a

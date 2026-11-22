@@ -18,6 +18,27 @@ import (
 // schema true as {} and false as {"not": {}}.
 type Schema = map[string]any
 
+// BranchNote is the one key outside JSON Schema that an engine must read.
+// The other OpenAPI keys spec leaves in, such as discriminator, xml and
+// x-hotline-record, are unknown keywords, which an engine ignores. spec
+// writes it, on a schema with oneOf or anyOf, from what the spec's OpenAPI
+// discriminator says (Peter, 2026-11-22, M3, Q2), and drops any a spec's
+// author wrote. Its value is an object:
+//
+//	{"property": "type", "choice": "oneOf",
+//	 "values": {"text": 0, "image": 1}, "default": 1}
+//
+// property is the field whose value picks the branch. choice says which
+// list the branches are counted in, "oneOf" or "anyOf". values maps each
+// value of the field to its branch's position in that list, counted from
+// 0, and default, when there is one, is the branch for a missing field or
+// a value with no branch of its own. Each position is a json.Number, like
+// every number in a Schema. The note never changes pass or fail, as
+// OpenAPI says of a discriminator: when the choice fails, an engine
+// reports the problems of the branch the note picks, or one problem with
+// rule "discriminator" at the field when it picks none.
+const BranchNote = "x-hotline-branch"
+
 // NewEngine makes the engine of one spec's schemas. defs are the shared
 // schemas by name, which the schemas given later name in $ref. It compiles
 // them all, so a broken one is found even when no route uses it. It is
