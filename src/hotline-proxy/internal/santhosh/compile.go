@@ -46,6 +46,8 @@ type Engine struct {
 	inlined map[string]*jsonschema.Schema
 	// next numbers the schemas given an address of their own.
 	next int
+	// notes are the branch notes both compilers found.
+	notes branchNotes
 }
 
 // outside refuses every document but the shared schemas, so a $ref to
@@ -60,7 +62,8 @@ func (outside) Load(address string) (any, error) {
 // name as "#/$defs/<name>". It is a spec.NewEngine. A broken shared
 // schema is a problem, even when no route uses it.
 func NewEngine(defs map[string]spec.Schema) (spec.Engine, error) {
-	e := &Engine{compiler: newCompiler(), inline: newCompiler(), inlined: map[string]*jsonschema.Schema{}}
+	notes := branchNotes{}
+	e := &Engine{compiler: newCompiler(notes), inline: newCompiler(notes), inlined: map[string]*jsonschema.Schema{}, notes: notes}
 	doc := make(map[string]any, len(defs))
 	for name, s := range defs {
 		doc[name] = s
@@ -84,7 +87,8 @@ func escapeToken(name string) string {
 
 // newCompiler makes a JSON Schema compiler set up the way the proxy
 // checks: draft 2020-12, formats and JSON text checked, nothing fetched.
-func newCompiler() *jsonschema.Compiler {
+// The branch notes it finds go in notes.
+func newCompiler(notes branchNotes) *jsonschema.Compiler {
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
 	c.UseLoader(outside{})
@@ -92,6 +96,9 @@ func newCompiler() *jsonschema.Compiler {
 	// A string holding JSON, marked with contentMediaType and
 	// contentSchema, is read and checked too (Peter, 2026-10-30).
 	c.RegisterVocabulary(jsonText())
+	// Which branch a failed choice meant, from OpenAPI's discriminator
+	// (Peter, 2026-11-22, M3).
+	c.RegisterVocabulary(branchVocabulary(notes))
 	c.AssertVocabs()
 	for _, f := range ignoredFormats() {
 		c.RegisterFormat(&jsonschema.Format{Name: f, Validate: func(any) error { return nil }})

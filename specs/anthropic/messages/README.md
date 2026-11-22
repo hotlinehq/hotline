@@ -7,7 +7,9 @@ Written by hand on 2026-11-22 from two sources, since Anthropic publishes no Ope
 - Anthropic's streaming page, `https://platform.claude.com/docs/en/build-with-claude/streaming.md`: the events, their order and full examples.
 - Anthropic's Go SDK, `github.com/anthropics/anthropic-sdk-go` v2.13.0 (commit `698c61f`, 2026-11-20), file `message.go`: the fields of each event, the content block types, the delta types and the stop reasons.
 
-Only what those two show is checked. Fields the docs leave out of their examples are not required, and fields Anthropic adds later pass, since no object here refuses extra fields. A new event name or a new block or delta type is reported, so a change in Anthropic's stream shows up in the records.
+Only what those two show is checked. Fields the docs leave out of their examples are not required, and fields Anthropic adds later pass, since no object here refuses extra fields. A new event name or a new block or delta type in a response is reported, so a change in Anthropic's stream shows up in the records.
+
+Blocks and deltas are written as a `oneOf` with a `discriminator` on `type`, as Anthropic's own spec does, so a broken one reports the problems of its own kind, such as `$.messages[0].content[0].source required` for an image block with no source. In a request, the four kinds an app sends most (`text`, `image`, `tool_use`, `tool_result`) are checked in full, and any other kind goes to `defaultMapping`, which only needs a `type`, so an app sending a kind added later is never flagged.
 
 The login is in the security section, so Hotline hides it in every record and, under `content: full`, in the file too:
 

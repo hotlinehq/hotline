@@ -45,6 +45,7 @@ func (b *builder) startEngine(newEngine NewEngine) {
 			b.problem("%s: the schema %s cannot be used: a schema must be an object, or true or false", b.name, name)
 			continue
 		}
+		b.noteBranches(s, b.name+": the schema "+name)
 		defs[name] = s
 	}
 	engine, err := newEngine(defs)
@@ -127,6 +128,7 @@ func (b *builder) schema(at schemaAt, where string) Schema {
 		b.problem("%s: the schema of %s cannot be used: a schema must be an object, or true or false", where, at.label)
 		return nil
 	}
+	b.noteBranches(s, where+": the schema of "+at.label)
 	return s
 }
 

@@ -78,8 +78,8 @@ Feature: Reading the vendor spec
     Then there is no route
 
   Scenario: 3.2 parts the proxy does not check yet are skipped quietly
-    QUERY, other methods, a whole query as one value and streamed items
-    load, and go unchecked until they are built (Peter, 2026-11-21).
+    A whole query as one value loads, and goes unchecked until it is built
+    (Peter, 2026-11-21). QUERY and other methods are in methods.feature.
     Given a spec with the route /v1/items that also uses query, additionalOperations, in querystring and itemSchema
     When a call is GET /v1/items
     Then the route template is /v1/items

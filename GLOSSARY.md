@@ -174,6 +174,10 @@ _Avoid_: pair id, id tuple
 Where spec checks wait when every worker is busy. Its memory is capped by `specChecks.queueMemory`; past the cap the oldest waiting checks are skipped, never the call.
 _Avoid_: backlog, check queue
 
+**Branch note**:
+What a spec's discriminator says, handed to the schema check as plain JSON under `x-hotline-branch`: the field that tells the branches of a oneOf or anyOf apart, and which branch each of its values means. It only chooses which problems are reported when the choice fails, never whether a call passes.
+_Avoid_: discriminator (the OpenAPI word, used only in spec)
+
 ## What the proxy writes down
 
 **Record**:

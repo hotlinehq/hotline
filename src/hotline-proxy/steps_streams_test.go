@@ -488,7 +488,13 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 
 // anthropicRequest is the app's call for a message, streamed or whole.
 func anthropicRequest(stream bool) request {
-	body := fmt.Sprintf(`{"model":"claude-opus-5-5","max_tokens":64,"stream":%t,"messages":[{"role":"user","content":"Hi"}]}`, stream)
+	return anthropicMessage(stream, `"Hi"`)
+}
+
+// anthropicMessage asks for a message whose one user message has the
+// content given, as JSON.
+func anthropicMessage(stream bool, content string) request {
+	body := fmt.Sprintf(`{"model":"claude-opus-5-5","max_tokens":64,"stream":%t,"messages":[{"role":"user","content":%s}]}`, stream, content)
 	return request{
 		method: "POST",
 		target: "https://" + anthropicHost + "/v1/messages",

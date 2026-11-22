@@ -26,7 +26,7 @@ Already works on 3.1 and carries over to 3.2:
 New from 3.2:
 7. **Version 3.2 loads** (`openapi: 3.2.*`).
 8. **Streamed bodies with `itemSchema`.** 3.2's way to describe a body made of many items: Server-Sent Events (`text/event-stream`), JSON Lines and JSON sequences. Each event or line is checked against `itemSchema`. This closes the biggest gap: streamed responses from OpenAI and Anthropic. All three are built (M2).
-9. **`QUERY` method,** and other methods listed under `additionalOperations`.
+9. **`QUERY` method,** and other methods listed under `additionalOperations` (built 2026-11-22).
 10. **`in: querystring`:** the whole query described as one value with its own schema.
 11. **Cookie style** for cookie parameters.
 
@@ -36,7 +36,7 @@ New from 3.2:
 13. **Webhooks, minimal: the app calling the vendor.** Calls that set up webhooks (Stripe's webhook endpoints, GitHub's hooks) and calls to a vendor's webhook address (Slack or Discord incoming webhooks), checked like any call, with the secret in the address always hidden.
 14. **Server variables:** a variable in the host is skipped, as the config names the hosts, and a variable in the path is read like a path value (built 2026-11-21).
 15. **Server `name`** (new in 3.2): used to label which server a call went to.
-16. **`discriminator`** with 3.2's `defaultMapping`: pick the branch by the field, so an error names the right branch.
+16. **`discriminator`** with 3.2's `defaultMapping`: pick the branch by the field, so an error names the right branch (built 2026-11-22).
 17. **AsyncAPI traits:** refused since 2026-11-21, instead of ignored without a warning. Merge them in when a vendor needs it.
 
 ## Later: only when a real example needs it

@@ -24,6 +24,7 @@ const partBody = "body"
 type param struct {
 	spec.Param
 	schema *jsonschema.Schema
+	notes  branchNotes
 	// list says the schema wants a list.
 	list bool
 }
@@ -32,6 +33,7 @@ type param struct {
 type content struct {
 	spec.Content
 	schema *jsonschema.Schema
+	notes  branchNotes
 }
 
 // requestCheck checks the request side of one route, a spec.RequestCheck.
@@ -66,7 +68,7 @@ func (e *Engine) params(list []spec.Param) ([]param, error) {
 	for i, p := range list {
 		s, err := e.schema(p.Schema, p.Label)
 		problems = append(problems, err)
-		out[i] = param{Param: p, schema: s, list: slices.Contains(types(s), "array")}
+		out[i] = param{Param: p, schema: s, notes: e.notes, list: slices.Contains(types(s), "array")}
 	}
 	return out, errors.Join(problems...)
 }
@@ -77,7 +79,7 @@ func (e *Engine) contents(list []spec.Content) ([]content, error) {
 	for i, c := range list {
 		s, err := e.schema(c.Schema, c.Label)
 		problems = append(problems, err)
-		out[i] = content{Content: c, schema: s}
+		out[i] = content{Content: c, schema: s, notes: e.notes}
 	}
 	return out, errors.Join(problems...)
 }
@@ -153,7 +155,7 @@ func (p param) check(values any) []spec.Finding {
 	if list, ok := values.([]string); ok {
 		instance = read.Shape(list, p.list, !p.Explode || p.In != "query")
 	}
-	return validate(p.schema, coerce(instance, p.schema), p.In, p.Name)
+	return validate(p.schema, p.notes, coerce(instance, p.schema), p.In, p.Name)
 }
 
 // check reads a body and checks it against the schema of its content,
@@ -204,5 +206,5 @@ func (c content) check(reads spec.Reads, data []byte) ([]spec.Finding, []spec.Fi
 	if c.schema == nil {
 		return nil, fields
 	}
-	return validate(c.schema, instance, partBody, whole), fields
+	return validate(c.schema, c.notes, instance, partBody, whole), fields
 }

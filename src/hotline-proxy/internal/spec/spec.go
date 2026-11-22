@@ -7,7 +7,9 @@ package spec
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -83,6 +85,12 @@ type pathItem struct {
 	Head    *operation `yaml:"head"`
 	Patch   *operation `yaml:"patch"`
 	Trace   *operation `yaml:"trace"`
+	// Query is OpenAPI 3.2's QUERY method: it only reads, like GET, and
+	// its call carries a body saying what to look up.
+	Query *operation `yaml:"query"`
+	// AdditionalOperations holds any other method, keyed by its name
+	// written exactly as it is sent (OpenAPI 3.2).
+	AdditionalOperations map[string]*operation `yaml:"additionalOperations"`
 }
 
 type operation struct{}
@@ -125,7 +133,8 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 					ErrInvalid, name, template, segment))
 			}
 		}
-		for method := range item.operations() {
+		problems = append(problems, item.methodProblems(name, template)...)
+		for method, operationKeys := range item.operationKeys() {
 			r := route{
 				method:   method,
 				template: template,
@@ -135,7 +144,7 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 				segments: segments,
 			}
 			where := fmt.Sprintf("%s %s %s", name, method, template)
-			r.checks = b.checks(key, strings.ToLower(method), where)
+			r.checks = b.checks(key, operationKeys, where)
 			r.checks.request = b.requestCheck(r.checks, segments, where)
 			r.marks = r.checks.marks
 			s.routes = append(s.routes, r)
@@ -207,18 +216,81 @@ func (s *Spec) splitAction(name, template string) (path, action string, words []
 	return path, action, nil, nil
 }
 
-func (p pathItem) operations() map[string]*operation {
-	all := map[string]*operation{
-		http.MethodGet: p.Get, http.MethodPut: p.Put, http.MethodPost: p.Post,
-		http.MethodDelete: p.Delete, http.MethodOptions: p.Options, http.MethodHead: p.Head,
-		http.MethodPatch: p.Patch, http.MethodTrace: p.Trace,
+// operationKeys maps each method the path lists to where its operation
+// sits in the path item: its own field, such as get, or its key under
+// additionalOperations.
+func (p pathItem) operationKeys() map[string][]string {
+	all := map[string][]string{}
+	for method, op := range p.fixedOperations() {
+		if op != nil {
+			all[method] = []string{strings.ToLower(method)}
+		}
 	}
-	for method, op := range all {
-		if op == nil {
-			delete(all, method)
+	for method, op := range p.AdditionalOperations {
+		if op != nil && additionalMethodProblem(method) == "" {
+			all[method] = []string{"additionalOperations", method}
 		}
 	}
 	return all
+}
+
+// fixedOperations are the methods with a field of their own in a path item.
+func (p pathItem) fixedOperations() map[string]*operation {
+	return map[string]*operation{
+		http.MethodGet: p.Get, http.MethodPut: p.Put, http.MethodPost: p.Post,
+		http.MethodDelete: p.Delete, http.MethodOptions: p.Options, http.MethodHead: p.Head,
+		http.MethodPatch: p.Patch, http.MethodTrace: p.Trace, "QUERY": p.Query,
+	}
+}
+
+// hasOwnField says whether a method has a field of its own in a path
+// item, in any case.
+func (p pathItem) hasOwnField(method string) bool {
+	_, has := p.fixedOperations()[strings.ToUpper(method)]
+	return has
+}
+
+// additionalMethodProblem says what is wrong with a key of
+// additionalOperations, empty when nothing is. OpenAPI 3.2 forbids a
+// method with a field of its own there, in any case, and a key must be a
+// method name at all.
+func additionalMethodProblem(method string) string {
+	switch {
+	case pathItem{}.hasOwnField(method):
+		return fmt.Sprintf("lists %s under additionalOperations, but that method has its own field, %s: write it there", method, strings.ToLower(method))
+	case !isMethodName(method):
+		return fmt.Sprintf("lists %q under additionalOperations, which is not a method name", method)
+	}
+	return ""
+}
+
+// methodProblems are the additionalOperations keys a spec may not have,
+// in the order of the keys.
+func (p pathItem) methodProblems(name, template string) []error {
+	var problems []error
+	for _, method := range slices.Sorted(maps.Keys(p.AdditionalOperations)) {
+		if problem := additionalMethodProblem(method); problem != "" {
+			problems = append(problems, fmt.Errorf("%w: %s: the path %s %s", ErrInvalid, name, template, problem))
+		}
+	}
+	return problems
+}
+
+// isMethodName says whether text can be an HTTP method: one or more
+// letters, digits or the few marks HTTP allows in a name (RFC 9110,
+// section 5.6.2), so no space, colon or slash.
+func isMethodName(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, c := range text {
+		letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+		digit := c >= '0' && c <= '9'
+		if !letter && !digit && !strings.ContainsRune("!#$%&'*+-.^_`|~", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // basePath is the path of a servers address, such as /v1 in
