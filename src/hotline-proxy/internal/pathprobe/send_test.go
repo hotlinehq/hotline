@@ -90,7 +90,7 @@ var _ = Describe("Sending a path probe packet", func() {
 		for _, t := range []pathprobe.Transport{pathprobe.TCP, pathprobe.Ping} {
 			a := send(t, 9, 0)
 			Expect(a.Kind).To(Equal(pathprobe.NotSent), string(t))
-			Expect(a.Err).To(HaveOccurred())
+			Expect(a.Err).To(MatchError(pathprobe.ErrTTL), string(t))
 		}
 	})
 

@@ -36,7 +36,7 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	sotype := map[Transport]int{TCP: unix.SOCK_STREAM, UDP: unix.SOCK_DGRAM}[p.Transport]
 	fd, err := unix.Socket(unix.AF_INET, sotype, 0)
 	defer func() { _ = unix.Close(fd) }()
-	err = errors.Join(err, unix.SetNonblock(fd, true),
+	err = errors.Join(err, validTTL(p.TTL), unix.SetNonblock(fd, true),
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, p.TTL),
 		unix.Bind(fd, &unix.SockaddrInet4{}))
 	local, nameErr := unix.Getsockname(fd)
