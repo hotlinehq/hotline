@@ -18,4 +18,17 @@ From the spike on finding out why a connection to a vendor fails, in the project
 14. The console prints one line: the time, `PROBE`, the host and port, the side and the sentence.
 15. The file exporter writes the body as `body`, and a span's links as `links`, each with `trace_id` and `span_id`. The ledger's trace hash does not cover links yet.
 16. The shop example on Floci ends with a call to SQS on a closed port, on purpose, so a probe shows in Grafana Cloud.
-17. Later slices: the TCP and UDP path traces and ping (`path_reaches_vendor`, `host_up`), then our public IP, `egressIPLookup`, `allowedEgressIPs` and the control address, then the vendor health check.
+17. Later slices: our public IP, `egressIPLookup`, `allowedEgressIPs` and the control address, then the vendor health check.
+
+## Slice 2: path probes (Peter, 2026-11-22)
+
+Requirements: `connection-diagnosis/probe-slice-2/requirements.md` in the project files.
+
+18. Two more questions, from our side outwards: `path_reaches_vendor` ("Does the network path reach the vendor?") and `host_up` ("Is the vendor's machine up?"). The order is `name_resolves`, `path_reaches_vendor`, `host_up`, `port_accepts_us`, `tls_works`, and the side is still that of the first "no".
+19. The path is traced only when the vendor's port gives no answer or cannot be reached (Q1). A refusal or a TLS failure sends no path packets.
+20. The trace sends packets that may cross 1 router, then 2, and so on, over TCP to the call's port and over UDP to ports from 33434, up to `maxHops` (20, from 1 to 64; two apis on one host take the smaller), and gives up after 3 silent routers in a row. Each packet waits at most `probeTimeout`. Only the vendor IP the probe resolved is traced, never an internal one.
+21. `host_up` is yes when the vendor's machine answered the UDP trace ("port unreachable"), else when it answers a ping, where the system allows one (Q2): Linux with `ping_group_range`, as Docker sets it, and macOS. With the packets the probe can send, the path reaches the vendor exactly when its machine answers, so the two questions agree; `host_up` carries the UDP and ping evidence.
+22. A "no" from `path_reaches_vendor` points `between`, or `our_side` when the last router that answered has one of our private addresses. With the path traced, a "no" from `port_accepts_us` points to the vendor.
+23. New verdicts: `silent_drop_at_vendor` (the machine answers, its port does not), `silent_drop` (silence, naming the last router that answered), `path_stops_on_our_side`, and `rejected_by_firewall` ("administratively prohibited", ICMP 3 with code 9, 10 or 13, naming the firewall). `unreachable` names the router that said so. No confidence field: a guess says "most likely" in its sentence (Q3).
+24. Each packet of the trace is a span `hop` under the `path_reaches_vendor` span, with `hotline.probe.hop.ttl`, `.answer`, `.from`, `.icmp_type`, `.icmp_code` and `network.transport`. Child spans, not span events, because the exporters have none and adding them would change the ledger's trace hash.
+25. No root and no extra capability: `internal/pathprobe` uses an ordinary socket with `IP_RECVERR` on Linux, and the ICMP socket any user may open on macOS, matching each router's error to its packet by the ports it quotes. Elsewhere, and over IPv6, nothing is sent and both questions are `not_checked`, with the reason. New direct dependency: `golang.org/x/net` (BSD), for ICMP.

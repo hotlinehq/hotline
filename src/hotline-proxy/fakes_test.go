@@ -21,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"hotline-proxy/internal/pathprobe"
 )
 
 var errUnreachable = errors.New("fake network: no route to host")
@@ -255,6 +257,31 @@ type network struct {
 	lookupTime time.Duration
 	// stuck runs when a lookup or a connection hangs.
 	stuck func()
+	// paths are the networks between the proxy and each vendor IP, for
+	// the path probes. A vendor IP with none is one this machine cannot
+	// send path packets to.
+	paths map[netip.Addr]*path
+	// packets are the path packets the proxy sent.
+	packets []pathprobe.Packet
+}
+
+// path is the network between the proxy and one vendor IP.
+type path struct {
+	// routers are the routers on the way, in order. An invalid address is
+	// a router that stays silent.
+	routers []netip.Addr
+	// diesAfter is how many routers packets cross before something drops
+	// them; zero when they reach the vendor's machine.
+	diesAfter int
+	// prohibitedBy and unreachableBy are the router, counted from 1, that
+	// answers "administratively prohibited" or "host unreachable"; zero
+	// for none.
+	prohibitedBy, unreachableBy int
+	// answersUDP and answersPing say what the vendor's machine answers. It
+	// never answers TCP: these are vendors whose firewall drops us.
+	answersUDP, answersPing bool
+	// pingNotAllowed is a system that does not let the proxy ping.
+	pingNotAllowed bool
 }
 
 func newNetwork() *network {
@@ -265,6 +292,7 @@ func newNetwork() *network {
 		unreachable:      map[string]bool{},
 		refusalsLeft:     map[string]int{},
 		namesAfterLookup: map[string][]netip.Addr{},
+		paths:            map[netip.Addr]*path{},
 	}
 }
 
@@ -419,4 +447,41 @@ func listenLocalOn(addr string) net.Listener {
 		panic(err)
 	}
 	return l
+}
+
+// errPingNotAllowed is a system that does not let the proxy ping.
+var errPingNotAllowed = errors.New("this system does not let the proxy ping")
+
+// Send answers a path packet as the path to its vendor IP would. Every
+// answer comes at once: silence is a packet nothing answers.
+func (n *network) Send(_ context.Context, p pathprobe.Packet) pathprobe.Answer {
+	n.mu.Lock()
+	route, found := n.paths[p.To.Addr()]
+	n.packets = append(n.packets, p)
+	n.mu.Unlock()
+	vendor := p.To.Addr()
+	silence := pathprobe.Answer{Kind: pathprobe.Silence}
+	switch {
+	case !found:
+		return pathprobe.Answer{Kind: pathprobe.NotSent, Err: errors.ErrUnsupported}
+	case p.Transport == pathprobe.Ping && route.pingNotAllowed:
+		return pathprobe.Answer{Kind: pathprobe.NotSent, Err: errPingNotAllowed}
+	case p.Transport == pathprobe.Ping && route.answersPing && route.diesAfter == 0:
+		return pathprobe.Answer{Kind: pathprobe.Connected, From: vendor}
+	case p.Transport == pathprobe.Ping:
+		return silence
+	case route.diesAfter > 0 && p.TTL > route.diesAfter:
+		return silence
+	case p.TTL == route.prohibitedBy && (p.Transport == pathprobe.TCP || !route.answersUDP):
+		return pathprobe.Answer{Kind: pathprobe.RouterError, From: route.routers[p.TTL-1], ICMPType: 3, ICMPCode: 13}
+	case p.TTL == route.unreachableBy:
+		return pathprobe.Answer{Kind: pathprobe.RouterError, From: route.routers[p.TTL-1], ICMPType: 3, ICMPCode: 1}
+	case p.TTL <= len(route.routers) && route.routers[p.TTL-1].IsValid():
+		return pathprobe.Answer{Kind: pathprobe.RouterError, From: route.routers[p.TTL-1], ICMPType: 11}
+	case p.TTL <= len(route.routers):
+		return silence
+	case p.Transport == pathprobe.UDP && route.answersUDP:
+		return pathprobe.Answer{Kind: pathprobe.RouterError, From: vendor, ICMPType: 3, ICMPCode: 3}
+	}
+	return silence
 }

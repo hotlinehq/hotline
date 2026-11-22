@@ -113,7 +113,7 @@ model {
   macApps -> captureHelper 'chosen apps\' connections'
   captureHelper -> hotline.proxy.ingress 'CONNECT over a socket file'
   hotline.proxy.guard -> vendors 'calls, unchanged, HTTPS'
-  hotline.proxy.probes -> vendors 'DNS lookup, TCP connect, TLS handshake'
+  hotline.proxy.probes -> vendors 'DNS lookup, path trace, TCP connect, TLS handshake'
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
   hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
   hotline.proxy.exporters -> hotline.folder 'JSON lines'
