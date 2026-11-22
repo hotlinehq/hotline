@@ -124,7 +124,7 @@ type response struct {
 	check ResponseCheck
 	// items are the items of the streamed media types whose content gives
 	// an itemSchema, by media type, lower case; nil when none does.
-	items map[string]*Items
+	items map[string]*ItemSchema
 }
 
 const (
@@ -197,7 +197,7 @@ func (s *Spec) CheckResponse(found Route, e Exchange) Checked {
 	}
 	c.Response = rp.check.Meta(e.ResponseHeader)
 	if mt, _, _ := mime.ParseMediaType(e.ResponseHeader.Get("Content-Type")); mt == eventStream {
-		// A stream with an itemSchema is checked item by item, by Items.
+		// A stream with an itemSchema is checked item by item, by ItemSchema.
 		if rp.items[mt] == nil {
 			c.Skipped = "streaming"
 		}

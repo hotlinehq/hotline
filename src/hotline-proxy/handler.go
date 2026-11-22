@@ -596,11 +596,11 @@ func (c *call) clientTrace() *httptrace.ClientTrace {
 // items are the items of a response whose spec gives an itemSchema for it;
 // nil for any other. A spec that names its action in the body finds its
 // route only in the request's check, so its responses are not read as items.
-func (c *call) items(resp *http.Response) *spec.Items {
+func (c *call) items(resp *http.Response) *spec.ItemSchema {
 	if c.api == nil || c.plan.routeInBody {
 		return nil
 	}
-	return c.api.Spec.Items(c.route, resp.StatusCode, resp.Header)
+	return c.api.Spec.ItemSchema(c.route, resp.StatusCode, resp.Header)
 }
 
 // flushed is told when the response's headers first reached the app. For a

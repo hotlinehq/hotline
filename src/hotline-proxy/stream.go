@@ -26,7 +26,7 @@ type responseStream struct {
 	// span is the stream span's id, which the stream record, its hash and
 	// every item's span carry.
 	span  trace.SpanID
-	items *spec.Items
+	items *spec.ItemSchema
 	// checked says the api's checks hold the response body, so each item
 	// is checked.
 	checked bool
@@ -55,7 +55,7 @@ type responseStream struct {
 
 // newStream sets up the stream of a response that has items in the spec, and
 // the tap its bytes pass through.
-func (c *call) newStream(items *spec.Items, body io.ReadCloser) *responseStream {
+func (c *call) newStream(items *spec.ItemSchema, body io.ReadCloser) *responseStream {
 	s := &responseStream{
 		c: c, span: tracectx.NewSpanID(), items: items, checked: c.api.Checks.Has(config.PartResponseBody),
 		called: make(chan struct{}),

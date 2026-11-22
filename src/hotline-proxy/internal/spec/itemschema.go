@@ -11,16 +11,16 @@ import (
 // sequences come next.
 const eventStream = "text/event-stream"
 
-// Items checks the items of one streamed response, each on its own, by the
+// ItemSchema checks the items of one streamed response, each on its own, by the
 // itemSchema that OpenAPI 3.2 gives its media type (Peter, 2026-11-22, M2).
-type Items struct {
+type ItemSchema struct {
 	check ResponseCheck
 }
 
-// Items is the itemSchema of a response on the route, by its status and
+// ItemSchema is the itemSchema of a response on the route, by its status and
 // Content-Type. It is nil when the spec gives none, or when the media type
 // is not one read item by item.
-func (s *Spec) Items(found Route, status int, header http.Header) *Items {
+func (s *Spec) ItemSchema(found Route, status int, header http.Header) *ItemSchema {
 	r := found.r
 	if r.checks == nil || r.checks.responses == nil {
 		return nil
@@ -37,7 +37,7 @@ func (s *Spec) Items(found Route, status int, header http.Header) *Items {
 // the object of the event's fields: data, event, id and retry. Its results
 // are on the response side, as for a response's body, and its fields marked
 // x-hotline-record are copied.
-func (i *Items) Check(item []byte) Checked {
+func (i *ItemSchema) Check(item []byte) Checked {
 	results, copied := i.check.Body(0, ReadsJSON, item)
 	return Checked{Response: results, Copied: copied}
 }
@@ -46,9 +46,9 @@ func (i *Items) Check(item []byte) Checked {
 // give an itemSchema. Other media types' itemSchema load and are skipped
 // quietly, as every 3.2 part the proxy can't check yet (Peter,
 // 2026-11-21, M0).
-func (b *builder) items(m map[string]any, pointer, where, code string) map[string]*Items {
+func (b *builder) items(m map[string]any, pointer, where, code string) map[string]*ItemSchema {
 	listed, _ := m["content"].(map[string]any)
-	var found map[string]*Items
+	var found map[string]*ItemSchema
 	for mediaType, v := range listed {
 		media, _ := v.(map[string]any)
 		schema, has := media["itemSchema"]
@@ -62,9 +62,9 @@ func (b *builder) items(m map[string]any, pointer, where, code string) map[strin
 			fields:    b.fields(schema, at),
 		}
 		if found == nil {
-			found = map[string]*Items{}
+			found = map[string]*ItemSchema{}
 		}
-		found[eventStream] = &Items{check: b.responseCheck(&response{body: &bodySpec{content: []content{ct}}}, where)}
+		found[eventStream] = &ItemSchema{check: b.responseCheck(&response{body: &bodySpec{content: []content{ct}}}, where)}
 	}
 	return found
 }
