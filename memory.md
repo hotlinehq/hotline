@@ -25,7 +25,7 @@ Decisions already made, so a new session does not have to dig through old thread
 
 ## Pull requests
 
-- Never put a link to the Claude session in a pull request description (Peter, 2026-11-22).
+- Never put a link to the Claude session in a pull request description or a commit message (Peter, 2026-11-22).
 
 ## Testing, in one line each
 
