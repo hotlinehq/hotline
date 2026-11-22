@@ -12,6 +12,7 @@ package proxy //nolint:testpackage // fuzzes inner parsers, by the fuzzing excep
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"io"
 	"testing"
 	"time"
@@ -66,6 +67,48 @@ func FuzzWireFrames(f *testing.F) {
 		}
 		if read > seen {
 			t.Fatalf("the reader read %d messages, the scanner saw %d end", read, seen)
+		}
+	})
+}
+
+// FuzzSSEEvents reads made-up bytes as Server-Sent Events, whole and one
+// byte at a time, and checks that both give the same events, each written
+// as valid JSON, and never more bytes than were read.
+func FuzzSSEEvents(f *testing.F) {
+	f.Add([]byte("event: ping\ndata: {\"type\":\"ping\"}\n\n"))
+	f.Add([]byte("\xef\xbb\xbfid: 7\r\nretry: 3000\r\ndata: a\r\ndata: b\r\n\r\n: comment\rdata\r\r"))
+	f.Add([]byte("\xef\xbbdata: x\n\nretry: +5\nid: a\x00b\nevent\ndata:\n\n"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		read := func(step int) []sseEvent {
+			var got []sseEvent
+			r := sseReader{delivered: func(e sseEvent) { got = append(got, e) }}
+			at := time.Unix(0, 0)
+			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
+				r.pass(p[:min(step, len(p))], at)
+			}
+			return got
+		}
+		start := time.Now()
+		whole, bytewise := read(len(data)+1), read(1)
+		if took := time.Since(start); took > parseWait {
+			t.Fatalf("reading the events took %v", took)
+		}
+		if len(whole) != len(bytewise) {
+			t.Fatalf("read whole: %d events; one byte at a time: %d", len(whole), len(bytewise))
+		}
+		var size int64
+		for i := range whole {
+			if !bytes.Equal(whole[i].item, bytewise[i].item) || whole[i].size != bytewise[i].size {
+				t.Fatalf("event %d read whole is %q, %d bytes; one byte at a time %q, %d bytes",
+					i+1, whole[i].item, whole[i].size, bytewise[i].item, bytewise[i].size)
+			}
+			if whole[i].item != nil && !json.Valid(whole[i].item) {
+				t.Fatalf("event %d is not valid JSON: %q", i+1, whole[i].item)
+			}
+			size += whole[i].size
+		}
+		if size > int64(len(data)) {
+			t.Fatalf("the events count %d bytes of %d", size, len(data))
 		}
 	})
 }

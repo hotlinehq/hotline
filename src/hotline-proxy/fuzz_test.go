@@ -258,6 +258,46 @@ func FuzzResponse(f *testing.F) {
 	})
 }
 
+// FuzzStreamedResponse has the fake Anthropic stream made-up bytes as
+// Server-Sent Events, in two pieces cut at a made-up place, so an event,
+// a line end or a byte order mark may be split. Besides the three rules,
+// the stream's record must arrive within fuzzWait, its items' checks
+// included.
+func FuzzStreamedResponse(f *testing.F) {
+	w := fuzzWorld(f, func(w *world) {
+		spec, err := os.ReadFile(filepath.FromSlash(anthropicSpec))
+		if err != nil {
+			f.Fatal(err)
+		}
+		w.streaming = &streamingVendor{spec: string(spec), at: len(w.integrations)}
+		w.addIntegration("")
+		w.writeStreamingSpec()
+		w.vendor(anthropicHost).setAnswer(w.streamingVendor)
+	})
+	f.Add(bytes.Join(helloResponse(), nil), uint16(7))
+	f.Add([]byte("\xef\xbb\xbfevent: ping\r\ndata: {\"type\":\"ping\"}\r\n\r\n"), uint16(2))
+	f.Add([]byte("retry: +5\rid: a\x00b\rdata\rdata:\r\r: comment\n\nevent: ping\ndata: {}"), uint16(9))
+	f.Fuzz(func(t *testing.T, stream []byte, cut uint16) {
+		at := 0
+		if len(stream) > 0 {
+			at = int(cut) % len(stream)
+		}
+		w.streaming.mu.Lock()
+		w.streaming.events = [][]byte{stream[:at], stream[at:]}
+		w.streaming.mu.Unlock()
+		w.tryTwice(t, func() time.Duration {
+			start := time.Now()
+			streams := len(w.receivers[0].streamRecords())
+			_ = w.send(anthropicRequest(true))
+			took := w.recordTime(start)
+			for len(w.receivers[0].streamRecords()) <= streams && time.Since(start) <= fuzzWait {
+				time.Sleep(time.Millisecond)
+			}
+			return max(took, time.Since(start))
+		})
+	})
+}
+
 // recordTime is how long after start the record of every call sent so far
 // arrived, its spec check included, counting the records forget dropped; a
 // wait cut off at fuzzWait counts as longer.

@@ -27,6 +27,8 @@ type tap struct {
 	mac    *ledger.BodyHash
 	saver  bodySaver
 	keeper bodyKeeper
+	// stream, when set, reads the body's items as they pass.
+	stream *responseStream
 
 	mu   sync.Mutex
 	size int64
@@ -43,6 +45,9 @@ func (t *tap) Read(p []byte) (int, error) {
 	_, _ = t.mac.Write(p[:n])
 	t.saver.add(p[:n])
 	t.keeper.add(p[:n])
+	if t.stream != nil {
+		t.stream.pass(p[:n])
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		t.err = err
 	}

@@ -25,7 +25,8 @@ These mistakes give no warning today, so they come before new features.
 
 - Check each Server-Sent Event, each JSON Lines line and each JSON sequence item against 3.2's `itemSchema`. This covers streamed replies from OpenAI and Anthropic.
 - New work: the proxy now keeps a copy of at most 2 MiB of a body and skips streams. It would have to check items one at a time as they pass, without holding the whole stream and without slowing the stream down.
-- Recording: decide what a record holds for a stream, such as an item count and the first broken item. That's a question for Peter.
+- Recording: decided, like WebSocket: a record and a span per item, and a stream record at the end ([decisions/streamed-responses.md](../decisions/streamed-responses.md)).
+- Built: Server-Sent Events, checked against a hand-written Anthropic spec. Still to come: the shop's `support` app, then JSON Lines and JSON sequences.
 - Depends on: M0.
 
 ## M3. Small 3.2 additions (small to medium)

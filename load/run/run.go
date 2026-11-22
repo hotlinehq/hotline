@@ -200,6 +200,12 @@ func callFor(shape string) (call, error) {
 		return ssm("AmazonSSM.GetParameter", `{"Name":"/shop/db-url","WithDecryption":true}`), nil
 	case "xml":
 		return call{api: "s3", method: http.MethodGet, path: "?list-type=2&prefix=invoice-", service: "s3", name: "S3 ListObjectsV2"}, nil
+	case "stream-sse":
+		return call{
+			api: "anthropic", method: http.MethodPost, path: "v1/messages", service: "anthropic",
+			body: `{"model":"claude-opus-5-5","max_tokens":256,"stream":true,"messages":[{"role":"user","content":"Hi"}]}`,
+			name: fmt.Sprintf("Anthropic messages, streamed in %d events", len(fakes.Shapes()[shape].Events)),
+		}, nil
 	}
 	return call{}, fmt.Errorf("%w: %q", errShapeNotWired, shape)
 }

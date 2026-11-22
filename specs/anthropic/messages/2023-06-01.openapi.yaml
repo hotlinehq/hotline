@@ -1,0 +1,338 @@
+openapi: 3.2.0
+info:
+  title: Anthropic Messages API, create a message
+  version: "2023-06-01"
+  description: >-
+    The one call that asks Claude for a message: POST /v1/messages, answered
+    with the whole message as JSON, or, when the request sets stream to true,
+    as Server-Sent Events, one event at a time. Written by hand from
+    Anthropic's docs and Go SDK; see README.md. 2023-06-01 is the
+    anthropic-version header the SDKs send.
+servers:
+  - url: https://api.anthropic.com
+security:
+  - apiKey: []
+paths:
+  /v1/messages:
+    post:
+      operationId: createMessage
+      summary: Create a message, whole or streamed
+      parameters:
+        - name: anthropic-version
+          in: header
+          required: true
+          x-hotline-redact: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessage"
+      responses:
+        "200":
+          description: >-
+            The message: whole as JSON, or streamed as events when the request
+            set stream to true.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+            text/event-stream:
+              itemSchema:
+                $ref: "#/components/schemas/StreamEvent"
+        "4XX":
+          description: The request was refused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "5XX":
+          description: Anthropic failed or is overloaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    CreateMessage:
+      type: object
+      required: [model, max_tokens, messages]
+      properties:
+        model:
+          type: string
+          x-hotline-record: gen_ai.request.model
+        max_tokens:
+          type: integer
+          minimum: 1
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputMessage"
+        system:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                required: [type]
+        stream:
+          type: boolean
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 1
+        stop_sequences:
+          type: array
+          items:
+            type: string
+        tools:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+        tool_choice:
+          type: object
+          required: [type]
+        metadata:
+          type: object
+          properties:
+            user_id:
+              type: string
+    InputMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          enum: [user, assistant]
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+                required: [type]
+                properties:
+                  type:
+                    type: string
+    Message:
+      type: object
+      required: [id, type, role, content, model, stop_reason, usage]
+      properties:
+        id:
+          type: string
+        type:
+          const: message
+        role:
+          const: assistant
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentBlock"
+        model:
+          type: string
+        stop_reason:
+          $ref: "#/components/schemas/StopReason"
+        stop_sequence:
+          type: [string, "null"]
+        usage:
+          $ref: "#/components/schemas/Usage"
+    ContentBlock:
+      type: object
+      required: [type]
+      properties:
+        type:
+          enum:
+            - text
+            - thinking
+            - redacted_thinking
+            - tool_use
+            - server_tool_use
+            - web_search_tool_result
+            - web_fetch_tool_result
+            - code_execution_tool_result
+            - bash_code_execution_tool_result
+            - text_editor_code_execution_tool_result
+            - tool_search_tool_result
+            - container_upload
+        text:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        input:
+          type: object
+    StopReason:
+      enum:
+        - end_turn
+        - max_tokens
+        - stop_sequence
+        - tool_use
+        - pause_turn
+        - refusal
+        - model_context_window_exceeded
+        - null
+    Usage:
+      type: object
+      required: [input_tokens, output_tokens]
+      properties:
+        input_tokens:
+          type: integer
+          minimum: 0
+        output_tokens:
+          type: integer
+          minimum: 0
+    ErrorResponse:
+      type: object
+      required: [type, error]
+      properties:
+        type:
+          const: error
+        error:
+          $ref: "#/components/schemas/Error"
+    Error:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+        message:
+          type: string
+    # One Server-Sent Event of a streamed response, as OpenAPI 3.2 reads it:
+    # an object of the event's fields. Its name says which JSON is in data.
+    # Each name is checked with if and then, so a broken event's problems
+    # point inside its data, not at a whole list of choices.
+    StreamEvent:
+      type: object
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          x-hotline-record: anthropic.stream.event
+          enum:
+            - message_start
+            - content_block_start
+            - content_block_delta
+            - content_block_stop
+            - message_delta
+            - message_stop
+            - ping
+            - error
+        data:
+          type: string
+          contentMediaType: application/json
+      allOf:
+        - if: {required: [event], properties: {event: {const: message_start}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/MessageStart"}}}}
+        - if: {required: [event], properties: {event: {const: content_block_start}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/ContentBlockStart"}}}}
+        - if: {required: [event], properties: {event: {const: content_block_delta}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/ContentBlockDelta"}}}}
+        - if: {required: [event], properties: {event: {const: content_block_stop}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/ContentBlockStop"}}}}
+        - if: {required: [event], properties: {event: {const: message_delta}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/MessageDelta"}}}}
+        - if: {required: [event], properties: {event: {const: message_stop}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/MessageStop"}}}}
+        - if: {required: [event], properties: {event: {const: ping}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/Ping"}}}}
+        - if: {required: [event], properties: {event: {const: error}}}
+          then: {properties: {data: {contentMediaType: application/json, contentSchema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    MessageStart:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          const: message_start
+        message:
+          $ref: "#/components/schemas/Message"
+    ContentBlockStart:
+      type: object
+      required: [type, index, content_block]
+      properties:
+        type:
+          const: content_block_start
+        index:
+          type: integer
+          minimum: 0
+        content_block:
+          $ref: "#/components/schemas/ContentBlock"
+    ContentBlockDelta:
+      type: object
+      required: [type, index, delta]
+      properties:
+        type:
+          const: content_block_delta
+        index:
+          type: integer
+          minimum: 0
+        delta:
+          $ref: "#/components/schemas/Delta"
+    Delta:
+      type: object
+      required: [type]
+      properties:
+        type:
+          enum: [text_delta, input_json_delta, citations_delta, thinking_delta, signature_delta]
+      allOf:
+        - if: {required: [type], properties: {type: {const: text_delta}}}
+          then: {required: [text], properties: {text: {type: string}}}
+        - if: {required: [type], properties: {type: {const: input_json_delta}}}
+          then: {required: [partial_json], properties: {partial_json: {type: string}}}
+        - if: {required: [type], properties: {type: {const: thinking_delta}}}
+          then: {required: [thinking], properties: {thinking: {type: string}}}
+        - if: {required: [type], properties: {type: {const: signature_delta}}}
+          then: {required: [signature], properties: {signature: {type: string}}}
+        - if: {required: [type], properties: {type: {const: citations_delta}}}
+          then: {required: [citation], properties: {citation: {type: object}}}
+    ContentBlockStop:
+      type: object
+      required: [type, index]
+      properties:
+        type:
+          const: content_block_stop
+        index:
+          type: integer
+          minimum: 0
+    MessageDelta:
+      type: object
+      required: [type, delta, usage]
+      properties:
+        type:
+          const: message_delta
+        delta:
+          type: object
+          properties:
+            stop_reason:
+              $ref: "#/components/schemas/StopReason"
+            stop_sequence:
+              type: [string, "null"]
+        usage:
+          type: object
+          required: [output_tokens]
+          properties:
+            output_tokens:
+              type: integer
+              minimum: 0
+    MessageStop:
+      type: object
+      required: [type]
+      properties:
+        type:
+          const: message_stop
+    Ping:
+      type: object
+      required: [type]
+      properties:
+        type:
+          const: ping

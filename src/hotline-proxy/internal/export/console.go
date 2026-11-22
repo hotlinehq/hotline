@@ -133,9 +133,13 @@ func (c *consoleExporter) lines(call Call) []byte {
 	switch call.Event {
 	case SessionEvent:
 		return c.sessionLines(call)
-	case MessageEvent:
-		// A session may send many messages a second, such as audio: the
-		// console shows the session, not each message.
+	case StreamEvent:
+		return c.streamLines(call)
+	case MessageEvent, ItemEvent:
+		// A session may send many messages a second, such as audio, and a
+		// model's answer streams hundreds of items: the console shows the
+		// session or the stream, not each message or item (Peter,
+		// 2026-11-21, M2, Q5).
 		return nil
 	}
 	l := &consoleLines{color: c.color}
@@ -254,6 +258,54 @@ func (c *consoleExporter) sessionLines(call Call) []byte {
 	l.word("ended", bold)
 	l.word(byteSize(sent) + " sent")
 	l.word(byteSize(received) + " received")
+	l.word(strconv.FormatFloat(float64(open)/1000, 'f', 1, 64) + " ms")
+	l.b.WriteString("\n")
+	return l.b.Bytes()
+}
+
+// streamLines writes the end of a streamed response in the call's two lines:
+// who and where, then how many items came, how many broke the spec, the
+// stream's size and how long it was open.
+func (c *consoleExporter) streamLines(call Call) []byte {
+	l := &consoleLines{color: c.color}
+	var id, host string
+	var items, invalid, size, open int64
+	for _, kv := range call.Attrs {
+		switch kv.Key {
+		case "hotline.integration.id":
+			id = printable(kv.Value.AsString())
+		case semconv.ServerAddressKey:
+			host = kv.Value.AsString()
+		case "hotline.stream.items":
+			items = kv.Value.AsInt64()
+		case "hotline.stream.items_invalid":
+			invalid = kv.Value.AsInt64()
+		case "hotline.stream.size":
+			size = kv.Value.AsInt64()
+		case "hotline.stream.duration_us":
+			open = kv.Value.AsInt64()
+		}
+	}
+	at := call.At.Local().Format("15:04:05.000")
+	l.style(at, dim)
+	l.b.WriteString(" ")
+	l.style(id, cyan)
+	l.b.WriteString(": ")
+	l.style("stream", bold)
+	l.b.WriteString(" ")
+	l.style(cut(printable(host), int(c.columns.Load())), bold)
+	l.b.WriteString("\n")
+	under := strings.Repeat(" ", utf8.RuneCountInString(at)+1+utf8.RuneCountInString(id)+2)
+	l.b.WriteString(under[3:])
+	l.style("<<", bold)
+	l.word("ended", bold)
+	l.word(strconv.FormatInt(items, 10) + " items")
+	colour := green
+	if invalid > 0 {
+		colour = red
+	}
+	l.word(strconv.FormatInt(invalid, 10)+" invalid", colour)
+	l.word(byteSize(size))
 	l.word(strconv.FormatFloat(float64(open)/1000, 'f', 1, 64) + " ms")
 	l.b.WriteString("\n")
 	return l.b.Bytes()

@@ -30,7 +30,15 @@ func (c *call) finish() {
 	end := c.h.clock.Now()
 	c.mu.Lock()
 	switched := c.session != nil && !c.session.opened.IsZero()
+	streamed := c.stream != nil && !c.stream.opened.IsZero()
 	c.mu.Unlock()
+	if streamed {
+		// The call was recorded when its headers reached the app; what
+		// ended now is the stream.
+		c.h.streams.Delete(c)
+		c.h.recordLater(func() finished { return c.streamRecord(end) })
+		return
+	}
 	if switched {
 		// The call was recorded at its 101; what ended now is the session,
 		// which a stop no longer needs to end. Its wires read what is left
@@ -370,6 +378,12 @@ type finished struct {
 // Shutdown waits for it, as for a call in flight. It is only called while
 // the call itself is still counted in flight.
 func (h *handler) recordLater(build func() finished) {
+	h.recordThen(build, nil)
+}
+
+// recordThen is recordLater, and then, when set, runs once the record is
+// handed on, so the records that must come after it can wait for it.
+func (h *handler) recordThen(build func() finished, then func()) {
 	h.calls.Add(1)
 	go func() {
 		defer h.calls.Done()
@@ -379,6 +393,9 @@ func (h *handler) recordLater(build func() finished) {
 		if f.event == "" {
 			// Only a call has a total time to measure.
 			h.own.ended(f.attrs)
+		}
+		if then != nil {
+			then()
 		}
 	}()
 }
@@ -480,7 +497,7 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 		semconv.URLScheme(c.scheme),
 		semconv.ServerPort(port),
 		semconv.HTTPRequestBodySize(int(sent)),
-		attribute.Bool("hotline.client.cancelled", c.app.failed()),
+		attribute.Bool("hotline.client.cancelled", c.appFailed()),
 		attribute.String("hotline.config.version", c.cfg.Label()),
 	)
 	if redacted.Template != "" {

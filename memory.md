@@ -23,6 +23,10 @@ Decisions already made, so a new session does not have to dig through old thread
 - Stable vendor specs live in `specs/<vendor>/<api>/<vendor version>.openapi.yaml` (for example `specs/aws/sqs/2012-11-05.openapi.yaml`), the vendor's api only. Overlays are test or example specific and live with them, never in `specs/`. Rules: [specs/README.md](specs/README.md) (Peter, 2026-10-30).
 - The proxy is its own Go module, `hotline-proxy`, in `src/hotline-proxy/`: the `proxy` package at the top, then `cmd/` (the program), `features/`, `internal/` and `testdata/`. The metrics code stays in module `hotline`, in `src/hotline/metrics/`. Both are listed in `go.work` (Peter, 2026-10-30).
 
+## Pull requests
+
+- Never put a link to the Claude session in a pull request description or a commit message (Peter, 2026-11-22).
+
 ## Testing, in one line each
 
 - Proxy behaviour: Gherkin feature files in `src/hotline-proxy/features/`, run by godog. Everything else: Ginkgo and Gomega.
@@ -64,6 +68,7 @@ Open only the file for the topic at hand.
 - Transparent ingress: [docs/decisions/transparent.md](docs/decisions/transparent.md)
 - Glossary words (certificate authority, transparent, response, exporter): [docs/decisions/glossary.md](docs/decisions/glossary.md)
 - WebSockets (slice 1: bytes and a session record; slice 2: each message named by `x-hotline-match`, checked, and recorded with a span of its own; messages written in AsyncAPI's shapes under `x-async-api`, with operation, role and correlation id on each record and span, a Kraken load case, and the message scenarios on the shared Kraken spec in `specs/kraken`): [docs/decisions/websockets.md](docs/decisions/websockets.md)
+- Streamed responses (roadmap M2: each Server-Sent Event checked against 3.2's `itemSchema`, a record and a span per item, a stream record at the end, split like WebSocket; Anthropic's messages stream first; a `support` app in the shop): [docs/decisions/streamed-responses.md](docs/decisions/streamed-responses.md)
 - Listeners (named ports under `listeners`, `certs` with `mode`, the `admin` section; replaces `listen` and `issuers`): [docs/decisions/listeners.md](docs/decisions/listeners.md)
 - File exporter (every call as a line of JSON in a local folder; `content: full` for bodies and every header): [docs/decisions/file-export.md](docs/decisions/file-export.md)
 - Console exporter (two coloured lines per call on standard output, like mitmdump): [docs/decisions/console-export.md](docs/decisions/console-export.md)

@@ -56,7 +56,7 @@ func phaseSteps() [3]phaseStep {
 // that did not happen has no span. Spans hold nothing the record holds, so
 // only two of them have an attribute.
 func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
-	call := callSpan(c.trace, c.parent, opened, end, failed.errorType != "" || c.app.failed())
+	call := callSpan(c.trace, c.parent, opened, end, failed.errorType != "" || c.appFailed())
 	// Room for every step at once, the check spans too, so the list is
 	// made once and never copied as it grows.
 	spans := make([]export.Span, 0, spanRoom)
@@ -108,7 +108,7 @@ func (c *call) spans(opened, end time.Time, failed failure) []export.Span {
 	step(call.ID, stepResponse, out, end)
 	// The app hung up: the vendor did nothing wrong, so only the last step
 	// fails (Peter, 2026-10-31).
-	spans[len(spans)-1].Status = export.FailedIf(c.app.failed())
+	spans[len(spans)-1].Status = export.FailedIf(c.appFailed())
 	return spans
 }
 
