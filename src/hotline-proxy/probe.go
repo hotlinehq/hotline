@@ -48,8 +48,10 @@ type probes struct {
 	clock Clock
 	// dial looks up and connects as calls do, with the same resolver and
 	// dialer.
-	dial  *dialer
-	roots *x509.CertPool
+	dial *dialer
+	// packets sends the packets of the path trace.
+	packets PacketSender
+	roots   *x509.CertPool
 	// config is the config in use now, for each endpoint's settings.
 	config func() *config.Config
 	book   *book
@@ -133,10 +135,10 @@ const (
 	neverTried
 )
 
-func newProbes(clock Clock, dial *dialer, roots *x509.CertPool, current func() *config.Config, b *book) *probes {
+func newProbes(clock Clock, dial *dialer, packets PacketSender, roots *x509.CertPool, current func() *config.Config, b *book) *probes {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &probes{
-		clock: clock, dial: dial, roots: roots, config: current, book: b,
+		clock: clock, dial: dial, packets: packets, roots: roots, config: current, book: b,
 		schedules: map[string]*probeSchedule{}, cancel: cancel,
 	}
 	p.jobAdded = sync.NewCond(&p.mu)
@@ -277,7 +279,7 @@ func (p *probes) runProbe(ctx context.Context, job probeJob) {
 	cfg := p.config()
 	settings := cfg.ProbeFor(t.host)
 	start := p.clock.Now()
-	found := p.probe(ctx, t, settings.Timeout)
+	found := p.probe(ctx, t, settings)
 	if ctx.Err() != nil {
 		// The proxy stopped before the probe ended, so what it found
 		// says nothing about the vendor.
@@ -357,38 +359,51 @@ type question struct {
 	// asked.
 	start time.Time
 	end   time.Time
+	// hops are the packets of the path trace that answered it, one span
+	// each under the question's span.
+	hops []hop
 }
 
-// probeFound is what one probe found: its three questions, the side of the
+// probeFound is what one probe found: its questions, the side of the
 // first "no", and the verdict.
 type probeFound struct {
-	questions [3]question
+	questions [5]question
 	side      string
 	verdict   string
 	// sentence is the verdict in plain words.
 	sentence string
+	// where names what the path trace found for the sentence: the last
+	// router that answered, or the one that said no.
+	where string
 }
 
 // probe asks the endpoint its questions, one after the other, each step
 // waiting at most timeout by the proxy's clock: is the vendor's name right,
 // does its port accept us, and does TLS work. It sends no HTTP request.
-func (p *probes) probe(ctx context.Context, t probeTarget, timeout time.Duration) probeFound {
-	endpoint := net.JoinHostPort(t.host, t.port)
-	f := probeFound{questions: [3]question{
+func (p *probes) probe(ctx context.Context, t probeTarget, settings config.Probe) probeFound {
+	endpoint, timeout := net.JoinHostPort(t.host, t.port), settings.Timeout
+	f := probeFound{questions: [5]question{
 		{id: "name_resolves", text: "Is the vendor's name right?", pointsTo: sideOurs, answer: answerNotChecked},
+		{id: "path_reaches_vendor", text: "Does the network path reach the vendor?", pointsTo: sideBetween, answer: answerNotChecked},
+		{id: "host_up", text: "Is the vendor's machine up?", pointsTo: sideVendor, answer: answerNotChecked},
 		{id: "port_accepts_us", text: "Does the vendor's port accept us?", pointsTo: sideVendor, answer: answerNotChecked},
 		{id: "tls_works", text: "Does the encryption (TLS) work?", pointsTo: sideVendor, answer: answerNotChecked},
 	}}
-	name, port, encryption := &f.questions[0], &f.questions[1], &f.questions[2]
+	name, path, host, port, encryption := &f.questions[0], &f.questions[1], &f.questions[2], &f.questions[3], &f.questions[4]
 	port.evidence = []string{"not checked: the vendor's name did not resolve"}
-	encryption.evidence = port.evidence
+	encryption.evidence, path.evidence, host.evidence = port.evidence, port.evidence, port.evidence
 
 	ips, verdict := p.resolve(ctx, t, timeout, name)
 	if verdict != "" {
 		return f.withVerdict(verdict, endpoint)
 	}
 	encryption.evidence = []string{"not checked: the vendor's port did not accept us"}
+	path.evidence = []string{"not checked: only a port that gives no answer, or cannot be reached, has its path traced"}
+	host.evidence = path.evidence
 	conn, verdict := p.connect(ctx, net.JoinHostPort(ips[0].String(), t.port), timeout, port)
+	if verdict == "no_answer" || verdict == "unreachable" {
+		verdict = p.tracePath(ctx, ips[0], t.port, settings, &f, verdict)
+	}
 	if verdict != "" {
 		return f.withVerdict(verdict, endpoint)
 	}
@@ -534,12 +549,13 @@ func (f probeFound) withVerdict(verdict, endpoint string) probeFound {
 			break
 		}
 	}
-	f.sentence = verdictSentence(verdict, endpoint)
+	f.sentence = verdictSentence(verdict, endpoint, f.where)
 	return f
 }
 
-// verdictSentence is a verdict in one plain sentence.
-func verdictSentence(verdict, endpoint string) string {
+// verdictSentence is a verdict in one plain sentence. where names what the
+// path trace found, when it ran.
+func verdictSentence(verdict, endpoint, where string) string {
 	host, _, _ := net.SplitHostPort(endpoint)
 	switch verdict {
 	case "dns_name_not_found":
@@ -551,7 +567,18 @@ func verdictSentence(verdict, endpoint string) string {
 	case "no_answer":
 		return endpoint + " did not answer: a firewall between us, or the vendor's, may drop our packets."
 	case "unreachable":
+		if where != "" {
+			return where + " reports that " + endpoint + " cannot be reached: a router on the way has no route there."
+		}
 		return endpoint + " could not be reached: the network has no way there."
+	case "silent_drop_at_vendor":
+		return endpoint + " gives no answer, yet the vendor's machine answers other packets: a firewall at the vendor most likely drops our IP."
+	case "silent_drop":
+		return endpoint + " gives no answer, and the path goes quiet " + where + ": most likely a firewall at the vendor's edge, or a router before it, drops our packets."
+	case "path_stops_on_our_side":
+		return "Our packets to " + endpoint + " stop after " + where + ", one of our own addresses: check our firewall and routing."
+	case "rejected_by_firewall":
+		return "A firewall at " + where + " answered " + endpoint + " with \"administratively prohibited\": it turns us away."
 	case "tls_cut_by_vendor":
 		return endpoint + " took the connection but closed it as TLS started: the vendor's side ended it."
 	case "tls_certificate_failed":
@@ -600,8 +627,9 @@ func (f probeFound) recordAndTrace(t probeTarget, cfg *config.Config, start, end
 		if q.answer == answerNo {
 			pointsTo = q.pointsTo
 		}
+		id := tracectx.NewSpanID()
 		spans = append(spans, export.Span{
-			ID: tracectx.NewSpanID(), Parent: root.ID, Name: q.id, Kind: trace.SpanKindInternal,
+			ID: id, Parent: root.ID, Name: q.id, Kind: trace.SpanKindInternal,
 			Start: q.start, End: q.end, Status: questionStatus(q.answer),
 			Attrs: []attribute.KeyValue{
 				attribute.String("hotline.probe.question", q.text),
@@ -610,6 +638,9 @@ func (f probeFound) recordAndTrace(t probeTarget, cfg *config.Config, start, end
 				attribute.StringSlice("hotline.probe.evidence", q.evidence),
 			},
 		})
+		for _, h := range q.hops {
+			spans = append(spans, h.span(id))
+		}
 	}
 	return finished{
 		event: export.ProbeEvent, cfg: cfg, chain: probeChain, sc: sc, at: start,

@@ -14,15 +14,21 @@ type Probe struct {
 	First      time.Duration
 	Longest    time.Duration
 	QuietAfter time.Duration
-	// Timeout is how long each step of a probe (DNS, the TCP connect, TLS)
-	// may take.
+	// Timeout is how long each step of a probe (DNS, the TCP connect, TLS,
+	// each packet of the path trace) may take.
 	Timeout time.Duration
+	// MaxHops is how many routers the path trace goes through at most.
+	MaxHops int
 }
+
+// maxHopsLimit is the most routers a path trace may go through: a TTL
+// above 64 reaches anything on the internet.
+const maxHopsLimit = 64
 
 // probeDefaults are the settings of an api that says nothing about probes,
 // and of every host outside the apis (Peter, 2026-11-21).
 func probeDefaults() Probe {
-	return Probe{Enabled: true, First: time.Minute, Longest: 15 * time.Minute, QuietAfter: 15 * time.Minute, Timeout: 2 * time.Second}
+	return Probe{Enabled: true, First: time.Minute, Longest: 15 * time.Minute, QuietAfter: 15 * time.Minute, Timeout: 2 * time.Second, MaxHops: 20}
 }
 
 // probeFile is an api's probe section as the config writes it.
@@ -34,6 +40,7 @@ type probeFile struct {
 		QuietAfter *string `yaml:"quietAfter"`
 	} `yaml:"backoff"`
 	ProbeTimeout *string `yaml:"probeTimeout"`
+	MaxHops      *int    `yaml:"maxHops"`
 }
 
 // probe reads an api's probe section, or gives the defaults.
@@ -50,6 +57,12 @@ func (l *loader) probe(label string, f *probeFile) Probe {
 	p.Longest = l.interval(label, "backoff.longest", f.Backoff.Longest, p.Longest)
 	p.QuietAfter = l.interval(label, "backoff.quietAfter", f.Backoff.QuietAfter, p.QuietAfter)
 	p.Timeout = l.interval(label, "probeTimeout", f.ProbeTimeout, p.Timeout)
+	if f.MaxHops != nil {
+		p.MaxHops = *f.MaxHops
+	}
+	if p.MaxHops < 1 || p.MaxHops > maxHopsLimit {
+		l.problem("%s: maxHops %d must be from 1 to %d", label, p.MaxHops, maxHopsLimit)
+	}
 	if p.First > p.Longest {
 		l.problem("%s: backoff.first %s is longer than backoff.longest %s", label, p.First, p.Longest)
 	}
@@ -57,8 +70,8 @@ func (l *loader) probe(label string, f *probeFile) Probe {
 }
 
 // ProbeFor is how the proxy probes a host. When several apis reach the host,
-// the most careful setting wins: off when any is off, and the longest of
-// each wait (Peter, 2026-11-21). A host outside the apis has the defaults.
+// the most careful setting wins: off when any is off, the longest of each
+// wait (Peter, 2026-11-21), and the fewest routers to trace. A host outside the apis has the defaults.
 func (c *Config) ProbeFor(host string) Probe {
 	if p, found := c.probes[host]; found {
 		return p
@@ -74,5 +87,6 @@ func carefuller(a, b Probe) Probe {
 		Longest:    max(a.Longest, b.Longest),
 		QuietAfter: max(a.QuietAfter, b.QuietAfter),
 		Timeout:    max(a.Timeout, b.Timeout),
+		MaxHops:    min(a.MaxHops, b.MaxHops),
 	}
 }

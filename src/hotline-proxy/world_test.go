@@ -647,6 +647,7 @@ func (w *world) startOnce() error {
 		ConfigPath:    w.configPath,
 		Resolver:      w.network,
 		Dialer:        w.network,
+		Packets:       w.network,
 		RootCAs:       w.authority.pool,
 		Clock:         clock,
 		Logger:        slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
