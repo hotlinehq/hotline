@@ -19,18 +19,18 @@ const (
 
 // schemaAt is a schema of the spec as it is written, and where it is.
 type schemaAt struct {
-	value any
+	schema any
 	// found is false when the spec gives no schema.
 	found   bool
 	pointer string
-	// what names it in a problem, such as "query limit".
-	what string
+	// label names it in a problem, such as "query limit".
+	label string
 }
 
 // schemaOf is the schema an owner, such as a parameter, holds.
 func schemaOf(owner map[string]any, pointer, what string) schemaAt {
 	v, found := owner["schema"]
-	return schemaAt{value: v, found: found, pointer: pointer + "/schema", what: what}
+	return schemaAt{schema: v, found: found, pointer: pointer + "/schema", label: what}
 }
 
 // startEngine hands the shared schemas to the engine. On a problem, the
@@ -88,7 +88,7 @@ func (b *builder) paramSpecs(params []param, segments []string, where string) []
 			Name: p.name, In: p.in, Required: p.required, Segment: -1,
 			Explode: p.explode, DeepObject: p.deepObject,
 			Schema: b.schema(p.schema, where),
-			What:   p.schema.what,
+			Label:  p.schema.label,
 		}
 		if p.in == "path" {
 			for at, segment := range segments {
@@ -108,7 +108,7 @@ func (b *builder) contents(body *bodySpec, where string) []Content {
 	}
 	out := make([]Content, len(body.content))
 	for i, c := range body.content {
-		out[i] = Content{Schema: b.schema(c.schema, where), XML: c.xml, What: c.schema.what}
+		out[i] = Content{Schema: b.schema(c.schema, where), XML: c.xml, Label: c.schema.label}
 		for _, f := range c.fields {
 			out[i].Marked = append(out[i].Marked, Marked{Path: f.path, Name: f.name, Types: f.types})
 		}
@@ -122,9 +122,9 @@ func (b *builder) schema(at schemaAt, where string) Schema {
 	if !at.found {
 		return nil
 	}
-	s, ok := asSchema(at.value)
+	s, ok := asSchema(at.schema)
 	if !ok {
-		b.problem("%s: the schema of %s cannot be used: a schema must be an object, or true or false", where, at.what)
+		b.problem("%s: the schema of %s cannot be used: a schema must be an object, or true or false", where, at.label)
 		return nil
 	}
 	return s

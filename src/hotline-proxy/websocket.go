@@ -31,9 +31,9 @@ type session struct {
 	fromApp    *countedWriter
 	// opened is when the 101 reached the app; zero while it has not.
 	opened time.Time
-	// reading reads the messages, when the route lists them; nil
+	// messageReader reads the messages, when the route lists them; nil
 	// otherwise, and the session is counted in bytes only.
-	reading *reading
+	messageReader *messageReader
 }
 
 // newSession sets up the session of a call whose vendor answered 101: its
@@ -46,9 +46,9 @@ func (c *call) newSession(resp *http.Response, toVendor io.Writer) *session {
 	vendor := resp.Body
 	if messages := c.route.Messages(); messages != nil {
 		app, fromVendor := deflateAgreed(resp.Header.Values("Sec-WebSocket-Extensions"))
-		s.reading = newReading(c, span, messages, c.api.Checks.Has(config.PartMessages), app, fromVendor)
-		vendor = &vendorWire{ReadCloser: vendor, r: s.reading}
-		toVendor = appWire{Writer: toVendor, r: s.reading}
+		s.messageReader = newMessageReader(c, span, messages, c.api.Checks.Has(config.PartMessages), app, fromVendor)
+		vendor = &vendorSideTap{ReadCloser: vendor, r: s.messageReader}
+		toVendor = appSideTap{Writer: toVendor, r: s.messageReader}
 	}
 	s.fromVendor = &tap{ReadCloser: vendor, mac: c.h.bodyHash("from_vendor", c.trace.WithSpanID(span))}
 	s.fromApp = &countedWriter{Writer: toVendor, mac: c.h.bodyHash("from_app", c.trace.WithSpanID(span))}
@@ -57,8 +57,8 @@ func (c *call) newSession(resp *http.Response, toVendor io.Writer) *session {
 
 // endReading ends the reading of the session's messages, if it reads them.
 func (s *session) endReading() {
-	if s.reading != nil {
-		s.reading.end()
+	if s.messageReader != nil {
+		s.messageReader.end()
 	}
 }
 
@@ -105,8 +105,8 @@ func (c *call) sessionRecord(end time.Time) finished {
 		ID: s.span, Parent: c.trace.SpanID(), Name: "websocket session", Kind: trace.SpanKindInternal,
 		Start: opened, End: end,
 	}
-	if s.reading != nil {
-		read := s.reading.sessionAttrs()
+	if s.messageReader != nil {
+		read := s.messageReader.sessionAttrs()
 		attrs = append(attrs, read...)
 		span.Attrs = read
 	}

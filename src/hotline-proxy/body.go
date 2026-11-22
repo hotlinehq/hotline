@@ -27,7 +27,7 @@ type tap struct {
 	mac    *ledger.BodyHash
 	saver  bodySaver
 	keeper bodyKeeper
-	// stream, when set, reads the body's items as they pass.
+	// stream, when set, reads the body's stream items as they pass.
 	stream *responseStream
 
 	mu   sync.Mutex
