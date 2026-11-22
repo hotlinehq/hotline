@@ -97,9 +97,9 @@ func (o *own) started(ingress string) func() {
 	return func() { o.active.Add(context.Background(), -1, labels) }
 }
 
-// ended measures a finished call's total time from its record, by ingress,
+// measureCall measures a finished call's total time from its record, by ingress,
 // status code and error type.
-func (o *own) ended(attrs []attribute.KeyValue) {
+func (o *own) measureCall(attrs []attribute.KeyValue) {
 	// Room for the three on the stack, so the list costs no memory to make.
 	labels := make([]attribute.KeyValue, 0, 3)
 	var total int64

@@ -13,10 +13,10 @@ import (
 	"hotline-proxy/internal/spec/read"
 )
 
-// whole names a whole body in a result.
+// whole names a whole body in a finding.
 const whole = "$"
 
-// partBody is the part of the results about a body.
+// partBody is the part of the findings about a body.
 const partBody = "body"
 
 // param is a parameter or response header with its compiled schema, nil
@@ -64,7 +64,7 @@ func (e *Engine) params(list []spec.Param) ([]param, error) {
 	out := make([]param, len(list))
 	var problems []error
 	for i, p := range list {
-		s, err := e.schema(p.Schema, p.What)
+		s, err := e.schema(p.Schema, p.Label)
 		problems = append(problems, err)
 		out[i] = param{Param: p, schema: s, list: slices.Contains(types(s), "array")}
 	}
@@ -75,40 +75,40 @@ func (e *Engine) contents(list []spec.Content) ([]content, error) {
 	out := make([]content, len(list))
 	var problems []error
 	for i, c := range list {
-		s, err := e.schema(c.Schema, c.What)
+		s, err := e.schema(c.Schema, c.Label)
 		problems = append(problems, err)
 		out[i] = content{Content: c, schema: s}
 	}
 	return out, errors.Join(problems...)
 }
 
-func (q *requestCheck) Meta(escapedPath, rawQuery string, header http.Header) []spec.Result {
+func (q *requestCheck) Params(escapedPath, rawQuery string, header http.Header) []spec.Finding {
 	var query url.Values
 	if rawQuery != "" {
 		query, _ = url.ParseQuery(rawQuery)
 	}
 	cookies := map[string]string{}
 	read.Cookies(header, cookies)
-	var results []spec.Result
+	var findings []spec.Finding
 	for _, p := range q.params {
-		results = append(results, p.check(p.values(escapedPath, query, header, cookies))...)
+		findings = append(findings, p.check(p.values(escapedPath, query, header, cookies))...)
 	}
-	return results
+	return findings
 }
 
-func (q *requestCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (q *requestCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
 	return q.body[i].check(reads, body)
 }
 
-func (r *responseCheck) Meta(header http.Header) []spec.Result {
-	var results []spec.Result
+func (r *responseCheck) Headers(header http.Header) []spec.Finding {
+	var findings []spec.Finding
 	for _, h := range r.headers {
-		results = append(results, h.check(h.values("", nil, header, nil))...)
+		findings = append(findings, h.check(h.values("", nil, header, nil))...)
 	}
-	return results
+	return findings
 }
 
-func (r *responseCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (r *responseCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
 	return r.body[i].check(reads, body)
 }
 
@@ -139,10 +139,10 @@ func (p param) values(escapedPath string, query url.Values, header http.Header, 
 	return nil
 }
 
-func (p param) check(values any) []spec.Result {
+func (p param) check(values any) []spec.Finding {
 	if values == nil {
 		if p.Required {
-			return []spec.Result{{Part: p.In, Place: p.Name, Rule: "required"}}
+			return []spec.Finding{{Part: p.In, Place: p.Name, Rule: "required"}}
 		}
 		return nil
 	}
@@ -158,7 +158,7 @@ func (p param) check(values any) []spec.Result {
 
 // check reads a body and checks it against the schema of its content,
 // copying its marked fields.
-func (c content) check(reads spec.Reads, data []byte) ([]spec.Result, []spec.Field) {
+func (c content) check(reads spec.Reads, data []byte) ([]spec.Finding, []spec.Field) {
 	var instance any
 	switch reads {
 	case spec.ReadsXML:
@@ -167,9 +167,9 @@ func (c content) check(reads spec.Reads, data []byte) ([]spec.Result, []spec.Fie
 		var root *read.RootError
 		switch {
 		case errors.As(err, &root):
-			return []spec.Result{{Part: partBody, Place: whole, Rule: "xml_root", Expected: root.Want}}, nil
+			return []spec.Finding{{Part: partBody, Place: whole, Rule: "xml_root", Expected: root.Want}}, nil
 		case err != nil:
-			return []spec.Result{{Part: partBody, Place: whole, Rule: "xml"}}, nil
+			return []spec.Finding{{Part: partBody, Place: whole, Rule: "xml"}}, nil
 		case c.XML.Shape == nil:
 			return nil, nil
 		}
@@ -177,20 +177,20 @@ func (c content) check(reads spec.Reads, data []byte) ([]spec.Result, []spec.Fie
 	case spec.ReadsForm:
 		values, err := read.Form(data)
 		if err != nil {
-			return []spec.Result{{Part: partBody, Place: whole, Rule: "form"}}, nil
+			return []spec.Finding{{Part: partBody, Place: whole, Rule: "form"}}, nil
 		}
 		instance = coerce(values, c.schema)
 	default: // spec.ReadsJSON
 		if c.schema == nil {
 			// No schema, so no marked fields: the body need only be JSON.
 			if !json.Valid(data) {
-				return []spec.Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
+				return []spec.Finding{{Part: partBody, Place: whole, Rule: "json"}}, nil
 			}
 			return nil, nil
 		}
 		var err error
 		if instance, err = decodeJSON(data); err != nil {
-			return []spec.Result{{Part: partBody, Place: whole, Rule: "json"}}, nil
+			return []spec.Finding{{Part: partBody, Place: whole, Rule: "json"}}, nil
 		}
 	}
 	// The marked fields are picked from the value santhosh needs whole

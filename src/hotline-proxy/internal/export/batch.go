@@ -102,7 +102,7 @@ func newBatchLine(name string, logger *slog.Logger, before func(context.Context)
 }
 
 // dropped notes a record the exporter dropped, for its batch's record.
-func (l *batchLine) dropped(e Entry) {
+func (l *batchLine) dropped(e LedgerEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	d := l.drops[e.Batch]

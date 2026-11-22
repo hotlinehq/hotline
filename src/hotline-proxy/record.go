@@ -242,7 +242,7 @@ func (c *call) sentURL() url.URL {
 // the spec, ok when it passed, unset when part of it was skipped, and under
 // it the wait for a free worker. The wait is an error with error.type
 // overloaded when the check gave way in a full line (Peter, 2026-11-02).
-func (c *call) checkSpans(name string, parent trace.SpanID, s *specCheck, found []spec.Result, skipped string) []export.Span {
+func (c *call) checkSpans(name string, parent trace.SpanID, s *specCheck, found []spec.Finding, skipped string) []export.Span {
 	check := export.Span{
 		ID: tracectx.NewSpanID(), Parent: parent, Name: name, Kind: trace.SpanKindInternal,
 		Start: s.start, End: s.end, Status: export.FailedIf(len(found) > 0),
@@ -392,7 +392,7 @@ func (h *handler) recordThen(build func() finished, then func()) {
 		h.book.record(recordContext(f.sc), f)
 		if f.event == "" {
 			// Only a call has a total time to measure.
-			h.own.ended(f.attrs)
+			h.own.measureCall(f.attrs)
 		}
 		if then != nil {
 			then()
@@ -523,8 +523,8 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 	return checked(attrs, found, ran)
 }
 
-// shownResults is how many results of one side a record holds at most.
-const shownResults = 20
+// shownFindings is how many findings of one side a record holds at most.
+const shownFindings = 20
 
 // checked is what the checks found, as the record holds it, with the
 // status: valid, invalid, or skipped when nothing was found but part of
@@ -553,21 +553,21 @@ func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribu
 
 	// A fixed pair, not a map built for every call.
 	sides := [2]struct {
-		name    string
-		results []spec.Result
+		name     string
+		findings []spec.Finding
 	}{{"request", found.Request}, {"response", found.Response}}
 	for _, one := range sides {
-		side, results := one.name, one.results
-		if len(results) == 0 {
+		side, findings := one.name, one.findings
+		if len(findings) == 0 {
 			continue
 		}
 		key := "hotline.schema." + side + ".errors"
-		if len(results) > shownResults {
-			attrs = append(attrs, attribute.Int(key+"_total", len(results)))
-			results = results[:shownResults]
+		if len(findings) > shownFindings {
+			attrs = append(attrs, attribute.Int(key+"_total", len(findings)))
+			findings = findings[:shownFindings]
 		}
-		values := make([]attribute.Value, len(results))
-		for i, r := range results {
+		values := make([]attribute.Value, len(findings))
+		for i, r := range findings {
 			entry := []attribute.KeyValue{attribute.String("part", r.Part), attribute.String("rule", r.Rule)}
 			if r.Place != "" {
 				entry = append(entry, attribute.String("place", r.Place))

@@ -80,43 +80,43 @@ func types(s *jsonschema.Schema) []string {
 }
 
 // validate checks a value against a schema and turns what is wrong into
-// results about part, sorted by place. base names the value: a
+// findings about part, sorted by place. base names the value: a
 // parameter's name, or $ for a body.
-func validate(s *jsonschema.Schema, instance any, part, base string) []spec.Result {
+func validate(s *jsonschema.Schema, instance any, part, base string) []spec.Finding {
 	var invalid *jsonschema.ValidationError
 	if !errors.As(s.Validate(instance), &invalid) {
 		return nil
 	}
 	var leaves []*jsonschema.ValidationError
 	collect(invalid, &leaves)
-	var results []spec.Result
+	var findings []spec.Finding
 	for _, e := range leaves {
 		place := placeOf(base, instance, e.InstanceLocation)
 		switch k := e.ErrorKind.(type) {
 		case *kind.Required:
 			for _, name := range k.Missing {
-				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "required"})
+				findings = append(findings, spec.Finding{Part: part, Place: place + "." + name, Rule: "required"})
 			}
 		case *kind.AdditionalProperties:
 			for _, name := range k.Properties {
-				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
+				findings = append(findings, spec.Finding{Part: part, Place: place + "." + name, Rule: "additionalProperties"})
 			}
 		case *kind.DependentRequired:
 			for _, name := range k.Missing {
-				results = append(results, spec.Result{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
+				findings = append(findings, spec.Finding{Part: part, Place: place + "." + name, Rule: "dependentRequired"})
 			}
 		case *kind.ContentMediaType:
 			// A string that should hold JSON doesn't.
-			results = append(results, spec.Result{Part: part, Place: place, Rule: "json"})
+			findings = append(findings, spec.Finding{Part: part, Place: place, Rule: "json"})
 		case *kind.ContentEncoding:
 			// A string that should be base64 text isn't.
-			results = append(results, spec.Result{Part: part, Place: place, Rule: "base64"})
+			findings = append(findings, spec.Finding{Part: part, Place: place, Rule: "base64"})
 		default:
-			results = append(results, spec.Result{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
+			findings = append(findings, spec.Finding{Part: part, Place: place, Rule: rule(e.ErrorKind), Expected: expected(e.ErrorKind)})
 		}
 	}
-	sort.SliceStable(results, func(i, j int) bool { return results[i].Place < results[j].Place })
-	return results
+	sort.SliceStable(findings, func(i, j int) bool { return findings[i].Place < findings[j].Place })
+	return findings
 }
 
 // rule names the broken rule by its JSON Schema keyword.

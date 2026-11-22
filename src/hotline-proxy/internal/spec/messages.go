@@ -38,16 +38,16 @@ type Messages struct {
 type side struct {
 	// readable says the side's content type is JSON, which is the only kind
 	// of message the proxy reads.
-	readable bool
-	kinds    []kind
-	// wanted is what naming reads of a message.
-	wanted *wanted
+	readable       bool
+	messageSchemas []messageSchema
+	// namingFields is what naming reads of a message.
+	namingFields *namingFields
 }
 
-// kind is one message: its name in components/x-async-api/messages, its
+// messageSchema is one kind of message: its name in components/x-async-api/messages, its
 // operation and role, the marks that find it, where its correlation id is
 // and its check.
-type kind struct {
+type messageSchema struct {
 	name      string
 	operation string
 	role      string
@@ -82,8 +82,8 @@ type Message struct {
 	ConversationID string
 	// Skipped says why the message can't be checked at all, such as
 	// unsupported_content_type.
-	Skipped string
-	kind    *kind
+	Skipped       string
+	messageSchema *messageSchema
 }
 
 // Unknown names a message no schema's marks match.
@@ -122,11 +122,11 @@ func (m *Messages) Name(fromApp bool, data []byte) Message {
 	if !s.readable {
 		return Message{Name: Unknown, Skipped: "unsupported_content_type"}
 	}
-	v := s.wanted.read(data)
-	for i := range s.kinds {
-		k := &s.kinds[i]
+	v := s.namingFields.read(data)
+	for i := range s.messageSchemas {
+		k := &s.messageSchemas[i]
 		if k.matched(v) {
-			return Message{Name: k.name, Operation: k.operation, Role: k.role, ConversationID: k.conversationIn(v), kind: k}
+			return Message{Name: k.name, Operation: k.operation, Role: k.role, ConversationID: k.conversationIn(v), messageSchema: k}
 		}
 	}
 	return Message{Name: Unknown}
@@ -135,14 +135,14 @@ func (m *Messages) Name(fromApp bool, data []byte) Message {
 // Check checks a named message, whole and not unknown, against its schema,
 // and copies its fields marked x-hotline-record. A message from the app is
 // checked as a request body is, and one from the vendor as a response
-// body: their results are on that side of what is found.
+// body: their findings are on that side of what is found.
 func (m *Messages) Check(msg Message, fromApp bool, data []byte) Checked {
-	results, copied := msg.kind.check.Body(0, ReadsJSON, data)
+	findings, copied := msg.messageSchema.check.Body(0, ReadsJSON, data)
 	c := Checked{Copied: copied}
 	if fromApp {
-		c.Request = results
+		c.Request = findings
 	} else {
-		c.Response = results
+		c.Response = findings
 	}
 	return c
 }
@@ -156,7 +156,7 @@ func (m *Messages) side(fromApp bool) *side {
 
 // matched says whether every marked field of the message is there, with
 // its const value when it has one.
-func (k *kind) matched(v any) bool {
+func (k *messageSchema) matched(v any) bool {
 	for _, mark := range k.matches {
 		got, found := at(v, mark.path)
 		if !found || mark.hasValue && !reflect.DeepEqual(got, mark.value) {
@@ -168,7 +168,7 @@ func (k *kind) matched(v any) bool {
 
 // conversationIn is the message's correlation id: the value at its
 // pointer, when that is text or a number.
-func (k *kind) conversationIn(v any) string {
+func (k *messageSchema) conversationIn(v any) string {
 	if k.correlation == nil {
 		return ""
 	}
@@ -209,29 +209,29 @@ func at(v any, path []string) (any, bool) {
 	return v, true
 }
 
-// wanted is the part of a side's messages that naming reads: the fields
+// namingFields is the part of a side's messages that naming reads: the fields
 // its marks name, and nothing else. A Gemini Live message is mostly
 // audio no mark looks at, and reading all of it, then reading it again
 // for the check, handed out over half of a session's memory (load test,
 // 2026-11-20).
-type wanted struct {
+type namingFields struct {
 	// whole keeps the value here as it is: a const to compare, or a
 	// correlation id.
 	whole bool
 	// props are the properties read further, when the value is an object;
 	// items what is read of each item, when it is a list. A field with
 	// neither, nor whole, is only noted as there.
-	props map[string]*wanted
-	items *wanted
+	props map[string]*namingFields
+	items *namingFields
 }
 
 // there stands for a field naming needs only to know is there.
 type there struct{}
 
-// wantedBy is what the marks of every kind of a side read.
-func wantedBy(kinds []kind) *wanted {
-	root := &wanted{}
-	for _, k := range kinds {
+// namingFieldsOf is what the marks of every message schema of a side read.
+func namingFieldsOf(messageSchemas []messageSchema) *namingFields {
+	root := &namingFields{}
+	for _, k := range messageSchemas {
 		for _, mark := range k.matches {
 			w := root
 			for _, name := range mark.path {
@@ -248,7 +248,7 @@ func wantedBy(kinds []kind) *wanted {
 
 // pointer adds a JSON pointer's value, kept whole. A step that is a
 // number reads that item of a list, or that property of an object.
-func (w *wanted) pointer(steps []string) {
+func (w *namingFields) pointer(steps []string) {
 	if len(steps) == 0 {
 		w.whole = true
 		return
@@ -256,18 +256,18 @@ func (w *wanted) pointer(steps []string) {
 	w.prop(steps[0]).pointer(steps[1:])
 	if _, err := strconv.Atoi(steps[0]); err == nil {
 		if w.items == nil {
-			w.items = &wanted{}
+			w.items = &namingFields{}
 		}
 		w.items.pointer(steps[1:])
 	}
 }
 
-func (w *wanted) prop(name string) *wanted {
+func (w *namingFields) prop(name string) *namingFields {
 	if w.props == nil {
-		w.props = map[string]*wanted{}
+		w.props = map[string]*namingFields{}
 	}
 	if w.props[name] == nil {
-		w.props[name] = &wanted{}
+		w.props[name] = &namingFields{}
 	}
 	return w.props[name]
 }
@@ -275,14 +275,14 @@ func (w *wanted) prop(name string) *wanted {
 // read reads data as far as it is whole, keeping only what w wants: a
 // message cut at the size kept still gives the fields before the cut, so
 // it can be named. It reads the data where it is, without a copy.
-func (w *wanted) read(data []byte) any {
+func (w *namingFields) read(data []byte) any {
 	d := jsontext.NewDecoder(bytes.NewBuffer(data), jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))
 	v, _ := w.value(d)
 	return v
 }
 
 // value reads the next value, and says whether it was whole.
-func (w *wanted) value(d *jsontext.Decoder) (any, bool) {
+func (w *namingFields) value(d *jsontext.Decoder) (any, bool) {
 	kind := d.PeekKind()
 	switch {
 	case w.whole:
@@ -350,12 +350,12 @@ func wholeValue(d *jsontext.Decoder) (any, bool) {
 // asyncMessages starts a $ref to a message of components/x-async-api.
 const asyncMessages = "#/components/x-async-api/messages/"
 
-// placed is a message as an operation lists it: its kind, the side that
+// placed is a message as an operation lists it: its message schema, the side that
 // sends it, and its content type.
 type placed struct {
-	kind        kind
-	fromApp     bool
-	contentType string
+	messageSchema messageSchema
+	fromApp       bool
+	contentType   string
 }
 
 // asyncAPI reads the x-async-api mark of an operation: its operations, and
@@ -486,7 +486,7 @@ func (b *builder) message(r ref, operation, role string, fromApp bool, defaultTy
 	if schema == nil {
 		return placed{}, false
 	}
-	k := kind{name: r.name, operation: operation, role: role}
+	k := messageSchema{name: r.name, operation: operation, role: role}
 	b.messageMarks(schema, schemaAt, nil, false, map[string]bool{}, &k)
 	if len(k.matches) == 0 {
 		b.problem("%s: the message %s has no x-hotline-match, so no message can be named %s", where, r.name, r.name)
@@ -502,7 +502,7 @@ func (b *builder) message(r ref, operation, role string, fromApp bool, defaultTy
 	if !set {
 		contentType = defaultType
 	}
-	return placed{kind: k, fromApp: fromApp, contentType: contentType}, true
+	return placed{messageSchema: k, fromApp: fromApp, contentType: contentType}, true
 }
 
 // correlation reads a correlationId: its location must be a JSON pointer
@@ -530,13 +530,13 @@ func (b *builder) correlation(v any, pointer, where string) []string {
 // so the proxy knows whether it can read the side before it names a
 // message.
 func (b *builder) side(all []placed, fromApp bool, where string) side {
-	var kinds []kind
+	var messageSchemas []messageSchema
 	var types []string
 	for _, p := range all {
 		if p.fromApp != fromApp {
 			continue
 		}
-		kinds = append(kinds, p.kind)
+		messageSchemas = append(messageSchemas, p.messageSchema)
 		mediaType, _, _ := mime.ParseMediaType(p.contentType)
 		if !slices.Contains(types, mediaType) {
 			types = append(types, mediaType)
@@ -546,8 +546,8 @@ func (b *builder) side(all []placed, fromApp bool, where string) side {
 		slices.Sort(types)
 		b.problem("%s: the messages the %s sends mix the content types %s", where, sideName(fromApp), strings.Join(types, " and "))
 	}
-	b.clearMatches(kinds, where)
-	return side{readable: len(types) == 0 || isJSON(types[0]), kinds: kinds, wanted: wantedBy(kinds)}
+	b.clearMatches(messageSchemas, where)
+	return side{readable: len(types) == 0 || isJSON(types[0]), messageSchemas: messageSchemas, namingFields: namingFieldsOf(messageSchemas)}
 }
 
 // sideName names a side in a problem.
@@ -560,7 +560,7 @@ func sideName(fromApp bool) string {
 
 // messageMarks walks a message schema's properties, through objects and
 // lists, for its x-hotline-match marks.
-func (b *builder) messageMarks(m map[string]any, pointer string, path []string, inList bool, seen map[string]bool, k *kind) {
+func (b *builder) messageMarks(m map[string]any, pointer string, path []string, inList bool, seen map[string]bool, k *messageSchema) {
 	if seen[pointer] {
 		return
 	}
@@ -602,19 +602,19 @@ func (b *builder) messageMarks(m map[string]any, pointer string, path []string, 
 // same messages: when every mark of one is also a mark of the other, with
 // the same const or none, any message matching the second matches the
 // first too (Peter, 2026-11-19, Q3).
-func (b *builder) clearMatches(kinds []kind, where string) {
-	for i := range kinds {
-		for j := i + 1; j < len(kinds); j++ {
-			if covers(kinds[i], kinds[j]) || covers(kinds[j], kinds[i]) {
+func (b *builder) clearMatches(messageSchemas []messageSchema, where string) {
+	for i := range messageSchemas {
+		for j := i + 1; j < len(messageSchemas); j++ {
+			if covers(messageSchemas[i], messageSchemas[j]) || covers(messageSchemas[j], messageSchemas[i]) {
 				b.problem("%s: the messages %s and %s both match the same messages: give one a mark the other lacks, or a different const",
-					where, kinds[i].name, kinds[j].name)
+					where, messageSchemas[i].name, messageSchemas[j].name)
 			}
 		}
 	}
 }
 
 // covers says whether every message that matches other matches k too.
-func covers(k, other kind) bool {
+func covers(k, other messageSchema) bool {
 	if len(k.matches) == 0 {
 		return false
 	}
@@ -634,7 +634,7 @@ func covers(k, other kind) bool {
 func (b *builder) messageCheck(item any, pointer, schemaName, name, where string) ResponseCheck {
 	ct := content{
 		mediaType: "application/json",
-		schema:    schemaAt{value: map[string]any{"$ref": sharedPrefix + schemaName}, found: true, pointer: pointer, what: "the message " + name},
+		schema:    schemaAt{schema: map[string]any{"$ref": sharedPrefix + schemaName}, found: true, pointer: pointer, label: "the message " + name},
 		fields:    b.fields(item, pointer),
 	}
 	return b.responseCheck(&response{body: &bodySpec{content: []content{ct}}}, where)

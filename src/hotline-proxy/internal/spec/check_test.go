@@ -37,12 +37,12 @@ func (accepting) Request(spec.RequestSpec) (spec.RequestCheck, error) {
 func (accepting) Response(spec.ResponseSpec) (spec.ResponseCheck, error) {
 	return acceptResponse{}, nil
 }
-func (acceptRequest) Meta(string, string, http.Header) []spec.Result { return nil }
-func (acceptRequest) Body(int, spec.Reads, []byte) ([]spec.Result, []spec.Field) {
+func (acceptRequest) Params(string, string, http.Header) []spec.Finding { return nil }
+func (acceptRequest) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
-func (acceptResponse) Meta(http.Header) []spec.Result { return nil }
-func (acceptResponse) Body(int, spec.Reads, []byte) ([]spec.Result, []spec.Field) {
+func (acceptResponse) Headers(http.Header) []spec.Finding { return nil }
+func (acceptResponse) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
 
@@ -76,22 +76,22 @@ func (t *told) Response(r spec.ResponseSpec) (spec.ResponseCheck, error) {
 
 // body keeps what a told check was asked to check, and copies one field
 // naming the content.
-func (t *told) body(content int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (t *told) body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
 	t.bodies = append(t.bodies, fmt.Sprintf("%d %d %s", content, reads, body))
 	return nil, []spec.Field{{Name: "copied", Value: content}}
 }
 
 type toldRequest struct{ t *told }
 
-func (toldRequest) Meta(string, string, http.Header) []spec.Result { return nil }
-func (c toldRequest) Body(content int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (toldRequest) Params(string, string, http.Header) []spec.Finding { return nil }
+func (c toldRequest) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
 	return c.t.body(content, reads, body)
 }
 
 type toldResponse struct{ t *told }
 
-func (toldResponse) Meta(http.Header) []spec.Result { return nil }
-func (c toldResponse) Body(content int, reads spec.Reads, body []byte) ([]spec.Result, []spec.Field) {
+func (toldResponse) Headers(http.Header) []spec.Finding { return nil }
+func (c toldResponse) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
 	return c.t.body(content, reads, body)
 }
 
@@ -171,12 +171,12 @@ components:
 `)
 		Expect(t.requests).To(HaveLen(1))
 		Expect(t.requests[0].Params).To(Equal([]spec.Param{
-			{Name: "id", In: "path", Required: true, Segment: 2, Explode: true, Schema: spec.Schema{"$ref": "#/$defs/Id"}, What: "path id"},
-			{Name: "rest", In: "path", Required: true, Segment: 3, Rest: true, Explode: true, What: "path rest"},
-			{Name: "tags", In: "query", Segment: -1, Schema: spec.Schema{"type": "array"}, What: "query tags"},
-			{Name: "filter", In: "query", Segment: -1, DeepObject: true, What: "query filter"},
-			{Name: "X-Ids", In: "header", Segment: -1, Explode: true, What: "header X-Ids"},
-			{Name: "sid", In: "cookie", Segment: -1, Explode: true, What: "cookie sid"},
+			{Name: "id", In: "path", Required: true, Segment: 2, Explode: true, Schema: spec.Schema{"$ref": "#/$defs/Id"}, Label: "path id"},
+			{Name: "rest", In: "path", Required: true, Segment: 3, Rest: true, Explode: true, Label: "path rest"},
+			{Name: "tags", In: "query", Segment: -1, Schema: spec.Schema{"type": "array"}, Label: "query tags"},
+			{Name: "filter", In: "query", Segment: -1, DeepObject: true, Label: "query filter"},
+			{Name: "X-Ids", In: "header", Segment: -1, Explode: true, Label: "header X-Ids"},
+			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Label: "cookie sid"},
 		}))
 	})
 
@@ -221,13 +221,13 @@ responses:
 			{Path: []string{"box", "count"}, Name: "shop.count", Types: []string{"integer"}},
 			{Path: []string{"id"}, Name: "shop.id", Types: []string{"string"}},
 		}))
-		Expect(body[0].What).To(Equal("the request body application/json"))
+		Expect(body[0].Label).To(Equal("the request body application/json"))
 		Expect(body[0].XML).To(BeNil())
 		Expect(body[1].XML.Root).To(Equal("Order"))
 		Expect(body[2].Schema).To(BeNil())
 		Expect(t.responses).To(HaveLen(1))
 		Expect(t.responses[0].Headers).To(Equal([]spec.Param{
-			{Name: "X-Count", In: "header", Required: true, Segment: -1, Schema: spec.Schema{"type": "integer"}, What: "the 200 response header X-Count"},
+			{Name: "X-Count", In: "header", Required: true, Segment: -1, Schema: spec.Schema{"type": "integer"}, Label: "the 200 response header X-Count"},
 		}))
 	})
 

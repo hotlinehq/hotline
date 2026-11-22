@@ -18,9 +18,9 @@ import (
 // reads them, written as a JSON object for the check, its size as sent,
 // and when its first and last bytes passed.
 type sseEvent struct {
-	// item is the event as JSON; nil when the event was over keptBody, so
+	// asJSON is the event as JSON; nil when the event was over keptBody, so
 	// it was not kept.
-	item       []byte
+	asJSON     []byte
 	size       int64
 	start, end time.Time
 }
@@ -88,7 +88,7 @@ func (r *sseReader) pass(p []byte, at time.Time) {
 		case b == '\n' || b == '\r':
 			r.afterCR = b == '\r'
 			r.endLine()
-			r.ending(at)
+			r.endEventIfBlank(at)
 		default:
 			r.afterCR = false
 			if !r.tooBig {
@@ -126,8 +126,8 @@ func (r *sseReader) skipMark(b byte) bool {
 	return false
 }
 
-// ending ends the event, after a line end, when that line was blank.
-func (r *sseReader) ending(at time.Time) {
+// endEventIfBlank ends the event, after a line end, when that line was blank.
+func (r *sseReader) endEventIfBlank(at time.Time) {
 	if !r.blank {
 		return
 	}
@@ -193,7 +193,7 @@ func digits(value []byte) bool {
 func (r *sseReader) deliver(at time.Time) {
 	e := sseEvent{size: r.size, start: r.start, end: at}
 	if !r.tooBig {
-		e.item, _ = json.Marshal(struct { //nolint:errchkjson // text, text pointers and a number always encode
+		e.asJSON, _ = json.Marshal(struct { //nolint:errchkjson // text, text pointers and a number always encode
 			Data  string  `json:"data"`
 			Event *string `json:"event,omitempty"`
 			ID    *string `json:"id,omitempty"`

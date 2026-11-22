@@ -16,52 +16,52 @@ import (
 	"hotline-proxy/internal/tracectx"
 )
 
-// responseStream is a streamed response whose spec gives an itemSchema: its items,
+// responseStream is a streamed response whose spec gives an itemSchema: its stream items,
 // read as they pass. As for a WebSocket, the call is recorded as soon as
-// the response's headers reach the app, each item in a record of its own as
+// the response's headers reach the app, each stream item in a record of its own as
 // it ends, and the stream in a record of its own when it ends, in the
 // call's trace, under the call's span (Peter, 2026-11-21, M2, Q1 to Q3).
 type responseStream struct {
 	c *call
 	// span is the stream span's id, which the stream record, its hash and
-	// every item's span carry.
-	span  trace.SpanID
-	items *spec.ItemSchema
-	// checked says the api's checks hold the response body, so each item
+	// every stream item's span carry.
+	span       trace.SpanID
+	itemSchema *spec.ItemSchema
+	// checked says the api's checks hold the response body, so each stream item
 	// is checked.
 	checked bool
 	// bytes is what the vendor sends after the headers, counted and hashed
 	// with the stream's span as it passes on to the app.
 	bytes *tap
-	// read cuts the bytes into items; only the tap that passes them uses it.
-	read sseReader
-	next int64
+	// read cuts the bytes into stream items; only the tap that passes them uses it.
+	read      sseReader
+	itemCount int64
 	// opened is when the headers reached the app; zero while they have not.
 	// appLeft says the app was gone by then: the call record says so,
 	// while the stream goes on writing to the app.
 	opened  time.Time
 	appLeft bool
 	// recording counts the stream item records not yet made, and invalid the
-	// items whose check found a problem, for the stream record.
+	// stream items whose check found a problem, for the stream record.
 	recording sync.WaitGroup
 	invalid   atomic.Int64
 	// called closes once the call's record is handed on: every stream item record
 	// waits for it, and the stream record for them, so a reader gets the
 	// call first and the stream last. The forwarder sends a stream's
-	// headers before it reads a byte of the body, so no item comes before
+	// headers before it reads a byte of the body, so no stream item comes before
 	// the stream opened.
 	called chan struct{}
 }
 
-// newStream sets up the stream of a response that has items in the spec, and
+// newStream sets up the stream of a response that has stream items in the spec, and
 // the tap its bytes pass through.
-func (c *call) newStream(items *spec.ItemSchema, body io.ReadCloser) *responseStream {
+func (c *call) newStream(itemSchema *spec.ItemSchema, body io.ReadCloser) *responseStream {
 	s := &responseStream{
-		c: c, span: tracectx.NewSpanID(), items: items, checked: c.api.Checks.Has(config.PartResponseBody),
+		c: c, span: tracectx.NewSpanID(), itemSchema: itemSchema, checked: c.api.Checks.Has(config.PartResponseBody),
 		called: make(chan struct{}),
 	}
 	s.bytes = &tap{ReadCloser: body, mac: c.h.bodyHash("stream", c.trace.WithSpanID(s.span)), stream: s}
-	s.read.delivered = s.item
+	s.read.delivered = s.checkStreamItem
 	return s
 }
 
@@ -113,31 +113,31 @@ func (h *handler) endStreams() {
 	})
 }
 
-// item starts the check of one item, and records it once the check ends.
-func (s *responseStream) item(e sseEvent) {
-	s.next++
-	index := s.next
+// checkStreamItem starts the check of one stream item, and records it once the check ends.
+func (s *responseStream) checkStreamItem(e sseEvent) {
+	s.itemCount++
+	index := s.itemCount
 	var check *specCheck
-	if s.checked && e.item != nil {
+	if s.checked && e.asJSON != nil {
 		check = newSpecCheck()
 		check.start = e.end
 		check.started.Store(true)
 		s.c.h.checks.add(&checkJob{
 			check: check,
-			run:   func() (spec.Checked, spec.Route) { return s.items.Check(e.item), spec.Route{} },
-			bytes: int64(len(e.item)),
+			run:   func() (spec.Checked, spec.Route) { return s.itemSchema.Check(e.asJSON), spec.Route{} },
+			bytes: int64(len(e.asJSON)),
 		})
 	}
 	s.recording.Add(1)
-	// The item is done once its record is handed on, so the stream
-	// record, which waits for every item, always comes after them.
+	// The stream item is done once its record is handed on, so the stream
+	// record, which waits for every stream item, always comes after them.
 	s.c.h.recordThen(func() finished {
 		<-s.called
 		return s.record(index, e, check)
 	}, s.recording.Done)
 }
 
-// record builds an item's record and its span, with the check's step under
+// record builds a stream item's record and its span, with the check's step under
 // it.
 func (s *responseStream) record(index int64, e sseEvent, check *specCheck) finished {
 	var found spec.Checked
@@ -169,13 +169,13 @@ func (s *responseStream) record(index int64, e sseEvent, check *specCheck) finis
 		spans = append(spans, c.checkSpans("item spec check", id, check, found.Response, found.Skipped)...)
 	}
 	return finished{
-		event: export.ItemEvent, cfg: c.cfg, chain: c.integration.Name, sc: c.trace.WithSpanID(id),
+		event: export.StreamItemEvent, cfg: c.cfg, chain: c.integration.Name, sc: c.trace.WithSpanID(id),
 		at: e.start, attrs: attrs, spans: spans,
 	}
 }
 
 // streamRecord builds the stream's record and span once it has ended and
-// every item is recorded: its items, how many broke the spec, its bytes,
+// every stream item is recorded: its stream items, how many broke the spec, its bytes,
 // their hash, and whether it ended whole or was cut, by the vendor, the app
 // or a stop.
 func (c *call) streamRecord(end time.Time) finished {
@@ -198,7 +198,7 @@ func (c *call) streamRecord(end time.Time) finished {
 	)
 	attrs = append(attrs, c.process.attributes()...)
 	attrs = append(attrs,
-		attribute.Int64("hotline.stream.items", s.next),
+		attribute.Int64("hotline.stream.items", s.itemCount),
 		attribute.Int64("hotline.stream.items_invalid", s.invalid.Load()),
 		attribute.Int64("hotline.stream.size", size),
 		attribute.Int64("hotline.stream.duration_us", micros(opened, end)),
