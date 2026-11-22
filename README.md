@@ -172,6 +172,13 @@ make e2e     # only the end-to-end tests, against the built program
 make lint    # needs golangci-lint
 ```
 
+On Linux outside Docker, let ordinary users ping first, or the path probe's
+ping tests fail. macOS and Docker need nothing:
+
+```
+sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+```
+
 For a quick loop on the proxy alone: `cd src/hotline-proxy && go test ./...`. The proxy's behaviour is written as Gherkin scenarios in [src/hotline-proxy/features/](src/hotline-proxy/features/).
 
 ## Docs
