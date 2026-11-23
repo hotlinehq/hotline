@@ -3,6 +3,7 @@ package santhosh
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -64,6 +65,10 @@ func (e *Engine) Response(r spec.ResponseSpec) (spec.ResponseCheck, error) {
 	return &responseCheck{headers: headers, body: body}, errors.Join(headersErr, bodyErr)
 }
 
+// errNoProperties marks an object cookie, read one cookie per property,
+// whose schema names no properties.
+var errNoProperties = errors.New("the schema names no properties, so the cookies of the object cannot be found")
+
 func (e *Engine) params(list []spec.Param) ([]param, error) {
 	out := make([]param, len(list))
 	var problems []error
@@ -71,6 +76,10 @@ func (e *Engine) params(list []spec.Param) ([]param, error) {
 		s, err := e.schema(p.Schema, p.Label)
 		problems = append(problems, err)
 		out[i] = param{Param: p, schema: s, notes: e.notes, list: slices.Contains(types(s), "array"), object: slices.Contains(types(s), "object")}
+		if p.Spread && out[i].object && properties(s) == nil {
+			// One cookie per property needs the property names.
+			problems = append(problems, fmt.Errorf("%w: %s", errNoProperties, p.Label))
+		}
 	}
 	return out, errors.Join(problems...)
 }
@@ -94,7 +103,7 @@ func (q *requestCheck) Params(escapedPath, rawQuery string, header http.Header) 
 	cookies := read.Cookies(header)
 	var findings []spec.Finding
 	for _, p := range q.params {
-		if p.Whole != 0 {
+		if p.WholeQuery != 0 {
 			findings = append(findings, p.checkWhole(rawQuery)...)
 			continue
 		}
@@ -148,7 +157,7 @@ func (p param) values(escapedPath string, query url.Values, header http.Header, 
 // cookie is the cookie parameter's value: its text values, or an object
 // when the schema wants one; nil when it is missing.
 func (p param) cookie(cookies map[string][]string) any {
-	if p.object && p.Explode {
+	if p.object && p.Spread {
 		// One cookie per property. Only the schema's own properties are
 		// taken, so other cookies of the call are never extra properties.
 		object := map[string]any{}
@@ -210,10 +219,7 @@ func (p param) check(values any) []spec.Finding {
 	}
 	instance := values
 	if list, ok := values.([]string); ok {
-		// Path and header lists are always written with commas, and
-		// query and cookie lists when not exploded.
-		split := !p.Explode || p.In == "path" || p.In == "header"
-		instance = read.Shape(list, p.list, split)
+		instance = read.Shape(list, p.list, p.Split)
 	}
 	return validate(p.schema, p.notes, coerce(instance, p.schema), p.In, p.Name)
 }
@@ -228,7 +234,7 @@ func (p param) checkWhole(rawQuery string) []spec.Finding {
 		}
 		return nil
 	}
-	instance, err := readWhole(rawQuery, p.Whole)
+	instance, err := readWhole(rawQuery, p.WholeQuery)
 	if err != nil {
 		return []spec.Finding{{Part: p.In, Place: whole, Rule: "querystring"}}
 	}
@@ -244,14 +250,15 @@ func (p param) checkWhole(rawQuery string) []spec.Finding {
 	return findings
 }
 
-// readWhole reads a query string: a form, or percent-decoded JSON or
-// text.
+// readWhole reads a query string: a form, or JSON or text percent-decoded
+// as a form is, with + a space, as browsers and Go's url package write
+// it.
 func readWhole(rawQuery string, reads spec.Reads) (any, error) {
 	if reads == spec.ReadsForm {
 		form, err := read.Form([]byte(rawQuery))
 		return form, err
 	}
-	text, err := url.PathUnescape(rawQuery)
+	text, err := url.QueryUnescape(rawQuery)
 	switch {
 	case err != nil:
 		return nil, err

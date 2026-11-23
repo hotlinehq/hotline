@@ -88,7 +88,11 @@ func (b *builder) paramSpecs(params []param, segments []string, where string) []
 		out[i] = Param{
 			Name: p.name, In: p.in, Required: p.required, Segment: -1,
 			Explode: p.explode, DeepObject: p.deepObject,
-			Whole: p.whole, Decode: p.decode,
+			WholeQuery: p.whole, Decode: p.decode,
+			// Path and header lists are always written with commas,
+			// query and cookie lists when not exploded.
+			Split:  !p.explode || p.in == "path" || p.in == partHeader,
+			Spread: p.in == "cookie" && p.explode,
 			Schema: b.schema(p.schema, where),
 			Label:  p.schema.label,
 		}

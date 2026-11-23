@@ -41,6 +41,11 @@ Feature: The whole query string, and cookie styles
       When a call is GET /v1/things?%7B%22limit%22%3A%22five%22%7D
       Then the request results are query limit type integer
 
+    Scenario: A plus sign in a JSON query string is a space, as forms write it
+      Given the querystring spec with json content
+      When a call is GET /v1/things?%7B%22limit%22:+%22five%22%7D
+      Then the request results are query limit type integer
+
     Scenario: A query string that is not JSON is reported at $
       Given the querystring spec with json content
       When a call is GET /v1/things?%7Bnope
@@ -70,6 +75,7 @@ Feature: The whole query string, and cookie styles
         | a query parameter beside it |
         | no content                  |
         | two media types             |
+        | a redact mark               |
 
   Rule: A cookie is read by its style
 
@@ -107,6 +113,12 @@ Feature: The whole query string, and cookie styles
       Given the cookie spec with prefs as an exploded object
       When a call carries the header "Cookie: size=3; session=abc"
       Then the record has no request results
+
+    Scenario: An exploded object cookie whose schema names no properties is refused
+      Its cookies could not be found, so it would always look missing.
+      Given the cookie spec with prefs as an exploded object with no properties
+      When the proxy loads the config
+      Then the config is refused with a message naming "cookie prefs" and "names no properties"
 
     Scenario: An object cookie not exploded is written as name and value pairs
       Given the cookie spec with prefs as an object not exploded

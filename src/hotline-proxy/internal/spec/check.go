@@ -61,6 +61,9 @@ type Checked struct {
 // call it, its body and its responses.
 type checks struct {
 	params []param
+	// wholeQuery is how the whole query string is read, when a parameter
+	// describes it; 0 when none does.
+	wholeQuery Reads
 	// security lists the ways to log in, any one of which is enough. Nil
 	// or a way with no credentials means none is needed.
 	security [][]credential
@@ -136,10 +139,10 @@ const (
 	partBody   = "body"
 	partHeader = "header"
 	partStatus = "status"
-	// partQueryString is where a parameter for the whole query string
-	// lives in the spec. Its findings have part query.
-	partQueryString = "querystring"
-	whole           = "$"
+	// inQueryString is the in of a parameter for the whole query string.
+	// Its findings have part query.
+	inQueryString = "querystring"
+	whole         = "$"
 )
 
 // Check checks a finished call against the spec, both sides. A call with
@@ -255,7 +258,7 @@ func (s *Spec) appQuery(r route, rawQuery string) string {
 // parameter for the whole query string there are none: its schema says
 // which names may come.
 func (c *checks) unknownQuery(appQuery string) []Finding {
-	if slices.ContainsFunc(c.params, func(p param) bool { return p.whole != 0 }) {
+	if c.wholeQuery != 0 {
 		return nil
 	}
 	query, _ := url.ParseQuery(appQuery)
@@ -266,6 +269,12 @@ func (c *checks) unknownQuery(appQuery string) []Finding {
 		}
 	}
 	return findings
+}
+
+// queryHasNames says whether the query is read name by name: false for a
+// query string read whole as JSON or text.
+func (c *checks) queryHasNames() bool {
+	return c.wholeQuery == 0 || c.wholeQuery == ReadsForm
 }
 
 // queryParam says whether a query parameter has the name, or reads it

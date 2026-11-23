@@ -124,22 +124,25 @@ type Param struct {
 	Segment int
 	Rest    bool
 	// Explode says a query list is written tag=a&tag=b; without it,
-	// tag=a,b. A header list is always written with commas.
+	// tag=a,b. Split says the same for every kind of parameter.
 	Explode bool
 	// DeepObject says a query object is written filter[status]=x.
 	DeepObject bool
-	// Whole, when not 0, says the parameter is the whole query string,
-	// read this way: a form, or percent-decoded JSON or text. In is then
-	// query, and the whole value's place is $ (Peter, 2026-11-23, M3 part
-	// 2, Q1). The query given to RequestCheck.Params then holds only the
-	// app's own names.
-	Whole Reads
+	// WholeQuery, when not 0, says the parameter is the whole query
+	// string, read this way: a form, or JSON or text percent-decoded as a
+	// form is, with + a space. In is then query, the places inside it read
+	// like query parameters (limit, not $.limit), and the whole value's
+	// place is $ (Peter, 2026-11-23, M3 part 2, Q1).
+	WholeQuery Reads
+	// Split says a list is written as one value with its items joined by
+	// commas, tag=a,b; without it, the name comes once per item. An object
+	// not spread is written name,value pairs joined by commas.
+	Split bool
+	// Spread says an object cookie is one cookie per property, each named
+	// by the property. Only the schema's own properties are read.
+	Spread bool
 	// Decode says each cookie value is percent-decoded before it is
-	// checked; without it a cookie is checked as written. A list cookie is
-	// its name sent once per item when Explode is set, and items joined
-	// with commas when not. An object cookie is one cookie per property
-	// when Explode is set, and name,value pairs joined with commas when
-	// not.
+	// checked; without it a cookie is checked as written.
 	Decode bool
 	// Schema is nil when the spec gives none: the parameter is then only
 	// checked for being there.
