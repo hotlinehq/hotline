@@ -10,6 +10,7 @@ Decisions already made, so a new session does not have to dig through old thread
 - Describe each problem in plain words first, with the fix and its tests, and build only after Peter approves (Peter, 2026-11-02).
 - Ask Peter one question at a time, each with context, a pick and a tradeoff table (must rows first, a "Flips if" line for a close call), as decomplect's Interview mode does: [CLAUDE.md](CLAUDE.md) (Peter, 2026-11-18).
 - Keep to one thread at a time. Do not watch CI or subscribe to pull requests unless Peter asks. When Peter says stop, stop and wait for his go-ahead. If a short "yes" could answer more than one question, ask which one first (Peter, 2026-11-02).
+- Check every new name against decomplect's naming rule before proposing it: a name says what it holds without opening its definition, and a name too general to fit half the code is out (Peter, 2026-11-23).
 - Ask Peter before changing a contract, such as the exported functions and types one package offers another, and show him the new one first (Peter, 2026-11-07).
 - Every number in a pull request description, commit message or doc is well defined: say what was measured, over what (whole process or proxy only, per call or in total, allocated over time or held at once), how, and its unit (Peter, 2026-11-02).
 - Every `x-hotline-` mark in a vendor spec, with its use and an example: [docs/spec-marks.md](docs/spec-marks.md). A new mark is added only when a real example needs it, and listed there in the same pull request (Peter, 2026-11-01).

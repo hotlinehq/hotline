@@ -89,9 +89,22 @@ type param struct {
 	// deepObject reads an object from name[key]=value query pairs.
 	deepObject bool
 	explode    bool
+	// valuePrefix is the text a path value starts with, taken off before
+	// it is read: ;id= or ; for matrix, . for label.
+	valuePrefix string
+	// itemSeparator is the text between a list's items inside one value:
+	// a comma, a space, |, or ; or . for an exploded matrix or label
+	// value. Empty when the name comes once per item.
+	itemSeparator string
+	// itemsRepeatName says each item is written name=value, as in an exploded
+	// matrix value, ;id=3;id=4.
+	itemsRepeatName bool
 	// whole is how the whole query string is read, for a parameter in
 	// querystring; 0 for any other.
 	whole Reads
+	// contentReads is how the value of a parameter described with content
+	// is read; 0 for one described with a schema.
+	contentReads Reads
 	// decode says a cookie's value is percent-decoded: style form.
 	decode bool
 	schema schemaAt

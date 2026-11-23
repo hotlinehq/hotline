@@ -152,11 +152,11 @@ var _ = Describe("Reading XML", func() {
 
 var _ = Describe("Shaping parameter values", func() {
 	It("takes the first value when the schema wants no list", func() {
-		Expect(read.Shape([]string{"a", "b"}, false, false)).To(Equal("a"))
+		Expect(read.Shape([]string{"a", "b"}, false, ",")).To(Equal("a"))
 	})
 
 	It("splits a list written with commas", func() {
-		Expect(read.Shape([]string{"1,2", "3"}, true, true)).To(Equal([]any{"1", "2", "3"}))
+		Expect(read.Shape([]string{"1,2", "3"}, true, ",")).To(Equal([]any{"1", "2", "3"}))
 	})
 
 	It("reads a deep object from the query", func() {

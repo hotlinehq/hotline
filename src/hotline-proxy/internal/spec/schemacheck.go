@@ -124,7 +124,9 @@ type Param struct {
 	Segment int
 	Rest    bool
 	// Explode says a query list is written tag=a&tag=b; without it,
-	// tag=a,b. Split says the same for every kind of parameter.
+	// tag=a,b. ItemSeparator says the same for every kind of parameter.
+	// For a path or header value, it says an object is written R=100,G=200
+	// rather than R,100,G,200.
 	Explode bool
 	// DeepObject says a query object is written filter[status]=x.
 	DeepObject bool
@@ -134,10 +136,23 @@ type Param struct {
 	// like query parameters (limit, not $.limit), and the whole value's
 	// place is $ (Peter, 2026-11-23, M3 part 2, Q1).
 	WholeQuery Reads
-	// Split says a list is written as one value with its items joined by
-	// commas, tag=a,b; without it, the name comes once per item. An object
-	// not spread is written name,value pairs joined by commas.
-	Split bool
+	// ItemSeparator is the text between a list's items inside one value:
+	// a comma (tag=a,b), a space, |, ; or a dot. Empty when the name comes
+	// once per item. An object
+	// not spread is written as names and values joined by it too.
+	ItemSeparator string
+	// ValuePrefix is the text a path value starts with, taken off before
+	// it is read, such as ;id= in ;id=5 or . in .5. Empty when there is
+	// none. A value that does not start with it is a finding.
+	ValuePrefix string
+	// ItemsRepeatName says each item, or the one value, is written
+	// name=value, and only the value is checked: ;id=3;id=4 once ; is
+	// taken off. An object's items always keep their names.
+	ItemsRepeatName bool
+	// ContentReads, when not 0, says the parameter is described with
+	// content, and its value is read this way, as JSON, a form or text,
+	// before its check.
+	ContentReads Reads
 	// Spread says an object cookie is one cookie per property, each named
 	// by the property. Only the schema's own properties are read.
 	Spread bool

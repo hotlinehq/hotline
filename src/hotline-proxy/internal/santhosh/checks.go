@@ -157,7 +157,7 @@ func (p param) values(escapedPath string, query url.Values, header http.Header, 
 // cookie is the cookie parameter's value: its text values, or an object
 // when the schema wants one; nil when it is missing.
 func (p param) cookie(cookies map[string][]string) any {
-	if p.object && p.Spread {
+	if p.object && p.Spread && p.ContentReads == 0 {
 		// One cookie per property. Only the schema's own properties are
 		// taken, so other cookies of the call are never extra properties.
 		object := map[string]any{}
@@ -175,8 +175,8 @@ func (p param) cookie(cookies map[string][]string) any {
 	if !ok {
 		return nil
 	}
-	if p.object {
-		return read.Pairs(p.decoded(values[0]))
+	if p.object && p.ContentReads == 0 {
+		return read.Pairs(p.decoded(values[0]), ",")
 	}
 	out := make([]string, len(values))
 	for i, v := range values {
@@ -217,11 +217,77 @@ func (p param) check(values any) []spec.Finding {
 	if p.schema == nil {
 		return nil
 	}
-	instance := values
-	if list, ok := values.([]string); ok {
-		instance = read.Shape(list, p.list, p.Split)
+	instance, problem := p.instance(values)
+	if problem != nil {
+		return []spec.Finding{*problem}
 	}
 	return validate(p.schema, p.notes, coerce(instance, p.schema), p.In, p.Name)
+}
+
+// instance turns the parameter's text values into what its schema wants: the
+// value its content's media type reads, or a list or an object written
+// in its style. A deep object or a cookie object comes already read. The
+// finding says why a value could not be read.
+func (p param) instance(values any) (any, *spec.Finding) {
+	list, ok := values.([]string)
+	if !ok {
+		return values, nil
+	}
+	if p.ContentReads != 0 {
+		instance, err := readContent(list[0], p.ContentReads)
+		if err != nil {
+			return nil, &spec.Finding{Part: p.In, Place: p.Name, Rule: map[spec.Reads]string{spec.ReadsJSON: "json", spec.ReadsForm: "form"}[p.ContentReads]}
+		}
+		return instance, nil
+	}
+	if p.ValuePrefix != "" {
+		text, ok := strings.CutPrefix(list[0], p.ValuePrefix)
+		if !ok {
+			return nil, &spec.Finding{Part: p.In, Place: p.Name, Rule: "prefix", Expected: p.ValuePrefix}
+		}
+		list = []string{text}
+	}
+	if p.object && p.ItemSeparator != "" {
+		if p.ItemsRepeatName || p.Explode && (p.In == "path" || p.In == "header") {
+			return read.NameEqualsValue(list[0], p.ItemSeparator), nil
+		}
+		return read.Pairs(list[0], p.ItemSeparator), nil
+	}
+	instance := read.Shape(list, p.list, p.ItemSeparator)
+	if p.ItemsRepeatName {
+		instance = dropItemNames(instance)
+	}
+	return instance, nil
+}
+
+// dropItemNames takes the names off items written name=value: the one
+// value, or each item of a list.
+func dropItemNames(instance any) any {
+	value := func(item any) any {
+		text, _ := item.(string)
+		_, v, _ := strings.Cut(text, "=")
+		return v
+	}
+	items, ok := instance.([]any)
+	if !ok {
+		return value(instance)
+	}
+	for i, item := range items {
+		items[i] = value(item)
+	}
+	return items
+}
+
+// readContent reads one parameter value as its content's media type says:
+// a form, JSON or text. The value is already percent-decoded.
+func readContent(text string, reads spec.Reads) (any, error) {
+	switch reads {
+	case spec.ReadsForm:
+		return read.Form([]byte(text))
+	case spec.ReadsJSON:
+		return decodeJSON([]byte(text))
+	}
+	return text, nil
 }
 
 // checkWhole checks the whole query string, as its media type reads it.

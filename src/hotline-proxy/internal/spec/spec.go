@@ -147,7 +147,7 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 		for method, operationKeys := range item.operationKeys() {
 			for _, base := range basePaths(item.operationServers(method), item.Servers, doc.Servers) {
 				template := base + key
-				t, err := s.readTemplate(name, template)
+				t, err := s.routePartsOf(name, template)
 				if err != nil && !told[template] {
 					problems = append(problems, err)
 				}
@@ -185,16 +185,16 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 	return s, nil
 }
 
-// template is a route template read into its parts.
-type template struct {
+// routeParts are a route template read into its parts.
+type routeParts struct {
 	action   string
 	words    []queryWord
 	segments []string
 }
 
-// readTemplate reads a route template: the action or query words it may
+// routePartsOf reads a route template: the action or query words it may
 // name after #, and the pieces of its path.
-func (s *Spec) readTemplate(name, route string) (template, error) {
+func (s *Spec) routePartsOf(name, route string) (routeParts, error) {
 	path, action, words, err := s.splitAction(name, route)
 	problems := []error{err}
 	segments := strings.Split(strings.TrimSuffix(path, "/"), "/")
@@ -204,7 +204,7 @@ func (s *Spec) readTemplate(name, route string) (template, error) {
 				ErrInvalid, name, route, segment))
 		}
 	}
-	return template{action: action, words: words, segments: segments}, errors.Join(problems...)
+	return routeParts{action: action, words: words, segments: segments}, errors.Join(problems...)
 }
 
 // basePaths are the base paths of the first list of servers that has any,
