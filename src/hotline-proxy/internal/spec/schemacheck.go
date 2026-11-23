@@ -60,7 +60,9 @@ type Engine interface {
 type RequestCheck interface {
 	// Params checks the parameters: each one there when required, and its
 	// value against its schema. It gets the request as Go's http server
-	// gives it, unparsed.
+	// gives it, unparsed, but with the proxy's own query names (a login
+	// key, a word that picks the route) taken out of the query unless a
+	// query parameter has the name.
 	Params(escapedPath, rawQuery string, header http.Header) []Finding
 	// Body checks a body and copies its marked fields. content is the
 	// place in the route's Body list of the content it was sent as, and
@@ -88,6 +90,9 @@ const (
 	ReadsXML
 	// ReadsForm reads a form, with Stripe's brackets nested.
 	ReadsForm
+	// ReadsText reads percent-decoded text as one string. Only a whole
+	// query string is read this way.
+	ReadsText
 )
 
 // RequestSpec is what the spec says about one route's request.
@@ -123,6 +128,19 @@ type Param struct {
 	Explode bool
 	// DeepObject says a query object is written filter[status]=x.
 	DeepObject bool
+	// Whole, when not 0, says the parameter is the whole query string,
+	// read this way: a form, or percent-decoded JSON or text. In is then
+	// query, and the whole value's place is $ (Peter, 2026-11-23, M3 part
+	// 2, Q1). The query given to RequestCheck.Params then holds only the
+	// app's own names.
+	Whole Reads
+	// Decode says each cookie value is percent-decoded before it is
+	// checked; without it a cookie is checked as written. A list cookie is
+	// its name sent once per item when Explode is set, and items joined
+	// with commas when not. An object cookie is one cookie per property
+	// when Explode is set, and name,value pairs joined with commas when
+	// not.
+	Decode bool
 	// Schema is nil when the spec gives none: the parameter is then only
 	// checked for being there.
 	Schema Schema

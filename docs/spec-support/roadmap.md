@@ -36,7 +36,8 @@ These mistakes give no warning today, so they come before new features.
 - Cookie style for cookie parameters.
 - Server `name`, to label which server a call went to.
 - `discriminator` with `defaultMapping`: errors name the right branch.
-- Built (part 1, 2026-11-22): `QUERY`, `additionalOperations` and `discriminator`, with Anthropic's content blocks and stream deltas written with a discriminator. Still to come: `in: querystring`, cookie style, server `name`.
+- Built (part 1, 2026-11-22): `QUERY`, `additionalOperations` and `discriminator`, with Anthropic's content blocks and stream deltas written with a discriminator.
+- Built (part 2, 2026-11-23): `in: querystring` and cookie styles. Server `name` is left for later: no spec uses it yet.
 - Depends on: M0. Can run before or after M2.
 
 ## M4. Multipart bodies (medium)

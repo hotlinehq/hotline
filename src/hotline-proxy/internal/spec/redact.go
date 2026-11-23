@@ -230,6 +230,11 @@ func isValue(segment string) bool {
 }
 
 func (s *Spec) redactQuery(r route, rawQuery string) string {
+	// A query string read whole as JSON or text has no names to keep a
+	// value by, so all of it is redacted.
+	if slices.ContainsFunc(r.checks.params, func(p param) bool { return p.whole == ReadsJSON || p.whole == ReadsText }) {
+		return redacted
+	}
 	// A name that does not unescape matches no mark, so it is redacted,
 	// and a word's value fixed by the route is no secret.
 	return replaceQuery(rawQuery, func(name, value string) bool {

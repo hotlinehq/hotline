@@ -88,8 +88,12 @@ func (b *builder) paramSpecs(params []param, segments []string, where string) []
 		out[i] = Param{
 			Name: p.name, In: p.in, Required: p.required, Segment: -1,
 			Explode: p.explode, DeepObject: p.deepObject,
+			Whole: p.whole, Decode: p.decode,
 			Schema: b.schema(p.schema, where),
 			Label:  p.schema.label,
+		}
+		if p.whole != 0 {
+			out[i].In = "query"
 		}
 		if p.in == "path" {
 			for at, segment := range segments {

@@ -176,9 +176,28 @@ components:
 			{Name: "tags", In: "query", Segment: -1, Schema: spec.Schema{"type": "array"}, Label: "query tags"},
 			{Name: "filter", In: "query", Segment: -1, DeepObject: true, Label: "query filter"},
 			{Name: "X-Ids", In: "header", Segment: -1, Explode: true, Label: "header X-Ids"},
+			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Decode: true, Label: "cookie sid"},
+		}))
+	})
+
+	It("describes a cookie of style cookie as taken as written", func() {
+		t, _ := tell(spectest.Route("parameters:\n  - { name: sid, in: cookie, style: cookie }\nresponses: {}\n"))
+		Expect(t.requests[0].Params).To(Equal([]spec.Param{
 			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Label: "cookie sid"},
 		}))
 	})
+
+	DescribeTable("describes the whole query string as a query parameter read by its media type",
+		func(mediaType string, reads spec.Reads) {
+			t, _ := tell(spectest.Route("parameters:\n  - { name: q, in: querystring, content: { " + mediaType + ": { schema: { type: object } } } }\nresponses: {}\n"))
+			Expect(t.requests[0].Params).To(Equal([]spec.Param{
+				{Name: "q", In: "query", Segment: -1, Explode: true, Whole: reads, Schema: spec.Schema{"type": "object"}, Label: "querystring q"},
+			}))
+		},
+		Entry("a form", "application/x-www-form-urlencoded", spec.ReadsForm),
+		Entry("JSON", "application/vnd.x+json", spec.ReadsJSON),
+		Entry("text", "text/plain", spec.ReadsText),
+	)
 
 	It("leaves out header parameters OpenAPI describes elsewhere", func() {
 		t, _ := tell(spectest.Route("parameters:\n  - { name: Accept, in: header, required: true }\n  - { in: header }\nresponses: {}\n"))

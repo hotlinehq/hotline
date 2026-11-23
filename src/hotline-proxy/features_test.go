@@ -84,6 +84,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 	checksSteps(sc, w)
 	specSteps(sc, w)
 	methodsSteps(sc, w)
+	querystringSteps(sc, w)
 	discriminatorSteps(sc, w)
 	ingressSteps(sc, w)
 	integrationSteps(sc, w)

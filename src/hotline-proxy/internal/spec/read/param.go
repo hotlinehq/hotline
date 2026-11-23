@@ -36,12 +36,14 @@ func HeaderValue(header http.Header, name string) (string, bool) {
 	return strings.Join(values, ", "), true
 }
 
-// Cookies puts the cookies a request sends into cookies, by name. The map
-// is the caller's, so it can stay off the heap.
-func Cookies(header http.Header, cookies map[string]string) {
+// Cookies are the cookies a request sends, by name, each value as
+// written. A name sent more than once keeps every value, in order.
+func Cookies(header http.Header) map[string][]string {
+	cookies := map[string][]string{}
 	for _, cookie := range (&http.Request{Header: header}).Cookies() {
-		cookies[cookie.Name] = cookie.Value
+		cookies[cookie.Name] = append(cookies[cookie.Name], cookie.Value)
 	}
+	return cookies
 }
 
 // DeepObject reads name[key]=value query pairs into an object, nil when
@@ -74,4 +76,19 @@ func Shape(values []string, list, split bool) any {
 		items[i] = v
 	}
 	return items
+}
+
+// Pairs reads name,value pairs joined with commas into an object, as an
+// object cookie not exploded is written. A name with no value gets "".
+func Pairs(text string) map[string]any {
+	items := strings.Split(text, ",")
+	object := make(map[string]any, len(items)/2+1)
+	for i := 0; i < len(items); i += 2 {
+		value := ""
+		if i+1 < len(items) {
+			value = items[i+1]
+		}
+		object[items[i]] = value
+	}
+	return object
 }
