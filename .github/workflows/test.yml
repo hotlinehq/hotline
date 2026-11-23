@@ -25,6 +25,7 @@ jobs:
             src/otelcol-dev/go.sum
             examples/aws-shop/go.sum
             tools/aws-openapi/go.sum
+            tools/stripe-openapi/go.sum
             go.work.sum
       - name: check the Mac signing script
         run: bash .github/scripts/sign-mac-program-test.sh
