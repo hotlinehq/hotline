@@ -60,6 +60,7 @@ Feature: Parameters described with content, and every parameter style
         | matrix | false   | { type: integer }                                 | ;id=x             | the request results are path id type integer  |
         | matrix | false   | { type: array, items: { type: integer } }         | ;id=3,x           | the request results are path id[1] type integer |
         | matrix | true    | { type: integer }                                 | ;id=x             | the request results are path id type integer  |
+        | matrix | true    | { type: integer }                                 | ;other=5          | the request results are path id prefix id=    |
         | matrix | true    | { type: array, items: { type: integer } }         | ;id=3;id=x        | the request results are path id[1] type integer |
         | matrix | false   | { type: object, properties: { G: { type: integer } } } | ;id=R,100,G,x | the request results are path id.G type integer |
         | matrix | true    | { type: object, properties: { G: { type: integer } } } | ;R=100;G=x    | the request results are path id.G type integer |

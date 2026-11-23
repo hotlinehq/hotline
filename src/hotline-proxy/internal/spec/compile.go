@@ -256,23 +256,33 @@ func (b *builder) param(m map[string]any, pointer, where string) *param {
 		b.problem("%s: %s has style %s, which OpenAPI does not allow in a %s parameter: use one of %s",
 			where, label, style, p.in, strings.Join(allowedStyles(p.in), ", "))
 	}
-	p.deepObject = style == "deepObject"
-	// explode is true by default only for the form and cookie styles,
-	// as OpenAPI says; a path or header is simple unless it says so.
-	written := style
-	if written == "" && len(allowedStyles(p.in)) > 0 {
-		written = allowedStyles(p.in)[0]
-	}
-	p.explode = written == "form" || written == "cookie"
-	if explode, ok := m["explode"].(bool); ok {
-		p.explode = explode
-	}
-	p.itemSeparator = itemSeparator(p.in, style, p.explode)
-	p.valuePrefix, p.itemsRepeatName = valuePrefix(style, p.name, p.explode)
 	// A cookie's style is form unless it says cookie, and form
 	// percent-decodes the value (Peter, 2026-11-23, M3 part 2, Q3).
 	p.decode = p.in == "cookie" && style != "cookie"
 	p.schema, p.contentReads = b.schemaOrContent(m, pointer, label, where)
+	if p.contentReads != 0 {
+		// A value described with content is read whole by its media
+		// type, so no style applies.
+		return p
+	}
+	// The style in effect is the one the spec writes, or else the first
+	// OpenAPI allows where the parameter lives.
+	styleInEffect := style
+	if styleInEffect == "" && len(allowedStyles(p.in)) > 0 {
+		styleInEffect = allowedStyles(p.in)[0]
+	}
+	p.deepObject = styleInEffect == "deepObject"
+	// explode is true by default only for the form and cookie styles,
+	// as OpenAPI says.
+	p.explode = styleInEffect == "form" || styleInEffect == "cookie"
+	if explode, ok := m["explode"].(bool); ok {
+		p.explode = explode
+	}
+	p.itemSeparator = itemSeparator(p.in, styleInEffect, p.explode)
+	p.valuePrefix, p.itemPrefix = valuePrefix(styleInEffect, p.name, p.explode)
+	// An exploded path or header object is written R=100,G=200, and one
+	// in matrix style ;R=100;G=200.
+	p.objectWrittenNameEqualsValue = p.explode && (p.in == "path" || p.in == partHeader)
 	return p
 }
 
@@ -309,20 +319,20 @@ func itemSeparator(in, style string, explode bool) string {
 	return ","
 }
 
-// valuePrefix is the text a path value in style starts with, as
-// OpenAPI's style table writes it: ;id=5 in matrix, or ;id=3;id=4 and
-// ;R=100;G=200 exploded, and .5 in label. itemsRepeatName says each item is
-// then written name=value.
-func valuePrefix(style, name string, explode bool) (prefix string, itemsRepeatName bool) {
+// valuePrefix is the text a path value in style starts with, and
+// itemPrefix the text each of its items starts with, as OpenAPI's style
+// table writes them: ;id=5 in matrix, ;id=3;id=4 exploded, and .5 in
+// label.
+func valuePrefix(style, name string, explode bool) (prefix, itemPrefix string) {
 	switch {
 	case style == "matrix" && explode:
-		return ";", true
+		return ";", name + "="
 	case style == "matrix":
-		return ";" + name + "=", false
+		return ";" + name + "=", ""
 	case style == "label":
-		return ".", false
+		return ".", ""
 	}
-	return "", false
+	return "", ""
 }
 
 // schemaOrContent is the schema of a parameter or header, and how its value is
@@ -343,11 +353,13 @@ func (b *builder) schemaOrContent(m map[string]any, pointer, label, where string
 		b.problem("%s: %s must have content with exactly one media type", where, label)
 		return schemaAt{}, 0
 	}
+	var schema schemaAt
+	var reads Reads
 	for mediaType, v := range listed {
 		media, _ := v.(map[string]any)
-		return schemaOf(media, pointer+"/content"+token(mediaType), label), readsOf(mediaType)
+		schema, reads = schemaOf(media, pointer+"/content"+token(mediaType), label), readsOf(mediaType)
 	}
-	return schemaAt{}, 0
+	return schema, reads
 }
 
 // readsOf is how a value of the media type is read: as a form, as JSON,
@@ -477,15 +489,16 @@ func (b *builder) response(marks map[string]map[string]mark, m map[string]any, p
 		}
 		required, _ := h["required"].(bool)
 		label := "the " + code + " response header " + name
-		if style := str(h, "style"); style != "" && style != "simple" {
+		if style := str(h, "style"); style != "" && !slices.Contains(allowedStyles(partHeader), style) {
 			b.problem("%s: %s has style %s, but a header's style is simple", where, label, style)
 		}
 		explode, _ := h["explode"].(bool)
 		schema, reads := b.schemaOrContent(h, hp, label, where)
-		r.headers = append(r.headers, param{
-			name: name, in: partHeader, required: required, explode: explode,
-			itemSeparator: ",", schema: schema, contentReads: reads,
-		})
+		header := param{name: name, in: partHeader, required: required, schema: schema, contentReads: reads}
+		if reads == 0 {
+			header.explode, header.itemSeparator, header.objectWrittenNameEqualsValue = explode, ",", explode
+		}
+		r.headers = append(r.headers, header)
 	}
 	r.check = b.responseCheck(r, where)
 	r.itemSchemas = b.itemSchemas(m, pointer, where, code)

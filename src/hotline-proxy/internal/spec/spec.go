@@ -107,14 +107,11 @@ type operation struct {
 
 // operationServers are the method's own servers, nil when it has none.
 func (p pathItem) operationServers(method string) []server {
-	op := p.fixedOperations()[method]
-	if op == nil {
-		op = p.AdditionalOperations[method]
+	if op := p.fixedOperations()[method]; op != nil {
+		return op.Servers
 	}
-	if op == nil {
-		return nil
-	}
-	return op.Servers
+	// operationKeys lists only methods the path has.
+	return p.AdditionalOperations[method].Servers
 }
 
 // Parse reads and checks a spec. name only labels the problems it reports.
@@ -140,7 +137,7 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 	var problems []error
 	// A template two methods share is read for each, but its problems are
 	// told once.
-	told := map[string]bool{}
+	templatesReported := map[string]bool{}
 	for key, item := range doc.Paths {
 		pathBases := basePaths(item.Servers, doc.Servers)
 		problems = append(problems, item.methodProblems(name, pathBases[0]+key)...)
@@ -148,10 +145,10 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 			for _, base := range basePaths(item.operationServers(method), item.Servers, doc.Servers) {
 				template := base + key
 				t, err := s.routePartsOf(name, template)
-				if err != nil && !told[template] {
+				if err != nil && !templatesReported[template] {
 					problems = append(problems, err)
 				}
-				told[template] = true
+				templatesReported[template] = true
 				r := route{
 					method:   method,
 					template: template,

@@ -96,9 +96,12 @@ type param struct {
 	// a comma, a space, |, or ; or . for an exploded matrix or label
 	// value. Empty when the name comes once per item.
 	itemSeparator string
-	// itemsRepeatName says each item is written name=value, as in an exploded
-	// matrix value, ;id=3;id=4.
-	itemsRepeatName bool
+	// itemPrefix is the text each item starts with, taken off before it
+	// is read: id= in an exploded matrix value, ;id=3;id=4.
+	itemPrefix string
+	// objectWrittenNameEqualsValue says an object is written R=100,G=200
+	// rather than R,100,G,200.
+	objectWrittenNameEqualsValue bool
 	// whole is how the whole query string is read, for a parameter in
 	// querystring; 0 for any other.
 	whole Reads

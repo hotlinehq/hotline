@@ -64,4 +64,8 @@ func parameterSteps(sc *godog.ScenarioContext, w *world) {
 		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    servers:\n      - url: %s\n    get: {}\n    post:\n      servers:\n        - url: %s\n", route, path, post))
 		return nil
 	})
+	sc.Step(`^a spec whose path (\S+) has the server (\S+), and whose COPY on it has the server (\S+)$`, func(route, path, own string) error {
+		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    servers:\n      - url: %s\n    additionalOperations:\n      COPY:\n        servers:\n          - url: %s\n", route, path, own))
+		return nil
+	})
 }

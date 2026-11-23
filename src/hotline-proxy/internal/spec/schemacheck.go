@@ -123,10 +123,9 @@ type Param struct {
 	// rest of the path from there.
 	Segment int
 	Rest    bool
-	// Explode says a query list is written tag=a&tag=b; without it,
-	// tag=a,b. ItemSeparator says the same for every kind of parameter.
-	// For a path or header value, it says an object is written R=100,G=200
-	// rather than R,100,G,200.
+	// Explode is the spec's explode, as spec worked it out; the engine
+	// reads ItemSeparator, Spread and ObjectWrittenNameEqualsValue
+	// instead.
 	Explode bool
 	// DeepObject says a query object is written filter[status]=x.
 	DeepObject bool
@@ -136,22 +135,26 @@ type Param struct {
 	// like query parameters (limit, not $.limit), and the whole value's
 	// place is $ (Peter, 2026-11-23, M3 part 2, Q1).
 	WholeQuery Reads
-	// ItemSeparator is the text between a list's items inside one value:
-	// a comma (tag=a,b), a space, |, ; or a dot. Empty when the name comes
-	// once per item. An object
-	// not spread is written as names and values joined by it too.
+	// ItemSeparator is the text between the items inside one value: a
+	// comma (tag=a,b), a space, |, ; or a dot. An object's names and
+	// values are joined by it too. Empty when the value is one item, as
+	// in a query list written tag=a&tag=b.
 	ItemSeparator string
 	// ValuePrefix is the text a path value starts with, taken off before
 	// it is read, such as ;id= in ;id=5 or . in .5. Empty when there is
 	// none. A value that does not start with it is a finding.
 	ValuePrefix string
-	// ItemsRepeatName says each item, or the one value, is written
-	// name=value, and only the value is checked: ;id=3;id=4 once ; is
-	// taken off. An object's items always keep their names.
-	ItemsRepeatName bool
+	// ItemPrefix is the text each item, or the one value, starts with,
+	// taken off before it is read, such as id= in ;id=3;id=4 once
+	// ValuePrefix ; is taken off. Not used for an object. An item that
+	// does not start with it is a finding.
+	ItemPrefix string
+	// ObjectWrittenNameEqualsValue says an object is written as
+	// name=value items, R=100,G=200, rather than R,100,G,200.
+	ObjectWrittenNameEqualsValue bool
 	// ContentReads, when not 0, says the parameter is described with
 	// content, and its value is read this way, as JSON, a form or text,
-	// before its check.
+	// before its check. The style fields are then all empty.
 	ContentReads Reads
 	// Spread says an object cookie is one cookie per property, each named
 	// by the property. Only the schema's own properties are read.

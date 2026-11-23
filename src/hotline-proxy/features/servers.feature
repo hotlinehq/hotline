@@ -45,3 +45,8 @@ Feature: Every server's base path
       | GET /a/files    | the route template is /a/files |
       | POST /b/files   | the route template is /b/files |
       | POST /a/files   | there is no route              |
+
+  Scenario: A method under additionalOperations may have its own servers too
+    Given a spec whose path /files has the server https://api.x.com/a, and whose COPY on it has the server https://api.x.com/b
+    When a call is COPY /b/files
+    Then the route template is /b/files

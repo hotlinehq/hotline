@@ -90,11 +90,11 @@ func (b *builder) paramSpecs(params []param, segments []string, where string) []
 			Explode: p.explode, DeepObject: p.deepObject,
 			WholeQuery: p.whole, Decode: p.decode,
 			ItemSeparator: p.itemSeparator, ValuePrefix: p.valuePrefix,
-			ItemsRepeatName: p.itemsRepeatName,
-			ContentReads:    p.contentReads,
-			Spread:          p.in == "cookie" && p.explode,
-			Schema:          b.schema(p.schema, where),
-			Label:           p.schema.label,
+			ItemPrefix: p.itemPrefix, ObjectWrittenNameEqualsValue: p.objectWrittenNameEqualsValue,
+			ContentReads: p.contentReads,
+			Spread:       p.in == "cookie" && p.explode,
+			Schema:       b.schema(p.schema, where),
+			Label:        p.schema.label,
 		}
 		if p.whole != 0 {
 			out[i].In = "query"

@@ -157,7 +157,7 @@ func (p param) values(escapedPath string, query url.Values, header http.Header, 
 // cookie is the cookie parameter's value: its text values, or an object
 // when the schema wants one; nil when it is missing.
 func (p param) cookie(cookies map[string][]string) any {
-	if p.object && p.Spread && p.ContentReads == 0 {
+	if p.object && p.Spread {
 		// One cookie per property. Only the schema's own properties are
 		// taken, so other cookies of the call are never extra properties.
 		object := map[string]any{}
@@ -175,8 +175,8 @@ func (p param) cookie(cookies map[string][]string) any {
 	if !ok {
 		return nil
 	}
-	if p.object && p.ContentReads == 0 {
-		return read.Pairs(p.decoded(values[0]), ",")
+	if p.object && p.ItemSeparator != "" {
+		return read.Pairs(p.decoded(values[0]), p.ItemSeparator)
 	}
 	out := make([]string, len(values))
 	for i, v := range values {
@@ -248,34 +248,40 @@ func (p param) instance(values any) (any, *spec.Finding) {
 		list = []string{text}
 	}
 	if p.object && p.ItemSeparator != "" {
-		if p.ItemsRepeatName || p.Explode && (p.In == "path" || p.In == "header") {
+		if p.ObjectWrittenNameEqualsValue {
 			return read.NameEqualsValue(list[0], p.ItemSeparator), nil
 		}
 		return read.Pairs(list[0], p.ItemSeparator), nil
 	}
 	instance := read.Shape(list, p.list, p.ItemSeparator)
-	if p.ItemsRepeatName {
-		instance = dropItemNames(instance)
+	if p.ItemPrefix != "" {
+		var ok bool
+		if instance, ok = withoutItemPrefix(instance, p.ItemPrefix); !ok {
+			return nil, &spec.Finding{Part: p.In, Place: p.Name, Rule: "prefix", Expected: p.ItemPrefix}
+		}
 	}
 	return instance, nil
 }
 
-// dropItemNames takes the names off items written name=value: the one
-// value, or each item of a list.
-func dropItemNames(instance any) any {
-	value := func(item any) any {
-		text, _ := item.(string)
-		_, v, _ := strings.Cut(text, "=")
-		return v
-	}
-	items, ok := instance.([]any)
-	if !ok {
-		return value(instance)
+// withoutItemPrefix takes prefix off the one value, or off each item of a
+// list. ok is false when one of them does not start with it.
+func withoutItemPrefix(instance any, prefix string) (any, bool) {
+	items, isList := instance.([]any)
+	if !isList {
+		items = []any{instance}
 	}
 	for i, item := range items {
-		items[i] = value(item)
+		text, _ := item.(string)
+		rest, ok := strings.CutPrefix(text, prefix)
+		if !ok {
+			return nil, false
+		}
+		items[i] = rest
 	}
-	return items
+	if !isList {
+		return items[0], true
+	}
+	return items, true
 }
 
 // readContent reads one parameter value as its content's media type says:
