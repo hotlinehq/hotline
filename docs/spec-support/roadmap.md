@@ -19,6 +19,7 @@ These mistakes give no warning today, so they come before new features.
 - A server address with a variable in the host, like `{region}`, quietly dropped the base path. Built: the host is no longer parsed, since the config names the hosts, so the base path stays.
 - AsyncAPI traits were ignored. Built: they refuse the spec for now; merging them in comes later if a vendor needs it.
 - A message `schemaFormat` other than JSON Schema (Avro or Protobuf, for example) was ignored. Built: it refuses the spec. AsyncAPI's, OpenAPI's and JSON Schema's own formats load.
+- Second sweep (built 2026-11-23): parameters described with `content`, the `matrix`, `label`, `spaceDelimited` and `pipeDelimited` styles, and every server's base path were skipped or read wrongly. They are now checked; a spec is refused only where OpenAPI forbids what it says ([decisions/spec-checks.md](../decisions/spec-checks.md), items 30 to 34).
 - Depends on: M0.
 
 ## M2. Streamed replies with `itemSchema` (large, the biggest win)

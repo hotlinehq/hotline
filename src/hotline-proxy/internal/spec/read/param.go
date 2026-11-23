@@ -62,14 +62,15 @@ func DeepObject(query url.Values, name string) any {
 }
 
 // Shape turns the text values of a parameter into what its schema wants:
-// a list when it wants an array, or else the first value. split says the
-// list is written with commas, as in a header or a query not exploded.
-func Shape(values []string, list, split bool) any {
+// a list when it wants an array, or else the first value. separator is
+// the text between the items inside one value, as in a header or a query
+// not exploded; empty when the name comes once per item.
+func Shape(values []string, list bool, separator string) any {
 	if !list {
 		return values[0]
 	}
-	if split {
-		values = strings.Split(strings.Join(values, ","), ",")
+	if separator != "" {
+		values = strings.Split(strings.Join(values, separator), separator)
 	}
 	items := make([]any, len(values))
 	for i, v := range values {
@@ -78,10 +79,11 @@ func Shape(values []string, list, split bool) any {
 	return items
 }
 
-// Pairs reads name,value pairs joined with commas into an object, as an
-// object cookie not exploded is written. A name with no value gets "".
-func Pairs(text string) map[string]any {
-	items := strings.Split(text, ",")
+// Pairs reads names and values joined by separator into an object, as an
+// object not exploded is written: R,100,G,200. A name with no value gets
+// "".
+func Pairs(text, separator string) map[string]any {
+	items := strings.Split(text, separator)
 	object := make(map[string]any, len(items)/2+1)
 	for i := 0; i < len(items); i += 2 {
 		value := ""
@@ -89,6 +91,19 @@ func Pairs(text string) map[string]any {
 			value = items[i+1]
 		}
 		object[items[i]] = value
+	}
+	return object
+}
+
+// NameEqualsValue reads name=value items joined by separator into an object,
+// as an exploded path or header object is written: R=100,G=200. A name
+// with no = gets "".
+func NameEqualsValue(text, separator string) map[string]any {
+	items := strings.Split(text, separator)
+	object := make(map[string]any, len(items))
+	for _, item := range items {
+		name, value, _ := strings.Cut(item, "=")
+		object[name] = value
 	}
 	return object
 }
