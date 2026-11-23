@@ -171,14 +171,33 @@ components:
 `)
 		Expect(t.requests).To(HaveLen(1))
 		Expect(t.requests[0].Params).To(Equal([]spec.Param{
-			{Name: "id", In: "path", Required: true, Segment: 2, Explode: true, Schema: spec.Schema{"$ref": "#/$defs/Id"}, Label: "path id"},
-			{Name: "rest", In: "path", Required: true, Segment: 3, Rest: true, Explode: true, Label: "path rest"},
-			{Name: "tags", In: "query", Segment: -1, Schema: spec.Schema{"type": "array"}, Label: "query tags"},
-			{Name: "filter", In: "query", Segment: -1, DeepObject: true, Label: "query filter"},
-			{Name: "X-Ids", In: "header", Segment: -1, Explode: true, Label: "header X-Ids"},
-			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Label: "cookie sid"},
+			{Name: "id", In: "path", Required: true, Segment: 2, Explode: true, Split: true, Schema: spec.Schema{"$ref": "#/$defs/Id"}, Label: "path id"},
+			{Name: "rest", In: "path", Required: true, Segment: 3, Rest: true, Explode: true, Split: true, Label: "path rest"},
+			{Name: "tags", In: "query", Segment: -1, Split: true, Schema: spec.Schema{"type": "array"}, Label: "query tags"},
+			{Name: "filter", In: "query", Segment: -1, DeepObject: true, Split: true, Label: "query filter"},
+			{Name: "X-Ids", In: "header", Segment: -1, Explode: true, Split: true, Label: "header X-Ids"},
+			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Spread: true, Decode: true, Label: "cookie sid"},
 		}))
 	})
+
+	It("describes a cookie of style cookie as taken as written", func() {
+		t, _ := tell(spectest.Route("parameters:\n  - { name: sid, in: cookie, style: cookie }\nresponses: {}\n"))
+		Expect(t.requests[0].Params).To(Equal([]spec.Param{
+			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Spread: true, Label: "cookie sid"},
+		}))
+	})
+
+	DescribeTable("describes the whole query string as a query parameter read by its media type",
+		func(mediaType string, reads spec.Reads) {
+			t, _ := tell(spectest.Route("parameters:\n  - { name: q, in: querystring, content: { " + mediaType + ": { schema: { type: object } } } }\nresponses: {}\n"))
+			Expect(t.requests[0].Params).To(Equal([]spec.Param{
+				{Name: "q", In: "query", Segment: -1, Explode: true, WholeQuery: reads, Schema: spec.Schema{"type": "object"}, Label: "querystring q"},
+			}))
+		},
+		Entry("a form", "application/x-www-form-urlencoded", spec.ReadsForm),
+		Entry("JSON", "application/vnd.x+json", spec.ReadsJSON),
+		Entry("text", "text/plain", spec.ReadsText),
+	)
 
 	It("leaves out header parameters OpenAPI describes elsewhere", func() {
 		t, _ := tell(spectest.Route("parameters:\n  - { name: Accept, in: header, required: true }\n  - { in: header }\nresponses: {}\n"))
@@ -227,7 +246,7 @@ responses:
 		Expect(body[2].Schema).To(BeNil())
 		Expect(t.responses).To(HaveLen(1))
 		Expect(t.responses[0].Headers).To(Equal([]spec.Param{
-			{Name: "X-Count", In: "header", Required: true, Segment: -1, Schema: spec.Schema{"type": "integer"}, Label: "the 200 response header X-Count"},
+			{Name: "X-Count", In: "header", Required: true, Segment: -1, Split: true, Schema: spec.Schema{"type": "integer"}, Label: "the 200 response header X-Count"},
 		}))
 	})
 

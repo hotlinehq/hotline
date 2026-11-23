@@ -61,6 +61,9 @@ type Checked struct {
 // call it, its body and its responses.
 type checks struct {
 	params []param
+	// wholeQuery is how the whole query string is read, when a parameter
+	// describes it; 0 when none does.
+	wholeQuery Reads
 	// security lists the ways to log in, any one of which is enough. Nil
 	// or a way with no credentials means none is needed.
 	security [][]credential
@@ -86,7 +89,12 @@ type param struct {
 	// deepObject reads an object from name[key]=value query pairs.
 	deepObject bool
 	explode    bool
-	schema     schemaAt
+	// whole is how the whole query string is read, for a parameter in
+	// querystring; 0 for any other.
+	whole Reads
+	// decode says a cookie's value is percent-decoded: style form.
+	decode bool
+	schema schemaAt
 	// record names the record attribute a header is copied to, when the
 	// spec marks it x-hotline-record.
 	record string
@@ -131,7 +139,10 @@ const (
 	partBody   = "body"
 	partHeader = "header"
 	partStatus = "status"
-	whole      = "$"
+	// inQueryString is the in of a parameter for the whole query string.
+	// Its findings have part query.
+	inQueryString = "querystring"
+	whole         = "$"
 )
 
 // Check checks a finished call against the spec, both sides. A call with
@@ -158,14 +169,14 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	if r.segments == nil {
 		return Checked{Skipped: "no_spec_route"}
 	}
+	appQuery := s.appQuery(r, e.RawQuery)
 	c := Checked{
-		Request: r.checks.request.Params(e.EscapedPath, e.RawQuery, e.Header),
+		Request: r.checks.request.Params(e.EscapedPath, appQuery, e.Header),
 		Copied:  r.checks.copiedHeaders(e.Header),
 	}
+	c.Request = append(c.Request, r.checks.unknownQuery(appQuery)...)
 	query, _ := url.ParseQuery(e.RawQuery)
-	c.Request = append(c.Request, s.unknownQuery(r, query)...)
-	cookies := map[string]string{}
-	read.Cookies(e.Header, cookies)
+	cookies := read.Cookies(e.Header)
 	c.Request = append(c.Request, r.checks.loggedIn(e.Header, query, cookies)...)
 	findings, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
 	c.Request = append(c.Request, findings...)
@@ -223,20 +234,52 @@ func (c *checks) response(status int) *response {
 	return nil
 }
 
-// unknownQuery reports query names the spec does not know. A login key
-// sent in the query, and a word the route needs, are known.
-func (s *Spec) unknownQuery(r route, query url.Values) []Finding {
+// appQuery is the app's own part of a raw query: the pairs of the
+// proxy's own names, a login key sent in the query and a word that picks
+// the route, are taken out, unless a query parameter has the name. Both
+// the parameters and the check for unknown names see this query.
+func (s *Spec) appQuery(r route, rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	var kept []string
+	for pair := range strings.SplitSeq(rawQuery, "&") {
+		escaped, _, _ := strings.Cut(pair, "=")
+		name, _ := url.QueryUnescape(escaped)
+		own := s.secretQuery[name] || slices.ContainsFunc(r.words, func(w queryWord) bool { return w.name == name })
+		if !own || queryParam(r.checks.params, name) {
+			kept = append(kept, pair)
+		}
+	}
+	return strings.Join(kept, "&")
+}
+
+// unknownQuery reports query names the spec does not know. With a
+// parameter for the whole query string there are none: its schema says
+// which names may come.
+func (c *checks) unknownQuery(appQuery string) []Finding {
+	if c.wholeQuery != 0 {
+		return nil
+	}
+	query, _ := url.ParseQuery(appQuery)
 	var findings []Finding
 	for _, key := range slices.Sorted(maps.Keys(query)) {
-		isWord := slices.ContainsFunc(r.words, func(w queryWord) bool { return w.name == key })
-		if !s.secretQuery[key] && !isWord && !knownQuery(r.checks.params, key) {
+		if !queryParam(c.params, key) {
 			findings = append(findings, Finding{Part: "query", Place: key, Rule: "not_in_spec"})
 		}
 	}
 	return findings
 }
 
-func knownQuery(params []param, key string) bool {
+// queryHasNames says whether the query is read name by name: false for a
+// query string read whole as JSON or text.
+func (c *checks) queryHasNames() bool {
+	return c.wholeQuery == 0 || c.wholeQuery == ReadsForm
+}
+
+// queryParam says whether a query parameter has the name, or reads it
+// as name[key].
+func queryParam(params []param, key string) bool {
 	for _, p := range params {
 		if p.in == "query" && (p.name == key || p.deepObject && strings.HasPrefix(key, p.name+"[")) {
 			return true
@@ -248,7 +291,7 @@ func knownQuery(params []param, key string) bool {
 // loggedIn reports the credentials of the first way to log in when no way
 // is complete. Only whether a credential is there is checked, never its
 // value.
-func (c *checks) loggedIn(header http.Header, query url.Values, cookies map[string]string) []Finding {
+func (c *checks) loggedIn(header http.Header, query url.Values, cookies map[string][]string) []Finding {
 	if len(c.security) == 0 {
 		return nil
 	}
@@ -270,7 +313,7 @@ func (c *checks) loggedIn(header http.Header, query url.Values, cookies map[stri
 	return first
 }
 
-func (cred credential) present(header http.Header, query url.Values, cookies map[string]string) bool {
+func (cred credential) present(header http.Header, query url.Values, cookies map[string][]string) bool {
 	switch cred.in {
 	case "query":
 		return query.Has(cred.name)

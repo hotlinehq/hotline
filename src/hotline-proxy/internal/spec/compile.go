@@ -174,6 +174,7 @@ func (b *builder) checks(template string, operationKeys []string, where string) 
 	opPointer := pointer.String()
 	c := &checks{marks: map[string]map[string]mark{"path": {}, "query": {}, "header": {}, "response": {}}}
 	c.params = b.params(c.marks, where, item["parameters"], itemPointer+"/parameters", op["parameters"], opPointer+"/parameters")
+	c.wholeQuery = b.wholeQuery(c.params, where)
 	c.security = b.security(op)
 	if v, ok := op["requestBody"]; ok {
 		body, pointer := b.object(v, opPointer+"/requestBody", where)
@@ -246,15 +247,70 @@ func (b *builder) param(m map[string]any, pointer, where string) *param {
 		return nil
 	}
 	p.required, _ = m["required"].(bool)
+	if p.in == inQueryString {
+		return b.queryString(p, m, pointer, where)
+	}
 	style := str(m, "style")
 	p.deepObject = style == "deepObject"
 	if explode, ok := m["explode"].(bool); ok {
 		p.explode = explode
-	} else if style != "" && style != "form" {
+	} else if style != "" && style != "form" && style != "cookie" {
 		p.explode = false
 	}
+	// A cookie's style is form unless it says cookie, and form
+	// percent-decodes the value (Peter, 2026-11-23, M3 part 2, Q3).
+	p.decode = p.in == "cookie" && style != "cookie"
 	p.schema = schemaOf(m, pointer, p.in+" "+p.name)
 	return p
+}
+
+// queryString reads a parameter that is the whole query string. OpenAPI
+// 3.2 says it has content with exactly one media type, which says how the
+// query string is read; nil when it has not.
+func (b *builder) queryString(p *param, m map[string]any, pointer, where string) *param {
+	listed, _ := m["content"].(map[string]any)
+	if len(listed) != 1 {
+		b.problem("%s: the querystring parameter %s must have content with exactly one media type", where, p.name)
+		return nil
+	}
+	for mediaType, v := range listed {
+		media, _ := v.(map[string]any)
+		p.schema = schemaOf(media, pointer+"/content"+token(mediaType), inQueryString+" "+p.name)
+		switch mt := strings.ToLower(mediaType); {
+		case mt == "application/x-www-form-urlencoded":
+			p.whole = ReadsForm
+		case isJSON(mt):
+			p.whole = ReadsJSON
+		default:
+			p.whole = ReadsText
+		}
+	}
+	return p
+}
+
+// wholeQuery refuses what OpenAPI 3.2 forbids: more than one
+// parameter for the whole query string, or one beside query parameters.
+// It returns how the query string is read, 0 when no parameter
+// describes it.
+func (b *builder) wholeQuery(params []param, where string) Reads {
+	var whole, query int
+	var reads Reads
+	for _, p := range params {
+		switch {
+		case p.whole != 0:
+			whole++
+			reads = p.whole
+		case p.in == "query":
+			query++
+		}
+	}
+	switch {
+	case whole > 1:
+		b.problem("%s: only one querystring parameter may describe the query string", where)
+	case whole == 1 && query > 0:
+		b.problem("%s: a querystring parameter cannot sit beside query parameters", where)
+	}
+	return reads
 }
 
 // security is the method's own list of ways to log in, or the spec's.
@@ -347,6 +403,10 @@ func (b *builder) response(marks map[string]map[string]mark, m map[string]any, p
 func (b *builder) redactMark(marks map[string]map[string]mark, where, in, name string, m map[string]any) {
 	value, marked := m["x-hotline-redact"]
 	if !marked || name == "" {
+		return
+	}
+	if in == inQueryString {
+		b.problem("%s: x-hotline-redact on the querystring parameter %s: its values are redacted by name, or whole when it is JSON or text", where, name)
 		return
 	}
 	var found mark

@@ -3,9 +3,11 @@ package santhosh
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
@@ -25,8 +27,9 @@ type param struct {
 	spec.Param
 	schema *jsonschema.Schema
 	notes  branchNotes
-	// list says the schema wants a list.
-	list bool
+	// list says the schema wants a list, and object an object.
+	list   bool
+	object bool
 }
 
 // content is one type a body may be sent as, with its compiled schema.
@@ -62,13 +65,21 @@ func (e *Engine) Response(r spec.ResponseSpec) (spec.ResponseCheck, error) {
 	return &responseCheck{headers: headers, body: body}, errors.Join(headersErr, bodyErr)
 }
 
+// errNoProperties marks an object cookie, read one cookie per property,
+// whose schema names no properties.
+var errNoProperties = errors.New("the schema names no properties, so the cookies of the object cannot be found")
+
 func (e *Engine) params(list []spec.Param) ([]param, error) {
 	out := make([]param, len(list))
 	var problems []error
 	for i, p := range list {
 		s, err := e.schema(p.Schema, p.Label)
 		problems = append(problems, err)
-		out[i] = param{Param: p, schema: s, notes: e.notes, list: slices.Contains(types(s), "array")}
+		out[i] = param{Param: p, schema: s, notes: e.notes, list: slices.Contains(types(s), "array"), object: slices.Contains(types(s), "object")}
+		if p.Spread && out[i].object && properties(s) == nil {
+			// One cookie per property needs the property names.
+			problems = append(problems, fmt.Errorf("%w: %s", errNoProperties, p.Label))
+		}
 	}
 	return out, errors.Join(problems...)
 }
@@ -89,10 +100,13 @@ func (q *requestCheck) Params(escapedPath, rawQuery string, header http.Header) 
 	if rawQuery != "" {
 		query, _ = url.ParseQuery(rawQuery)
 	}
-	cookies := map[string]string{}
-	read.Cookies(header, cookies)
+	cookies := read.Cookies(header)
 	var findings []spec.Finding
 	for _, p := range q.params {
+		if p.WholeQuery != 0 {
+			findings = append(findings, p.checkWhole(rawQuery)...)
+			continue
+		}
 		findings = append(findings, p.check(p.values(escapedPath, query, header, cookies))...)
 	}
 	return findings
@@ -115,8 +129,9 @@ func (r *responseCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Findi
 }
 
 // values are the parameter's values in the call, nil when it is missing:
-// text, or an object for a query written filter[status]=x.
-func (p param) values(escapedPath string, query url.Values, header http.Header, cookies map[string]string) any {
+// text, or an object for a query written filter[status]=x or a cookie
+// object.
+func (p param) values(escapedPath string, query url.Values, header http.Header, cookies map[string][]string) any {
 	switch p.In {
 	case "path":
 		if value, ok := read.PathValue(escapedPath, p.Segment, p.Rest); ok {
@@ -134,11 +149,62 @@ func (p param) values(escapedPath string, query url.Values, header http.Header, 
 			return []string{value}
 		}
 	case "cookie":
-		if value, ok := cookies[p.Name]; ok {
-			return []string{value}
+		return p.cookie(cookies)
+	}
+	return nil
+}
+
+// cookie is the cookie parameter's value: its text values, or an object
+// when the schema wants one; nil when it is missing.
+func (p param) cookie(cookies map[string][]string) any {
+	if p.object && p.Spread {
+		// One cookie per property. Only the schema's own properties are
+		// taken, so other cookies of the call are never extra properties.
+		object := map[string]any{}
+		for name := range properties(p.schema) {
+			if values, ok := cookies[name]; ok {
+				object[name] = p.decoded(values[0])
+			}
+		}
+		if len(object) == 0 {
+			return nil
+		}
+		return object
+	}
+	values, ok := cookies[p.Name]
+	if !ok {
+		return nil
+	}
+	if p.object {
+		return read.Pairs(p.decoded(values[0]))
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = p.decoded(v)
+	}
+	return out
+}
+
+// properties are the properties a schema names, following $ref.
+func properties(s *jsonschema.Schema) map[string]*jsonschema.Schema {
+	for ; s != nil; s = s.Ref {
+		if s.Properties != nil {
+			return s.Properties
 		}
 	}
 	return nil
+}
+
+// decoded is a cookie value percent-decoded when its style says so. A
+// value that does not decode is checked as written.
+func (p param) decoded(value string) string {
+	if !p.Decode {
+		return value
+	}
+	if plain, err := url.PathUnescape(value); err == nil {
+		return plain
+	}
+	return value
 }
 
 func (p param) check(values any) []spec.Finding {
@@ -153,9 +219,53 @@ func (p param) check(values any) []spec.Finding {
 	}
 	instance := values
 	if list, ok := values.([]string); ok {
-		instance = read.Shape(list, p.list, !p.Explode || p.In != "query")
+		instance = read.Shape(list, p.list, p.Split)
 	}
 	return validate(p.schema, p.notes, coerce(instance, p.schema), p.In, p.Name)
+}
+
+// checkWhole checks the whole query string, as its media type reads it.
+// Its places read like those of query parameters: limit, not $.limit;
+// the whole value is $.
+func (p param) checkWhole(rawQuery string) []spec.Finding {
+	if rawQuery == "" {
+		if p.Required {
+			return []spec.Finding{{Part: p.In, Place: whole, Rule: "required"}}
+		}
+		return nil
+	}
+	instance, err := readWhole(rawQuery, p.WholeQuery)
+	if err != nil {
+		return []spec.Finding{{Part: p.In, Place: whole, Rule: "querystring"}}
+	}
+	if p.schema == nil {
+		return nil
+	}
+	findings := validate(p.schema, p.notes, coerce(instance, p.schema), p.In, whole)
+	for i := range findings {
+		if name, ok := strings.CutPrefix(findings[i].Place, whole+"."); ok {
+			findings[i].Place = name
+		}
+	}
+	return findings
+}
+
+// readWhole reads a query string: a form, or JSON or text percent-decoded
+// as a form is, with + a space, as browsers and Go's url package write
+// it.
+func readWhole(rawQuery string, reads spec.Reads) (any, error) {
+	if reads == spec.ReadsForm {
+		form, err := read.Form([]byte(rawQuery))
+		return form, err
+	}
+	text, err := url.QueryUnescape(rawQuery)
+	switch {
+	case err != nil:
+		return nil, err
+	case reads == spec.ReadsJSON:
+		return decodeJSON([]byte(text))
+	}
+	return text, nil
 }
 
 // check reads a body and checks it against the schema of its content,

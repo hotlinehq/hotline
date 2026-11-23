@@ -17,7 +17,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| Fixed on 2026-11-21 (M0): only `openapi: 3.2.*` loads now. Its new parts load but are skipped quietly until built; `itemSchema` was built in M2, and `QUERY` and `additionalOperations` in M3 (2026-11-22). `in: querystring` is still skipped. | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
+| Fixed on 2026-11-21 (M0): only `openapi: 3.2.*` loads now. Its new parts load but are skipped quietly until built; `itemSchema` was built in M2, `QUERY` and `additionalOperations` in M3 (2026-11-22), and `in: querystring` in M3 part 2 (2026-11-23). | Medium: `itemSchema` is how 3.2 describes Server-Sent Events | [code] `spec.go` Parse |
 | A standalone AsyncAPI file is not read. Messages exist only inside an OpenAPI file, under `x-async-api`. | Medium | [code] `messages.go` |
 
 ## 2. OpenAPI: servers and paths
