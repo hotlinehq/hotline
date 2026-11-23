@@ -76,10 +76,14 @@ Feature: WebSocket sessions
     Then the session record has the call record's trace_id
     And the session record's span is a "websocket session" span under the call's "hotline call" span, starting when the call ends
 
-  Scenario: A session still open at stop is ended and recorded
+  Scenario: A session still open when the time to stop runs out is cut and recorded
+    A stop lets each open session run until it ends on its own. Four
+    fifths into the time to stop, those still open are cut, which leaves
+    the rest of the time to send their records (Peter, 2026-11-23, as
+    HAProxy's hard-stop-after does).
     Given the shop vendor accepts a WebSocket upgrade and keeps it open until the app closes
     When an app opens a WebSocket to the shop through the forward_proxy ingress
-    And the proxy stops
+    And the proxy stops, with 1 second to stop
     Then there is one call record and one session record
 
   Scenario: The console shows the session's end in two lines of its own

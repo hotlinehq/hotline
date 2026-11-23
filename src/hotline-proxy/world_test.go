@@ -114,8 +114,12 @@ type world struct {
 	// configName is the config file's name; empty means hotline-proxy.yaml.
 	configName string
 
-	proxy    *proxy.Proxy
-	addr     string
+	proxy *proxy.Proxy
+	addr  string
+	// stopped, while the proxy stops, closes once it has; stopTime is the
+	// time it has to stop, 5 seconds when not set.
+	stopped  chan struct{}
+	stopTime time.Duration
 	startErr error
 	logs     *syncBuffer
 
@@ -293,6 +297,9 @@ func (w *world) close() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = w.proxy.Shutdown(ctx)
 		cancel()
+	}
+	if w.stopped != nil {
+		<-w.stopped
 	}
 	for _, v := range w.vendors {
 		v.close()
@@ -860,15 +867,32 @@ func (w *world) writeBody(conn net.Conn, r request) {
 	}
 }
 
-// settle stops the proxy, which sends every queued record and count.
+// settle stops the proxy, which sends every queued record and count, and
+// waits until it has stopped.
 func (w *world) settle() {
+	w.startStop()
+	if w.stopped != nil {
+		<-w.stopped
+		w.stopped = nil
+	}
+}
+
+// startStop starts the proxy's stop, which runs on its own: open
+// connections still pass bytes until they end, or until the time to stop
+// runs out.
+func (w *world) startStop() {
 	if w.proxy == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = w.proxy.Shutdown(ctx)
-	w.proxy = nil
+	p, stopped := w.proxy, make(chan struct{})
+	w.proxy, w.stopped = nil, stopped
+	limit := cmp.Or(w.stopTime, 5*time.Second)
+	go func() {
+		defer close(stopped)
+		ctx, cancel := context.WithTimeout(context.Background(), limit)
+		defer cancel()
+		_ = p.Shutdown(ctx)
+	}()
 }
 
 // records are the hotline.request records the first receiver got, once the
@@ -978,4 +1002,20 @@ func (w *world) post(target, contentType, body string, headers ...string) error 
 	r := request{method: "POST", target: target, length: len(body),
 		headers: append([]string{basic("talon-shop-a:x"), "Content-Type: " + contentType}, headers...), body: strings.NewReader(body)}
 	return w.send(r)
+}
+
+// startStopping starts the proxy's stop and waits, at most 2 seconds,
+// until its port takes no new connection, so what the scenario does next
+// happens while the proxy stops.
+func (w *world) startStopping() error {
+	addr := w.addr
+	w.startStop()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", addr)
+		if err != nil {
+			return nil
+		}
+		_ = conn.Close()
+	}
+	return failf("the proxy still takes connections 2 seconds into its stop")
 }

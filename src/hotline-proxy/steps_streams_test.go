@@ -50,6 +50,9 @@ type streamingVendor struct {
 	// waits says the vendor sends its first event and then waits, for the
 	// app to leave or the proxy to stop.
 	waits bool
+	// restAtStop says the vendor sends its first event, then the rest
+	// once the proxy is stopping.
+	restAtStop bool
 	// whole answers the message as one JSON body.
 	whole bool
 	// holdsHeaders says the vendor sends its headers only once the proxy
@@ -197,6 +200,10 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the Anthropic vendor streams message_start, then waits for the app to read it$`, func() error {
 		w.streaming.events, w.streaming.waits = helloResponse()[:1], true
+		return nil
+	})
+	sc.Step(`^the Anthropic vendor streams message_start, then the rest of the response "Hello!" once the proxy is stopping$`, func() error {
+		w.streaming.events, w.streaming.restAtStop = helloResponse(), true
 		return nil
 	})
 	sc.Step(`^the Anthropic vendor holds its headers until the proxy is stopping, then streams message_start$`, func() error {
@@ -571,6 +578,9 @@ func (w *world) streamingVendor(rw http.ResponseWriter, r *http.Request) {
 			panic(http.ErrAbortHandler)
 		}
 		v.write(rw, flush, piece)
+		if v.restAtStop && i == 0 {
+			v.waitForStop()
+		}
 	}
 	if v.breaksOff {
 		panic(http.ErrAbortHandler)
@@ -642,6 +652,7 @@ func (w *world) askOnOwnConnection() error {
 		return err
 	}
 	w.vendor(anthropicHost)
+	w.streaming.addr = w.addr
 	conn, err := w.dialProxy()
 	if err != nil {
 		return err

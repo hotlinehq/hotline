@@ -211,10 +211,10 @@ Feature: The transparent ingress
       And both relays' records are made and 10 seconds pass
       Then the two relays' records are in two batches of one chain, each naming its own config
 
-    Scenario: Stopping the proxy ends a relay
+    Scenario: A relay still open when the time to stop runs out is cut and recorded
       Given the transparent listener lists pinned.example.com in passthrough
       When the app connects to the listener naming pinned.example.com in the handshake
-      And the proxy stops
+      And the proxy stops, with 1 second to stop
       Then the transparent record has hotline.ingress transparent, server.address pinned.example.com and hotline.intercept.mode passthrough
 
     Scenario: A listener the config no longer has keeps working until a restart

@@ -35,6 +35,21 @@ Feature: A relayed tunnel stops each direction on its own
       | a tunnel opened over HTTP/1.1 |
       | a captured tunnel             |
 
+  Scenario Outline: A relayed tunnel open at stop keeps passing bytes until it ends
+    A stop lets each open tunnel run until it ends on its own (Peter,
+    2026-11-23, the HAProxy way).
+    Given pinned.example.com answers only after the app stops sending
+    When the app opens <tunnel> to pinned.example.com, sending nothing yet
+    And the proxy starts stopping
+    And the app sends "REQUEST" through the tunnel, then stops sending
+    Then the app gets "RESPONSE to REQUEST"
+
+    Examples:
+      | tunnel                        |
+      | a tunnel opened over HTTP/1.1 |
+      | a tunnel opened over HTTP/2   |
+      | a captured tunnel             |
+
   Scenario: Over HTTP/2, the vendor stopping first ends the tunnel
     The app still sends nothing more and waits for the end, as many do. The
     proxy ends the stream, so the app is never left waiting.

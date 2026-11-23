@@ -172,7 +172,10 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		_ = telemetry.Shutdown(ctx)
 		return nil, err
 	}
+	cut, cutAll := context.WithCancel(context.Background())
 	h := &handler{
+		cut:       cut,
+		cutAll:    cutAll,
 		clock:     o.Clock,
 		logger:    o.Logger,
 		exporters: exporters,
@@ -323,9 +326,13 @@ func (p *Proxy) Drain() {
 // until the end, /readyz with no.
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.Drain()
-	// A streamed response holds its connection busy, so the stop ends those
-	// still open first, and each is recorded (Peter, 2026-11-21, M2).
-	p.handler.endStreams()
+	// Calls, WebSockets, streamed responses and relayed tunnels still open
+	// run until they end on their own. Four fifths into the time to stop,
+	// those left are cut, which leaves the rest of the time to record them
+	// (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
+	cutAt, cancel := cutTime(ctx)
+	defer cancel()
+	defer context.AfterFunc(cutAt, p.handler.cutAll)()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
 	// a listener that lasts until the tunnels' server closes the tunnel.
 	// Tunnels still being set up are cut short.
@@ -338,9 +345,6 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		err = errors.Join(err, <-stopped)
 	}
 	<-p.tunnelServed
-	// A WebSocket lasts as long as both sides like, so the stop ends those
-	// still open, and each is recorded (Peter, 2026-11-18).
-	p.handler.endSessions()
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()
@@ -370,4 +374,12 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		<-p.adminServed
 	}
 	return err
+}
+
+// cutTime is when a stop cuts what is still open: four fifths into the time
+// ctx allows, which keeps the last fifth to record them. A ctx with no
+// time limit cuts at once.
+func cutTime(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, _ := ctx.Deadline()
+	return context.WithDeadline(ctx, deadline.Add(-deadline.Sub(time.Now())/5))
 }

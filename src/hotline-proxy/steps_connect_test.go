@@ -19,6 +19,7 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,7 +83,11 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^an app sends "CONNECT (\S+)" over plain HTTP/2$`, func(authority string) error {
 		return w.sendHTTP2(http.MethodConnect, "", authority)
 	})
-	sc.Step(`^the proxy stops$`, func() error {
+	sc.Step(`^the proxy stops(?:, with (\d+) seconds? to stop)?$`, func(seconds string) error {
+		if seconds != "" {
+			n, _ := strconv.Atoi(seconds)
+			w.stopTime = time.Duration(n) * time.Second
+		}
 		stopped := make(chan struct{})
 		go func() {
 			w.settle()
@@ -95,6 +100,7 @@ func connectSteps(sc *godog.ScenarioContext, w *world) {
 			return failf("the proxy took over 2 seconds to stop")
 		}
 	})
+	sc.Step(`^the proxy starts stopping$`, w.startStopping)
 	sc.Step(`^the tunnel is closed$`, func() error {
 		_ = w.tunnel.SetReadDeadline(time.Now().Add(2 * time.Second))
 		if n, err := w.tunnel.Read(make([]byte, 1)); n != 0 || !errors.Is(err, io.EOF) {

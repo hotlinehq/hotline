@@ -72,7 +72,6 @@ func (c *call) Switched() {
 		c.checkRequest(at)
 	}
 	c.mark(func() { c.session.opened = at })
-	c.h.sessions.Store(c, struct{}{})
 	c.h.recordLater(func() finished { return c.record(at) })
 }
 
@@ -114,15 +113,6 @@ func (c *call) sessionRecord(end time.Time) finished {
 		event: export.SessionEvent, cfg: c.cfg, chain: c.integration.Name, sc: sc, at: opened,
 		attrs: attrs, spans: []export.Span{span},
 	}
-}
-
-// endSessions ends every WebSocket still open, so each is recorded as the
-// proxy stops instead of being dropped.
-func (h *handler) endSessions() {
-	h.sessions.Range(func(c, _ any) bool {
-		c.(*call).cancel()
-		return true
-	})
 }
 
 // countedWriter is the app's side of a session on its way to the vendor:

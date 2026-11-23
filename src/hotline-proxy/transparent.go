@@ -268,8 +268,9 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 		return
 	}
 	_ = app.SetDeadline(time.Time{})
-	// Stopping the proxy ends the relay.
-	stop := context.AfterFunc(h.tunnels.ctx, func() { _ = app.Close(); _ = vendor.Close() })
+	// A stop lets the relay run until it ends, or until the stop cuts what
+	// is still open.
+	stop := context.AfterFunc(h.cut, func() { _ = app.Close(); _ = vendor.Close() })
 	defer stop()
 	done := make(chan struct{})
 	go func() {

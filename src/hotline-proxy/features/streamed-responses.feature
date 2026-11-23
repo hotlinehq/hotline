@@ -106,7 +106,7 @@ Feature: Streamed responses checked item by item
   # The call, the items and the stream
 
   Scenario: The call is recorded once the response's headers reach the app, before the stream ends
-    Given the Anthropic vendor streams message_start, then waits for the app to read it
+    Given the Anthropic vendor streams message_start, then the rest of the response "Hello!" once the proxy is stopping
     When the app asks for a streamed message and reads 1 event
     Then a call record and an stream item record arrive while the stream is open
     And the stream's call record says http.response.status_code 200, gen_ai.request.model claude-opus-5-5, hotline.schema.status valid
@@ -182,17 +182,26 @@ Feature: Streamed responses checked item by item
     Then there are 4 stream item records
     And the stream record says hotline.stream.items 4, hotline.stream.end cut
 
-  Scenario: A stream still open at stop is ended and recorded
-    Given the Anthropic vendor streams message_start, then waits for the app to read it
+  Scenario: A stream open at stop runs to its end
+    A stop lets each open stream run until it ends on its own (Peter,
+    2026-11-23, the HAProxy way).
+    Given the Anthropic vendor streams message_start, then the rest of the response "Hello!" once the proxy is stopping
     When the app asks for a streamed message and reads 1 event
     And the proxy stops
     Then there is one call record and one stream record
+    And the stream record says hotline.stream.items 8, hotline.stream.end complete
+
+  Scenario: A stream still open when the time to stop runs out is cut and recorded
+    Given the Anthropic vendor streams message_start, then waits for the app to read it
+    When the app asks for a streamed message and reads 1 event
+    And the proxy stops, with 1 second to stop
+    Then there is one call record and one stream record
     And the stream record says hotline.stream.end cut
 
-  Scenario: A stream that opens while the proxy stops is ended and recorded
+  Scenario: A stream that opens while the proxy stops is cut when the time to stop runs out
     Given the Anthropic vendor holds its headers until the proxy is stopping, then streams message_start
     When the app asks for a streamed message, without waiting for it
-    And the proxy stops
+    And the proxy stops, with 1 second to stop
     Then there is one call record and one stream record
     And the stream record says hotline.stream.end cut
 

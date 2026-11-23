@@ -53,6 +53,21 @@ func halfCloseSteps(sc *godog.ScenarioContext, w *world) {
 		w.respBody, w.respErr = io.ReadAll(app)
 		return nil
 	})
+	sc.Step(`^the app opens (.+) to (\S+), sending nothing yet$`, func(kind, host string) error {
+		app, err := w.relayedTunnel(kind, host)
+		w.tunnel = app
+		return err
+	})
+	sc.Step(`^the app sends "([^"]*)" through the tunnel, then stops sending$`, func(text string) error {
+		app := w.tunnel.(*tls.Conn)
+		if _, err := io.WriteString(app, text); err != nil {
+			return err
+		}
+		stopSending(app)
+		_ = app.SetReadDeadline(time.Now().Add(5 * time.Second))
+		w.respBody, w.respErr = io.ReadAll(app)
+		return nil
+	})
 	sc.Step(`^the app gets "([^"]*)"$`, func(want string) error {
 		if string(w.respBody) != want {
 			return failf("the app got %q (%v)", w.respBody, w.respErr)
