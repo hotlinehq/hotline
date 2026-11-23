@@ -154,6 +154,10 @@ _Avoid_: operation, command
 Checking one side of a call, the request or the response, against the spec. It runs beside the call on a worker and never holds it up. The `checks` list on an api says which parts are checked: path, query, headers, cookies, body, status, response headers, response body, and a WebSocket's messages.
 _Avoid_: validation (used for the config, by `hotline-proxy validate`), verification (used for the ledger), schema check
 
+**Webhook address**:
+An address a vendor gives an app to post messages to, such as a Slack incoming webhook, `https://hooks.slack.com/services/T000/B000/XXXX`. The address is itself the secret (see decision 39 in `docs/decisions/spec-checks.md`).
+_Avoid_: hook URL, webhook (alone, it also means the vendor calling the app)
+
 **Body copy**:
 The copy of a request or response body that the proxy keeps, up to a size limit, for spec checks, while the body itself streams on untouched.
 _Avoid_: buffer, captured body
@@ -249,7 +253,7 @@ One value from inside a body that the spec marks with `x-hotline-record`, copied
 _Avoid_: extracted field, tag
 
 **Full content**:
-With `content: full` on an integration, file exporters get every header and the bodies of its calls, with secrets still redacted. Never sent over OTLP.
+With `content: full` on an integration, file exporters get every header and the bodies of its calls, with the values the spec marks secret, and logins, still redacted. Never sent over OTLP.
 _Avoid_: debug mode, raw dump, full record (that is a different thing)
 
 **Exporter**:

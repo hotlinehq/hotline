@@ -953,3 +953,29 @@ func (w *world) waitForVendorCalls(host string, n int) error {
 	}
 	return failf("the vendor for %s did not get %d calls", host, n)
 }
+
+// useRepositorySpec gives the app an integration whose one api is host,
+// described by the spec in the repository at path, and makes the fake
+// vendor answer every call with status, contentType and body.
+func (w *world) useRepositorySpec(host, path string, status int, contentType, body, extra string) error {
+	spec, err := filepath.Abs(filepath.FromSlash(path))
+	if err != nil {
+		return err
+	}
+	api := w.api(host, fmt.Sprintf("    hosts: [%s]\n    spec: %s\n", host, spec))
+	w.addIntegration(integration("talon-shop-a", api) + extra)
+	w.vendor(host).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.Header().Set("Content-Type", contentType)
+		rw.WriteHeader(status)
+		_, _ = rw.Write([]byte(body))
+	})
+	return nil
+}
+
+// post sends a call with a body and headers, the way the app talon-shop-a
+// does.
+func (w *world) post(target, contentType, body string, headers ...string) error {
+	r := request{method: "POST", target: target, length: len(body),
+		headers: append([]string{basic("talon-shop-a:x"), "Content-Type: " + contentType}, headers...), body: strings.NewReader(body)}
+	return w.send(r)
+}

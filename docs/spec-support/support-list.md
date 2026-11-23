@@ -33,7 +33,7 @@ New from 3.2:
 ## Should: next, because real vendors need them
 
 12. **Multipart bodies** (file uploads): check the fields that are not files, using `encoding`, and 3.2's `itemEncoding` and `prefixEncoding` where given.
-13. **Webhooks, minimal: the app calling the vendor.** Calls that set up webhooks (Stripe's webhook endpoints, GitHub's hooks) and calls to a vendor's webhook address (Slack or Discord incoming webhooks), checked like any call, with the secret in the address always hidden.
+13. **Webhooks, minimal: the app calling the vendor.** Calls that set up webhooks (Stripe's webhook endpoints, GitHub's hooks) and calls to a vendor's webhook address (Slack or Discord incoming webhooks), checked like any call, with the secret in the address always hidden (built 2026-11-23: Stripe's whole spec and Slack incoming webhooks).
 14. **Server variables:** a variable in the host is skipped, as the config names the hosts, and a variable in the path is read like a path value (built 2026-11-21). Every server's base path is read, with a path's or operation's own servers taking over (built 2026-11-23).
 15. **Server `name`** (new in 3.2): used to label which server a call went to. Left for later (2026-11-23): no spec uses it yet, and `server.address` already says where a call went.
 16. **`discriminator`** with 3.2's `defaultMapping`: pick the branch by the field, so an error names the right branch (built 2026-11-22).

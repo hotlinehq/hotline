@@ -8,4 +8,5 @@ use (
 	./src/otel-hotline
 	./src/otelcol-dev
 	./tools/aws-openapi
+	./tools/stripe-openapi
 )

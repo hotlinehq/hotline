@@ -1,0 +1,103 @@
+openapi: 3.2.0
+info:
+  title: Slack incoming webhooks
+  version: "2026-11-23"
+  description: >-
+    The one call an app makes to a Slack incoming webhook: POST a message as
+    JSON to the address Slack gave it. The three parts of the path are the
+    secret, so each is marked x-hotline-redact true: records hide them, and so does
+    the file under content full.
+    Written by hand on 2026-11-23 from Slack's own SDKs; see README.md.
+servers:
+  - url: https://hooks.slack.com
+paths:
+  /services/{team}/{bot}/{token}:
+    post:
+      operationId: sendMessage
+      summary: Post a message to the channel the webhook belongs to
+      parameters:
+        - name: team
+          in: path
+          required: true
+          x-hotline-redact: true
+          schema: { type: string, minLength: 1 }
+        - name: bot
+          in: path
+          required: true
+          x-hotline-redact: true
+          schema: { type: string, minLength: 1 }
+        - name: token
+          in: path
+          required: true
+          x-hotline-redact: true
+          schema: { type: string, minLength: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Message"
+      responses:
+        "200":
+          description: The message was posted; Slack answers with the text ok.
+          content:
+            "*/*": {}
+        "4XX":
+          description: >-
+            Slack refused the message, with the reason as plain text, such
+            as invalid_payload, no_text, invalid_token, no_service or
+            channel_is_archived.
+          content:
+            "*/*": {}
+        "5XX":
+          description: Slack failed.
+          content:
+            "*/*": {}
+components:
+  schemas:
+    Message:
+      type: object
+      description: >-
+        A message needs text, blocks or attachments: Slack refuses one with
+        none of them (no_text). Fields Slack adds later pass.
+      anyOf:
+        - required: [text]
+        - required: [blocks]
+        - required: [attachments]
+      properties:
+        text:
+          type: string
+          description: The message, or the fallback text when blocks are given.
+        blocks:
+          type: array
+          description: Block Kit blocks, each an object with a type.
+          items:
+            type: object
+            required: [type]
+            properties:
+              type: { type: string }
+        attachments:
+          type: array
+          items: { type: object }
+        thread_ts:
+          type: string
+          description: The message to answer in a thread.
+        mrkdwn: { type: boolean }
+        unfurl_links: { type: boolean }
+        unfurl_media: { type: boolean }
+        link_names: { type: boolean }
+        username: { type: string }
+        icon_emoji: { type: string }
+        icon_url: { type: string }
+        channel: { type: string }
+        response_type:
+          type: string
+          enum: [in_channel, ephemeral]
+        replace_original: { type: boolean }
+        delete_original: { type: boolean }
+        metadata:
+          type: object
+          required: [event_type, event_payload]
+          properties:
+            event_type: { type: string }
+            event_payload: { type: object }

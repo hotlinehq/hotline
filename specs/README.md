@@ -23,6 +23,10 @@ specs/
     kms/2014-11-01.openapi.yaml
     cloudwatch-logs/2014-03-28.openapi.yaml
     sfn/2016-11-23.openapi.yaml
+  stripe/
+    api/2026-09-30.endive.openapi.yaml        # Stripe's whole api, made by tools/stripe-openapi from Stripe's own spec
+  slack/
+    incoming-webhooks/2026-11-23.openapi.yaml # posting to a Slack incoming webhook, written by hand
 ```
 
 ## Rules

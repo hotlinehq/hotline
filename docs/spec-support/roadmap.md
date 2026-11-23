@@ -46,14 +46,15 @@ These mistakes give no warning today, so they come before new features.
 - Check the parts that are not files, using `encoding`, and 3.2's `itemEncoding` and `prefixEncoding`. File parts are counted, never read.
 - Depends on: M0. Shares the item-by-item reading from M2 if `multipart/mixed` streams are wanted.
 
-## M5. Webhooks, minimal: the app calling the vendor (small)
+## M5. Webhooks, minimal: the app calling the vendor (medium, built 2026-11-23)
 
 Decided (Peter, 2026-11-21): only the part where the app calls the vendor. Calls from the vendor to the app are out of scope. Two kinds of call count:
 
 - **Setting up webhooks.** The app tells the vendor where to send events, for example Stripe's `POST /v1/webhook_endpoints` or GitHub's `POST /repos/{owner}/{repo}/hooks`. These are ordinary paths, checked like any other call. The work is to add them to our vendor specs and test them, so we know they check correctly.
 - **Sending to a vendor's webhook address.** The app posts a message to an address the vendor gave it, for example a Slack or Discord incoming webhook (`https://hooks.slack.com/services/T000/B000/XXXX`). The address holds a secret, so the record must never show it. Path values are already hidden unless marked safe; a test keeps that true for these addresses. The message body is checked against the vendor's schema.
 - **Not checked:** the spec's `webhooks` and `callbacks` sections. They describe calls the vendor makes to the app, so they are loaded and ignored.
-- Open: which vendors first. Slack incoming webhooks and Stripe's webhook endpoints are my picks, since both are common and both have public specs.
+- First vendors: Stripe and Slack (Peter, 2026-11-23).
+- Built (2026-11-23): Stripe's whole spec, made by `tools/stripe-openapi` from Stripe's own and taken as written, and a hand-written Slack incoming webhooks spec whose address is hidden everywhere, `content: full` included. Decisions 35 to 40 in [decisions/spec-checks.md](../decisions/spec-checks.md). M5 is done.
 - Depends on: M0.
 
 ## Later: only when a real example needs it
