@@ -24,7 +24,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| Only the first `servers` entry is read, and only for its base path (like `/v1`). Other servers, and `servers` on a path or an operation, are ignored. | Medium | [code] `spec.go` |
+| Fixed on 2026-11-23 (second sweep): every `servers` entry is read for its base path (like `/v1`), and `servers` on a path or an operation take over from the ones above, as OpenAPI says. Only the base path is used. | Medium | [code] `spec.go` basePaths |
 | Fixed on 2026-11-21 (M1): the host of a servers address is no longer parsed, so a variable in it (`https://{region}.api.com/v1`) keeps the base path `/v1`. A variable in the path is treated like a path value. | Medium | [code] `spec.go` basePath |
 | `$ref` to another file (a split spec) is refused. Specs must be bundled into one file. | Medium | [code] `compile.go` object |
 | `webhooks` (the 3.1 top-level section) is not read. Calls the vendor makes to the app are not checked. | Medium: Stripe, GitHub, Slack send webhooks | [code] only `paths` is read |
@@ -35,9 +35,9 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 
 | Gap | Matters | Source |
 |---|---|---|
-| Styles: only `form`, `simple` and `deepObject` are read. `matrix` and `label` path values (`;id=5`, `.5`) and `spaceDelimited` and `pipeDelimited` query lists are read as plain text or split on commas, so good calls can be flagged. | Low: rare in vendor APIs | [inferred] from `read.Shape` |
-| An object in a query or header that is not `deepObject` (for example `?lat=1&lng=2` as one exploded object, or `a,1,b,2`) is not built into an object before its check. | Low to medium | [inferred] from `read.Shape` |
-| A parameter described with `content` instead of `schema` (JSON inside a query value) is not checked at all. | Low | [code] `schemaOf` reads only `schema` |
+| Fixed on 2026-11-23 (second sweep): every style OpenAPI lists is read, `matrix` and `label` path values (`;id=5`, `.5`) and `spaceDelimited` and `pipeDelimited` query lists included. A style OpenAPI does not allow where the parameter lives refuses the spec. | Low: rare in vendor APIs | [code] `compile.go` param |
+| An exploded query object that is not `deepObject` (`?lat=1&lng=2` as one object) is not built into an object before its check. Since 2026-11-23, objects written in one value are: `a,1,b,2`, and `a=1,b=2` in an exploded path or header. | Low | [code] santhosh `checks.go` read |
+| Fixed on 2026-11-23 (second sweep): a parameter or response header described with `content` instead of `schema` is read by its one media type (JSON, form or text) and checked. Both, or `content` without exactly one media type, refuse the spec. | Low | [code] `compile.go` schemaOrContent |
 | `allowReserved` and `allowEmptyValue` are ignored. | Low | [code] |
 | Unknown request headers and unknown cookies are not reported; only unknown query names are. | Low: by design, apps send many headers | [code] `unknownQuery` |
 | `Accept`, `Content-Type` and `Authorization` header parameters are skipped, as OpenAPI says. | None | [code] |

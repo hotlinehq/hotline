@@ -19,6 +19,7 @@ These mistakes give no warning today, so they come before new features.
 - A server address with a variable in the host, like `{region}`, quietly dropped the base path. Built: the host is no longer parsed, since the config names the hosts, so the base path stays.
 - AsyncAPI traits were ignored. Built: they refuse the spec for now; merging them in comes later if a vendor needs it.
 - A message `schemaFormat` other than JSON Schema (Avro or Protobuf, for example) was ignored. Built: it refuses the spec. AsyncAPI's, OpenAPI's and JSON Schema's own formats load.
+- Second sweep (built 2026-11-23): parameters described with `content`, the `matrix`, `label`, `spaceDelimited` and `pipeDelimited` styles, and every server's base path were skipped or read wrongly. They are now checked; a spec is refused only where OpenAPI forbids what it says ([decisions/spec-checks.md](../decisions/spec-checks.md), items 30 to 34).
 - Depends on: M0.
 
 ## M2. Streamed replies with `itemSchema` (large, the biggest win)
@@ -53,7 +54,7 @@ Decided (Peter, 2026-11-21): only the part where the app calls the vendor. Calls
 - **Sending to a vendor's webhook address.** The app posts a message to an address the vendor gave it, for example a Slack or Discord incoming webhook (`https://hooks.slack.com/services/T000/B000/XXXX`). The address holds a secret, so the record must never show it. Path values are already hidden unless marked safe; a test keeps that true for these addresses. The message body is checked against the vendor's schema.
 - **Not checked:** the spec's `webhooks` and `callbacks` sections. They describe calls the vendor makes to the app, so they are loaded and ignored.
 - First vendors: Stripe and Slack (Peter, 2026-11-23).
-- Built (2026-11-23): Stripe's whole spec, made by `tools/stripe-openapi` from Stripe's own and taken as written, and a hand-written Slack incoming webhooks spec whose address is hidden everywhere, `content: full` included. Decisions 30 to 35 in [decisions/spec-checks.md](../decisions/spec-checks.md). M5 is done.
+- Built (2026-11-23): Stripe's whole spec, made by `tools/stripe-openapi` from Stripe's own and taken as written, and a hand-written Slack incoming webhooks spec whose address is hidden everywhere, `content: full` included. Decisions 35 to 40 in [decisions/spec-checks.md](../decisions/spec-checks.md). M5 is done.
 - Depends on: M0.
 
 ## Later: only when a real example needs it

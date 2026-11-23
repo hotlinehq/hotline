@@ -64,19 +64,25 @@ type route struct {
 }
 
 type document struct {
-	OpenAPI      string `yaml:"openapi"`
-	ActionHeader string `yaml:"x-hotline-action-header"` //nolint:tagliatelle // the name of our OpenAPI extension
-	ActionField  string `yaml:"x-hotline-action-field"`  //nolint:tagliatelle // the name of our OpenAPI extension
-	Servers      []struct {
-		URL string `yaml:"url"`
-	} `yaml:"servers"`
-	Paths map[string]pathItem `yaml:"paths"`
+	OpenAPI      string              `yaml:"openapi"`
+	ActionHeader string              `yaml:"x-hotline-action-header"` //nolint:tagliatelle // the name of our OpenAPI extension
+	ActionField  string              `yaml:"x-hotline-action-field"`  //nolint:tagliatelle // the name of our OpenAPI extension
+	Servers      []server            `yaml:"servers"`
+	Paths        map[string]pathItem `yaml:"paths"`
+}
+
+// server is one entry of a servers list. Only the path of its address is
+// used, as the config names the hosts.
+type server struct {
+	URL string `yaml:"url"`
 }
 
 // pathItem lists a path's methods. Everything else about a route, its
 // parameters, responses and x-hotline-redact marks included, is read by the
 // builder, which follows $ref.
 type pathItem struct {
+	// Servers, when given, replace the spec's for this path.
+	Servers []server   `yaml:"servers"`
 	Get     *operation `yaml:"get"`
 	Put     *operation `yaml:"put"`
 	Post    *operation `yaml:"post"`
@@ -93,7 +99,20 @@ type pathItem struct {
 	AdditionalOperations map[string]*operation `yaml:"additionalOperations"`
 }
 
-type operation struct{}
+// operation holds what Parse reads of an operation itself: its servers,
+// which replace its path's when given.
+type operation struct {
+	Servers []server `yaml:"servers"`
+}
+
+// operationServers are the method's own servers, nil when it has none.
+func (p pathItem) operationServers(method string) []server {
+	if op := p.fixedOperations()[method]; op != nil {
+		return op.Servers
+	}
+	// operationKeys lists only methods the path has.
+	return p.AdditionalOperations[method].Servers
+}
 
 // Parse reads and checks a spec. name only labels the problems it reports.
 // newEngine makes the engine that checks values against the spec's JSON
@@ -116,38 +135,34 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 	b := newBuilder(name, data, newEngine)
 	s := &Spec{actionHeader: doc.ActionHeader, actionField: doc.ActionField, secretHeaders: map[string]bool{}, secretQuery: map[string]bool{}}
 	var problems []error
-	base := ""
-	if len(doc.Servers) > 0 {
-		base = basePath(doc.Servers[0].URL)
-	}
+	// A template two methods share is read for each, but its problems are
+	// told once.
+	templatesReported := map[string]bool{}
 	for key, item := range doc.Paths {
-		template := base + key
-		path, action, words, err := s.splitAction(name, template)
-		if err != nil {
-			problems = append(problems, err)
-		}
-		segments := strings.Split(strings.TrimSuffix(path, "/"), "/")
-		for i, segment := range segments {
-			if strings.HasSuffix(segment, "+}") && i != len(segments)-1 {
-				problems = append(problems, fmt.Errorf("%w: %s: the route %s has %s before its end, but only the last part of a path may take the rest of it",
-					ErrInvalid, name, template, segment))
-			}
-		}
-		problems = append(problems, item.methodProblems(name, template)...)
+		pathBases := basePaths(item.Servers, doc.Servers)
+		problems = append(problems, item.methodProblems(name, pathBases[0]+key)...)
 		for method, operationKeys := range item.operationKeys() {
-			r := route{
-				method:   method,
-				template: template,
-				action:   action,
-				words:    words,
-				rest:     strings.HasSuffix(segments[len(segments)-1], "+}"),
-				segments: segments,
+			for _, base := range basePaths(item.operationServers(method), item.Servers, doc.Servers) {
+				template := base + key
+				t, err := s.routePartsOf(name, template)
+				if err != nil && !templatesReported[template] {
+					problems = append(problems, err)
+				}
+				templatesReported[template] = true
+				r := route{
+					method:   method,
+					template: template,
+					action:   t.action,
+					words:    t.words,
+					rest:     strings.HasSuffix(t.segments[len(t.segments)-1], "+}"),
+					segments: t.segments,
+				}
+				where := fmt.Sprintf("%s %s %s", name, method, template)
+				r.checks = b.checks(key, operationKeys, where)
+				r.checks.request = b.requestCheck(r.checks, t.segments, where)
+				r.marks = r.checks.marks
+				s.routes = append(s.routes, r)
 			}
-			where := fmt.Sprintf("%s %s %s", name, method, template)
-			r.checks = b.checks(key, operationKeys, where)
-			r.checks.request = b.requestCheck(r.checks, segments, where)
-			r.marks = r.checks.marks
-			s.routes = append(s.routes, r)
 		}
 	}
 	// What the security section says apps send to log in is secret. The
@@ -165,6 +180,47 @@ func Parse(name string, data []byte, newEngine NewEngine) (*Spec, error) {
 		return nil, errors.Join(problems...)
 	}
 	return s, nil
+}
+
+// routeParts are a route template read into its parts.
+type routeParts struct {
+	action   string
+	words    []queryWord
+	segments []string
+}
+
+// routePartsOf reads a route template: the action or query words it may
+// name after #, and the pieces of its path.
+func (s *Spec) routePartsOf(name, route string) (routeParts, error) {
+	path, action, words, err := s.splitAction(name, route)
+	problems := []error{err}
+	segments := strings.Split(strings.TrimSuffix(path, "/"), "/")
+	for i, segment := range segments {
+		if strings.HasSuffix(segment, "+}") && i != len(segments)-1 {
+			problems = append(problems, fmt.Errorf("%w: %s: the route %s has %s before its end, but only the last part of a path may take the rest of it",
+				ErrInvalid, name, route, segment))
+		}
+	}
+	return routeParts{action: action, words: words, segments: segments}, errors.Join(problems...)
+}
+
+// basePaths are the base paths of the first list of servers that has any,
+// each once, in the order listed: an operation's own servers win over its
+// path's, and a path's over the spec's, as OpenAPI says. With no servers
+// at all, the base path is empty.
+func basePaths(lists ...[]server) []string {
+	for _, servers := range lists {
+		var bases []string
+		for _, sv := range servers {
+			if base := basePath(sv.URL); !slices.Contains(bases, base) {
+				bases = append(bases, base)
+			}
+		}
+		if len(bases) > 0 {
+			return bases
+		}
+	}
+	return []string{""}
 }
 
 // queryWord is a word a call's query must hold to take a route: only

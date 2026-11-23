@@ -147,7 +147,7 @@ Each problem is a map with these keys. It never holds a value from the call.
 | Key | Always there? | What it holds |
 |---|---|---|
 | `part` | yes | `path`, `query`, `header`, `cookie`, `body` or `status`. |
-| `rule` | yes | One word, such as `required`, `type`, `format`, `enum`, `not_in_spec` or `content_type`. |
+| `rule` | yes | One word, such as `required`, `type`, `format`, `enum`, `not_in_spec`, `content_type`, `json` or `form` (a body or a parameter's `content` value that can't be read), or `prefix` (a `matrix` or `label` path value without its mark). |
 | `place` | when known | The name (`page`) or the spot in the body (`$.cartItems[0].quantity`). |
 | `expected` | when known | What the spec asks for. |
 

@@ -130,6 +130,10 @@ _Avoid_: proxy metrics, internal metrics, self-monitoring, "the `telemetry` dest
 Our copy of a vendor's OpenAPI description, which the proxy reads to find a call's route, check it and know what to hide.
 _Avoid_: schema (that is one part of a spec), contract, definition
 
+**Base path**:
+The path part of a spec's server address, such as `/v1` in `https://api.x.com/v1`, put in front of every route. The host part is never used, as the config names the hosts.
+_Avoid_: server path, prefix, root
+
 **Mark**:
 A field of our own in a spec, whose name starts with `x-hotline-`, for what plain OpenAPI cannot say. Marks live only in specs and overlays, never in the config.
 _Avoid_: annotation, extension, tag
@@ -151,7 +155,7 @@ Checking one side of a call, the request or the response, against the spec. It r
 _Avoid_: validation (used for the config, by `hotline-proxy validate`), verification (used for the ledger), schema check
 
 **Webhook address**:
-An address a vendor gives an app to post messages to, such as a Slack incoming webhook, `https://hooks.slack.com/services/T000/B000/XXXX`. The address is itself the secret (see decision 34 in `docs/decisions/spec-checks.md`).
+An address a vendor gives an app to post messages to, such as a Slack incoming webhook, `https://hooks.slack.com/services/T000/B000/XXXX`. The address is itself the secret (see decision 39 in `docs/decisions/spec-checks.md`).
 _Avoid_: hook URL, webhook (alone, it also means the vendor calling the app)
 
 **Body copy**:
