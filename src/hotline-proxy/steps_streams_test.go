@@ -271,7 +271,7 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a call record and an stream item record arrive while the stream is open$`, func() error {
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
 			if len(w.receivers[0].got()) > 0 && len(w.receivers[0].streamItemRecords()) > 0 {
 				if len(w.receivers[0].streamRecords()) > 0 {
 					return failf("the stream record arrived while the stream was open")

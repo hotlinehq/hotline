@@ -33,6 +33,16 @@ jobs:
       # may open. Docker allows it by default; this runner does not.
       - name: let the tests ping
         run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+      # Downloads go first, tried up to three times: a dropped download
+      # from the module proxy once failed every package (docs/flakes.md).
+      - name: download modules
+        run: |
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "module download failed (try $try), trying again"
+            sleep 10
+          done
+          exit 1
       - name: run tests
         run: |
           make clean-cache

@@ -146,7 +146,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a second proxy starts with a file exporter on the same folder$`, func() error {
 		// Its first file exporter has a folder of its own, so the proxy
 		// must let go of that one when the second folder is taken.
-		config := strings.Replace(w.config(), w.addr, freePort(), 1)
+		config := strings.Replace(w.config(), w.addr, w.ports.take(), 1)
 		config = strings.Replace(config, "exporters:\n", "exporters:\n  - file:\n      path: "+filepath.Join(w.dir, "calls-other")+"\n", 1)
 		second, err := proxy.Start(context.Background(), proxy.Options{
 			ConfigPath:    w.writeFile("second.yaml", config),
@@ -347,7 +347,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 			if data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl")); err == nil && bytes.Count(data, []byte("\n")) == 1 {
 				return nil
 			}
-			time.Sleep(10 * time.Millisecond)
+			pause(10 * time.Millisecond)
 		}
 		return failf("no line was written within a second")
 	})
@@ -622,13 +622,14 @@ func (w *world) lineBody(key, want string) error {
 
 // waitForLines waits until calls.jsonl has n lines, while the proxy runs.
 func (w *world) waitForLines(n int) error {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	written := eventually(waitLimit, func() bool {
 		data, _ := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
-		if bytes.Count(data, []byte("\n")) >= n {
-			return nil
-		}
+		return bytes.Count(data, []byte("\n")) >= n
+	})
+	if !written {
+		return failf("%d lines were not written", n)
 	}
-	return failf("%d lines were not written", n)
+	return nil
 }
 
 // parseLines reads lines of JSON, each a whole object ending in a line

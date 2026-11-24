@@ -30,7 +30,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets no metric within a second$`, func() error {
-		time.Sleep(time.Second)
+		pause(time.Second)
 		if points := w.telemetry.metricPoints(); len(points) > 0 {
 			return failf("got %d data points within a second, the first %s", len(points), points[0].name)
 		}
@@ -297,7 +297,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a product exporter that is down$`, func() error {
 		w.receivers[0].stop()
 		// Nothing listens there yet.
-		w.receivers[0] = &receiver{endpoint: "http://" + freePort()}
+		w.receivers[0] = &receiver{endpoint: "http://" + w.ports.take()}
 		return nil
 	})
 	sc.Step(`^the exporter comes back and another call ends$`, func() error {
@@ -486,7 +486,7 @@ func (w *world) eventually(check func() error) error {
 		if err == nil || time.Now().After(deadline) {
 			return err
 		}
-		time.Sleep(10 * time.Millisecond)
+		pause(10 * time.Millisecond)
 	}
 }
 

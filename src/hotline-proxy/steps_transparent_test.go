@@ -227,7 +227,7 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 						return
 					}
 					w.clock.passToNext()
-					time.Sleep(10 * time.Millisecond)
+					pause(10 * time.Millisecond)
 				}
 			}()
 		}
@@ -335,25 +335,25 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the transparent listener is added$`, func() error {
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "customer"}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer"}
 		return nil
 	})
 	sc.Step(`^the transparent listener lists an ech.relay name that is not a host name$`, func() error {
 		w.problem = `ech.relay "a/b" must be a host name`
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "customer", relay: []string{"a/b"}}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", relay: []string{"a/b"}}
 		return nil
 	})
 	sc.Step(`^the transparent listener names a cert that is not in certs$`, func() error {
 		w.problem = "listener transparent: transparent names the cert gone, which is not in certs"
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "gone"}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "gone"}
 		return nil
 	})
 	sc.Step(`^the transparent listener names no cert$`, func() error {
 		w.problem = "listener transparent: transparent needs a cert"
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "customer", without: "cert"}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", without: "cert"}
 		return nil
 	})
 	sc.Step(`^the transparent listener has no address$`, func() error {
@@ -365,7 +365,7 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the transparent listener lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
 		w.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "customer", passthrough: []string{"api.*.com"}}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", passthrough: []string{"api.*.com"}}
 		return nil
 	})
 }

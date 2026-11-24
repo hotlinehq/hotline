@@ -107,11 +107,11 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		// Wait until the proxy waits for the next part, then let time pass.
-		for deadline := time.Now().Add(5 * time.Second); w.clock.waitingSince(ownWaits) == 0; {
+		for deadline := time.Now().Add(waitLimit); w.clock.waitingSince(ownWaits) == 0; {
 			if time.Now().After(deadline) {
 				return failf("the proxy never waited for the response's next part")
 			}
-			time.Sleep(time.Millisecond)
+			pause(time.Millisecond)
 		}
 		w.clock.pass(time.Duration(seconds) * time.Second)
 		// Give a proxy that gave up the time to tell the vendor, before the
@@ -159,7 +159,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 				if _, err := send.Write(bytes.Repeat([]byte("p"), 1024)); err != nil {
 					return
 				}
-				time.Sleep(20 * time.Millisecond)
+				pause(20 * time.Millisecond)
 			}
 			_ = send.Close()
 		}()
@@ -468,7 +468,7 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^a vendor that answers after (\d+) milliseconds and a vendorTimeout of (\d+) seconds$`, func(after, timeout int) error {
 		w.addIntegration(integration("talon-shop-a", w.talonAPI(sprintf("    vendorTimeout: %ds\n", timeout))))
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
-			time.Sleep(time.Duration(after) * time.Millisecond)
+			pause(time.Duration(after) * time.Millisecond)
 			rw.WriteHeader(http.StatusOK)
 		})
 		return nil
@@ -571,9 +571,7 @@ func (w *world) situation(situation string) error {
 	case "a DNS lookup that takes too long":
 		w.network.setHang("api.talon.one")
 	case "a vendor that refuses the connection":
-		l := listenLocal()
-		w.routeTo("api.talon.one", "443", l)
-		_ = l.Close()
+		w.refuse("api.talon.one", "443")
 	case "a vendor that takes too long to connect":
 		w.network.setHang(address)
 	case "a vendor whose network cannot be reached":

@@ -125,7 +125,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the collector is back$`, func() error {
 		// Sends refused a moment ago end at once; let them.
-		time.Sleep(300 * time.Millisecond)
+		pause(300 * time.Millisecond)
 		w.receivers[0].setDown(false)
 		return nil
 	})
@@ -133,7 +133,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		if _, err := w.waitBatches(64); err != nil {
 			return err
 		}
-		time.Sleep(200 * time.Millisecond)
+		pause(200 * time.Millisecond)
 		batches := w.receivers[0].ledger()
 		if len(batches) != 64 {
 			return failf("the collector got %d batch records", len(batches))
@@ -270,7 +270,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		running := filepath.Join(w.dir, "running", "calls.jsonl")
-		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); ; pause(10 * time.Millisecond) {
 			data, _ := os.ReadFile(running) //nolint:gosec // the scenario's own folder
 			if bytes.Count(data, []byte("\n")) >= 4 {
 				_ = os.MkdirAll(filepath.Join(w.dir, "calls"), 0o750)

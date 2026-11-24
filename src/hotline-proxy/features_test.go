@@ -29,9 +29,10 @@ func TestFeatures(t *testing.T) {
 		paths = strings.Split(only, ",")
 	}
 	app := &exampleApp{dir: t.TempDir()}
+	ports := newReservedPorts()
 	suite := godog.TestSuite{
 		Name:                "hotline-proxy",
-		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeScenario(sc, app) },
+		ScenarioInitializer: func(sc *godog.ScenarioContext) { initializeScenario(sc, app, ports) },
 		Options: &godog.Options{
 			Format:   "progress",
 			Paths:    paths,
@@ -45,12 +46,12 @@ func TestFeatures(t *testing.T) {
 	}
 }
 
-func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
+func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reservedPorts) {
 	w := &world{}
 	var before goleak.Option
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		before = goleak.IgnoreCurrent()
-		fresh, err := newWorld()
+		fresh, err := newWorld(ports)
 		*w = *fresh
 		return ctx, err
 	})
@@ -68,7 +69,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp) {
 			// under the race detector it takes seconds, longer than Find
 			// waits. Keep looking for a while.
 			for end := time.Now().Add(30 * time.Second); err != nil && w.stoppedEarly && time.Now().Before(end); {
-				time.Sleep(100 * time.Millisecond)
+				pause(100 * time.Millisecond)
 				err = goleak.Find(opts...)
 			}
 		}

@@ -76,10 +76,10 @@ func consoleProgramSteps(sc *godog.ScenarioContext, p *program) {
 	})
 }
 
-// waitFor waits up to 5 seconds for the text to match the pattern.
+// waitFor waits up to waitLimit for the text to match the pattern.
 func waitFor(text func() string, pattern string) error {
 	re := regexp.MustCompile(pattern)
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(20 * time.Millisecond) {
 		if re.MatchString(text()) {
 			return nil
 		}

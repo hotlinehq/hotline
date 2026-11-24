@@ -10,7 +10,7 @@ var _ = Describe("Starting the proxy in the test world", func() {
 
 	BeforeEach(func() {
 		var err error
-		w, err = newWorld()
+		w, err = newWorld(newReservedPorts())
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(w.close)
 	})

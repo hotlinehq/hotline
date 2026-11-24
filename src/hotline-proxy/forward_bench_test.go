@@ -15,7 +15,7 @@ import (
 // numbers per call are for all three together; a change in the proxy shows
 // as the difference between two runs.
 func BenchmarkCall(b *testing.B) {
-	w, err := newWorld()
+	w, err := newWorld(newReservedPorts())
 	if err != nil {
 		b.Fatal(err)
 	}

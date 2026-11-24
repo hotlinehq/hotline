@@ -76,11 +76,11 @@ func websocketSteps(sc *godog.ScenarioContext, w *world) {
 		return w.socket.conn.Close()
 	})
 	sc.Step(`^the app keeps the WebSocket open for (\d+) ms and closes it$`, func(ms int) error {
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		pause(time.Duration(ms) * time.Millisecond)
 		return w.socket.conn.Close()
 	})
 	sc.Step(`^a call record with http.response.status_code 101 arrives while the WebSocket is open$`, func() error {
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
 			if records := w.receivers[0].got(); len(records) > 0 {
 				return has(records[0].attrs, "http.response.status_code", 101)
 			}
