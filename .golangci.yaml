@@ -70,6 +70,12 @@ linters:
       # longer needs is itself reported, so stale skips do not pile up.
       require-explanation: true
       require-specific: true
+    staticcheck:
+      # Ginkgo and Gomega are written to be read with dot imports, as every
+      # test here imports them; the shared spec checks do the same.
+      dot-import-whitelist:
+        - github.com/onsi/ginkgo/v2
+        - github.com/onsi/gomega
     revive:
       rules:
         - name: package-comments

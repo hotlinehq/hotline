@@ -81,6 +81,9 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 		if err := w.start(); err != nil {
 			return err
 		}
+		// The proxy starts waits of its own, such as the ledger's batch
+		// timer; the call's waits are the ones after these.
+		ownWaits := w.clock.armed()
 		w.vendor("api.talon.one")
 		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.addr)
 		if err != nil {
@@ -104,7 +107,10 @@ func forwardSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		// Wait until the proxy waits for the next part, then let time pass.
-		for deadline := time.Now().Add(5 * time.Second); w.clock.waiting() == 0 && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(5 * time.Second); w.clock.waitingSince(ownWaits) == 0; {
+			if time.Now().After(deadline) {
+				return failf("the proxy never waited for the response's next part")
+			}
 			time.Sleep(time.Millisecond)
 		}
 		w.clock.pass(time.Duration(seconds) * time.Second)

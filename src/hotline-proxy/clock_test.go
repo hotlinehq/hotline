@@ -46,15 +46,29 @@ func (t *fakeTimer) Stop() bool {
 
 // waiting says how many waits have not ended yet.
 func (c *fakeClock) waiting() int {
+	return c.waitingSince(0)
+}
+
+// armed says how many waits have been started so far, ended or not.
+func (c *fakeClock) armed() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	n := 0
-	for _, t := range c.timers {
+	return len(c.timers)
+}
+
+// waitingSince says how many waits started after the first n have not
+// ended yet, so a test can tell a call's wait from the ones the proxy
+// keeps from its start, such as the ledger's batch timer.
+func (c *fakeClock) waitingSince(n int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	waiting := 0
+	for _, t := range c.timers[n:] {
 		if !t.done {
-			n++
+			waiting++
 		}
 	}
-	return n
+	return waiting
 }
 
 // passToNext lets time go by until the next wait ends.
