@@ -112,8 +112,8 @@ func (q *requestCheck) Params(escapedPath, rawQuery string, header http.Header) 
 	return findings
 }
 
-func (q *requestCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return q.body[i].check(reads, body)
+func (q *requestCheck) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return q.body[contentIndex].check(reads, body)
 }
 
 func (r *responseCheck) Headers(header http.Header) []spec.Finding {
@@ -124,8 +124,8 @@ func (r *responseCheck) Headers(header http.Header) []spec.Finding {
 	return findings
 }
 
-func (r *responseCheck) Body(i int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return r.body[i].check(reads, body)
+func (r *responseCheck) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return r.body[contentIndex].check(reads, body)
 }
 
 // values are the parameter's values in the call, nil when it is missing:

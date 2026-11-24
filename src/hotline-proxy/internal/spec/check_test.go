@@ -38,11 +38,18 @@ func (accepting) Response(spec.ResponseSpec) (spec.ResponseCheck, error) {
 	return acceptResponse{}, nil
 }
 func (acceptRequest) Params(string, string, http.Header) []spec.Finding { return nil }
-func (acceptRequest) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
+func (acceptRequest) Body(spec.ContentIndex, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
-func (acceptResponse) Headers(http.Header) []spec.Finding { return nil }
-func (acceptResponse) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
+func (acceptRequest) TextPart(spec.ContentIndex, string, []spec.FormPart) ([]spec.Finding, []spec.Field) {
+	return nil, nil
+}
+func (acceptRequest) JSONPart(spec.ContentIndex, string, []byte) ([]spec.Finding, []spec.Field) {
+	return nil, nil
+}
+func (acceptRequest) FormPartNames(spec.ContentIndex, []string) []spec.Finding { return nil }
+func (acceptResponse) Headers(http.Header) []spec.Finding                      { return nil }
+func (acceptResponse) Body(spec.ContentIndex, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
 
@@ -84,15 +91,26 @@ func (t *told) body(content int, reads spec.Reads, body []byte) ([]spec.Finding,
 type toldRequest struct{ t *told }
 
 func (toldRequest) Params(string, string, http.Header) []spec.Finding { return nil }
-func (c toldRequest) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return c.t.body(content, reads, body)
+func (c toldRequest) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), reads, body)
+}
+
+func (c toldRequest) TextPart(contentIndex spec.ContentIndex, property string, parts []spec.FormPart) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), spec.ReadsForm, []byte(fmt.Sprintf("text %s %d", property, len(parts))))
+}
+func (c toldRequest) JSONPart(contentIndex spec.ContentIndex, property string, value []byte) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), spec.ReadsJSON, []byte(fmt.Sprintf("json %s %s", property, value)))
+}
+func (c toldRequest) FormPartNames(contentIndex spec.ContentIndex, came []string) []spec.Finding {
+	findings, _ := c.t.body(int(contentIndex), spec.ReadsFormParts, []byte(fmt.Sprint("names ", came)))
+	return findings
 }
 
 type toldResponse struct{ t *told }
 
 func (toldResponse) Headers(http.Header) []spec.Finding { return nil }
-func (c toldResponse) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return c.t.body(content, reads, body)
+func (c toldResponse) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), reads, body)
 }
 
 // tell parses a spec with a told engine.

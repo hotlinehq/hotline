@@ -53,6 +53,7 @@ jobs:
           - { target: FuzzWireFrames, package: ., tags: fuzz }
           - { target: FuzzSSEEvents, package: ., tags: fuzz }
           - { target: FuzzLineItems, package: ., tags: fuzz }
+          - { target: FuzzFormParts, package: ., tags: fuzz }
           - { target: FuzzForm, package: ./internal/spec/read, tags: fuzz }
           - { target: FuzzXML, package: ./internal/spec/read, tags: fuzz }
           - { target: FuzzDecodeJSON, package: ./internal/santhosh, tags: fuzz }

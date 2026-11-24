@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"io"
+	"slices"
 	"sync"
 
 	"hotline-proxy/internal/ledger"
@@ -12,7 +13,7 @@ import (
 // tap passes a body straight on, and hands each piece that passes to the
 // parts that need it, each with one job (Peter, 2026-11-16, from the
 // decomplect review): it counts the bytes, mac hashes every byte for the
-// ledger, saver keeps a copy for the file exporters, and keeper keeps a
+// ledger, saver keeps a copy for the file exporters, and copy keeps a
 // copy for the checks. done, if set, runs once when the body ends: read to
 // the end, broken off, or closed early. The request body is read by the
 // transport, which may still be reading when the record is made, so tap
@@ -24,9 +25,11 @@ type tap struct {
 	// wait, if set, runs before each read and limits how long it may take.
 	wait func() func() bool
 
-	mac    *ledger.BodyHash
-	saver  bodySaver
-	keeper bodyKeeper
+	mac   *ledger.BodyHash
+	saver bodySaver
+	// copy keeps the body for the checks: whole, or a multipart request
+	// body part by part. Never nil.
+	copy bodyCopy
 	// stream, when set, reads the body's stream items as they pass.
 	stream *responseStream
 
@@ -44,7 +47,7 @@ func (t *tap) Read(p []byte) (int, error) {
 	t.size += int64(n)
 	_, _ = t.mac.Write(p[:n])
 	t.saver.add(p[:n])
-	t.keeper.add(p[:n])
+	t.copy.add(p[:n])
 	if t.stream != nil {
 		t.stream.pass(p[:n])
 		if errors.Is(err, io.EOF) {
@@ -106,7 +109,7 @@ func (t *tap) savedBody() ([]byte, bool) {
 func (t *tap) copied() spec.Body {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.keeper.hand()
+	return t.copy.hand()
 }
 
 // held is the memory the copy for the checks takes, or none before the
@@ -114,14 +117,14 @@ func (t *tap) copied() spec.Body {
 func (t *tap) held() int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.keeper.held()
+	return t.copy.held()
 }
 
 // drop gives the copy's buffer back, once the check of the copy has ended.
 func (t *tap) drop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.keeper.drop()
+	t.copy.drop()
 }
 
 // bodySaver keeps the first limit bytes of a body for the file exporters,
@@ -144,6 +147,29 @@ func (s *bodySaver) add(b []byte) {
 		s.data = make([]byte, 0, min(s.expect, s.limit))
 	}
 	s.data = append(s.data, b[:room]...)
+}
+
+// bodyCopy is how a body is kept for the checks as it passes: bodyKeeper
+// keeps it whole, partReader keeps a multipart request body's text parts.
+type bodyCopy interface {
+	add(b []byte)
+	// hand gives the copy to the check; it never changes after.
+	hand() spec.Body
+	// held is the memory the copy takes.
+	held() int64
+	// drop lets the copy go, once the check of it has ended.
+	drop()
+}
+
+// formFiles are the file parts of a multipart request body read part by
+// part, as far as it passed; nil for any other body.
+func (t *tap) formFiles() []spec.FormPart {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if r, ok := t.copy.(*partReader); ok {
+		return slices.Clone(r.files)
+	}
+	return nil
 }
 
 // bodyKeeper keeps a copy of up to limit bytes of a body for the checks,
@@ -196,7 +222,15 @@ func (k *bodyKeeper) keep(b []byte) {
 	k.kept = k.buf.data
 }
 
-// hand gives the copy to the check; it never changes after.
+// cut keeps only the first n bytes of the copy; what is kept next goes on
+// from there.
+func (k *bodyKeeper) cut(n int) {
+	k.kept = k.kept[:n]
+	if k.buf != nil {
+		k.buf.data = k.kept
+	}
+}
+
 func (k *bodyKeeper) hand() spec.Body {
 	k.handed = true
 	return spec.Body{Data: k.kept, TooLarge: k.over}

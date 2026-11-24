@@ -1,0 +1,233 @@
+openapi: 3.2.0
+info:
+  title: OpenAI audio
+  version: "2026-11-24"
+  description: >-
+    The OpenAI calls that send audio with a multipart/form-data body:
+    turning speech into text (transcriptions) and into English text
+    (translations), each the audio file and a few text parts, and starting
+    a voice call (realtime calls), the call's offer and its session as JSON.
+    Written by hand on 2026-11-24 from OpenAI's api reference and its
+    published spec; see README.md.
+servers:
+  - url: https://api.openai.com/v1
+security:
+  - apiKey: []
+paths:
+  /audio/transcriptions:
+    post:
+      operationId: createTranscription
+      summary: Turn the speech in an audio file into text
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateTranscriptionRequest"
+            encoding:
+              file:
+                contentType: audio/*, video/mp4, video/mpeg, video/webm, application/octet-stream
+      responses:
+        "200":
+          description: >-
+            The text: JSON for response_format json, verbose_json and
+            diarized_json, plain text for text, srt and vtt, and a stream of
+            Server-Sent Events when stream is true.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transcription"
+            text/plain: {}
+            text/event-stream: {}
+        default:
+          $ref: "#/components/responses/Error"
+  /audio/translations:
+    post:
+      operationId: createTranslation
+      summary: Turn the speech in an audio file into English text
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateTranslationRequest"
+            encoding:
+              file:
+                contentType: audio/*, video/mp4, video/mpeg, video/webm, application/octet-stream
+      responses:
+        "200":
+          description: The English text, as JSON or plain text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transcription"
+            text/plain: {}
+        default:
+          $ref: "#/components/responses/Error"
+  /realtime/calls:
+    post:
+      operationId: createRealtimeCall
+      summary: Start a voice call over WebRTC
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateRealtimeCallRequest"
+            encoding:
+              session:
+                contentType: application/json
+      responses:
+        "201":
+          description: The answer to the call's offer.
+          content:
+            application/sdp: {}
+        default:
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: OpenAI refused or failed the call.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [message, type]
+                properties:
+                  message: { type: string }
+                  type: { type: string }
+                  param: { type: [string, "null"] }
+                  code: { type: [string, "null"] }
+  schemas:
+    AudioFile:
+      description: >-
+        The audio: flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav or webm, at
+        most 25 MB. The proxy counts it and never reads it.
+      type: string
+      contentMediaType: application/octet-stream
+    CreateTranscriptionRequest:
+      type: object
+      required: [file, model]
+      properties:
+        file:
+          $ref: "#/components/schemas/AudioFile"
+        model:
+          description: Such as gpt-4o-transcribe, gpt-4o-mini-transcribe or whisper-1.
+          type: string
+          minLength: 1
+          x-hotline-record: gen_ai.request.model
+        language:
+          description: The language of the speech, as an ISO-639-1 code such as en.
+          type: string
+        languages:
+          description: The languages the speech may be in, sent as repeated languages[] parts.
+          type: array
+          minItems: 1
+          items: { type: string }
+        keywords:
+          description: Words or phrases to guide the transcription, sent as repeated keywords[] parts.
+          type: array
+          items: { type: string }
+        prompt:
+          description: Text to guide the model's style, or to carry on from an earlier part.
+          type: string
+        response_format:
+          type: string
+          enum: [json, text, srt, verbose_json, vtt, diarized_json]
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 1
+        timestamp_granularities:
+          description: Sent as repeated timestamp_granularities[] parts; only with verbose_json.
+          type: array
+          items:
+            type: string
+            enum: [word, segment]
+        include:
+          description: Sent as repeated include[] parts.
+          type: array
+          items:
+            type: string
+            enum: [logprobs]
+        stream:
+          type: boolean
+        chunking_strategy:
+          description: >-
+            auto, or how to cut the audio into chunks, sent with brackets
+            such as chunking_strategy[type]=server_vad.
+          anyOf:
+            - type: string
+              enum: [auto]
+            - type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [server_vad] }
+                prefix_padding_ms: { type: integer }
+                silence_duration_ms: { type: integer }
+                threshold: { type: number, minimum: 0, maximum: 1 }
+        known_speaker_names:
+          description: Sent as repeated known_speaker_names[] parts; at most 4.
+          type: array
+          maxItems: 4
+          items: { type: string }
+        known_speaker_references:
+          description: Sent as repeated known_speaker_references[] parts, each a data URL.
+          type: array
+          maxItems: 4
+          items: { type: string }
+    CreateTranslationRequest:
+      type: object
+      required: [file, model]
+      properties:
+        file:
+          $ref: "#/components/schemas/AudioFile"
+        model:
+          description: Only whisper-1.
+          type: string
+          minLength: 1
+        prompt:
+          type: string
+        response_format:
+          type: string
+          enum: [json, text, srt, verbose_json, vtt]
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 1
+    CreateRealtimeCallRequest:
+      type: object
+      required: [sdp]
+      properties:
+        sdp:
+          type: string
+          minLength: 1
+          description: The WebRTC offer of the call, as text.
+        session:
+          $ref: "#/components/schemas/RealtimeSession"
+    RealtimeSession:
+      type: object
+      description: The session the call starts with, sent as one JSON part.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [realtime, transcription]
+        model:
+          type: string
+          x-hotline-record: gen_ai.request.model
+        instructions:
+          type: string
+    Transcription:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }

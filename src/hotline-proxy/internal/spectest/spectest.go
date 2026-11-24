@@ -159,6 +159,40 @@ func Checks(engine string, newEngine spec.NewEngine) bool {
 			)
 		})
 
+		Describe("Reading a multipart body", func() {
+			DescribeTable("checks each property's parts against its schema",
+				func(media, name, value, want string) {
+					doc := Route("requestBody:\n  content:\n    multipart/form-data:\n"+indent(media, "      ")+"responses: {}\n") +
+						"components:\n  schemas:\n    Base: { properties: { model: { type: string } } }\n"
+					s := parsed(doc)
+					got := s.Check(spec.Exchange{
+						Method: "GET", EscapedPath: "/a",
+						Header: http.Header{"Content-Type": {"multipart/form-data; boundary=b"}},
+						Body:   spec.Body{Parts: &spec.FormParts{Text: []spec.FormPart{{Name: name, Value: []byte(value)}}}},
+					})
+					Expect(Written(got.Request)).To(Equal(want))
+				},
+				Entry("a list of objects sent as one part is a list of one",
+					"schema: { properties: { items: { type: array, items: { type: object, required: [id] } } } }\n", "items", `{"name":"a"}`, "body $.items[0].id required"),
+				Entry("a property with a style is read as text, not JSON",
+					"schema: { properties: { meta: { type: object } } }\nencoding: { meta: { style: deepObject } }\n", "meta", `{}`, "body $.meta type object"),
+				Entry("a property put together with allOf is checked",
+					"schema: { allOf: [{ properties: { model: { minLength: 2 } } }] }\n", "model", "a", "body $.model minLength 2"),
+				Entry("a schema named twice in allOf is looked at once",
+					"schema: { allOf: [{ $ref: '#/components/schemas/Base' }, { $ref: '#/components/schemas/Base' }] }\n", "colour", "red", ""),
+			)
+
+			It("leaves out a multipart body that was not read part by part", func() {
+				s := parsed(Route("requestBody:\n  content:\n    multipart/form-data:\n      schema: { type: object }\nresponses: {}\n"))
+				got := s.Check(spec.Exchange{
+					Method: "GET", EscapedPath: "/a",
+					Header: http.Header{"Content-Type": {"multipart/form-data; boundary=b"}}, Body: spec.Body{Data: []byte("--b--")},
+				})
+				Expect(got.Request).To(BeEmpty())
+				Expect(got.Skipped).To(Equal("unsupported_content_type"))
+			})
+		})
+
 		Describe("Reading an XML body", func() {
 			It("reports a root element other than the one the schema names", func() {
 				s := parsed(Route("requestBody:\n  content:\n    application/xml:\n      schema: { type: object, xml: { name: Order } }\nresponses: {}\n"))

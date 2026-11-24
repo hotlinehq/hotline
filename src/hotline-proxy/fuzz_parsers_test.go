@@ -14,8 +14,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime/multipart"
+	"slices"
 	"testing"
 	"time"
+
+	"hotline-proxy/internal/spec"
 )
 
 // parseWait is the longest one parser may take over one input.
@@ -161,6 +165,74 @@ func FuzzLineItems(f *testing.F) {
 		}
 		if size > int64(len(data)) {
 			t.Fatalf("the stream items count %d bytes of %d", size, len(data))
+		}
+	})
+}
+
+// FuzzFormParts reads made-up bytes as a multipart/form-data body, whole
+// and one byte at a time, and checks that both give the same parts, that
+// they never count more bytes than were read, and that a body Go's own
+// multipart reader reads whole gives the same text parts, when its lines end
+// as RFC 2046 says.
+func FuzzFormParts(f *testing.F) {
+	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-1\r\n--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.mp3\"\r\nContent-Type: audio/mpeg\r\n\r\n\x00\x01\r\n-\r\n--b--\r\n"))
+	f.Add([]byte("preamble\r\n--b \t\r\n\r\n\r\n--b\r\nContent-Disposition: form-data; name=x\r\n\r\n\r\n--bb\r\n--b--"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		read := func(step int) *partReader {
+			r := newPartReader("multipart/form-data; boundary=b", func(name string) bool { return name == "file" }, 64, &bodyPool{})
+			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
+				r.add(p[:min(step, len(p))])
+			}
+			r.hand()
+			return r
+		}
+		start := time.Now()
+		whole, bytewise := read(len(data)+1), read(1)
+		if took := time.Since(start); took > parseWait {
+			t.Fatalf("reading the parts took %v", took)
+		}
+		all := func(r *partReader) []spec.FormPart { return append(slices.Clone(r.text), r.files...) }
+		wholeParts, bytewiseParts := all(whole), all(bytewise)
+		if whole.state != bytewise.state || len(wholeParts) != len(bytewiseParts) {
+			t.Fatalf("read whole: state %d, %d parts; one byte at a time: state %d, %d parts", whole.state, len(wholeParts), bytewise.state, len(bytewiseParts))
+		}
+		var size int64
+		for i := range wholeParts {
+			w, b := wholeParts[i], bytewiseParts[i]
+			if w.Name != b.Name || w.Size != b.Size || !bytes.Equal(w.Value, b.Value) || w.TooLarge != b.TooLarge {
+				t.Fatalf("part %d read whole is %+v; one byte at a time %+v", i+1, w, b)
+			}
+			size += w.Size
+		}
+		if size > int64(len(data)) {
+			t.Fatalf("the parts count %d bytes of %d", size, len(data))
+		}
+		if whole.state != afterLastPart || bytes.Count(data, []byte("\n")) != bytes.Count(data, []byte("\r\n")) {
+			// Go's reader also takes a line feed alone as a line end; RFC
+			// 2046, and ours, take only a carriage return and line feed.
+			return
+		}
+		std := multipart.NewReader(bytes.NewReader(data), "b")
+		text := 0
+		for i := 0; ; i++ {
+			p, err := std.NextRawPart()
+			if err != nil {
+				return
+			}
+			got, _ := io.ReadAll(p)
+			if i >= len(wholeParts) {
+				// Ours stops at the first boundary followed by two
+				// dashes, as RFC 2046 says; Go's reader also wants a line
+				// end after them, and reads on when there is none.
+				return
+			}
+			if p.FormName() == "file" {
+				continue
+			}
+			if own := whole.text[text]; !own.TooLarge && !bytes.Equal(got, own.Value) {
+				t.Fatalf("part %d is %q to Go's reader, %q to ours", i+1, got, own.Value)
+			}
+			text++
 		}
 	})
 }

@@ -68,7 +68,24 @@ type RequestCheck interface {
 	// place in the route's Body list of the content it was sent as, and
 	// reads how to read it; spec has found both, and the body is not empty
 	// and small enough to check.
-	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
+	Body(contentIndex ContentIndex, reads Reads, body []byte) ([]Finding, []Field)
+	// The parts of a multipart/form-data body are checked one property at
+	// a time, as they came, and then the names that came together (Peter,
+	// 2026-11-24, M4). Their findings place a property as $.model, and a
+	// field inside one as $.session.type. A part not checked, a file or a
+	// text part too large to keep, is still named in FormPartNames.
+	//
+	// TextPart checks the text parts of one property against its schema,
+	// read as a form is: model, or timestamp_granularities[] twice, or
+	// chunking_strategy[type] nested. It copies the property's marked
+	// fields.
+	TextPart(contentIndex ContentIndex, property string, parts []FormPart) ([]Finding, []Field)
+	// JSONPart checks one part sent as JSON, the whole value of property,
+	// and copies its marked fields.
+	JSONPart(contentIndex ContentIndex, property string, value []byte) ([]Finding, []Field)
+	// FormPartNames checks the property names that came, each once: the
+	// required ones there, and no name the schema does not allow.
+	FormPartNames(contentIndex ContentIndex, came []string) []Finding
 }
 
 // ResponseCheck checks one response the spec lists, the way RequestCheck
@@ -77,8 +94,14 @@ type ResponseCheck interface {
 	// Headers checks the response's headers.
 	Headers(header http.Header) []Finding
 	// Body checks a response body, as RequestCheck.Body does.
-	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
+	Body(contentIndex ContentIndex, reads Reads, body []byte) ([]Finding, []Field)
 }
+
+// ContentIndex is the place of a content in RequestSpec.Body or
+// ResponseSpec.Body, counted from 0, in the order spec lists them (Peter,
+// 2026-11-24, Q7). Revisit if the engine ever sorts or merges contents:
+// then a handle to the compiled schema.
+type ContentIndex int
 
 // Reads is how a body is read before it is checked.
 type Reads int
@@ -93,6 +116,9 @@ const (
 	// ReadsText reads percent-decoded text as one string. Only a whole
 	// query string is read this way.
 	ReadsText
+	// ReadsFormParts reads a multipart/form-data body's parts, as the proxy
+	// read them as the body passed.
+	ReadsFormParts
 )
 
 // RequestSpec is what the spec says about one route's request.

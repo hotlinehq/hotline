@@ -88,6 +88,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reser
 	querystringSteps(sc, w)
 	parameterSteps(sc, w)
 	webhookSteps(sc, w)
+	multipartSteps(sc, w)
 	discriminatorSteps(sc, w)
 	ingressSteps(sc, w)
 	integrationSteps(sc, w)

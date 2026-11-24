@@ -50,7 +50,7 @@ func (c *call) newSession(resp *http.Response, toVendor io.Writer) *session {
 		vendor = &vendorSideTap{ReadCloser: vendor, r: s.messageReader}
 		toVendor = appSideTap{Writer: toVendor, r: s.messageReader}
 	}
-	s.fromVendor = &tap{ReadCloser: vendor, mac: c.h.bodyHash("from_vendor", c.trace.WithSpanID(span))}
+	s.fromVendor = &tap{ReadCloser: vendor, mac: c.h.bodyHash("from_vendor", c.trace.WithSpanID(span)), copy: &bodyKeeper{}}
 	s.fromApp = &countedWriter{Writer: toVendor, mac: c.h.bodyHash("from_app", c.trace.WithSpanID(span))}
 	return s
 }

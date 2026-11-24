@@ -162,7 +162,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ReadCloser: r.Body,
 		mac:        h.bodyHash("request", traced),
 		saver:      bodySaver{limit: saved(integration), expect: r.ContentLength},
-		keeper:     bodyKeeper{limit: c.plan.keepRequest, pool: &h.bodies, expect: r.ContentLength},
+		copy:       c.requestCopy(r),
 	}
 	c.appStart, c.appEnd, c.appTimed = a.handshakeTime()
 	r.Body = c.reqBody
@@ -561,7 +561,7 @@ func (c *call) RoundTrip(req *http.Request) (*http.Response, error) {
 		ReadCloser: body,
 		mac:        c.h.bodyHash("response", c.trace),
 		saver:      bodySaver{limit: saved(c.integration), expect: resp.ContentLength},
-		keeper:     bodyKeeper{limit: c.plan.keepResponse, pool: &c.h.bodies, expect: resp.ContentLength},
+		copy:       &bodyKeeper{limit: c.plan.keepResponse, pool: &c.h.bodies, expect: resp.ContentLength},
 		done: func() {
 			out := c.h.clock.Now()
 			c.mark(func() { c.vendorOut = out })
@@ -759,6 +759,19 @@ func classify(p phase, timedOut bool, err error) (int, string) {
 type upgraded struct {
 	*tap
 	io.Writer
+}
+
+// requestCopy is how the request body is kept for its check: part by part
+// for a multipart body whose spec says so (Peter, 2026-11-24, M4), whole
+// otherwise.
+func (c *call) requestCopy(r *http.Request) bodyCopy {
+	contentType := r.Header.Get("Content-Type")
+	if c.plan.keepRequest > 0 && !c.plan.routeInBody {
+		if isFile, ok := c.api.Spec.ReadAsFormParts(c.route, contentType); ok {
+			return newPartReader(contentType, isFile, c.plan.keepRequest, &c.h.bodies)
+		}
+	}
+	return &bodyKeeper{limit: c.plan.keepRequest, pool: &c.h.bodies, expect: r.ContentLength}
 }
 
 // keptBody is how much of each body the proxy keeps for the checks.

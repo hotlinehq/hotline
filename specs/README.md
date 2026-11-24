@@ -25,6 +25,8 @@ specs/
     sfn/2016-11-23.openapi.yaml
   stripe/
     api/2026-09-30.endive.openapi.yaml        # Stripe's whole api, made by tools/stripe-openapi from Stripe's own spec
+  openai/
+    audio/2026-11-24.openapi.yaml             # OpenAI's two audio uploads, multipart, written by hand
   slack/
     incoming-webhooks/2026-11-23.openapi.yaml # posting to a Slack incoming webhook, written by hand
 ```

@@ -29,6 +29,9 @@ type Body struct {
 	Data []byte
 	// TooLarge says the body was longer than the copy.
 	TooLarge bool
+	// Parts, when not nil, is a multipart/form-data body read part by part
+	// as it passed, as ReadAsFormParts says; Data is then empty.
+	Parts *FormParts
 }
 
 // Exchange is a finished call, as the checks see it.
@@ -139,6 +142,9 @@ type content struct {
 	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
+	// multipart is what a multipart/form-data content says about its
+	// parts; nil for any other type.
+	multipart *partRules
 }
 
 type response struct {
@@ -194,15 +200,55 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	query, _ := url.ParseQuery(e.RawQuery)
 	cookies := read.Cookies(e.Header)
 	c.Request = append(c.Request, r.checks.loggedIn(e.Header, query, cookies)...)
-	findings, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
+	findings, skipped, contentIndex, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
 	c.Request = append(c.Request, findings...)
 	c.Skipped = skipped
-	if reads != 0 {
-		findings, copied := r.checks.request.Body(content, reads, e.Body.Data)
-		c.Request = append(c.Request, findings...)
-		c.Copied = append(c.Copied, copied...)
+	var copied []Field
+	switch reads {
+	case 0:
+		return c
+	case ReadsFormParts:
+		return r.checks.checkParts(c, contentIndex, *e.Body.Parts)
 	}
+	findings, copied = r.checks.request.Body(contentIndex, reads, e.Body.Data)
+	c.Request = append(c.Request, findings...)
+	c.Copied = append(c.Copied, copied...)
 	return c
+}
+
+// checkParts checks a multipart body read part by part: each property's
+// text parts, or its JSON part, against the property's schema, then the
+// names of all the parts that came, and the types of the file parts.
+func (c *checks) checkParts(checked Checked, contentIndex ContentIndex, parts FormParts) Checked {
+	if parts.Broken {
+		checked.Request = append(checked.Request, Finding{Part: partBody, Place: whole, Rule: "multipart"})
+		return checked
+	}
+	rules := c.body.content[contentIndex].multipart
+	var came []string
+	for _, p := range parts.Files {
+		came = append(came, propertyOf(p.Name))
+	}
+	for _, group := range textByProperty(parts) {
+		came = append(came, group.property)
+		if slices.ContainsFunc(group.parts, func(p FormPart) bool { return p.TooLarge }) {
+			checked.Skipped = cmp.Or(checked.Skipped, "body_too_large")
+			continue
+		}
+		var findings []Finding
+		var copied []Field
+		if value, ok := rules.jsonValue(group); ok {
+			findings, copied = c.request.JSONPart(contentIndex, group.property, value)
+		} else {
+			findings, copied = c.request.TextPart(contentIndex, group.property, group.parts)
+		}
+		checked.Request = append(checked.Request, findings...)
+		checked.Copied = append(checked.Copied, copied...)
+	}
+	slices.Sort(came)
+	checked.Request = append(checked.Request, c.request.FormPartNames(contentIndex, slices.Compact(came))...)
+	checked.Request = append(checked.Request, rules.fileFindings(parts.Files)...)
+	return checked
 }
 
 // CheckResponse checks the response side of a call, on the route Find found: its
@@ -230,11 +276,11 @@ func (s *Spec) CheckResponse(found Route, e Exchange) Checked {
 		}
 		return c
 	}
-	findings, skipped, content, reads := rp.body.gate(e.ResponseHeader.Get("Content-Type"), e.ResponseBody)
+	findings, skipped, contentIndex, reads := rp.body.gate(e.ResponseHeader.Get("Content-Type"), e.ResponseBody)
 	c.Response = append(c.Response, findings...)
 	c.Skipped = skipped
 	if reads != 0 {
-		findings, copied := rp.check.Body(content, reads, e.ResponseBody.Data)
+		findings, copied := rp.check.Body(contentIndex, reads, e.ResponseBody.Data)
 		c.Response = append(c.Response, findings...)
 		c.Copied = copied
 	}
@@ -346,8 +392,8 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 // body as and how to read it, 0 when the body is not checked. A body that
 // cannot be read, or is too large to check, is skipped, and the reason
 // returned.
-func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, content int, reads Reads) {
-	empty := len(body.Data) == 0 && !body.TooLarge
+func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, contentIndex ContentIndex, reads Reads) {
+	empty := len(body.Data) == 0 && !body.TooLarge && body.Parts == nil
 	switch {
 	case b == nil && empty:
 		return nil, "", 0, 0
@@ -370,7 +416,7 @@ func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skip
 		}
 		return []Finding{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", 0, 0
 	}
-	reads = c.reads(mediaType)
+	reads = c.reads(mediaType, body)
 	switch {
 	case reads == 0:
 		return nil, "unsupported_content_type", 0, 0
@@ -382,12 +428,12 @@ func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skip
 
 // find picks the content for a media type: the exact type first, then
 // type/* and */*. It returns the content and its place in the list.
-func (b *bodySpec) find(mediaType string) (*content, int) {
+func (b *bodySpec) find(mediaType string) (*content, ContentIndex) {
 	major, _, _ := strings.Cut(mediaType, "/")
 	for _, want := range []string{mediaType, major + "/*", "*/*"} {
 		for i, c := range b.content {
 			if strings.EqualFold(c.mediaType, want) {
-				return &b.content[i], i
+				return &b.content[i], ContentIndex(i)
 			}
 		}
 	}
@@ -395,9 +441,14 @@ func (b *bodySpec) find(mediaType string) (*content, int) {
 }
 
 // reads is how a body of this content, sent as mediaType, is read; 0
-// when it can't be.
-func (c *content) reads(mediaType string) Reads {
+// when it can't be. A multipart/form-data content is read only part by
+// part, as the body passed.
+func (c *content) reads(mediaType string, body Body) Reads {
 	switch {
+	case c.multipart != nil && body.Parts != nil:
+		return ReadsFormParts
+	case c.multipart != nil:
+		return 0
 	case c.xmlMark || !c.json && read.IsXML(mediaType) && c.xml != nil:
 		return ReadsXML
 	case c.json || isJSON(mediaType):

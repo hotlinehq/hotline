@@ -114,3 +114,33 @@ var _ = Describe("Checking an XML body with santhosh", func() {
 		Expect(used).To(BeNumerically("<", 12), "memory used, as times the body's size")
 	})
 })
+
+var _ = Describe("Checking multipart parts with santhosh", func() {
+	// spec calls these only for the properties a content's schema names;
+	// the engine still copes with any.
+	check := func(schema spec.Schema) spec.RequestCheck {
+		engine, err := santhosh.NewEngine(nil)
+		Expect(err).NotTo(HaveOccurred())
+		q, err := engine.Request(spec.RequestSpec{Body: []spec.Content{{Schema: schema}}})
+		Expect(err).NotTo(HaveOccurred())
+		return q
+	}
+
+	It("lets through a property the schema does not name", func() {
+		q := check(spec.Schema{"type": "object"})
+		findings, _ := q.JSONPart(0, "session", []byte(`{"type":"voice"}`))
+		Expect(findings).To(BeEmpty())
+		findings, _ = q.TextPart(0, "model", []spec.FormPart{{Name: "model", Value: []byte("whisper-1")}})
+		Expect(findings).To(BeEmpty())
+	})
+
+	It("lets through any names when the content has no schema", func() {
+		Expect(check(nil).FormPartNames(0, []string{"model"})).To(BeEmpty())
+	})
+
+	It("reports text parts nested too deep to read", func() {
+		name := "filter" + strings.Repeat("[a]", 64)
+		findings, _ := check(spec.Schema{"type": "object"}).TextPart(0, "filter", []spec.FormPart{{Name: name, Value: []byte("x")}})
+		Expect(spectest.Written(findings)).To(Equal("body $.filter form"))
+	})
+})
