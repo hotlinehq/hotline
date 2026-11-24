@@ -73,7 +73,7 @@ Full content goes beside the record, under `hotline.content.*`, and the record's
 
 To read a body: `jq -r '.attributes."hotline.content.request.body" | @base64d' calls/calls.jsonl`. For a binary body, take the value out with `jq -r` and decode it with `base64 -d`.
 
-Beyond the secrets above, nothing is redacted: tokens the spec does not name, passwords in bodies and personal data land in the file. The proxy logs a warning at start for each integration with `content: full`. The `otlp` exporters always get the normal record, so full content never leaves the machine through them. An integration with `content: full` and no file exporter is not refused: the setting is skipped with a warning, and no copy of the bodies is kept.
+Beyond the secrets above, nothing is redacted: tokens the spec does not name, passwords in bodies and personal data land in the file. That includes uploads: a `multipart/form-data` body is kept as sent, with each file's name and bytes, even though the record shows the file name as `REDACTED` (Peter, 2026-11-24). The proxy logs a warning at start for each integration with `content: full`. The `otlp` exporters always get the normal record, so full content never leaves the machine through them. An integration with `content: full` and no file exporter is not refused: the setting is skipped with a warning, and no copy of the bodies is kept.
 
 ### Hashes
 

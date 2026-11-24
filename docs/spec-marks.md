@@ -41,7 +41,7 @@ paths:
 3. Headers kept without a mark: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. Any other header is left out, name and all, unless marked `false`. A header marked `true` shows as `REDACTED`.
 4. Never recorded, whatever the mark: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and the login headers and query values named in the spec's security section.
 5. A parameter or header that points to a shared definition with `$ref` (for example `$ref: '#/components/parameters/Customer'`) takes the mark written there.
-6. On a file property of a `multipart/form-data` body (one with `format: binary` or a `contentMediaType`), `false` shows the file name the app gave in the record's `hotline.request.files`; without it the name is `REDACTED` (Peter, 2026-11-24). The mark may sit on the property or on the schema it points to. Under `content: full` the body is kept as sent, file name included.
+6. On a file property of a `multipart/form-data` body (one with `format: binary` or a `contentMediaType`), `false` shows the file name the app gave in the record's `hotline.request.files`; without it the name is `REDACTED` (Peter, 2026-11-24). The mark may sit on the property or on the schema it points to. The mark never changes a body kept under `content: full`: it is kept as sent, file name and file bytes included (Q8, 2026-11-24).
 
 Detail: [otel-export.md](otel-export.md), [proxy-aws.md](proxy-aws.md).
 
