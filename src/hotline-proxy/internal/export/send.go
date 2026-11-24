@@ -55,9 +55,15 @@ func sendWithRetry(ctx context.Context, t *httpTransport, k signal, z *zipper, b
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait {
 			return err
 		}
-		// The wait fits in the send's time, checked above.
+		// The wait fits in the send's time, checked above, unless the
+		// send is cut short first, such as by a second stop signal.
 		timer.Reset(wait)
-		<-timer.C
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		}
 	}
 }
 

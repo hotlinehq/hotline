@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -72,5 +73,21 @@ var _ = Describe("sending over HTTP", func() {
 				Expect(got.bodies).To(HaveKeyWithValue(string(body), 1), "the body of %s send %d", name, i)
 			}
 		}
+	})
+
+	// A stop cut short by a second signal ends the send's context. A
+	// collector that can't be reached looks busy, and the send used to try
+	// again for as long as its own time allowed, holding the stop
+	// (end-to-end run of 2026-11-24).
+	It("stops trying again once its context ends", func() {
+		collector := httptest.NewServer(http.NotFoundHandler())
+		collector.Close()
+		send := export.NewTestTransport(collector.URL).SenderWithin(time.Minute)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		done := make(chan error, 1)
+		go func() { done <- send(ctx, []byte("record")) }()
+		Eventually(done).WithTimeout(time.Second).Should(Receive(HaveOccurred()))
 	})
 })
