@@ -768,7 +768,7 @@ func (c *call) requestCopy(r *http.Request) bodyCopy {
 	contentType := r.Header.Get("Content-Type")
 	if c.plan.keepRequest > 0 && !c.plan.routeInBody {
 		if isFile, ok := c.api.Spec.ReadAsFormParts(c.route, contentType); ok {
-			return newPartReader(contentType, isFile, c.plan.keepRequest)
+			return newPartReader(contentType, isFile, c.plan.keepRequest, &c.h.bodies)
 		}
 	}
 	return &bodyKeeper{limit: c.plan.keepRequest, pool: &c.h.bodies, expect: r.ContentLength}

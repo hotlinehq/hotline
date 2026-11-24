@@ -142,9 +142,9 @@ type content struct {
 	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
-	// multipart is what a multipart/form-data content says about its file
+	// multipart is what a multipart/form-data content says about its
 	// parts; nil for any other type.
-	multipart *fileRules
+	multipart *partRules
 }
 
 type response struct {
@@ -216,45 +216,39 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	return c
 }
 
-// checkParts checks a multipart body read part by part: its text parts as
-// one object against the content's schema, and the types of its file
-// parts.
+// checkParts checks a multipart body read part by part: each property's
+// text parts, or its JSON part, against the property's schema, then the
+// names of all the parts that came, and the types of the file parts.
 func (c *checks) checkParts(checked Checked, contentIndex ContentIndex, parts FormParts) Checked {
 	if parts.Broken {
 		checked.Request = append(checked.Request, Finding{Part: partBody, Place: whole, Rule: "multipart"})
 		return checked
 	}
-	form, unread, skipped := textForm(parts)
-	findings, copied := c.request.Body(contentIndex, ReadsForm, withUnread(form, unread))
-	checked.Request = append(checked.Request, withoutUnread(findings, unread)...)
-	checked.Request = append(checked.Request, c.body.content[contentIndex].multipart.fileFindings(parts.Files)...)
-	checked.Copied = append(checked.Copied, copied...)
-	checked.Skipped = cmp.Or(checked.Skipped, skipped)
-	return checked
-}
-
-// withUnread adds each unread name to a form with an empty value, so the
-// check finds it there. Until the engine takes unread names itself, the
-// findings about them are left out by withoutUnread.
-func withUnread(form []byte, unread []string) []byte {
-	values, _ := url.ParseQuery(string(form))
-	for _, name := range unread {
-		values.Add(name, "")
+	rules := c.body.content[contentIndex].multipart
+	var came []string
+	for _, p := range parts.Files {
+		came = append(came, propertyOf(p.Name))
 	}
-	return []byte(values.Encode())
-}
-
-// withoutUnread leaves out the findings about the unread names.
-func withoutUnread(findings []Finding, unread []string) []Finding {
-	kept := findings[:0]
-	for _, f := range findings {
-		name, _ := strings.CutPrefix(f.Place, whole+".")
-		first, _, _ := strings.Cut(name, ".")
-		if !slices.Contains(unread, propertyOf(first)) {
-			kept = append(kept, f)
+	for _, group := range textByProperty(parts) {
+		came = append(came, group.property)
+		if slices.ContainsFunc(group.parts, func(p FormPart) bool { return p.TooLarge }) {
+			checked.Skipped = cmp.Or(checked.Skipped, "body_too_large")
+			continue
 		}
+		var findings []Finding
+		var copied []Field
+		if value, ok := rules.jsonValue(group); ok {
+			findings, copied = c.request.JSONPart(contentIndex, group.property, value)
+		} else {
+			findings, copied = c.request.TextPart(contentIndex, group.property, group.parts)
+		}
+		checked.Request = append(checked.Request, findings...)
+		checked.Copied = append(checked.Copied, copied...)
 	}
-	return kept
+	slices.Sort(came)
+	checked.Request = append(checked.Request, c.request.FormPartNames(contentIndex, slices.Compact(came))...)
+	checked.Request = append(checked.Request, rules.fileFindings(parts.Files)...)
+	return checked
 }
 
 // CheckResponse checks the response side of a call, on the route Find found: its

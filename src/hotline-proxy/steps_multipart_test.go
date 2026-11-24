@@ -100,6 +100,18 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		body.text("prompt", strings.Repeat("Say it slowly. ", (mib<<20)/15+1))
 		return w.upload(u, "OpenAI", path, body)
 	})
+	sc.Step(`^the app starts a voice call at OpenAI's (/\S+) with the session (.+?)( twice)?$`, func(path, session, twice string) error {
+		body := newMultipart()
+		body.text("sdp", "v=0")
+		for range 1 + len(strings.Fields(twice)) {
+			h := textproto.MIMEHeader{}
+			h.Set("Content-Disposition", `form-data; name="session"`)
+			h.Set("Content-Type", "application/json")
+			part, _ := body.w.CreatePart(h)
+			_, _ = part.Write([]byte(session))
+		}
+		return w.upload(u, "OpenAI", path, body)
+	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) a multipart body whose boundary never comes$`, func(path string) error {
 		u.sent = []byte("model=gpt-4o-transcribe\r\n")
 		return w.post("https://api.openai.com"+path, "multipart/form-data; boundary=never-sent", string(u.sent), openAILogin)

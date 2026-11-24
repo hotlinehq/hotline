@@ -3,9 +3,10 @@ info:
   title: OpenAI audio
   version: "2026-11-24"
   description: >-
-    The two OpenAI calls that upload audio: turning speech into text
-    (transcriptions) and into English text (translations). Each is a
-    multipart/form-data body: the audio file and a few text parts.
+    The OpenAI calls that send audio with a multipart/form-data body:
+    turning speech into text (transcriptions) and into English text
+    (translations), each the audio file and a few text parts, and starting
+    a voice call (realtime calls), the call's offer and its session as JSON.
     Written by hand on 2026-11-24 from OpenAI's api reference and its
     published spec; see README.md.
 servers:
@@ -63,6 +64,26 @@ paths:
             text/plain: {}
         default:
           $ref: "#/components/responses/Error"
+  /realtime/calls:
+    post:
+      operationId: createRealtimeCall
+      summary: Start a voice call over WebRTC
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateRealtimeCallRequest"
+            encoding:
+              session:
+                contentType: application/json
+      responses:
+        "201":
+          description: The answer to the call's offer.
+          content:
+            application/sdp: {}
+        default:
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     apiKey:
@@ -102,6 +123,7 @@ components:
           description: Such as gpt-4o-transcribe, gpt-4o-mini-transcribe or whisper-1.
           type: string
           minLength: 1
+          x-hotline-record: gen_ai.request.model
         language:
           description: The language of the speech, as an ISO-639-1 code such as en.
           type: string
@@ -181,6 +203,29 @@ components:
           type: number
           minimum: 0
           maximum: 1
+    CreateRealtimeCallRequest:
+      type: object
+      required: [sdp]
+      properties:
+        sdp:
+          type: string
+          minLength: 1
+          description: The WebRTC offer of the call, as text.
+        session:
+          $ref: "#/components/schemas/RealtimeSession"
+    RealtimeSession:
+      type: object
+      description: The session the call starts with, sent as one JSON part.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [realtime, transcription]
+        model:
+          type: string
+          x-hotline-record: gen_ai.request.model
+        instructions:
+          type: string
     Transcription:
       type: object
       required: [text]

@@ -69,6 +69,23 @@ type RequestCheck interface {
 	// reads how to read it; spec has found both, and the body is not empty
 	// and small enough to check.
 	Body(contentIndex ContentIndex, reads Reads, body []byte) ([]Finding, []Field)
+	// The parts of a multipart/form-data body are checked one property at
+	// a time, as they came, and then the names that came together (Peter,
+	// 2026-11-24, M4). Their findings place a property as $.model, and a
+	// field inside one as $.session.type. A part not checked, a file or a
+	// text part too large to keep, is still named in FormPartNames.
+	//
+	// TextPart checks the text parts of one property against its schema,
+	// read as a form is: model, or timestamp_granularities[] twice, or
+	// chunking_strategy[type] nested. It copies the property's marked
+	// fields.
+	TextPart(contentIndex ContentIndex, property string, parts []FormPart) ([]Finding, []Field)
+	// JSONPart checks one part sent as JSON, the whole value of property,
+	// and copies its marked fields.
+	JSONPart(contentIndex ContentIndex, property string, value []byte) ([]Finding, []Field)
+	// FormPartNames checks the property names that came, each once: the
+	// required ones there, and no name the schema does not allow.
+	FormPartNames(contentIndex ContentIndex, came []string) []Finding
 }
 
 // ResponseCheck checks one response the spec lists, the way RequestCheck

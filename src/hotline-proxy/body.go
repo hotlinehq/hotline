@@ -222,6 +222,15 @@ func (k *bodyKeeper) keep(b []byte) {
 	k.kept = k.buf.data
 }
 
+// cut keeps only the first n bytes of the copy; what is kept next goes on
+// from there.
+func (k *bodyKeeper) cut(n int) {
+	k.kept = k.kept[:n]
+	if k.buf != nil {
+		k.buf.data = k.kept
+	}
+}
+
 func (k *bodyKeeper) hand() spec.Body {
 	k.handed = true
 	return spec.Body{Data: k.kept, TooLarge: k.over}

@@ -2,8 +2,9 @@
 Feature: Multipart request bodies
   A multipart/form-data body is one request body cut into named parts, such
   as an audio file and the text parts model and language. The proxy reads
-  the parts as they pass, so an upload of any size is checked. The text
-  parts are checked together against the spec, as a form body is. A file
+  the parts as they pass, so an upload of any size is checked. Each
+  property's text parts are checked against its schema, as a form is, and
+  a part the spec says is JSON is checked as JSON. A file
   part, a property the spec gives format binary or a contentMediaType, is
   counted and its content type checked, but the file is never read or kept
   (Peter, 2026-11-24, Q1 to Q5).
@@ -16,6 +17,7 @@ Feature: Multipart request bodies
       Then the vendor got the upload byte for byte
       And the record has no request results
       And the record says hotline.schema.status=valid
+      And the record holds gen_ai.request.model = gpt-4o-transcribe
 
     Scenario Outline: A text part that breaks the spec is reported
       Given the OpenAI audio spec from specs
@@ -42,6 +44,39 @@ Feature: Multipart request bodies
       Given the OpenAI audio spec from specs
       When the app posts to OpenAI's /v1/audio/transcriptions only the text parts "model=gpt-4o-transcribe"
       Then the request results are body $.file required
+
+  Rule: A part the spec says is JSON is checked as JSON
+    A property whose encoding lists a JSON type, or an object or a list of
+    objects with no encoding, is sent as JSON, as OpenAPI 3.2 says (Peter,
+    2026-11-24, Q6).
+
+    Scenario: A voice call whose session is good JSON passes
+      Given the OpenAI audio spec from specs
+      When the app starts a voice call at OpenAI's /v1/realtime/calls with the session {"type":"realtime","model":"gpt-realtime"}
+      Then the vendor got the upload byte for byte
+      And the record has no request results
+      And the record holds gen_ai.request.model = gpt-realtime
+
+    Scenario: A JSON part sent twice is read as a list of both
+      Given the OpenAI audio spec from specs
+      When the app starts a voice call at OpenAI's /v1/realtime/calls with the session {"type":"realtime"} twice
+      Then the request results are body $.session type object
+
+    Scenario Outline: A JSON part that breaks the spec is reported
+      Given the OpenAI audio spec from specs
+      When the app starts a voice call at OpenAI's /v1/realtime/calls with the session <session>
+      Then the request results are <results>
+
+      Examples:
+        | session             | results                                         |
+        | {"type":"voice"}    | body $.session.type enum realtime, transcription |
+        | {"model":"x"}       | body $.session.type required                    |
+        | {"type":"realtime"  | body $.session json                             |
+
+    Scenario: A JSON property sent with brackets is read as text
+      Given the OpenAI audio spec from specs
+      When the app posts to OpenAI's /v1/realtime/calls only the text parts "sdp=v%3D0&session[type]=realtime"
+      Then the record has no request results
 
   Rule: A file part is counted, never read
 
@@ -126,6 +161,11 @@ Feature: Multipart request bodies
         | multipart/form-data; boundary=b | --bxyz~Content-Disposition: form-data; name=model~~whisper-1~--b-- |
         | multipart/form-data; boundary=b | --b~Content-Disposition: attachment; name=model~~whisper-1~--b-- |
         | multipart/form-data; boundary=b | --b~Content-Disposition: form-data~~whisper-1~--b--             |
+
+    Scenario: An empty multipart body is a missing body
+      Given the OpenAI audio spec from specs
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "" as "multipart/form-data; boundary=b"
+      Then the request results are body $ required
 
     Scenario: A part whose headers are over 16 KiB is reported
       Given the OpenAI audio spec from specs

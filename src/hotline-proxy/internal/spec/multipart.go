@@ -2,7 +2,6 @@ package spec
 
 import (
 	"mime"
-	"net/url"
 	"slices"
 	"strings"
 )
@@ -49,10 +48,17 @@ type RecordedFile struct {
 	Size        int64
 }
 
-// fileRules is what a multipart/form-data content says about its file
-// parts, by property name.
-type fileRules struct {
+// partRules is what a multipart/form-data content says about its parts, by
+// property name: which are files, and which are sent as JSON.
+type partRules struct {
 	files map[string]fileRule
+	// jsonParts are the properties sent as one JSON part: their encoding
+	// lists a JSON type, or, listing none, they are an object or a list of
+	// objects, as OpenAPI 3.2 says (Peter, 2026-11-24, Q6).
+	jsonParts map[string]bool
+	// jsonLists are the JSON properties that are lists, each part one item,
+	// so their parts are always read as a list, even when one came.
+	jsonLists map[string]bool
 }
 
 // fileRule is what the spec says about one file part.
@@ -73,7 +79,7 @@ const multipartForm = "multipart/form-data"
 // content is multipart/form-data. isFile says, by a part's name, whether
 // the spec calls it a file, whose content is counted and never kept.
 func (s *Spec) ReadAsFormParts(found Route, contentType string) (isFile func(name string) bool, ok bool) {
-	rules := found.fileRules(contentType)
+	rules := found.partRules(contentType)
 	if rules == nil {
 		return nil, false
 	}
@@ -87,7 +93,7 @@ func (s *Spec) ReadAsFormParts(found Route, contentType string) (isFile func(nam
 // contentType, as the record holds them: the file name REDACTED unless the
 // spec marks the file x-hotline-redact false (Q4).
 func (s *Spec) RecordFiles(found Route, contentType string, files []FormPart) []RecordedFile {
-	rules := found.fileRules(contentType)
+	rules := found.partRules(contentType)
 	if rules == nil || len(files) == 0 {
 		return nil
 	}
@@ -102,9 +108,9 @@ func (s *Spec) RecordFiles(found Route, contentType string, files []FormPart) []
 	return recorded
 }
 
-// fileRules are the rules of the route's multipart/form-data content, for
+// partRules are the rules of the route's multipart/form-data content, for
 // a request sent as contentType; nil when it is not read part by part.
-func (found Route) fileRules(contentType string) *fileRules {
+func (found Route) partRules(contentType string) *partRules {
 	if found.r.segments == nil || found.r.checks.body == nil {
 		return nil
 	}
@@ -127,31 +133,41 @@ func propertyOf(name string) string {
 	return property
 }
 
-// fileRules reads which properties of a multipart/form-data content's
-// schema are files: a property, or a list's items, with format binary or
-// a contentMediaType. Each file's types come from the content's encoding.
-func (b *builder) fileRules(media map[string]any, pointer string) *fileRules {
-	rules := &fileRules{files: map[string]fileRule{}}
+// partRules reads which properties of a multipart/form-data content's
+// schema are files: a property, or a list's items, with format binary or a
+// contentMediaType; each file's types come from the content's encoding. It
+// also reads which are sent as JSON.
+func (b *builder) partRules(media map[string]any, pointer string) *partRules {
+	rules := &partRules{files: map[string]fileRule{}, jsonParts: map[string]bool{}, jsonLists: map[string]bool{}}
 	schema, at := b.object(media["schema"], pointer+"/schema", b.name)
 	props, _ := schema["properties"].(map[string]any)
 	encoding, _ := media["encoding"].(map[string]any)
 	for name, v := range props {
 		raw, _ := v.(map[string]any)
 		resolved, resolvedAt := b.object(raw, at+"/properties"+token(name), b.name)
-		if !binary(resolved) {
-			items, _ := b.object(resolved["items"], resolvedAt+"/items", b.name)
-			if !binary(items) {
-				continue
-			}
-		}
-		rule := fileRule{showName: raw["x-hotline-redact"] == false || resolved["x-hotline-redact"] == false}
+		items, _ := b.object(resolved["items"], resolvedAt+"/items", b.name)
 		entry, _ := encoding[name].(map[string]any)
-		if listed := str(entry, "contentType"); listed != "" {
-			for t := range strings.SplitSeq(listed, ",") {
-				rule.types = append(rule.types, strings.TrimSpace(t))
+		var listed []string
+		if types := str(entry, "contentType"); types != "" {
+			for t := range strings.SplitSeq(types, ",") {
+				listed = append(listed, strings.TrimSpace(t))
 			}
 		}
-		rules.files[name] = rule
+		_, style := entry["style"]
+		_, explode := entry["explode"]
+		kind := kinds(raw, resolved)
+		switch {
+		case binary(resolved) || binary(items):
+			rules.files[name] = fileRule{types: listed, showName: raw["x-hotline-redact"] == false || resolved["x-hotline-redact"] == false}
+		case style || explode:
+			// A style says the property is written as a form is, and
+			// OpenAPI then ignores its contentType, as Stripe's spec has it.
+		case listed != nil:
+			rules.jsonParts[name] = slices.ContainsFunc(listed, func(t string) bool { return isJSON(strings.ToLower(t)) })
+		default:
+			rules.jsonParts[name] = slices.Contains(kind, "object") || slices.Contains(kind, "array") && slices.Contains(kinds(items, items), "object")
+		}
+		rules.jsonLists[name] = rules.jsonParts[name] && slices.Contains(kind, "array")
 	}
 	return rules
 }
@@ -164,7 +180,7 @@ func binary(schema map[string]any) bool {
 }
 
 // fileFindings are the file parts whose type the spec does not list.
-func (f *fileRules) fileFindings(files []FormPart) []Finding {
+func (f *partRules) fileFindings(files []FormPart) []Finding {
 	var findings []Finding
 	for _, p := range files {
 		property := propertyOf(p.Name)
@@ -175,29 +191,51 @@ func (f *fileRules) fileFindings(files []FormPart) []Finding {
 	return findings
 }
 
-// textForm puts the text parts together as a form, for the check: the
-// parts read as text, and, as unread, the names of the parts that came but
-// were not read, file parts and text parts not kept or sent as JSON. It
-// returns why a text part was not read, if one was not.
-func textForm(parts FormParts) (form []byte, unread []string, skipped string) {
-	values := url.Values{}
-	for _, p := range parts.Files {
-		unread = append(unread, propertyOf(p.Name))
-	}
+// propertyParts are the text parts of one property, in the order they
+// came.
+type propertyParts struct {
+	property string
+	parts    []FormPart
+}
+
+// textByProperty groups the text parts by the property they belong to, in
+// the order each property first came.
+func textByProperty(parts FormParts) []propertyParts {
+	var grouped []propertyParts
+	at := map[string]int{}
 	for _, p := range parts.Text {
-		switch {
-		case p.TooLarge:
-			skipped = "body_too_large"
-		case sentAsJSON(p.ContentType):
-			// JSON parts are not read yet (Peter, 2026-11-24, Q6).
-			skipped = "unsupported_content_type"
-		default:
-			values.Add(p.Name, string(p.Value))
-			continue
+		property := propertyOf(p.Name)
+		i, ok := at[property]
+		if !ok {
+			i = len(grouped)
+			at[property] = i
+			grouped = append(grouped, propertyParts{property: property})
 		}
-		unread = append(unread, propertyOf(p.Name))
+		grouped[i].parts = append(grouped[i].parts, p)
 	}
-	return []byte(values.Encode()), unread, skipped
+	return grouped
+}
+
+// jsonValue is the JSON value of a property sent as JSON: its one part, or
+// a list of its parts, each one item, when the property is a list or came
+// as several parts. ok is false
+// when the property is not sent as JSON, or a part names a place inside it,
+// as session[type] does: such parts are read as text.
+func (f *partRules) jsonValue(group propertyParts) (value []byte, ok bool) {
+	if !f.jsonParts[group.property] || slices.ContainsFunc(group.parts, func(p FormPart) bool { return p.Name != group.property }) {
+		return nil, false
+	}
+	if len(group.parts) == 1 && !f.jsonLists[group.property] {
+		return group.parts[0].Value, true
+	}
+	value = []byte{'['}
+	for i, p := range group.parts {
+		if i > 0 {
+			value = append(value, ',')
+		}
+		value = append(value, p.Value...)
+	}
+	return append(value, ']'), true
 }
 
 // typeListed says whether a part's content type is one of types, which may
@@ -218,9 +256,4 @@ func typeListed(types []string, contentType string) bool {
 	return slices.ContainsFunc(types, func(t string) bool {
 		return strings.EqualFold(t, mediaType) || strings.EqualFold(t, major+"/*") || t == "*/*"
 	})
-}
-
-func sentAsJSON(contentType string) bool {
-	mediaType, _, _ := mime.ParseMediaType(contentType)
-	return isJSON(mediaType)
 }

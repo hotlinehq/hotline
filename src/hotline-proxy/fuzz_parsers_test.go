@@ -179,10 +179,11 @@ func FuzzFormParts(f *testing.F) {
 	f.Add([]byte("preamble\r\n--b \t\r\n\r\n\r\n--b\r\nContent-Disposition: form-data; name=x\r\n\r\n\r\n--bb\r\n--b--"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		read := func(step int) *partReader {
-			r := newPartReader("multipart/form-data; boundary=b", func(name string) bool { return name == "file" }, 64)
+			r := newPartReader("multipart/form-data; boundary=b", func(name string) bool { return name == "file" }, 64, &bodyPool{})
 			for p := data; len(p) > 0; p = p[min(step, len(p)):] {
 				r.add(p[:min(step, len(p))])
 			}
+			r.hand()
 			return r
 		}
 		start := time.Now()

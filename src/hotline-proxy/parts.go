@@ -13,8 +13,10 @@ import (
 // passes, so the check sees every text part of an upload of any size while
 // the proxy never holds a file (Peter, 2026-11-24, M4, Q1 to Q3). It keeps
 // the text parts' content, at most limit bytes of it in all, and only
-// counts the bytes of the parts the spec calls files. Only the tap uses it,
-// under the tap's lock.
+// counts the bytes of the parts the spec calls files. The text parts' bytes
+// all go in one buffer borrowed from the pool, and each part's Value is a
+// piece of it, given once the parts are handed (Peter, 2026-11-24). Only
+// the tap uses it, under the tap's lock.
 type partReader struct {
 	// delimiter starts every part and ends the last: a line break, two
 	// dashes and the boundary (RFC 2046).
@@ -26,12 +28,17 @@ type partReader struct {
 	matched int
 	// head is the line after a delimiter, or a part's headers, read so far.
 	head []byte
-	kept int
+	// textKeeper keeps the bytes of every text part, one after the other.
+	textKeeper bodyKeeper
 	// text are the text parts, files the file parts, each in the order they
-	// came. current is the part being read, in one or the other.
-	text    []spec.FormPart
-	files   []spec.FormPart
-	current *spec.FormPart
+	// came. current is the part being read, in one or the other. A text
+	// part's Value is set only when the parts are handed, as the buffer may
+	// move to a larger one until then.
+	text []spec.FormPart
+	// textStarts says where each text part's bytes start in textKeeper.
+	textStarts []int
+	files      []spec.FormPart
+	current    *spec.FormPart
 	// inFile says current is a file part, whose bytes are only counted.
 	inFile bool
 	// seen says a byte came, so an empty body is handed as no body.
@@ -64,10 +71,11 @@ const (
 	maxBoundary = 70
 )
 
-// newPartReader reads a body sent with the multipart contentType. A body
-// whose boundary is missing or too long is broken from its first byte.
-func newPartReader(contentType string, isFile func(name string) bool, limit int) *partReader {
-	r := &partReader{isFile: isFile, limit: limit}
+// newPartReader reads a body sent with the multipart contentType, keeping
+// its text parts in a buffer borrowed from pool. A body whose boundary is
+// missing or too long is broken from its first byte.
+func newPartReader(contentType string, isFile func(name string) bool, limit int, pool *bodyPool) *partReader {
+	r := &partReader{isFile: isFile, limit: limit, textKeeper: bodyKeeper{limit: limit, pool: pool, expect: -1}}
 	_, params, _ := mime.ParseMediaType(contentType)
 	boundary := params["boundary"]
 	if boundary == "" || len(boundary) > maxBoundary {
@@ -147,15 +155,16 @@ func (r *partReader) content(b []byte) {
 	if r.inFile || part.TooLarge {
 		return
 	}
-	if r.kept+len(b) > r.limit {
+	keeper := &r.textKeeper
+	if len(keeper.kept)+len(b) > r.limit {
 		// The text parts together are over the limit: this one is not
-		// kept, and the check skips it.
-		r.kept -= len(part.Value)
-		part.Value, part.TooLarge = nil, true
+		// kept, and the check skips it. Its bytes are the last kept, so
+		// they are let go.
+		keeper.cut(r.textStarts[len(r.textStarts)-1])
+		part.TooLarge = true
 		return
 	}
-	part.Value = append(part.Value, b...)
-	r.kept += len(b)
+	keeper.keep(b)
 }
 
 // delimiterLine reads the rest of a delimiter's line, one byte at a time,
@@ -210,6 +219,8 @@ func (r *partReader) start(block []byte) {
 	list := &r.text
 	if r.inFile = r.isFile(part.Name); r.inFile {
 		list = &r.files
+	} else {
+		r.textStarts = append(r.textStarts, len(r.textKeeper.kept))
 	}
 	*list = append(*list, part)
 	r.current = &(*list)[len(*list)-1]
@@ -223,19 +234,24 @@ func (r *partReader) hand() spec.Body {
 	if !r.seen {
 		return spec.Body{}
 	}
+	kept := r.textKeeper.kept
+	for i := range r.text {
+		if p := &r.text[i]; !p.TooLarge {
+			start := r.textStarts[i]
+			p.Value = kept[start : start+int(p.Size) : start+int(p.Size)]
+		}
+	}
 	return spec.Body{Parts: &spec.FormParts{Text: r.text, Files: r.files, Broken: r.state != afterLastPart}}
 }
 
 // held is the memory the text parts and the reading take.
 func (r *partReader) held() int64 {
-	n := cap(r.head)
-	for _, p := range r.text {
-		n += cap(p.Value)
-	}
-	return int64(n)
+	return int64(cap(r.head)) + r.textKeeper.held()
 }
 
-// drop lets the text parts go, and keeps the file parts for the record.
+// drop gives the text parts' buffer back, and keeps the file parts for the
+// record.
 func (r *partReader) drop() {
-	r.text, r.current, r.kept, r.handed = nil, nil, 0, true
+	r.textKeeper.drop()
+	r.text, r.textStarts, r.current, r.handed = nil, nil, nil, true
 }

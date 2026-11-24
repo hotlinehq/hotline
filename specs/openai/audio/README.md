@@ -1,8 +1,8 @@
 # OpenAI audio
 
-`2026-11-24.openapi.yaml` holds OpenAI's two calls that upload audio: `POST /v1/audio/transcriptions` and `POST /v1/audio/translations`. Both send a `multipart/form-data` body: the audio file and a few text parts, such as `model` and `language`.
+`2026-11-24.openapi.yaml` holds OpenAI's calls that send audio with a `multipart/form-data` body. `POST /v1/audio/transcriptions` and `POST /v1/audio/translations` send the audio file and a few text parts, such as `model` and `language`. `POST /v1/realtime/calls` starts a voice call: it sends the call's WebRTC offer as the text part `sdp`, and its `session` as one JSON part.
 
-Written by hand on 2026-11-24, from OpenAI's api reference and its published spec (github.com/openai/openai-openapi). That file is written for OpenAPI 3.1, is about 4 MB and has no version of its own, so only these two calls are copied, in 3.2. OpenAI names no api version, so the file is named after the day it was written.
+Written by hand on 2026-11-24, from OpenAI's api reference and its published spec (github.com/openai/openai-openapi). That file is written for OpenAPI 3.1, is about 4 MB and has no version of its own, so only these three calls are copied, in 3.2. OpenAI names no api version, so the file is named after the day it was written.
 
 What differs from OpenAI's file:
 
@@ -10,3 +10,5 @@ What differs from OpenAI's file:
 - `encoding` lists the file types OpenAI takes, so a wrong one (an image, say) is reported. The list holds `video/mp4`, `video/mpeg`, `video/webm` and `application/octet-stream` as well as `audio/*`, since an SDK guesses a file's type from its name: Python's guess for `.mp4`, `.mpeg` and `.webm` is video, `.wav` is `audio/x-wav`, and an unknown name gives `application/octet-stream` (checked with Python's `mimetypes`, 2026-11-24).
 - The request schemas do not refuse unknown parts (no `additionalProperties: false`), as OpenAI's own file does not, since OpenAI adds parts often.
 - Only the `text` of a transcription is described in the response; the rest of `verbose_json` and `diarized_json` is left open.
+- Of a realtime call's session, only `type`, `model` and `instructions` are described; the rest is left open. Its `encoding` says the session is sent as JSON, which OpenAPI 3.2 would also assume for an object.
+- The `model` of a transcription and of a realtime session is marked `x-hotline-record: gen_ai.request.model`, the OpenTelemetry name for the model an AI call asks for, so the record shows it.

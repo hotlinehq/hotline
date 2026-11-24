@@ -195,8 +195,11 @@ A form part whose property the spec calls a file, with `format: binary` or a `co
 _Avoid_: attachment, upload (the whole call is the upload)
 
 **Text part**:
-A form part that is not a file part. The text parts are checked together against the spec, as a form body is.
+A form part that is not a file part. Each property's text parts are checked against its schema, as a form is (`TextPart`), unless the property is sent as JSON.
 _Avoid_: field (in prose fine; a field is a place in a JSON body)
+
+**JSON part**:
+A text part of a property the spec says is sent as JSON: its encoding lists a JSON type, or it is an object or a list of objects with none. It is read as JSON and checked against the property's schema (`JSONPart`), such as `session` when OpenAI starts a voice call.
 
 ## What the proxy writes down
 
