@@ -236,7 +236,7 @@ func carryOut(ctx context.Context, a shop.App, command string, o options, cutoff
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(o.out, pdf, 0o600) //nolint:gosec // the user names the file to write
+		return os.WriteFile(o.out, pdf, 0o600)
 	case "invoices list":
 		list, err := a.Files.List(ctx)
 		if err != nil {

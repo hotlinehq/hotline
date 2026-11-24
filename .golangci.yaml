@@ -38,6 +38,7 @@ linters:
     - nilerr
     - nilnesserr
     - nilnil
+    - nolintlint
     - noctx
     - perfsprint
     - predeclared
@@ -64,9 +65,23 @@ linters:
             rules:
               json: snake
               yaml: camel
+    nolintlint:
+      # Every skip names its linter and says why, and a skip the linter no
+      # longer needs is itself reported, so stale skips do not pile up.
+      require-explanation: true
+      require-specific: true
     revive:
       rules:
         - name: package-comments
           disabled: true
         - name: exported
           disabled: true
+  exclusions:
+    rules:
+      # The file exporter writes only inside the folder the config names,
+      # with files of mode 0640, as docs/proxy-file-export.md says. The
+      # path and permission checks would only repeat that on each line.
+      - path: internal/export/file\.go$
+        linters:
+          - gosec
+        text: "G302|G304"

@@ -44,7 +44,7 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, "usage: aws-openapi [-record FIELD=NAME]... [-record-action NAME] MODEL.json > SPEC.openapi.yaml")
 		os.Exit(2)
 	}
-	data, err := os.ReadFile(flag.Arg(0)) //nolint:gosec // reads the model the user names
+	data, err := os.ReadFile(flag.Arg(0))
 	if err == nil {
 		data, err = smithy.Convert(data, smithy.Options{Record: record, Action: *action})
 	}
