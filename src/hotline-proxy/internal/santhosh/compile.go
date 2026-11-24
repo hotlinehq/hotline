@@ -265,7 +265,7 @@ func jsonText() *jsonschema.Vocabulary {
 		Compile: func(ctx *jsonschema.CompilerContext, obj map[string]any) (jsonschema.SchemaExt, error) {
 			mediaType, _ := obj["contentMediaType"].(string)
 			if _, ok := obj["contentSchema"]; !ok || !strings.EqualFold(mediaType, "application/json") {
-				return nil, nil //nolint:nilnil // no such keywords here, as the library asks
+				return nil, nil
 			}
 			encoding, _ := obj["contentEncoding"].(string)
 			return &jsonTextSchema{

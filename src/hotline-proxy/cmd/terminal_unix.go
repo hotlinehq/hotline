@@ -13,7 +13,7 @@ import (
 // a terminal: then the size cannot be read.
 func terminal(f *os.File) func() (int, bool) {
 	return func() (int, bool) {
-		size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ) //nolint:gosec // a file descriptor fits an int
+		size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
 		return int(cmp.Or(size, &unix.Winsize{}).Col), err == nil
 	}
 }

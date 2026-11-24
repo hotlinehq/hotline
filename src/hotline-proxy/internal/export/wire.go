@@ -7,6 +7,7 @@ package export
 // opentelemetry-proto: logs/v1, trace/v1, common/v1 and resource/v1.
 
 import (
+	"hotline-proxy/internal/fits"
 	"math"
 	"time"
 
@@ -28,14 +29,15 @@ func openField(b []byte, field protowire.Number) ([]byte, int) {
 // content on when the length takes more than one byte.
 func closeField(b []byte, start int) []byte {
 	n := len(b) - start
-	if n < 0x80 {
-		b[start-1] = byte(n) //nolint:gosec // below 0x80, checked above
+	length := uint64(len(b[start:]))
+	if length < 0x80 {
+		b[start-1] = byte(length)
 		return b
 	}
-	size := protowire.SizeVarint(uint64(n))
+	size := protowire.SizeVarint(length)
 	b = append(b, make([]byte, size-1)...)
 	copy(b[start+size-1:], b[start:start+n])
-	protowire.AppendVarint(b[start-1:start-1], uint64(n))
+	protowire.AppendVarint(b[start-1:start-1], length)
 	return b
 }
 
@@ -72,7 +74,7 @@ func appendVarint(b []byte, field protowire.Number, v uint64) []byte {
 
 // nanos is t in nanoseconds since 1970, 0 for a time before it.
 func nanos(t time.Time) uint64 {
-	return uint64(max(0, t.UnixNano())) //nolint:gosec // not negative
+	return uint64(max(0, t.UnixNano()))
 }
 
 // appendKeyValue writes one KeyValue message as field.
@@ -130,7 +132,8 @@ func appendList[T any](b []byte, items []T, value func(T) attribute.Value) []byt
 // one but a probe's, leaves the body out.
 func appendRecord(b []byte, event string, at, observed time.Time, severity log.Severity, sc trace.SpanContext, body string, attrs []attribute.KeyValue) []byte {
 	b = appendFixed64(b, 1, nanos(at))
-	b = appendVarint(b, 2, uint64(severity)) //nolint:gosec // a level is a small positive number
+	level, _ := fits.Uint64(int(severity)) // a negative level is not one OTLP knows, so it goes as 0, unspecified
+	b = appendVarint(b, 2, level)
 	b = appendText(b, 3, severity.String())
 	if body != "" {
 		b = appendValue(b, 5, attribute.StringValue(body))
@@ -173,7 +176,8 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 		}
 	}
 	b = appendText(b, 5, s.Name)
-	b = appendVarint(b, 6, uint64(s.Kind)) //nolint:gosec // a kind is a small positive number, numbered as in OTLP
+	kind, _ := fits.Uint64(int(s.Kind)) // numbered as in OTLP; a negative kind goes as 0, unspecified
+	b = appendVarint(b, 6, kind)
 	b = appendFixed64(b, 7, nanos(s.Start))
 	b = appendFixed64(b, 8, nanos(s.End))
 	for _, kv := range s.Attrs {
@@ -193,7 +197,8 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 	// OTLP numbers the statuses as Status does: unset 0, ok 1, error 2.
 	// Unset is written as nothing.
 	if s.Status != StatusUnset {
-		b = appendVarint(b, 3, uint64(s.Status)) //nolint:gosec // a status is 1 or 2
+		code, _ := fits.Uint64(int(s.Status)) // a status is 1 or 2
+		b = appendVarint(b, 3, code)
 	}
 	b = closeField(b, status)
 	return appendFixed32(b, 16, flags)

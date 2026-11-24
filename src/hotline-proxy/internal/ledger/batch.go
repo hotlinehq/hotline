@@ -133,7 +133,7 @@ func decode(text, prefix string) ([]byte, error) {
 func NewBatchID(at time.Time, previous string) string {
 	var id [16]byte
 	_, _ = rand.Read(id[6:])
-	ms := uint64(at.UnixMilli()) //nolint:gosec // times after 1970
+	ms := uint64(at.UnixMilli())
 	var stamp [8]byte
 	binary.BigEndian.PutUint64(stamp[:], ms)
 	copy(id[:6], stamp[2:])

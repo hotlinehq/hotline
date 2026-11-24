@@ -18,7 +18,7 @@ func openTerminal(columns int) (*terminal, error) {
 	if err != nil {
 		return nil, err
 	}
-	fd := int(reader.Fd()) //nolint:gosec // a file descriptor fits an int
+	fd := int(reader.Fd())
 	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
 		_ = reader.Close()
 		return nil, err
@@ -33,8 +33,8 @@ func openTerminal(columns int) (*terminal, error) {
 		_ = reader.Close()
 		return nil, err
 	}
-	size := &unix.Winsize{Row: 24, Col: uint16(columns)}                                   //nolint:gosec // a small width
-	if err := unix.IoctlSetWinsize(int(program.Fd()), unix.TIOCSWINSZ, size); err != nil { //nolint:gosec // a file descriptor fits an int
+	size := &unix.Winsize{Row: 24, Col: uint16(columns)} //nolint:gosec // a small width
+	if err := unix.IoctlSetWinsize(int(program.Fd()), unix.TIOCSWINSZ, size); err != nil {
 		_ = reader.Close()
 		_ = program.Close()
 		return nil, err

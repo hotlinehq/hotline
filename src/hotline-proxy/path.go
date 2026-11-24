@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"hotline-proxy/internal/fits"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -127,7 +128,11 @@ func (p *probes) trace(ctx context.Context, transport pathprobe.Transport, ip ne
 		if transport == pathprobe.UDP {
 			to = port + ttl - 1
 		}
-		h := p.send(ctx, pathprobe.Packet{Transport: transport, To: netip.AddrPortFrom(ip, uint16(to)), TTL: ttl}, settings.Timeout) //nolint:gosec // ports stay below 65536
+		toPort, fit := fits.Uint16(to)
+		if !fit {
+			break // past the last port, so there is nothing left to ask
+		}
+		h := p.send(ctx, pathprobe.Packet{Transport: transport, To: netip.AddrPortFrom(ip, toPort), TTL: ttl}, settings.Timeout)
 		hops = append(hops, h)
 		a := h.answer
 		if a.From == ip || a.Kind != pathprobe.Silence && a.ICMPType != pathprobe.ICMPTimeExceeded {

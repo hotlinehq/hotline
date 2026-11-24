@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"hotline-proxy/internal/fits"
 	"net/netip"
 	"time"
 
@@ -51,9 +52,14 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 		return notSent(err)
 	}
 	in4, _ := local.(*unix.SockaddrInet4)
-	quote := quoted{protocol: map[int]uint8{unix.SOCK_STREAM: 6, unix.SOCK_DGRAM: 17}[sotype], to: to, port: uint16(in4.Port)} //nolint:gosec // a port fits in 16 bits
+	port, portFits := fits.Uint16(in4.Port)
+	pollFd, fdFits := fits.Int32(fd)
+	if !portFits || !fdFits {
+		return notSent(ErrUnusableSocket)
+	}
+	quote := quoted{protocol: map[int]uint8{unix.SOCK_STREAM: 6, unix.SOCK_DGRAM: 17}[sotype], to: to, port: port}
 	events := map[int]int16{unix.SOCK_STREAM: unix.POLLOUT, unix.SOCK_DGRAM: unix.POLLIN}[sotype]
-	fds := []unix.PollFd{{Fd: int32(fd), Events: events}} //nolint:gosec // a file descriptor fits in 32 bits
+	fds := []unix.PollFd{{Fd: pollFd, Events: events}}
 	buf := make([]byte, 1500)
 	for ctx.Err() == nil {
 		// A router's error comes first: the socket itself then says only
@@ -127,6 +133,10 @@ func (q quoted) match(b []byte, from string) (Answer, bool) {
 	}
 	// The ICMP socket names the sender as an address with port 0.
 	sender, _ := netip.ParseAddrPort(from)
-	typ := uint8(m.Type.(ipv4.ICMPType))                                                                        //nolint:forcetypeassert,gosec // ParseMessage of protocol 1 gives ipv4 types, each a byte
-	return Answer{Kind: RouterError, From: sender.Addr().Unmap(), ICMPType: typ, ICMPCode: uint8(m.Code)}, true //nolint:gosec // an ICMP code is a byte
+	typ, typeFits := fits.Uint8(int(m.Type.(ipv4.ICMPType))) //nolint:forcetypeassert // ParseMessage of protocol 1 gives ipv4 types
+	code, codeFits := fits.Uint8(m.Code)
+	if !typeFits || !codeFits {
+		return Answer{}, false
+	}
+	return Answer{Kind: RouterError, From: sender.Addr().Unmap(), ICMPType: typ, ICMPCode: code}, true
 }

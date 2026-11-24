@@ -64,8 +64,8 @@ type LineSpan struct {
 type rawLine struct {
 	Time       string         `json:"time"`
 	Event      string         `json:"event"`
-	TraceID    string         `json:"trace_id"` //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
-	SpanID     string         `json:"span_id"`  //nolint:tagliatelle // hotline.verify.v1 writes names in snake case, as agreed
+	TraceID    string         `json:"trace_id"`
+	SpanID     string         `json:"span_id"`
 	Attributes map[string]any `json:"attributes"`
 }
 

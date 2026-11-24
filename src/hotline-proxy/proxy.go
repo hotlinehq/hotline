@@ -13,7 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/pprof" //nolint:gosec // only served when telemetry.pprof is on
+	"net/http/pprof"
 	"net/netip"
 	"runtime"
 	"sync/atomic"

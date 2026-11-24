@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"hotline-proxy/internal/fits"
 	"net/netip"
 
 	"golang.org/x/sys/unix"
@@ -40,7 +41,11 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	}
 	// A connect waits to be writable; a UDP packet waits for an answer.
 	events := map[int]int16{unix.SOCK_STREAM: unix.POLLOUT, unix.SOCK_DGRAM: unix.POLLIN}[sotype]
-	fds := []unix.PollFd{{Fd: int32(fd), Events: events | unix.POLLERR}} //nolint:gosec // a file descriptor fits in 32 bits
+	pollFd, fit := fits.Int32(fd)
+	if !fit {
+		return notSent(ErrUnusableSocket)
+	}
+	fds := []unix.PollFd{{Fd: pollFd, Events: events | unix.POLLERR}}
 	for ctx.Err() == nil {
 		if n, _ := unix.Poll(fds, pollMillis); n > 0 {
 			return answer(fd, to, sotype)
@@ -59,7 +64,7 @@ func answer(fd int, to netip.Addr, sotype int) Answer {
 		return Answer{Kind: Connected, From: to}
 	}
 	soErr, _ := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
-	e := unix.Errno(soErr) //nolint:gosec // an errno fits
+	e := unix.Errno(soErr)
 	kind := map[unix.Errno]Kind{0: Connected, unix.ECONNREFUSED: Reset}[e]
 	return Answer{Kind: cmp.Or(kind, NotSent), From: to, Err: errorIf(e)}
 }
