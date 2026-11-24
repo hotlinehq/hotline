@@ -100,29 +100,35 @@ type tunnels struct {
 	// address of their own, and the HTTP server never asks for one.
 	net.Listener
 	ready chan net.Conn
-	// ctx ends when the proxy stops taking tunnels; tunnels still being
-	// set up are cut short.
-	ctx    context.Context //nolint:containedctx // the listener's lifetime
-	cancel context.CancelFunc
+	// closed fires when the proxy stops taking tunnels; tunnels still
+	// being set up are cut short.
+	closed *stopEvent
 }
 
 func newTunnels() *tunnels {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &tunnels{ready: make(chan net.Conn), ctx: ctx, cancel: cancel}
+	return &tunnels{ready: make(chan net.Conn), closed: newStopEvent()}
 }
 
 func (t *tunnels) Accept() (net.Conn, error) {
 	select {
 	case c := <-t.ready:
 		return c, nil
-	case <-t.ctx.Done():
+	case <-t.closed.fired():
 		return nil, net.ErrClosed
 	}
 }
 
+// handshake times the TLS setup inside a tunnel, which the proxy no longer
+// taking tunnels cuts short.
+func (t *tunnels) handshake(conn *tls.Conn, clock Clock) ([2]time.Time, error) {
+	ctx, cancel := t.closed.context(context.Background())
+	defer cancel()
+	return timeHandshake(ctx, conn, clock)
+}
+
 // Close stops taking tunnels. The listeners are closed by their own servers.
 func (t *tunnels) Close() error {
-	t.cancel()
+	t.closed.fire()
 	return nil
 }
 
@@ -131,7 +137,7 @@ func (t *tunnels) Close() error {
 func (t *tunnels) hand(c net.Conn) {
 	select {
 	case t.ready <- c:
-	case <-t.ctx.Done():
+	case <-t.closed.fired():
 		_ = c.Close()
 	}
 }

@@ -3,7 +3,6 @@ package proxy
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -87,14 +86,14 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 	// The app's first byte tells TLS, which starts with a handshake
 	// record, from plain HTTP. An app that leaves, or the proxy stopping,
 	// ends the wait.
-	stop := context.AfterFunc(h.tunnels.ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	stop := h.tunnels.closed.afterFire(func() { _ = conn.SetReadDeadline(time.Now()) })
 	first, _ := reader.Peek(1)
 	stop()
 	a := &appConn{Conn: inner, tunnel: t}
 	if len(first) == 1 && first[0] == 0x16 {
 		secure := tls.Server(inner, li.signer.tlsConfig(t.host))
 		a.Conn, a.secure = secure, true
-		a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
+		a.handshake, err = h.tunnels.handshake(secure, h.clock)
 		if err != nil {
 			h.tunnelFailed(r, start, cfg, t, a, err)
 			_ = conn.Close()
