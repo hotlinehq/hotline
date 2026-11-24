@@ -172,7 +172,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		_ = telemetry.Shutdown(ctx)
 		return nil, err
 	}
-	cut, cutAll := context.WithCancel(context.Background())
+	cut, cutAll := context.WithCancel(context.Background()) //nolint:gosec // Shutdown calls cutAll
 	h := &handler{
 		cut:       cut,
 		cutAll:    cutAll,
@@ -381,5 +381,5 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 // time limit cuts at once.
 func cutTime(ctx context.Context) (context.Context, context.CancelFunc) {
 	deadline, _ := ctx.Deadline()
-	return context.WithDeadline(ctx, deadline.Add(-deadline.Sub(time.Now())/5))
+	return context.WithDeadline(ctx, deadline.Add(-time.Until(deadline)/5))
 }

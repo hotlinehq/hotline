@@ -1011,11 +1011,19 @@ func (w *world) startStopping() error {
 	addr := w.addr
 	w.startStop()
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", addr)
-		if err != nil {
+		if !accepts(addr) {
 			return nil
 		}
-		_ = conn.Close()
 	}
 	return failf("the proxy still takes connections 2 seconds into its stop")
+}
+
+// accepts says whether addr takes a new connection.
+func accepts(addr string) bool {
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
