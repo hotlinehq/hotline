@@ -69,11 +69,11 @@ type handler struct {
 	// calls counts calls in flight, including upgraded ones, which the
 	// server stops tracking once they take over the connection.
 	calls sync.WaitGroup
-	// cut comes when the time to stop is nearly out: every call and relayed
+	// cutOpenConnections comes when the time to stop is nearly out: every call and relayed
 	// tunnel still open then is cut, and each is recorded in the time left.
 	// Until then a stop lets them run, so the bytes already on their way
 	// still pass and are read (Peter, 2026-11-23, the HAProxy way).
-	cut *stopEvent
+	cutOpenConnections *oneTimeEvent
 }
 
 // connects says whether CONNECT is an ingress on the listener, in cfg.
@@ -172,7 +172,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// once, by the forwarder (Peter, 2026-11-09).
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
-	defer h.cut.afterFire(cancel)()
+	defer h.cutOpenConnections.afterFire(cancel)()
 	c.cancel = cancel
 	ctx = context.WithValue(ctx, deadlineKey{}, h.clock.Now().Add(c.timeout))
 	ctx = httptrace.WithClientTrace(ctx, c.clientTrace())

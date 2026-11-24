@@ -173,11 +173,11 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		return nil, err
 	}
 	h := &handler{
-		cut:       newStopEvent(),
-		clock:     o.Clock,
-		logger:    o.Logger,
-		exporters: exporters,
-		own:       newOwn(telemetry.Meter()),
+		cutOpenConnections: newOneTimeEvent(),
+		clock:              o.Clock,
+		logger:             o.Logger,
+		exporters:          exporters,
+		own:                newOwn(telemetry.Meter()),
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
@@ -330,7 +330,7 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	// them (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
 	cutAt, cancel := cutContext(ctx)
 	defer cancel()
-	defer context.AfterFunc(cutAt, p.handler.cut.fire)()
+	defer context.AfterFunc(cutAt, p.handler.cutOpenConnections.fire)()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
 	// a listener that lasts until the tunnels' server closes the tunnel.
 	// Tunnels still being set up are cut short.

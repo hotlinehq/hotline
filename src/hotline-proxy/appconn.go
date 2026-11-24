@@ -102,11 +102,11 @@ type tunnels struct {
 	ready chan net.Conn
 	// closed fires when the proxy stops taking tunnels; tunnels still
 	// being set up are cut short.
-	closed *stopEvent
+	closed *oneTimeEvent
 }
 
 func newTunnels() *tunnels {
-	return &tunnels{ready: make(chan net.Conn), closed: newStopEvent()}
+	return &tunnels{ready: make(chan net.Conn), closed: newOneTimeEvent()}
 }
 
 func (t *tunnels) Accept() (net.Conn, error) {

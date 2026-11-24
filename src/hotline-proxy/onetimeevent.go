@@ -5,33 +5,33 @@ import (
 	"sync"
 )
 
-// stopEvent is a moment of the proxy's stop that, once it has come, stays
-// come, such as "the proxy stops taking tunnels" or "the stop cuts what is
-// still open". It is a channel closed once, so a long-lived struct can
-// hold it, where Go's guidance keeps contexts out of structs (Peter,
-// 2026-11-24, Q3).
-type stopEvent struct {
+// oneTimeEvent is something that happens once and, once it has happened,
+// stays happened, such as "the proxy stops taking tunnels" or "the stop
+// cuts the connections still open". It is a channel closed once, so a
+// long-lived struct can hold it, where Go's guidance keeps contexts out of
+// structs (Peter, 2026-11-24, Q3 and Q4).
+type oneTimeEvent struct {
 	done chan struct{}
 	once sync.Once
 }
 
-func newStopEvent() *stopEvent {
-	return &stopEvent{done: make(chan struct{})}
+func newOneTimeEvent() *oneTimeEvent {
+	return &oneTimeEvent{done: make(chan struct{})}
 }
 
 // fire makes the event come; firing it again does nothing.
-func (s *stopEvent) fire() {
+func (s *oneTimeEvent) fire() {
 	s.once.Do(func() { close(s.done) })
 }
 
 // fired is closed once the event has come.
-func (s *stopEvent) fired() <-chan struct{} {
+func (s *oneTimeEvent) fired() <-chan struct{} {
 	return s.done
 }
 
 // afterFire runs f once the event comes, unless stop is called first.
 // It is context.AfterFunc for an event; stop waits for nothing.
-func (s *stopEvent) afterFire(f func()) (stop func()) {
+func (s *oneTimeEvent) afterFire(f func()) (stop func()) {
 	cancelled := make(chan struct{})
 	go func() {
 		select {
@@ -46,7 +46,7 @@ func (s *stopEvent) afterFire(f func()) (stop func()) {
 
 // context is a context under parent that also ends when the event comes,
 // for the calls that take a context; cancel releases it.
-func (s *stopEvent) context(parent context.Context) (context.Context, context.CancelFunc) {
+func (s *oneTimeEvent) context(parent context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
 	stop := s.afterFire(cancel)
 	return ctx, func() {

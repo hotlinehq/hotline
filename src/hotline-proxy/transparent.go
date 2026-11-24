@@ -272,7 +272,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 	_ = app.SetDeadline(time.Time{})
 	// A stop lets the relay run until it ends, or until the stop cuts what
 	// is still open.
-	stop := h.cut.afterFire(func() { _ = app.Close(); _ = vendor.Close() })
+	stop := h.cutOpenConnections.afterFire(func() { _ = app.Close(); _ = vendor.Close() })
 	defer stop()
 	done := make(chan struct{})
 	go func() {
