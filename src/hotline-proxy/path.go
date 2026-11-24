@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"hotline-proxy/internal/fits"
+	"math"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -60,9 +61,11 @@ type hop struct {
 // stay not checked and the connect's verdict stands.
 func (p *probes) tracePath(ctx context.Context, ip netip.Addr, port string, settings config.Probe, f *probeFound, verdict string) string {
 	path, host, accepts := &f.questions[1], &f.questions[2], &f.questions[3]
-	vendorPort, _ := strconv.Atoi(port)
+	// The port comes from an address the proxy already dialled. Text that is
+	// not a port reads as 0, or as 65535 when it is too big, as before.
+	vendorPort, _ := strconv.ParseUint(port, 10, 16)
 	path.start = p.clock.Now()
-	tcp := p.trace(ctx, pathprobe.TCP, ip, vendorPort, settings)
+	tcp := p.trace(ctx, pathprobe.TCP, ip, uint16(vendorPort), settings)
 	if tcp[0].answer.Kind == pathprobe.NotSent {
 		path.evidence = []string{"not checked: this machine cannot send path packets: " + tcp[0].answer.Err.Error()}
 		host.evidence = path.evidence
@@ -120,18 +123,21 @@ func (p *probes) tracePath(ctx context.Context, ip netip.Addr, port string, sett
 // trace sends packets to ip with a growing TTL, until the vendor's machine
 // or a router turning the packets away answers, the packets cannot be
 // sent, maxHops routers have been asked, or three in a row stay silent.
-func (p *probes) trace(ctx context.Context, transport pathprobe.Transport, ip netip.Addr, port int, settings config.Probe) []hop {
+func (p *probes) trace(ctx context.Context, transport pathprobe.Transport, ip netip.Addr, port uint16, settings config.Probe) []hop {
 	var hops []hop
 	silent := 0
-	for ttl := 1; ttl <= settings.MaxHops && silent < silentHopsToStop; ttl++ {
-		to := port
+	last := settings.MaxHops
+	if transport == pathprobe.UDP {
+		// Each UDP packet goes to the next port, so the trace ends at the
+		// last port rather than wrapping round to port 0.
+		last = min(last, math.MaxUint16-int(port)+1)
+	}
+	for ttl := 1; ttl <= last && silent < silentHopsToStop; ttl++ {
+		to := int(port)
 		if transport == pathprobe.UDP {
-			to = port + ttl - 1
+			to += ttl - 1
 		}
-		toPort, fit := fits.Uint16(to)
-		if !fit {
-			break // past the last port, so there is nothing left to ask
-		}
+		toPort, _ := fits.Uint16(to) // always fits: port does, and the loop ends at the last port
 		h := p.send(ctx, pathprobe.Packet{Transport: transport, To: netip.AddrPortFrom(ip, toPort), TTL: ttl}, settings.Timeout)
 		hops = append(hops, h)
 		a := h.answer

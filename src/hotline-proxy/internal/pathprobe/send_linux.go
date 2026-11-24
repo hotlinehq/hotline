@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"hotline-proxy/internal/fits"
 	"net/netip"
 
 	"golang.org/x/sys/unix"
@@ -27,7 +26,8 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	sotype := map[Transport]int{TCP: unix.SOCK_STREAM, UDP: unix.SOCK_DGRAM}[p.Transport]
 	fd, err := unix.Socket(unix.AF_INET, sotype|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
 	defer func() { _ = unix.Close(fd) }()
-	err = errors.Join(err, validTTL(p.TTL),
+	pollFd, fdErr := pollable(fd)
+	err = errors.Join(err, validTTL(p.TTL), fdErr,
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, p.TTL),
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR, 1))
 	if err == nil {
@@ -41,10 +41,6 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	}
 	// A connect waits to be writable; a UDP packet waits for an answer.
 	events := map[int]int16{unix.SOCK_STREAM: unix.POLLOUT, unix.SOCK_DGRAM: unix.POLLIN}[sotype]
-	pollFd, fit := fits.Int32(fd)
-	if !fit {
-		return notSent(ErrUnusableSocket)
-	}
 	fds := []unix.PollFd{{Fd: pollFd, Events: events | unix.POLLERR}}
 	for ctx.Err() == nil {
 		if n, _ := unix.Poll(fds, pollMillis); n > 0 {

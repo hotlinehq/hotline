@@ -56,11 +56,14 @@ linters:
         - G404
     tagliatelle:
       case:
-        rules:
-          # Every JSON name Hotline writes, such as the hotline.verify.v1
+        overrides:
+          # Every JSON name the proxy writes, such as the hotline.verify.v1
           # report and the exported lines, is in snake case, as agreed.
-          json: snake
-          yaml: camel
+          # Other modules read or play formats in camel case.
+          - pkg: hotline-proxy
+            rules:
+              json: snake
+              yaml: camel
     revive:
       rules:
         - name: package-comments

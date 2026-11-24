@@ -37,7 +37,8 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	sotype := map[Transport]int{TCP: unix.SOCK_STREAM, UDP: unix.SOCK_DGRAM}[p.Transport]
 	fd, err := unix.Socket(unix.AF_INET, sotype, 0)
 	defer func() { _ = unix.Close(fd) }()
-	err = errors.Join(err, validTTL(p.TTL), unix.SetNonblock(fd, true),
+	pollFd, fdErr := pollable(fd)
+	err = errors.Join(err, validTTL(p.TTL), fdErr, unix.SetNonblock(fd, true),
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, p.TTL),
 		unix.Bind(fd, &unix.SockaddrInet4{}))
 	local, nameErr := unix.Getsockname(fd)
@@ -53,8 +54,7 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	}
 	in4, _ := local.(*unix.SockaddrInet4)
 	port, portFits := fits.Uint16(in4.Port)
-	pollFd, fdFits := fits.Int32(fd)
-	if !portFits || !fdFits {
+	if !portFits {
 		return notSent(ErrUnusableSocket)
 	}
 	quote := quoted{protocol: map[int]uint8{unix.SOCK_STREAM: 6, unix.SOCK_DGRAM: 17}[sotype], to: to, port: port}
