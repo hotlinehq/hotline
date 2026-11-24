@@ -9,7 +9,6 @@ A flaky test is one that sometimes fails and sometimes passes on the same code. 
 3. **Never pick a port and let it go.** A port the system picks and the test closes can go to the next server at once. Ports the test gives the proxy, and the ports of vendors that refuse connections, come from `reservedPorts` in `src/hotline-proxy/ports_test.go`: a range the system never picks by itself, each port handed out once while the suite runs. A test server listens on port 0 and stays open.
 4. **Fake clock waits are named.** A step that lets fake time pass first waits until the proxy waits for what the step means, never for any pending timer (see "the response stays quiet" in `steps_forward_test.go`).
 5. **Every timing branch has a test that forces it.** The coverage check needs every line. A line that runs only when timing goes one way makes the build fail now and then, so such a branch gets a test that runs it every time. When `make cover` fails, it lists the lines no test ran.
-6. **New scenarios run 10 times before merge.** The `repeat new scenarios` job in `.github/workflows/test.yml` runs each scenario a pull request adds or changes 10 more times.
 
 ## Log
 
