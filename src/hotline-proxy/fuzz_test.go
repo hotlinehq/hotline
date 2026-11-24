@@ -41,7 +41,7 @@ const fuzzWait = 2 * time.Second
 // fuzzWorld starts the proxy for one fuzz test, with what setup adds.
 func fuzzWorld(f *testing.F, setup func(w *world)) *world {
 	f.Helper()
-	w, err := newWorld()
+	w, err := newWorld(newReservedPorts())
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func FuzzStreamedResponse(f *testing.F) {
 			_ = w.send(anthropicRequest(true))
 			took := w.recordTime(start)
 			for len(w.receivers[0].streamRecords()) <= streams && time.Since(start) <= fuzzWait {
-				time.Sleep(time.Millisecond)
+				pause(time.Millisecond)
 			}
 			return max(took, time.Since(start))
 		})
@@ -309,7 +309,7 @@ func (w *world) recordTime(start time.Time) time.Duration {
 		if time.Since(start) > fuzzWait {
 			return fuzzWait + time.Millisecond
 		}
-		time.Sleep(time.Millisecond)
+		pause(time.Millisecond)
 	}
 }
 

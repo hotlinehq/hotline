@@ -133,14 +133,14 @@ func (w *world) changeConfig(change string) error {
 		w.apis[0].yaml += "    overlays: [./overlays/no-paths.yaml]\n"
 	case "the proxy listener moves to another port":
 		addr := w.addr
-		w.addr = freePort()
+		w.addr = w.ports.take()
 		defer func() { w.addr = addr }()
 	case "the admin section is removed":
 		w.noAdmin = true
 	case "the admin port moves to another port":
-		w.adminAddr = freePort()
+		w.adminAddr = w.ports.take()
 	case "there is one more exporter":
-		w.downEndpoints = append(w.downEndpoints, "http://"+freePort())
+		w.downEndpoints = append(w.downEndpoints, "http://"+w.ports.take())
 	case "the tls part is added":
 		cert := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(cert, cert)
@@ -151,7 +151,7 @@ func (w *world) changeConfig(change string) error {
 		w.telemetryPprof = true
 	case "the transparent listener is added":
 		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: freePort(), authority: "customer"}
+		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer"}
 	case "the connect part is added":
 		w.useInterceptionAuthority(newAuthority())
 	case "the capture listener is added":

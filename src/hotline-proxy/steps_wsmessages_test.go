@@ -307,7 +307,7 @@ actions:
 	})
 	sc.Step(`^a message record and a "websocket message" span arrive while the WebSocket is open$`, func() error {
 		defer func() { _ = w.socket.conn.Close() }()
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
 			spans := w.receivers[0].spans()
 			if len(w.receivers[0].messageRecords()) > 0 && slices.ContainsFunc(spans, func(s receivedSpan) bool { return s.name == "websocket message" }) {
 				if sessions := w.receivers[0].sessionRecords(); len(sessions) > 0 {

@@ -199,7 +199,7 @@ func captureSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		_ = conn.Close()
 		// A record would be written at once; give it time to arrive.
-		time.Sleep(300 * time.Millisecond)
+		pause(300 * time.Millisecond)
 		return nil
 	})
 }

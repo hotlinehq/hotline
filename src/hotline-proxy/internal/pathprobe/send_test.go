@@ -86,6 +86,21 @@ var _ = Describe("Sending a path probe packet", func() {
 		}
 	})
 
+	It("keeps waiting while nothing comes back, and hears silence when the wait ends", func() {
+		// A UDP port that takes the packet and never answers: the wait
+		// polls more than once before it ends, every time, not only when
+		// the machine happens to be slow (docs/flakes.md).
+		c, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = c.Close() }()
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		a := pathprobe.Sender{}.Send(ctx, pathprobe.Packet{
+			Transport: pathprobe.UDP, To: netip.AddrPortFrom(loopback, uint16(c.LocalAddr().(*net.UDPAddr).Port)), TTL: 64,
+		})
+		Expect(a.Kind).To(Equal(pathprobe.Silence))
+	})
+
 	It("says why a packet with no routers to cross is not sent", func() {
 		for _, t := range []pathprobe.Transport{pathprobe.TCP, pathprobe.Ping} {
 			a := send(t, 9, 0)

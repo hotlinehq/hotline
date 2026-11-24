@@ -102,7 +102,7 @@ func tlsSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the proxy logs the failure at debug level$`, func() error {
 		// The proxy logs after the app has seen the failure.
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(5 * time.Millisecond) {
 			for _, line := range strings.Split(w.logs.String(), "\n") {
 				if strings.Contains(line, "level=DEBUG") && strings.Contains(line, "app TLS setup failed") {
 					return nil

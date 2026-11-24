@@ -167,6 +167,7 @@ These protect the customer's traffic. Breaking one is a bug even if tests pass.
 - In loops that wait repeatedly, reuse one `time.Timer` instead of calling `time.After` each time.
 - Run tests with `-race` when touching concurrent code, and check that no goroutines are left running after a test with `go.uber.org/goleak` (`goleak.VerifyNone` in an `AfterEach`, or `goleak.VerifyTestMain`).
 - Test timing through the injected clock, not with real sleeps.
+- No flaky tests ([docs/flakes.md](../../../docs/flakes.md)): wait for a condition with `eventually`, act out a wait with `pause` (`wait_test.go`), never `time.Sleep`; take ports from `reservedPorts` (`ports_test.go`), never a port picked and closed; give every branch that depends on timing a test that forces it.
 
 ## 8. OpenTelemetry
 

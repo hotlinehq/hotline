@@ -82,7 +82,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return nil
 	})
 	sc.Step(`^the proxy runs with the shop's hotline-proxy.yaml$`, func() error {
-		w.addr = freePort()
+		w.addr = w.ports.take()
 		config, err := shopConfig(
 			[2]string{"tcp://:8080", "tcp://" + w.addr},
 			[2]string{"http://localhost:4318", w.receivers[0].endpoint},

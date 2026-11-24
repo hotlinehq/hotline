@@ -33,6 +33,16 @@ jobs:
       # may open. Docker allows it by default; this runner does not.
       - name: let the tests ping
         run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+      # Downloads go first, tried up to three times: a dropped download
+      # from the module proxy once failed every package (docs/flakes.md).
+      - name: download modules
+        run: |
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "module download failed (try $try), trying again"
+            sleep 10
+          done
+          exit 1
       - name: run tests
         run: |
           make clean-cache
@@ -60,3 +70,50 @@ jobs:
       - name: shrink build caches
         if: always()
         run: make clean-cache
+
+  # A scenario this pull request adds or changes runs 10 more times, so one
+  # that passes only sometimes fails here, before it is merged
+  # (docs/flakes.md). Scenarios it did not touch are not run again.
+  repeat-new-scenarios:
+    name: repeat new scenarios
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: find the scenarios this pull request adds or changes
+        id: changed
+        run: |
+          base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          scenarios=$(.github/scripts/changed-scenarios.sh "$base" | paste -sd, -)
+          echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
+          echo "scenarios: ${scenarios:-none}"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        if: steps.changed.outputs.scenarios != ''
+        with:
+          go-version: '1.27.4'
+          check-latest: false
+          cache-dependency-path: |
+            src/hotline-proxy/go.sum
+            go.work.sum
+      - name: download modules
+        if: steps.changed.outputs.scenarios != ''
+        run: |
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "module download failed (try $try), trying again"
+            sleep 10
+          done
+          exit 1
+      - name: let the tests ping
+        if: steps.changed.outputs.scenarios != ''
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+      # A change to a Background runs its whole file 10 times, which can
+      # take longer than go test's own 10 minutes.
+      - name: run them 10 times
+        if: steps.changed.outputs.scenarios != ''
+        working-directory: src/hotline-proxy
+        env:
+          HOTLINE_FEATURES: ${{ steps.changed.outputs.scenarios }}
+        run: go test -count=10 -timeout 30m -run '^TestFeatures$' .

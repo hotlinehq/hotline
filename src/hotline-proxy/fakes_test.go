@@ -307,7 +307,7 @@ func (n *network) LookupNetIP(ctx context.Context, _, host string) ([]netip.Addr
 	hang := n.hang[host]
 	lookupTime := n.lookupTime
 	n.mu.Unlock()
-	time.Sleep(lookupTime)
+	pause(lookupTime)
 	if hang {
 		n.stuck()
 		<-ctx.Done()

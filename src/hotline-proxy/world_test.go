@@ -37,6 +37,9 @@ var (
 // world is one scenario's system under test: the proxy, and the fakes at
 // its edges (vendors, network, OTLP receivers). Every scenario starts clean.
 type world struct {
+	// ports hands out the ports the world gives the proxy, shared by the
+	// whole test run so none is handed out twice.
+	ports *reservedPorts
 	// checkWorkers is how many spec checks run at once; 0 is one per core.
 	checkWorkers int
 	// topExtra is added to the config's top level.
@@ -262,12 +265,13 @@ type world struct {
 
 var errNoOriginal = errors.New("the original destination is not known")
 
-func newWorld() (*world, error) {
+func newWorld(ports *reservedPorts) (*world, error) {
 	dir, err := os.MkdirTemp("", "hotline-proxy-test-")
 	if err != nil {
 		return nil, err
 	}
 	return &world{
+		ports:     ports,
 		dir:       dir,
 		authority: newAuthority(),
 		network:   newNetwork(),
@@ -370,6 +374,13 @@ func (w *world) routeTo(host, port string, listener net.Listener) {
 	w.network.route(net.JoinHostPort(v.ip.String(), port), listener.Addr().String())
 }
 
+// refuse makes the vendor at host refuse connections on port: they go to a
+// reserved port where nothing listens, which no other server can be given.
+func (w *world) refuse(host, port string) {
+	v := w.vendor(host)
+	w.network.route(net.JoinHostPort(v.ip.String(), port), w.ports.take())
+}
+
 func (w *world) writeFile(name, content string) string {
 	path := filepath.Join(w.dir, name)
 	_ = os.MkdirAll(filepath.Dir(path), 0o750)
@@ -451,12 +462,6 @@ func (w *world) apisSection() string {
 // the integrations.
 func (w *world) raw(head, integrations string) string {
 	return head + w.apisSection() + "integrations:\n" + integrations
-}
-
-func freePort() string {
-	l := listenLocal()
-	defer func() { _ = l.Close() }()
-	return l.Addr().String()
 }
 
 // captureSection is the capture listener of the config, when the
@@ -611,17 +616,11 @@ func (w *world) pickAgain() {
 
 func (w *world) startOnce() error {
 	if w.addr == "" {
-		w.addr = freePort()
+		w.addr = w.ports.take()
 		w.pickedAddr = true
 	}
 	if w.transparent != nil && w.transparent.address == "" && w.transparent.without != "address" {
-		// Picked as late as possible, so no other scenario takes it first,
-		// and never the proxy port: two ports freed one after the other can
-		// be the same, and the config refuses two listeners on one address.
-		w.transparent.address = freePort()
-		for w.transparent.address == w.addr {
-			w.transparent.address = freePort()
-		}
+		w.transparent.address = w.ports.take()
 		w.transparentAddr = w.transparent.address
 		w.pickedTransparent = true
 	}
@@ -825,7 +824,7 @@ func (w *world) exchange(conn net.Conn, r request) error {
 		go w.writeBody(conn, r)
 	}
 	if r.hangUpAfter > 0 {
-		time.Sleep(r.hangUpAfter)
+		pause(r.hangUpAfter)
 		return nil
 	}
 	return w.readAnswer(conn)
@@ -958,24 +957,18 @@ func mustURL(raw string) *url.URL {
 // waitForRecords waits until the first receiver has n records, while the
 // proxy keeps running.
 func (w *world) waitForRecords(n int) error {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if records := w.receivers[0].got(); len(records) >= n {
-			return nil
-		}
-		time.Sleep(5 * time.Millisecond)
+	if !eventually(waitLimit, func() bool { return len(w.receivers[0].got()) >= n }) {
+		return failf("%d records did not arrive", n)
 	}
-	return failf("%d records did not arrive", n)
+	return nil
 }
 
 // waitForVendorCalls waits until the vendor for host got n calls.
 func (w *world) waitForVendorCalls(host string, n int) error {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		if len(w.vendor(host).received()) >= n {
-			return nil
-		}
+	if !eventually(waitLimit, func() bool { return len(w.vendor(host).received()) >= n }) {
+		return failf("the vendor for %s did not get %d calls", host, n)
 	}
-	return failf("the vendor for %s did not get %d calls", host, n)
+	return nil
 }
 
 // useRepositorySpec gives the app an integration whose one api is host,
@@ -1018,12 +1011,7 @@ func (w *world) startStopping() error {
 
 // stopsWithin says whether addr stops taking new connections within limit.
 func stopsWithin(addr string, limit time.Duration) bool {
-	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if !accepts(addr) {
-			return true
-		}
-	}
-	return false
+	return eventually(limit, func() bool { return !accepts(addr) })
 }
 
 // accepts says whether addr takes a new connection.
