@@ -32,7 +32,7 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, "usage: stripe-openapi [-safe NAME]... [-secret NAME]... SPEC3.yaml > SPEC.openapi.yaml")
 		os.Exit(2)
 	}
-	data, err := os.ReadFile(flag.Arg(0)) //nolint:gosec // reads the spec the user names
+	data, err := os.ReadFile(flag.Arg(0))
 	if err == nil {
 		data, err = stripe.Convert(data, options)
 	}

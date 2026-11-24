@@ -49,7 +49,7 @@ type fileWriter struct {
 // openFileWriter takes the folder's lock. The config has made the folder.
 // The current file is opened by the first write.
 func openFileWriter(e config.FileExporter) (*fileWriter, error) {
-	lock, err := os.OpenFile(filepath.Join(e.Path, lockFile), os.O_CREATE|os.O_RDWR, 0o640) //nolint:gosec // the config names the folder
+	lock, err := os.OpenFile(filepath.Join(e.Path, lockFile), os.O_CREATE|os.O_RDWR, 0o640)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (w *fileWriter) write(lines [][]byte) error {
 func (w *fileWriter) open() error {
 	// A folder that cannot be made shows in the open below.
 	_ = os.MkdirAll(w.e.Path, 0o750)
-	f, err := os.OpenFile(filepath.Join(w.e.Path, currentFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640) //nolint:gosec // the config names the folder
+	f, err := os.OpenFile(filepath.Join(w.e.Path, currentFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 	if err != nil {
 		return err
 	}
@@ -165,11 +165,11 @@ func gzipFile(name string) error {
 	partial := name + ".gz.partial"
 	err := steps(
 		func() (err error) {
-			in, err = os.Open(name) //nolint:gosec // a file the writer itself renamed
+			in, err = os.Open(name)
 			return err
 		},
 		func() (err error) {
-			out, err = os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640) //nolint:gosec // next to the file above
+			out, err = os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 			return err
 		},
 		func() error {
