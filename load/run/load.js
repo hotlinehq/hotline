@@ -2,7 +2,9 @@
 // URL (with the path and query), METHOD, SERVICE (ssm or s3, the service
 // the request is signed for, or anthropic for a streamed answer), BODY and
 // ACTION (SSM only), AUTH (1 to name an integration to the proxy), RATE and
-// DURATION.
+// DURATION. SERVICE openai sends a multipart audio upload that the script
+// builds itself: a file of FILE_BYTES bytes, the text parts model and
+// language, and, when PROMPT_BYTES is not 0, a prompt of that many bytes.
 import http from 'k6/http';
 import { check } from 'k6';
 import encoding from 'k6/encoding';
@@ -27,12 +29,32 @@ const aws = __ENV.SERVICE === 's3'
     'Authorization': signed + 'SignedHeaders=host;x-amz-date;x-amz-target, Signature=00',
     'X-Amz-Date': '20261102T000000Z',
   };
-const headers = __ENV.SERVICE === 'anthropic' ? anthropic : aws;
+const boundary = 'hotline-load-boundary';
+const openai = {
+  'Content-Type': 'multipart/form-data; boundary=' + boundary,
+  // Made up: the fake vendor reads no key.
+  'Authorization': 'Bearer sk-load-test',
+};
+// part is one part of the upload, as an SDK writes it.
+function part(headers, content) {
+  return '--' + boundary + '\r\n' + headers + '\r\n\r\n' + content + '\r\n';
+}
+// upload is built once, as every call sends the same.
+function upload() {
+  let body = part('Content-Disposition: form-data; name="file"; filename="memo.mp3"\r\nContent-Type: audio/mpeg', 'a'.repeat(Number(__ENV.FILE_BYTES)))
+    + part('Content-Disposition: form-data; name="model"', 'gpt-4o-transcribe')
+    + part('Content-Disposition: form-data; name="language"', 'en');
+  if (Number(__ENV.PROMPT_BYTES) > 0) {
+    body += part('Content-Disposition: form-data; name="prompt"', 'b'.repeat(Number(__ENV.PROMPT_BYTES)));
+  }
+  return body + '--' + boundary + '--\r\n';
+}
+const headers = { anthropic, openai }[__ENV.SERVICE] || aws;
 if (__ENV.AUTH === '1') {
   headers['Proxy-Authorization'] = 'Basic ' + encoding.b64encode('bench-shop:');
 }
 // A GET sends no body.
-const body = __ENV.METHOD === 'GET' ? null : __ENV.BODY;
+const body = __ENV.METHOD === 'GET' ? null : (__ENV.SERVICE === 'openai' ? upload() : __ENV.BODY);
 
 export const options = {
   scenarios: {

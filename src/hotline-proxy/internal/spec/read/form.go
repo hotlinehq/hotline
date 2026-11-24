@@ -18,6 +18,13 @@ func Form(data []byte) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return FormValues(values)
+}
+
+// FormValues reads a form already parsed, as Form does: bracketed names
+// nested, every value text. A multipart body's text parts come this way,
+// so they are not written out as a form only to be parsed back.
+func FormValues(values url.Values) (map[string]any, error) {
 	for key := range values {
 		// Counted with the same split that nest uses, so the limit and
 		// the reading agree on what one name is.
