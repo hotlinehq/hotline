@@ -187,6 +187,16 @@ Feature: WebSocket messages checked against the spec
       | half a frame's payload                 |
       | a frame longer than any length         |
 
+  Scenario: A message the app sends while the proxy stops is still checked
+    A stop lets each open session run until it ends on its own, so the
+    app's last messages reach the vendor and are read (Peter, 2026-11-23).
+    When an app opens the Kraken WebSocket
+    And the proxy starts stopping
+    And the app sends add_order with req_id 7
+    And the app closes the Kraken WebSocket
+    Then message record 1 says hotline.websocket.message.name addOrder, hotline.websocket.message.index 1
+    And the Kraken vendor got every byte as the app sent it
+
   Scenario: With checks [messages], messages are checked
     Given the Kraken spec, checking only messages
     When an app opens the Kraken WebSocket

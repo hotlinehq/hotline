@@ -35,15 +35,12 @@ func (c *call) finish() {
 	if streamed {
 		// The call was recorded when its headers reached the app; what
 		// ended now is the stream.
-		c.h.streams.Delete(c)
 		c.h.recordLater(func() finished { return c.streamRecord(end) })
 		return
 	}
 	if switched {
-		// The call was recorded at its 101; what ended now is the session,
-		// which a stop no longer needs to end. Its wires read what is left
-		// of its messages.
-		c.h.sessions.Delete(c)
+		// The call was recorded at its 101; what ended now is the session.
+		// Its wires read what is left of its messages.
 		c.session.endReading()
 		c.h.recordLater(func() finished { return c.sessionRecord(end) })
 		return

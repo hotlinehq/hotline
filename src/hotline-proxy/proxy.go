@@ -173,10 +173,11 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		return nil, err
 	}
 	h := &handler{
-		clock:     o.Clock,
-		logger:    o.Logger,
-		exporters: exporters,
-		own:       newOwn(telemetry.Meter()),
+		cutOpenConnections: newOneTimeEvent(),
+		clock:              o.Clock,
+		logger:             o.Logger,
+		exporters:          exporters,
+		own:                newOwn(telemetry.Meter()),
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
@@ -323,9 +324,13 @@ func (p *Proxy) Drain() {
 // until the end, /readyz with no.
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.Drain()
-	// A streamed response holds its connection busy, so the stop ends those
-	// still open first, and each is recorded (Peter, 2026-11-21, M2).
-	p.handler.endStreams()
+	// Calls, WebSockets, streamed responses and relayed tunnels still open
+	// run until they end on their own. Four fifths into the time ctx
+	// leaves, those left are cut, which keeps the last fifth to record
+	// them (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
+	cutAt, cancel := cutContext(ctx)
+	defer cancel()
+	defer context.AfterFunc(cutAt, p.handler.cutOpenConnections.fire)()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
 	// a listener that lasts until the tunnels' server closes the tunnel.
 	// Tunnels still being set up are cut short.
@@ -338,9 +343,6 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		err = errors.Join(err, <-stopped)
 	}
 	<-p.tunnelServed
-	// A WebSocket lasts as long as both sides like, so the stop ends those
-	// still open, and each is recorded (Peter, 2026-11-18).
-	p.handler.endSessions()
 	finished := make(chan struct{})
 	go func() {
 		p.handler.calls.Wait()
@@ -370,4 +372,17 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 		<-p.adminServed
 	}
 	return err
+}
+
+// cutContext ends when a stop cuts what is still open: four fifths into
+// the time ctx leaves, which keeps the last fifth to record them. A ctx
+// with no time limit cuts at once.
+func cutContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		cut, cancel := context.WithCancel(ctx)
+		cancel()
+		return cut, cancel
+	}
+	return context.WithDeadline(ctx, deadline.Add(-time.Until(deadline)/5))
 }

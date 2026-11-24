@@ -220,7 +220,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 		// The real name is encrypted: answer as the outer name, offering
 		// no ECH keys. The program sees ECH rejected and retries without.
 		secure := tls.Server(inner, src.certificate.tlsConfig(host))
-		_, _ = timeHandshake(h.tunnels.ctx, secure, h.clock)
+		_, _ = h.tunnels.handshake(secure, h.clock)
 		h.transparentRecord(src, conn, start, host, "ech_rejected")
 		_ = conn.Close()
 		return
@@ -235,7 +235,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	t := &tunnel{host: host, port: src.port, id: src.id, ingress: src.ingress, process: src.process}
 	secure := tls.Server(inner, src.certificate.tlsConfig(host))
 	a := &appConn{Conn: secure, tunnel: t, secure: true}
-	a.handshake, err = timeHandshake(h.tunnels.ctx, secure, h.clock)
+	a.handshake, err = h.tunnels.handshake(secure, h.clock)
 	if err != nil {
 		h.logger.Debug("app TLS setup on an intercepting ingress failed", "ingress", src.ingress, "reason", err.Error())
 		h.own.tlsFailed(err, src.ingressAttr())
@@ -251,9 +251,11 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 // itself, never using the address the program chose. The record is made
 // when the relay ends.
 func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, reason string) {
-	ctx, cancel := context.WithTimeout(h.tunnels.ctx, handshakeTimeout)
+	ctx, stopWaiting := h.tunnels.closed.context(context.Background())
+	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	vendor, err := h.relays.dial(ctx, "tcp", net.JoinHostPort(host, src.port))
 	cancel()
+	stopWaiting()
 	mode := []attribute.KeyValue{
 		attribute.String("hotline.intercept.mode", "passthrough"),
 		attribute.String("hotline.intercept.reason", reason),
@@ -268,8 +270,9 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 		return
 	}
 	_ = app.SetDeadline(time.Time{})
-	// Stopping the proxy ends the relay.
-	stop := context.AfterFunc(h.tunnels.ctx, func() { _ = app.Close(); _ = vendor.Close() })
+	// A stop lets the relay run until it ends, or until the stop cuts what
+	// is still open.
+	stop := h.cutOpenConnections.afterFire(func() { _ = app.Close(); _ = vendor.Close() })
 	defer stop()
 	done := make(chan struct{})
 	go func() {

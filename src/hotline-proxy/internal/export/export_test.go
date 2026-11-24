@@ -76,8 +76,13 @@ func NewTestTransport(rawURL string) TestTransport {
 // Sender is one more sender of records over the transport, like the record
 // queue or the ledger's batch line of an exporter.
 func (t TestTransport) Sender() func(ctx context.Context, body []byte) error {
+	return t.SenderWithin(time.Second)
+}
+
+// SenderWithin is a sender whose each send may take up to timeout.
+func (t TestTransport) SenderWithin(timeout time.Duration) func(ctx context.Context, body []byte) error {
 	z := t.t.newZipper()
 	return func(ctx context.Context, body []byte) error {
-		return sendWithRetry(ctx, t.t, records, z, body, time.Second)
+		return sendWithRetry(ctx, t.t, records, z, body, timeout)
 	}
 }

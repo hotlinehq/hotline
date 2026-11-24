@@ -96,10 +96,6 @@ func (c *call) streamOpened() {
 	c.mu.Unlock()
 	c.checkRequest(at)
 	c.checkResponse(at, resp)
-	c.h.streams.Store(c, struct{}{})
-	if c.h.streamsEnded.Load() {
-		c.cancel()
-	}
 	c.h.recordThen(func() finished { return c.record(at) }, func() { close(c.stream.called) })
 }
 
@@ -111,18 +107,6 @@ func (c *call) appFailed() bool {
 		return c.stream.appLeft
 	}
 	return c.app.failed()
-}
-
-// endStreams ends every streamed response still open, and any that opens
-// from now on, so each is recorded as the proxy stops. A stream holds its
-// connection to the app busy, so the servers' stop would wait for it
-// until the time to stop runs out.
-func (h *handler) endStreams() {
-	h.streamsEnded.Store(true)
-	h.streams.Range(func(c, _ any) bool {
-		c.(*call).cancel()
-		return true
-	})
 }
 
 // checkStreamItem starts the check of one stream item, and records it once the check ends.
