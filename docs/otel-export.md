@@ -184,7 +184,7 @@ A WebSocket, after its `101`, gets one more log record when it ends, whichever s
 - Trace id and flags: the opening call's. Span id: the `websocket session` span's (see [Signal 2](#signal-2-the-trace-of-each-call)).
 - Level: `INFO`.
 - It goes into the ledger like a call's record, with `hotline.record.hash`, `hotline.trace.hash` and its place in a batch, and `hotline-proxy verify` checks it.
-- A session still open when the proxy stops is ended and recorded, within the stop's time.
+- A session still open when the proxy stops keeps running until it ends on its own; four fifths into the time left once the drain delay ends, one still open is cut and recorded.
 
 | Attribute | Type | What it holds |
 |---|---|---|
@@ -236,7 +236,7 @@ A streamed response whose media type has an `itemSchema` in the spec gets one mo
 - Timestamp: when the response's headers reached the app.
 - Trace id and flags: the call's. Span id: the `stream` span's.
 - It goes into the ledger like a call's record, and `hotline-proxy verify` checks it.
-- A stream still open when the proxy stops is ended and recorded as `cut`, within the stop's time.
+- A stream still open when the proxy stops keeps running until it ends on its own; four fifths into the time left once the drain delay ends, one still open is cut and recorded as `cut`.
 - The console shows it in two lines, like a WebSocket session: who and where, then `<< ended`, its items, how many broke the spec, its size and how long it was open (Q5).
 
 | Attribute | Type | What it holds |

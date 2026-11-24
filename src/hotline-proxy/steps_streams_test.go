@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
-	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -58,7 +57,9 @@ type streamingVendor struct {
 	// holdsHeaders says the vendor sends its headers only once the proxy
 	// is stopping, which it sees when the proxy takes no new connection.
 	holdsHeaders bool
-	addr         string
+	// asked is closed once the vendor holding its headers has the request.
+	asked chan struct{}
+	addr  string
 
 	mu   sync.Mutex
 	sent bytes.Buffer
@@ -208,6 +209,7 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the Anthropic vendor holds its headers until the proxy is stopping, then streams message_start$`, func() error {
 		w.streaming.events, w.streaming.holdsHeaders, w.streaming.waits = helloResponse()[:1], true, true
+		w.streaming.asked = make(chan struct{})
 		return nil
 	})
 	sc.Step(`^the Anthropic spec, where every event needs a retry$`, func() error {
@@ -244,7 +246,17 @@ func streamSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		w.streaming.addr = w.addr
-		return w.askOnOwnConnection()
+		if err := w.askOnOwnConnection(); err != nil {
+			return err
+		}
+		// The call must reach the vendor before the proxy stops taking
+		// connections, or there is no stream to open.
+		select {
+		case <-w.streaming.asked:
+			return nil
+		case <-time.After(2 * time.Second):
+			return failf("the vendor did not get the request within 2 seconds")
+		}
 	})
 	sc.Step(`^the app got every byte as the vendor sent it$`, func() error {
 		w.settle()
@@ -558,6 +570,7 @@ func (w *world) streamingVendor(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v.holdsHeaders {
+		close(v.asked)
 		v.waitForStop()
 	}
 	rw.Header().Set("Content-Type", cmp.Or(v.contentType, "text/event-stream"))
@@ -614,14 +627,11 @@ func (v *streamingVendor) write(rw http.ResponseWriter, flush func() error, piec
 }
 
 // waitForStop waits, at most 2 seconds, until the proxy takes no new
-// connection: it is stopping.
+// connection: it is stopping. A vendor that never sees the stop breaks
+// off, so the scenario fails instead of passing without a stop.
 func (v *streamingVendor) waitForStop() {
-	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", v.addr)
-		if err != nil {
-			return
-		}
-		_ = conn.Close()
+	if !stopsWithin(v.addr, 2*time.Second) {
+		panic(http.ErrAbortHandler)
 	}
 }
 

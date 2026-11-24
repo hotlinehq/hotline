@@ -325,10 +325,10 @@ func (p *Proxy) Drain() {
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.Drain()
 	// Calls, WebSockets, streamed responses and relayed tunnels still open
-	// run until they end on their own. Four fifths into the time to stop,
-	// those left are cut, which leaves the rest of the time to record them
-	// (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
-	cutAt, cancel := cutTime(ctx)
+	// run until they end on their own. Four fifths into the time ctx
+	// leaves, those left are cut, which keeps the last fifth to record
+	// them (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
+	cutAt, cancel := cutContext(ctx)
 	defer cancel()
 	defer context.AfterFunc(cutAt, p.handler.cut.fire)()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
@@ -374,10 +374,15 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	return err
 }
 
-// cutTime is when a stop cuts what is still open: four fifths into the time
-// ctx allows, which keeps the last fifth to record them. A ctx with no
-// time limit cuts at once.
-func cutTime(ctx context.Context) (context.Context, context.CancelFunc) {
-	deadline, _ := ctx.Deadline()
+// cutContext ends when a stop cuts what is still open: four fifths into
+// the time ctx leaves, which keeps the last fifth to record them. A ctx
+// with no time limit cuts at once.
+func cutContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		cut, cancel := context.WithCancel(ctx)
+		cancel()
+		return cut, cancel
+	}
 	return context.WithDeadline(ctx, deadline.Add(-time.Until(deadline)/5))
 }

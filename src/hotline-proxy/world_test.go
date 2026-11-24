@@ -1010,12 +1010,20 @@ func (w *world) post(target, contentType, body string, headers ...string) error 
 func (w *world) startStopping() error {
 	addr := w.addr
 	w.startStop()
-	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	if !stopsWithin(addr, 2*time.Second) {
+		return failf("the proxy still takes connections 2 seconds into its stop")
+	}
+	return nil
+}
+
+// stopsWithin says whether addr stops taking new connections within limit.
+func stopsWithin(addr string, limit time.Duration) bool {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if !accepts(addr) {
-			return nil
+			return true
 		}
 	}
-	return failf("the proxy still takes connections 2 seconds into its stop")
+	return false
 }
 
 // accepts says whether addr takes a new connection.
