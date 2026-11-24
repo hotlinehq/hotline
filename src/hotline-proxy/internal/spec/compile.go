@@ -471,7 +471,7 @@ func (b *builder) bodySpec(m map[string]any, pointer, where, what string) *bodyS
 			}
 		}
 		if strings.EqualFold(mediaType, multipartForm) {
-			ct.multipart = b.formRules(media, at)
+			ct.multipart = b.fileRules(media, at)
 		}
 		body.content = append(body.content, ct)
 	}

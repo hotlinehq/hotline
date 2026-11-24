@@ -93,9 +93,9 @@ const (
 	// ReadsText reads percent-decoded text as one string. Only a whole
 	// query string is read this way.
 	ReadsText
-	// ReadsParts reads a multipart/form-data body's parts, as the proxy
+	// ReadsFormParts reads a multipart/form-data body's parts, as the proxy
 	// read them as the body passed.
-	ReadsParts
+	ReadsFormParts
 )
 
 // RequestSpec is what the spec says about one route's request.

@@ -49,9 +49,9 @@ type RecordedFile struct {
 	Size        int64
 }
 
-// formRules is what a multipart/form-data content says about its file
+// fileRules is what a multipart/form-data content says about its file
 // parts, by property name.
-type formRules struct {
+type fileRules struct {
 	files map[string]fileRule
 }
 
@@ -68,12 +68,12 @@ type fileRule struct {
 
 const multipartForm = "multipart/form-data"
 
-// MultipartFiles says whether a request on the route, sent as contentType,
+// ReadAsFormParts says whether a request on the route, sent as contentType,
 // is read part by part as it passes: a multipart/form-data body whose spec
 // content is multipart/form-data. isFile says, by a part's name, whether
 // the spec calls it a file, whose content is counted and never kept.
-func (s *Spec) MultipartFiles(found Route, contentType string) (isFile func(name string) bool, ok bool) {
-	rules := found.formRules(contentType)
+func (s *Spec) ReadAsFormParts(found Route, contentType string) (isFile func(name string) bool, ok bool) {
+	rules := found.fileRules(contentType)
 	if rules == nil {
 		return nil, false
 	}
@@ -87,7 +87,7 @@ func (s *Spec) MultipartFiles(found Route, contentType string) (isFile func(name
 // contentType, as the record holds them: the file name REDACTED unless the
 // spec marks the file x-hotline-redact false (Q4).
 func (s *Spec) RecordFiles(found Route, contentType string, files []FormPart) []RecordedFile {
-	rules := found.formRules(contentType)
+	rules := found.fileRules(contentType)
 	if rules == nil || len(files) == 0 {
 		return nil
 	}
@@ -102,9 +102,9 @@ func (s *Spec) RecordFiles(found Route, contentType string, files []FormPart) []
 	return recorded
 }
 
-// formRules are the rules of the route's multipart/form-data content, for
+// fileRules are the rules of the route's multipart/form-data content, for
 // a request sent as contentType; nil when it is not read part by part.
-func (found Route) formRules(contentType string) *formRules {
+func (found Route) fileRules(contentType string) *fileRules {
 	if found.r.segments == nil || found.r.checks.body == nil {
 		return nil
 	}
@@ -127,11 +127,11 @@ func propertyOf(name string) string {
 	return property
 }
 
-// formRules reads which properties of a multipart/form-data content's
+// fileRules reads which properties of a multipart/form-data content's
 // schema are files: a property, or a list's items, with format binary or
 // a contentMediaType. Each file's types come from the content's encoding.
-func (b *builder) formRules(media map[string]any, pointer string) *formRules {
-	rules := &formRules{files: map[string]fileRule{}}
+func (b *builder) fileRules(media map[string]any, pointer string) *fileRules {
+	rules := &fileRules{files: map[string]fileRule{}}
 	schema, at := b.object(media["schema"], pointer+"/schema", b.name)
 	props, _ := schema["properties"].(map[string]any)
 	encoding, _ := media["encoding"].(map[string]any)
@@ -164,7 +164,7 @@ func binary(schema map[string]any) bool {
 }
 
 // fileFindings are the file parts whose type the spec does not list.
-func (f *formRules) fileFindings(files []FormPart) []Finding {
+func (f *fileRules) fileFindings(files []FormPart) []Finding {
 	var findings []Finding
 	for _, p := range files {
 		property := propertyOf(p.Name)
