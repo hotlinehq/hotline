@@ -42,7 +42,7 @@ func branchVocabulary(notes branchNotes) *jsonschema.Vocabulary {
 		Compile: func(ctx *jsonschema.CompilerContext, obj map[string]any) (jsonschema.SchemaExt, error) {
 			raw, ok := obj[spec.BranchNote].(map[string]any)
 			if !ok {
-				return nil, nil //nolint:nilnil // no such keyword here, as the library asks
+				return nil, nil
 			}
 			note, err := readBranchNote(raw, obj)
 			if err != nil {
@@ -50,7 +50,7 @@ func branchVocabulary(notes branchNotes) *jsonschema.Vocabulary {
 			}
 			notes[ctx.Enqueue(nil).Location] = note
 			// The note checks nothing, so it needs no compiled form.
-			return nil, nil //nolint:nilnil // nothing to check, as the library allows
+			return nil, nil
 		},
 	}
 }

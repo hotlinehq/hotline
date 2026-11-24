@@ -989,7 +989,7 @@ func lineRecordHash(line map[string]any) string {
 		}
 	}
 	at, _ := time.Parse(time.RFC3339Nano, sprint(line["time"]))
-	r := receivedRecord{attrs: attrs, timestamp: uint64(at.UnixMicro()) * 1000, traceID: sprint(line["trace_id"]), spanID: sprint(line["span_id"])} //nolint:gosec // times after 1970
+	r := receivedRecord{attrs: attrs, timestamp: uint64(at.UnixMicro()) * 1000, traceID: sprint(line["trace_id"]), spanID: sprint(line["span_id"])}
 	return recordHash(r)
 }
 

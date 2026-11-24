@@ -161,31 +161,31 @@ func (w *writer) value(v attribute.Value) {
 		}
 	case attribute.STRINGSLICE:
 		items := v.AsStringSlice()
-		w.list(len(items))
+		w.list(uint64(len(items)))
 		for _, item := range items {
 			w.value(attribute.StringValue(item))
 		}
 	case attribute.INT64SLICE:
 		items := v.AsInt64Slice()
-		w.list(len(items))
+		w.list(uint64(len(items)))
 		for _, item := range items {
 			w.value(attribute.Int64Value(item))
 		}
 	case attribute.FLOAT64SLICE:
 		items := v.AsFloat64Slice()
-		w.list(len(items))
+		w.list(uint64(len(items)))
 		for _, item := range items {
 			w.value(attribute.Float64Value(item))
 		}
 	case attribute.BOOLSLICE:
 		items := v.AsBoolSlice()
-		w.list(len(items))
+		w.list(uint64(len(items)))
 		for _, item := range items {
 			w.value(attribute.BoolValue(item))
 		}
 	case attribute.SLICE:
 		items := v.AsSlice()
-		w.list(len(items))
+		w.list(uint64(len(items)))
 		for _, item := range items {
 			w.value(item)
 		}
@@ -218,9 +218,9 @@ func (w *writer) spanID(name string, id SpanID) {
 	w.write(text[:])
 }
 
-func (w *writer) list(n int) {
+func (w *writer) list(n uint64) {
 	w.byte('l')
-	w.uint(uint64(n)) //nolint:gosec // a count is never negative
+	w.uint(n)
 }
 
 // entries writes attributes sorted by name. Attributes already in order

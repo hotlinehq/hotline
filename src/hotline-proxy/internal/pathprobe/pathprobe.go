@@ -74,6 +74,10 @@ type Answer struct {
 // built yet.
 var ErrIPv6 = errors.New("pathprobe: path probes over IPv6 are not built yet")
 
+// ErrUnusableSocket is a socket the system numbered beyond what poll or a
+// port can hold: a file descriptor above 32 bits, or a port above 16 bits.
+var ErrUnusableSocket = errors.New("pathprobe: the system gave a socket number or port too big to use")
+
 // ErrTTL is a TTL outside 1 to 255. macOS takes such a TTL without a word
 // and sends the packet anyway, so the check is ours, the same everywhere.
 var ErrTTL = errors.New("pathprobe: a TTL must be from 1 to 255")

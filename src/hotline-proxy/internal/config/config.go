@@ -758,7 +758,7 @@ func (l *loader) secret(label string, s secret) string {
 		return s.value
 	case s.file != "":
 		l.noteRead(l.path(s.file))
-		data, err := os.ReadFile(l.path(s.file)) //nolint:gosec // the config names its secret files
+		data, err := os.ReadFile(l.path(s.file))
 		if err != nil {
 			l.problem("%s: the file %s cannot be read", label, s.file)
 		}
@@ -776,7 +776,7 @@ func (l *loader) secret(label string, s secret) string {
 // certificate authorities reads a PEM file of certificates.
 func (l *loader) authorities(label, path string) []byte {
 	l.noteRead(l.path(path))
-	data, err := os.ReadFile(l.path(path)) //nolint:gosec // the config names its certificate files
+	data, err := os.ReadFile(l.path(path))
 	if err != nil {
 		l.problem("%s: %s cannot be read: %v", label, path, err)
 		return nil
@@ -940,7 +940,7 @@ func (l *loader) spec(label, path string, overlays []string) *spec.Spec {
 	if len(files) > 0 {
 		for i := range files {
 			var err error
-			files[i].Data, err = os.ReadFile(files[i].Name) //nolint:gosec // the config names its overlay files
+			files[i].Data, err = os.ReadFile(files[i].Name)
 			if err != nil {
 				l.problem("%s: overlay %s cannot be read: %v", label, files[i].Name, err)
 				return nil

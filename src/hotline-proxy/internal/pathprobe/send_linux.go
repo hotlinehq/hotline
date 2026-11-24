@@ -26,7 +26,8 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	sotype := map[Transport]int{TCP: unix.SOCK_STREAM, UDP: unix.SOCK_DGRAM}[p.Transport]
 	fd, err := unix.Socket(unix.AF_INET, sotype|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
 	defer func() { _ = unix.Close(fd) }()
-	err = errors.Join(err, validTTL(p.TTL),
+	pollFd, fdErr := pollable(fd)
+	err = errors.Join(err, validTTL(p.TTL), fdErr,
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, p.TTL),
 		unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR, 1))
 	if err == nil {
@@ -40,7 +41,7 @@ func (Sender) Send(ctx context.Context, p Packet) Answer {
 	}
 	// A connect waits to be writable; a UDP packet waits for an answer.
 	events := map[int]int16{unix.SOCK_STREAM: unix.POLLOUT, unix.SOCK_DGRAM: unix.POLLIN}[sotype]
-	fds := []unix.PollFd{{Fd: int32(fd), Events: events | unix.POLLERR}} //nolint:gosec // a file descriptor fits in 32 bits
+	fds := []unix.PollFd{{Fd: pollFd, Events: events | unix.POLLERR}}
 	for ctx.Err() == nil {
 		if n, _ := unix.Poll(fds, pollMillis); n > 0 {
 			return answer(fd, to, sotype)
@@ -59,7 +60,7 @@ func answer(fd int, to netip.Addr, sotype int) Answer {
 		return Answer{Kind: Connected, From: to}
 	}
 	soErr, _ := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
-	e := unix.Errno(soErr) //nolint:gosec // an errno fits
+	e := unix.Errno(soErr)
 	kind := map[unix.Errno]Kind{0: Connected, unix.ECONNREFUSED: Reset}[e]
 	return Answer{Kind: cmp.Or(kind, NotSent), From: to, Err: errorIf(e)}
 }

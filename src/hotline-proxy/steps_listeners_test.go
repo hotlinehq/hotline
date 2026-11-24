@@ -127,7 +127,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 			default:
 				// Nor for a socket file; the Then step checks the
 				// signature itself.
-				config.InsecureSkipVerify = true //nolint:gosec // checked by the Then step
+				config.InsecureSkipVerify = true
 			}
 			client := tls.Client(conn, config)
 			_ = client.SetDeadline(time.Now().Add(10 * time.Second))
