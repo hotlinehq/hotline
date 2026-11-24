@@ -66,7 +66,7 @@ func (c *call) newStream(itemSchema *spec.ItemSchema, header http.Header, body i
 	}
 	s.bytes = &tap{
 		ReadCloser: body, mac: c.h.bodyHash("stream", c.trace.WithSpanID(s.span)), stream: s,
-		saver: bodySaver{limit: saved(c.integration), expect: -1},
+		saver: bodySaver{limit: saved(c.integration), expect: -1}, copy: &bodyKeeper{},
 	}
 	mediaType, _, _ := mime.ParseMediaType(header.Get("Content-Type"))
 	s.read = newStreamItemReader(mediaType, s.checkStreamItem)

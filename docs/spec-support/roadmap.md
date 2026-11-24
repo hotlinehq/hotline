@@ -41,9 +41,10 @@ These mistakes give no warning today, so they come before new features.
 - Built (part 2, 2026-11-23): `in: querystring` and cookie styles. Server `name` is left for later: no spec uses it yet.
 - Depends on: M0. Can run before or after M2.
 
-## M4. Multipart bodies (medium)
+## M4. Multipart bodies (medium, built 2026-11-24)
 
 - Check the parts that are not files, using `encoding`, and 3.2's `itemEncoding` and `prefixEncoding`. File parts are counted, never read.
+- Built (2026-11-24): `multipart/form-data` request bodies, read part by part as they pass, with OpenAI's audio uploads and Stripe's file upload. `multipart/mixed`, `itemEncoding` and `prefixEncoding` are left out: no spec uses them. Decisions 41 to 49 in [decisions/spec-checks.md](../decisions/spec-checks.md). M4 is done.
 - Depends on: M0. Shares the item-by-item reading from M2 if `multipart/mixed` streams are wanted.
 
 ## M5. Webhooks, minimal: the app calling the vendor (medium, built 2026-11-23)

@@ -122,6 +122,7 @@ There are two sizes of record:
 | `hotline.client.cancelled` | true or false | The app did not get the whole response: it gave up or hung up first. |
 | `hotline.config.version` | text | The config file's name (without its folder), a `+`, and the first 12 hex characters of a SHA-256 over the config, its specs and overlays, such as `hotline-proxy.aws-shop.yaml+a3f9c21e07b4`. |
 | `hotline.schema.*` | see below | What the check against the spec found. |
+| `hotline.request.files` | list of maps | The file parts of a `multipart/form-data` request body, one map each: `name` (the part's name in the form), `size` (bytes), `content_type` (as the app sent it) and `file_name`, which is `REDACTED` unless the spec marks the file `x-hotline-redact: false`. The file itself is never read. Only when the api checks the request body; also when that check gave way (`overloaded`), and for the files seen before a body broke off. |
 | any name the spec gives | text, number, or true or false | A body field or call header the spec marks `x-hotline-record`, such as `messaging.destination.name` for SQS's `QueueUrl` and `messaging.operation.name` for its `X-Amz-Target`. Detail: [proxy-body-fields.md](proxy-body-fields.md). |
 
 **Headers.** Kept by default: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. A header marked `x-hotline-redact: false` in the spec is kept; one marked `true` shows as `REDACTED`. Never recorded: `authorization`, `proxy-authorization`, `cookie`, `set-cookie` and the login headers named in the spec. Every other header is left out, name and all.
@@ -140,14 +141,14 @@ The proxy checks each full-record call against the vendor's spec, after the resp
 | `hotline.schema.response.errors` | list of maps | Problems with the response, at most 20. |
 | `hotline.schema.request.errors_total` | whole number | How many request problems there were, only when more than 20. |
 | `hotline.schema.response.errors_total` | whole number | The same for the response. |
-| `hotline.schema.skipped` | text | Why part of the check did not run: `no_spec_route`, `body_too_large`, `unsupported_content_type` or `streaming` (a streamed response whose spec gives no `itemSchema`). |
+| `hotline.schema.skipped` | text | Why part of the check did not run: `no_spec_route`, `body_too_large` (also a multipart text part not kept, as the text parts together were over 2 MiB), `unsupported_content_type` or `streaming` (a streamed response whose spec gives no `itemSchema`). |
 
 Each problem is a map with these keys. It never holds a value from the call.
 
 | Key | Always there? | What it holds |
 |---|---|---|
 | `part` | yes | `path`, `query`, `header`, `cookie`, `body` or `status`. |
-| `rule` | yes | One word, such as `required`, `type`, `format`, `enum`, `not_in_spec`, `content_type`, `json` or `form` (a body or a parameter's `content` value that can't be read), or `prefix` (a `matrix` or `label` path value without its mark). |
+| `rule` | yes | One word, such as `required`, `type`, `format`, `enum`, `not_in_spec`, `content_type`, `json` or `form` (a body or a parameter's `content` value that can't be read), `multipart` (a multipart body that breaks its framing), or `prefix` (a `matrix` or `label` path value without its mark). |
 | `place` | when known | The name (`page`) or the spot in the body (`$.cartItems[0].quantity`). |
 | `expected` | when known | What the spec asks for. |
 

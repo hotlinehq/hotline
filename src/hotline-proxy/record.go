@@ -538,6 +538,11 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 	for name, values := range redacted.ResponseHeaders {
 		attrs = append(attrs, attribute.StringSlice("http.response.header."+name, values))
 	}
+	// The file parts come from the reading of the body, so they are listed
+	// even when its check gave way in a full line.
+	if files := c.api.Spec.RecordFiles(c.specRoute(), c.in.Header.Get("Content-Type"), c.reqBody.formFiles()); files != nil {
+		attrs = append(attrs, filesAttr(files))
+	}
 	return checked(attrs, found, ran)
 }
 
@@ -602,4 +607,21 @@ func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribu
 		return attrs
 	}
 	return append(attrs, attribute.String("hotline.schema.status", status))
+}
+
+// filesAttr lists the file parts of a multipart request body: each one's
+// name in the form, size, content type and file name, which is REDACTED
+// unless the spec marks it x-hotline-redact false (Peter, 2026-11-24, M4,
+// Q4 and Q5). The file itself is never read.
+func filesAttr(files []spec.RecordedFile) attribute.KeyValue {
+	values := make([]attribute.Value, len(files))
+	for i, f := range files {
+		values[i] = attribute.MapValue(
+			attribute.String("name", f.Name),
+			attribute.Int64("size", f.Size),
+			attribute.String("content_type", f.ContentType),
+			attribute.String("file_name", f.FileName),
+		)
+	}
+	return attribute.Slice("hotline.request.files", values...)
 }

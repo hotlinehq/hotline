@@ -29,6 +29,9 @@ type Body struct {
 	Data []byte
 	// TooLarge says the body was longer than the copy.
 	TooLarge bool
+	// Parts, when not nil, is a multipart/form-data body read part by part
+	// as it passed, as MultipartFiles says; Data is then empty.
+	Parts *FormParts
 }
 
 // Exchange is a finished call, as the checks see it.
@@ -139,6 +142,9 @@ type content struct {
 	schema schemaAt
 	// fields are the body fields marked x-hotline-record.
 	fields []field
+	// multipart is what a multipart/form-data content says about its file
+	// parts; nil for any other type.
+	multipart *formRules
 }
 
 type response struct {
@@ -197,12 +203,58 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 	findings, skipped, content, reads := r.checks.body.gate(e.Header.Get("Content-Type"), e.Body)
 	c.Request = append(c.Request, findings...)
 	c.Skipped = skipped
-	if reads != 0 {
-		findings, copied := r.checks.request.Body(content, reads, e.Body.Data)
-		c.Request = append(c.Request, findings...)
-		c.Copied = append(c.Copied, copied...)
+	var copied []Field
+	switch reads {
+	case 0:
+		return c
+	case ReadsParts:
+		return r.checks.checkParts(c, content, *e.Body.Parts)
 	}
+	findings, copied = r.checks.request.Body(content, reads, e.Body.Data)
+	c.Request = append(c.Request, findings...)
+	c.Copied = append(c.Copied, copied...)
 	return c
+}
+
+// checkParts checks a multipart body read part by part: its text parts as
+// one object against the content's schema, and the types of its file
+// parts.
+func (c *checks) checkParts(checked Checked, content int, parts FormParts) Checked {
+	if parts.Broken {
+		checked.Request = append(checked.Request, Finding{Part: partBody, Place: whole, Rule: "multipart"})
+		return checked
+	}
+	form, unread, skipped := textForm(parts)
+	findings, copied := c.request.Body(content, ReadsForm, withUnread(form, unread))
+	checked.Request = append(checked.Request, withoutUnread(findings, unread)...)
+	checked.Request = append(checked.Request, c.body.content[content].multipart.fileFindings(parts.Files)...)
+	checked.Copied = append(checked.Copied, copied...)
+	checked.Skipped = cmp.Or(checked.Skipped, skipped)
+	return checked
+}
+
+// withUnread adds each unread name to a form with an empty value, so the
+// check finds it there. Until the engine takes unread names itself, the
+// findings about them are left out by withoutUnread.
+func withUnread(form []byte, unread []string) []byte {
+	values, _ := url.ParseQuery(string(form))
+	for _, name := range unread {
+		values.Add(name, "")
+	}
+	return []byte(values.Encode())
+}
+
+// withoutUnread leaves out the findings about the unread names.
+func withoutUnread(findings []Finding, unread []string) []Finding {
+	kept := findings[:0]
+	for _, f := range findings {
+		name, _ := strings.CutPrefix(f.Place, whole+".")
+		first, _, _ := strings.Cut(name, ".")
+		if !slices.Contains(unread, propertyOf(first)) {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 // CheckResponse checks the response side of a call, on the route Find found: its
@@ -347,7 +399,7 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 // cannot be read, or is too large to check, is skipped, and the reason
 // returned.
 func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, content int, reads Reads) {
-	empty := len(body.Data) == 0 && !body.TooLarge
+	empty := len(body.Data) == 0 && !body.TooLarge && body.Parts == nil
 	switch {
 	case b == nil && empty:
 		return nil, "", 0, 0
@@ -370,7 +422,7 @@ func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skip
 		}
 		return []Finding{{Part: partBody, Place: whole, Rule: "content_type", Expected: strings.Join(listed, ", ")}}, "", 0, 0
 	}
-	reads = c.reads(mediaType)
+	reads = c.reads(mediaType, body)
 	switch {
 	case reads == 0:
 		return nil, "unsupported_content_type", 0, 0
@@ -395,9 +447,14 @@ func (b *bodySpec) find(mediaType string) (*content, int) {
 }
 
 // reads is how a body of this content, sent as mediaType, is read; 0
-// when it can't be.
-func (c *content) reads(mediaType string) Reads {
+// when it can't be. A multipart/form-data content is read only part by
+// part, as the body passed.
+func (c *content) reads(mediaType string, body Body) Reads {
 	switch {
+	case c.multipart != nil && body.Parts != nil:
+		return ReadsParts
+	case c.multipart != nil:
+		return 0
 	case c.xmlMark || !c.json && read.IsXML(mediaType) && c.xml != nil:
 		return ReadsXML
 	case c.json || isJSON(mediaType):

@@ -186,6 +186,18 @@ _Avoid_: backlog, check queue
 What a spec's discriminator says, handed to the schema check as plain JSON under `x-hotline-branch`: the field that tells the branches of a oneOf or anyOf apart, and which branch each of its values means. It only chooses which problems are reported when the choice fails, never whether a call passes.
 _Avoid_: discriminator (the OpenAPI word, used only in spec)
 
+**Form part**:
+One part of a `multipart/form-data` request body, such as an upload's audio file or its `model`: a text part or a file part. The proxy reads the parts one at a time as the body passes. In Go, `spec.FormPart`.
+_Avoid_: part, used alone (a part of a call is its path, query, headers or body)
+
+**File part**:
+A form part whose property the spec calls a file, with `format: binary` or a `contentMediaType`. It is counted and its type checked, never read or kept; the record lists it in `hotline.request.files`.
+_Avoid_: attachment, upload (the whole call is the upload)
+
+**Text part**:
+A form part that is not a file part. The text parts are checked together against the spec, as a form body is.
+_Avoid_: field (in prose fine; a field is a place in a JSON body)
+
 ## What the proxy writes down
 
 **Record**:

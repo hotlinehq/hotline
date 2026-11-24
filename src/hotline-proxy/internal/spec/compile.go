@@ -470,6 +470,9 @@ func (b *builder) bodySpec(m map[string]any, pointer, where, what string) *bodyS
 				ct.xml = b.xmlBody(schema, at+"/schema")
 			}
 		}
+		if strings.EqualFold(mediaType, multipartForm) {
+			ct.multipart = b.formRules(media, at)
+		}
 		body.content = append(body.content, ct)
 	}
 	return body

@@ -8,7 +8,7 @@ This page lists every mark, what it is for, and an example. Marks live only in o
 
 | Mark | Where | What it's for |
 |---|---|---|
-| [`x-hotline-redact`](#x-hotline-redact) | a parameter, a response header | which values may appear in the record |
+| [`x-hotline-redact`](#x-hotline-redact) | a parameter, a response header, a multipart file property | which values may appear in the record |
 | [`x-hotline-record`](#x-hotline-record) | a body field, a call header | copy one safe value into the record |
 | [`x-hotline-body`](#x-hotline-body) | a body's media type | read a vendor's own content type as JSON or XML |
 | [`x-hotline-action-header`](#x-hotline-action-header) | the top of the spec | the header that names the action, when every call has the same path |
@@ -36,11 +36,12 @@ paths:
 
 **Rules.**
 
-1. It goes on a path, query or header parameter, or on a response header. It takes `true` or `false` only.
+1. It goes on a path, query or header parameter, on a response header, or on a file property of a multipart body (rule 6). It takes `true` or `false` only.
 2. Path and query values are hidden in records unless marked `false`. The file under `content: full` hides only those marked `true`, so a path value that is itself a secret, such as the parts of a Slack webhook address, is marked `true` (2026-11-23).
 3. Headers kept without a mark: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. Any other header is left out, name and all, unless marked `false`. A header marked `true` shows as `REDACTED`.
 4. Never recorded, whatever the mark: `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and the login headers and query values named in the spec's security section.
 5. A parameter or header that points to a shared definition with `$ref` (for example `$ref: '#/components/parameters/Customer'`) takes the mark written there.
+6. On a file property of a `multipart/form-data` body (one with `format: binary` or a `contentMediaType`), `false` shows the file name the app gave in the record's `hotline.request.files`; without it the name is `REDACTED` (Peter, 2026-11-24). The mark may sit on the property or on the schema it points to. Under `content: full` the body is kept as sent, file name included.
 
 Detail: [otel-export.md](otel-export.md), [proxy-aws.md](proxy-aws.md).
 
