@@ -205,11 +205,11 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 	// sendsBeforeStop counts the log sends while the proxy runs, once ready
 	// says so: a stop sends the ledger's last batch record too.
 	sendsBeforeStop := func(ready func() bool) int {
-		for deadline := time.Now().Add(5 * time.Second); !ready() && time.Now().Before(deadline); {
-			time.Sleep(5 * time.Millisecond)
+		for deadline := time.Now().Add(waitLimit); !ready() && time.Now().Before(deadline); {
+			pause(5 * time.Millisecond)
 		}
 		// Any retry would come at once: give it a moment.
-		time.Sleep(50 * time.Millisecond)
+		pause(50 * time.Millisecond)
 		return logSends()
 	}
 	sc.Step(`^the record arrives on the second try$`, func() error {
@@ -282,7 +282,7 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		// The OpenTelemetry library reads these from the process itself,
 		// not from what the proxy is given.
 		for name, value := range map[string]string{
-			"OTEL_EXPORTER_OTLP_ENDPOINT":    "http://" + freePort(),
+			"OTEL_EXPORTER_OTLP_ENDPOINT":    "http://" + w.ports.take(),
 			"OTEL_EXPORTER_OTLP_HEADERS":     "x-from-env=leaked",
 			"OTEL_EXPORTER_OTLP_COMPRESSION": "none",
 		} {

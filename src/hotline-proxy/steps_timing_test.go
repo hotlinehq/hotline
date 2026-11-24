@@ -201,7 +201,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(rw, "first part ")
 			rw.(http.Flusher).Flush()
-			time.Sleep(150 * time.Millisecond)
+			pause(150 * time.Millisecond)
 			_, _ = io.WriteString(rw, "last part")
 		})
 		started := time.Now()
@@ -263,7 +263,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 				return
 			}
 			// Long enough for the background connection to finish opening.
-			time.Sleep(300 * time.Millisecond)
+			pause(300 * time.Millisecond)
 		})
 		return w.start()
 	})
@@ -290,7 +290,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		w.network.mu.Unlock()
 		second := make(chan error, 1)
 		go func() { second <- get("second") }()
-		time.Sleep(50 * time.Millisecond)
+		pause(50 * time.Millisecond)
 		close(w.freed)
 		return errors.Join(<-first, <-second)
 	})
@@ -310,7 +310,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 			rw.Header().Set("Content-Length", "100")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 50))
 			rw.(http.Flusher).Flush()
-			time.Sleep(time.Duration(after) * time.Millisecond)
+			pause(time.Duration(after) * time.Millisecond)
 			_, _ = io.WriteString(rw, strings.Repeat("a", 50))
 		})
 		return nil

@@ -390,7 +390,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return has(batches[0].attrs, "hotline.batch.records", int64(1))
 	})
 	sc.Step(`^no integration sent a batch record for the windows without calls$`, func() error {
-		time.Sleep(200 * time.Millisecond)
+		pause(200 * time.Millisecond)
 		if batches := w.receivers[0].ledger(); len(batches) != 1 {
 			return failf("the exporter got %d batch records", len(batches))
 		}
@@ -894,9 +894,7 @@ func (w *world) waitCalls(n int) {
 	if len(w.receivers) == 0 {
 		return
 	}
-	for deadline := time.Now().Add(5 * time.Second); w.receivers[0].callsMade() < n && time.Now().Before(deadline); {
-		time.Sleep(5 * time.Millisecond)
-	}
+	eventually(waitLimit, func() bool { return w.receivers[0].callsMade() >= n })
 }
 
 // reloadConfig writes the config again and has the proxy load it.
@@ -912,47 +910,39 @@ func (w *world) reloadConfig() error {
 // waitBatches waits, while the proxy runs, until the first exporter has
 // got at least n batch records, and gives them in sequence order per chain.
 func (w *world) waitBatches(n int) ([]receivedRecord, error) {
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		batches := w.receivers[0].ledger()
-		if len(batches) >= n {
-			return batches, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, failf("the exporter got %d batch records, want %d", len(batches), n)
-		}
+	var batches []receivedRecord
+	if !eventually(waitLimit, func() bool { batches = w.receivers[0].ledger(); return len(batches) >= n }) {
+		return nil, failf("the exporter got %d batch records, want %d", len(batches), n)
 	}
+	return batches, nil
 }
 
 // waitRecords waits, while the proxy runs, until the first exporter has
 // got at least n call records.
 func (w *world) waitRecords(n int) ([]receivedRecord, error) {
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		records := w.receivers[0].got()
-		if len(records) >= n {
-			return records, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, failf("the exporter got %d records, want %d", len(records), n)
-		}
+	var records []receivedRecord
+	if !eventually(waitLimit, func() bool { records = w.receivers[0].got(); return len(records) >= n }) {
+		return nil, failf("the exporter got %d records, want %d", len(records), n)
 	}
+	return records, nil
 }
 
 // chain is one integration's batch records, at least n of them.
 func (w *world) chain(name string, n int) ([]receivedRecord, error) {
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		var mine []receivedRecord
+	var mine []receivedRecord
+	found := eventually(waitLimit, func() bool {
+		mine = nil
 		for _, b := range w.receivers[0].ledger() {
 			if b.attrs["hotline.batch.integration"] == name {
 				mine = append(mine, b)
 			}
 		}
-		if len(mine) >= n {
-			return mine, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, failf("the %s chain has %d batch records, want %d", name, len(mine), n)
-		}
+		return len(mine) >= n
+	})
+	if !found {
+		return nil, failf("the %s chain has %d batch records, want %d", name, len(mine), n)
 	}
+	return mine, nil
 }
 
 // runBatches are the batch records of each run, once the proxy stopped.

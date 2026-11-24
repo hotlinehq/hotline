@@ -35,7 +35,7 @@ func (t fakeTerminal) size() (int, bool) {
 	if t.asked != nil {
 		t.asked.Add(1)
 	}
-	time.Sleep(t.slow)
+	pause(t.slow)
 	return t.width, t.is
 }
 
@@ -168,7 +168,7 @@ func consoleSteps(sc *godog.ScenarioContext, w *world) {
 			rw.Header().Set("Content-Length", "2048")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 1024))
 			rw.(http.Flusher).Flush()
-			time.Sleep(time.Duration(after) * time.Millisecond)
+			pause(time.Duration(after) * time.Millisecond)
 			_, _ = io.WriteString(rw, strings.Repeat("a", 1024))
 		})
 		return nil

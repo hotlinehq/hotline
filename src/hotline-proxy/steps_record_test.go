@@ -272,7 +272,7 @@ func (w *world) talonSample() error {
 func (w *world) useExample() error {
 	w.writeFile("specs/talon-one.openapi.yaml", w.exampleFile("specs/talon-one.openapi.yaml"))
 	w.writeFile("specs/stripe.openapi.yaml", w.exampleFile("specs/stripe.openapi.yaml"))
-	w.addr = freePort()
+	w.addr = w.ports.take()
 	config := w.exampleFile("hotline-proxy.yaml")
 	for _, from := range []string{"tcp://:8080", "http://hotline-control-plane.hotline:4318", "http://otel-collector.observability:4318"} {
 		if !strings.Contains(config, from) {

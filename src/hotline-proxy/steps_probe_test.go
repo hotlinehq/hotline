@@ -76,9 +76,7 @@ func (w *world) talonAddress(port string) string {
 // refuseOn makes the Talon.One vendor refuse connections on port, and accept
 // sends them to it again.
 func (w *world) refuseOn(port string) {
-	l := listenLocal()
-	w.routeTo("api.talon.one", port, l)
-	_ = l.Close()
+	w.refuse("api.talon.one", port)
 }
 
 func (w *world) acceptOn(port string) {
@@ -102,7 +100,7 @@ func (w *world) settleProbes() {
 		return fmt.Sprint(lookups, dials, w.clock.waiting(), len(w.receivers[0].probeRecords()), len(w.receivers[0].got()))
 	}
 	last, since := state(), time.Now()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); pause(5 * time.Millisecond) {
 		if now := state(); now != last {
 			last, since = now, time.Now()
 			continue
@@ -664,7 +662,7 @@ func probeSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("the console printed %q", w.console.String())
 	})
 	sc.Step(`^its probe is running$`, func() error {
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(5 * time.Millisecond) {
 			if _, dials := w.network.counts(); dials >= 2 {
 				return nil
 			}

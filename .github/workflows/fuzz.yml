@@ -122,7 +122,9 @@ jobs:
   race:
     name: race detector
     runs-on: ubuntu-24.04
-    # The whole suite takes about 8 minutes under the race detector.
+    # The whole suite takes about 8 minutes under the race detector, close
+    # to go test's own 10 minute limit, which it once passed. go test gets
+    # 25 minutes, inside the job's 30.
     timeout-minutes: 30
     defaults:
       run:
@@ -143,4 +145,4 @@ jobs:
       # The fuzz tag adds the parsers' fuzz targets, whose saved inputs then
       # run as plain tests too.
       - name: every test under the race detector
-        run: go test -race -count=1 -tags fuzz ./...
+        run: go test -race -count=1 -timeout 25m -tags fuzz ./...

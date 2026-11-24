@@ -46,10 +46,11 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 	app := &exampleApp{dir: t.TempDir()}
+	ports := newReservedPorts()
 	suite := godog.TestSuite{
 		Name: "hotline-proxy-e2e",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			p := programScenario(sc, binary)
+			p := programScenario(sc, binary, ports)
 			snsScenario(sc, p, app)
 		},
 		Options: &godog.Options{
@@ -70,6 +71,9 @@ func TestEndToEnd(t *testing.T) {
 // receiver at its edges. It is reached only through its command line, its
 // output, its exit code and the network.
 type program struct {
+	// ports hands out the program's ports, shared by the whole test run
+	// so none is handed out twice.
+	ports     *reservedPorts
 	binary    string
 	dir       string
 	authority *authority
@@ -124,12 +128,12 @@ type program struct {
 // in a column five characters wide.
 var plainLogLine = regexp.MustCompile(`^\d\d:\d\d:\d\d\.\d{3} (DEBUG|INFO |WARN |ERROR) `)
 
-func programScenario(sc *godog.ScenarioContext, binary string) *program {
+func programScenario(sc *godog.ScenarioContext, binary string, ports *reservedPorts) *program {
 	p := &program{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		dir, err := os.MkdirTemp("", "hotline-proxy-e2e-")
 		*p = program{
-			binary: binary, dir: dir, authority: newAuthority(), proxyAddr: freePort(), adminAddr: freePort(),
+			ports: ports, binary: binary, dir: dir, authority: newAuthority(), proxyAddr: ports.take(), adminAddr: ports.take(),
 			release: make(chan struct{}), arrived: make(chan struct{}, 8),
 		}
 		return ctx, err
@@ -169,7 +173,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		if err := redirectAvailable(); err != nil {
 			return godog.ErrSkip
 		}
-		p.interception, p.redirect, p.transparentAt = newAuthority(), true, freePort()
+		p.interception, p.redirect, p.transparentAt = newAuthority(), true, p.ports.take()
 		return p.run()
 	})
 	sc.Step(`^the Go client sends POST to the test vendor's https address while a firewall redirects its connection to the listener$`, func() error {
@@ -324,8 +328,8 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return nil
 	})
 	sc.Step(`^a fake OTLP receiver that refuses connections$`, func() error {
-		p.receiver = newReceiver()
-		p.receiver.stop()
+		// Nothing listens there, and no other server can be given the port.
+		p.receiver = &receiver{endpoint: "http://" + p.ports.take()}
 		return nil
 	})
 	sc.Step(`^the test vendor holds its answer$`, func() error {
@@ -373,7 +377,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return nil
 	})
 	sc.Step(`^within (\d+) seconds standard error says "(.*)"$`, func(seconds int, text string) error {
-		for deadline := time.Now().Add(time.Duration(seconds) * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Duration(seconds) * time.Second); time.Now().Before(deadline); pause(50 * time.Millisecond) {
 			if strings.Contains(p.stderr.String(), text) {
 				return nil
 			}
@@ -408,7 +412,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		// A signal reaches the program a moment after it is sent, so the
 		// answer may take that moment to change.
 		var got int
-		for deadline := time.Now().Add(time.Second); ; time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Second); ; pause(20 * time.Millisecond) {
 			var err error
 			if got, err = p.askAdmin(method, path); err != nil {
 				return err
@@ -441,7 +445,7 @@ func programScenario(sc *godog.ScenarioContext, binary string) *program {
 		return nil
 	})
 	sc.Step(`^the proxy port stops taking calls between (\d+) and (\d+) seconds after the signal$`, func(from, to int) error {
-		for deadline := p.signalled.Add(time.Duration(to) * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := p.signalled.Add(time.Duration(to) * time.Second); time.Now().Before(deadline); pause(20 * time.Millisecond) {
 			conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", p.proxyAddr)
 			if err != nil {
 				if took := time.Since(p.signalled); took < time.Duration(from)*time.Second {
@@ -640,7 +644,7 @@ func (p *program) run(flags ...string) error {
 // servers listen. A port chosen before them can be handed to one of them,
 // and the program's calls would then reach the test vendor directly.
 func (p *program) pickPorts() {
-	p.proxyAddr, p.adminAddr = freePort(), freePort()
+	p.proxyAddr, p.adminAddr = p.ports.take(), p.ports.take()
 }
 
 // launch starts the program with the config already written, trusting the
@@ -659,7 +663,7 @@ func (p *program) launch(flags ...string) error {
 	if err := p.startProcess(args...); err != nil {
 		return err
 	}
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); pause(20 * time.Millisecond) {
 		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", p.proxyAddr)
 		if err == nil {
 			return conn.Close()
@@ -850,12 +854,10 @@ func (p *program) signal(name string) error {
 // signalAgain sends a second signal once the program has taken the first.
 // Sent sooner, the system can merge the two into one.
 func (p *program) signalAgain(name string) error {
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if strings.Contains(p.stderr.String(), "hotline proxy stopping") {
-			return p.signal(name)
-		}
+	if !eventually(waitLimit, func() bool { return strings.Contains(p.stderr.String(), "hotline proxy stopping") }) {
+		return failf("the program did not take the first signal:\n%s", p.stderr.String())
 	}
-	return failf("the program did not take the first signal:\n%s", p.stderr.String())
+	return p.signal(name)
 }
 
 // stop ends the program the way Kubernetes does, which sends every queued

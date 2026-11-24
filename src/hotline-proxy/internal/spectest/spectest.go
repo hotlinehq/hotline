@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck // Ginkgo is written to be read this way, as in its tests
-	. "github.com/onsi/gomega"    //nolint:staticcheck // and so is Gomega
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	"hotline-proxy/internal/spec"
 )

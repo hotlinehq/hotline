@@ -31,12 +31,12 @@ func (w *world) listenersSection() string {
 		}
 		if name == "admin" {
 			if w.adminAddr == "" {
-				w.adminAddr = freePort()
+				w.adminAddr = w.ports.take()
 			}
 			return w.adminAddr
 		}
 		if _, picked := w.named[name]; !picked {
-			w.named[name] = freePort()
+			w.named[name] = w.ports.take()
 		}
 		return w.named[name]
 	})
@@ -205,7 +205,7 @@ func listenerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the admin port has tls: \{ cert: (\S+) \}$`, func(cert string) error {
-		w.adminAddr = freePort()
+		w.adminAddr = w.ports.take()
 		w.adminTLS = "  tls: { cert: " + cert + " }\n"
 		return nil
 	})

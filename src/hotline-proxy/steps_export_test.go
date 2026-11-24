@@ -179,7 +179,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^nothing arrives within a second$`, func() error {
-		time.Sleep(time.Second)
+		pause(time.Second)
 		if got := w.arrived(); len(got) > 0 {
 			return failf("got %v within a second", got)
 		}
@@ -202,7 +202,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		time.Sleep(time.Second)
+		pause(time.Second)
 		if got := w.arrived(); slices.Contains(got, signal) {
 			return failf("the %s arrived within a second", signal)
 		}
@@ -220,7 +220,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			if err := w.defaultCall(); err != nil {
 				return err
 			}
-			time.Sleep(50 * time.Millisecond)
+			pause(50 * time.Millisecond)
 		}
 		return nil
 	})
@@ -238,7 +238,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^two exporters, one of them down$`, func() error {
-		w.downEndpoints = []string{"http://" + freePort()}
+		w.downEndpoints = []string{"http://" + w.ports.take()}
 		// The down exporter retries until a send times out, which holds up
 		// the proxy's shutdown at the end of the scenario.
 		w.exportTimeout = 300 * time.Millisecond
@@ -306,7 +306,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			w.appTook = max(w.appTook, time.Since(started))
 			// A record is queued just after its response has gone back, so
 			// give it time to be queued before the next call.
-			time.Sleep(50 * time.Millisecond)
+			pause(50 * time.Millisecond)
 		}
 		w.receivers[0].release()
 		return nil

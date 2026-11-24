@@ -475,17 +475,15 @@ func (r *receiver) spans() []receivedSpan {
 
 // waitForLogsHeld waits until a log export is held.
 func (r *receiver) waitForLogsHeld() error {
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	held := eventually(waitLimit, func() bool {
 		r.mu.Lock()
-		held := r.logsHeld
-		r.mu.Unlock()
-		if held > 0 {
-			return nil
-		}
-		time.Sleep(5 * time.Millisecond)
+		defer r.mu.Unlock()
+		return r.logsHeld > 0
+	})
+	if !held {
+		return failf("no log export arrived")
 	}
-	return failf("no log export arrived")
+	return nil
 }
 
 // release lets every held export go on.

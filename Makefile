@@ -140,12 +140,19 @@ cover:
 	test -f cover.out || { echo "cover.out not found, run 'make test' first"; exit 1; }
 	go tool cover -func cover.out > cover.func.txt
 	-grep -v "100.0" cover.func.txt
-	! grep -q -v "100.0" cover.func.txt || exit 1
+	# On a miss, name the lines no test ran, so a line that runs only when
+	# timing goes one way is easy to tell from code with no test
+	# (docs/flakes.md).
+	! grep -q -v "100.0" cover.func.txt || { \
+		echo "lines no test ran:"; \
+		awk 'NR > 1 { hits[$$1] += $$3 } END { for (b in hits) if (hits[b] == 0) print "  " b }' cover.out | sort; \
+		exit 1; }
 
 deps:
 	go mod download
 
 lint:
+	bash .github/scripts/check-test-waits.sh
 	golangci-lint run ./src/hotline/...
 	golangci-lint run ./src/hotline-proxy/...
 	golangci-lint run ./src/otel-hotline/...

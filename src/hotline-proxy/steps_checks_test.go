@@ -38,9 +38,8 @@ func checksSteps(sc *godog.ScenarioContext, w *world) {
 		return hasNo(record, resultsKey("response"))
 	})
 	sc.Step(`^the vendor refuses the connection$`, func() error {
-		l := listenLocal()
-		w.routeTo("api.shop.test", "443", l)
-		return l.Close()
+		w.refuse("api.shop.test", "443")
+		return nil
 	})
 	sc.Step(`^the vendor answers (\d+)(?: with "([^"]*)")?(?: and the (json )?body (.*))?$`, func(status int, headers, json, body string) error {
 		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {

@@ -34,6 +34,8 @@ Decisions already made, so a new session does not have to dig through old thread
 - Proxy behaviour: Gherkin feature files in `src/hotline-proxy/features/`, run by godog. Everything else: Ginkgo and Gomega.
 - The whole proxy is the system under test (the thing a test drives and checks), with fake vendors and a fake OTLP receiver at its edges.
 - Never change production code just so a test can reach it.
+- A flaky test is a bug: log it in [docs/flakes.md](docs/flakes.md) and fix it, never just rerun. Tests wait with `eventually` or `pause` (no `time.Sleep`), and take ports from `reservedPorts`, never a port picked and let go (Peter, 2026-11-24).
+- Never add a lint skip on your own: no new `//nolint`, exclusion rule or turned-off check. Fix the cause instead, and when no clean fix exists, raise it with Peter first. Decisions so far: [docs/decisions/lint.md](docs/decisions/lint.md) (Peter, 2026-11-24).
 - Run `make lint` before every push; CI lint finds what tests miss (Peter, 2026-11-02). It needs golangci-lint v2.15 built with the repo's Go: `GOTOOLCHAIN=go1.27.4 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0` (v2.13 cannot read Go 1.27).
 - Run `make test` and then `make cover` before every push and before opening a pull request (Peter, 2026-11-16). CI fails when any function is below 100% covered, and `make cover` lists the ones that are. Cover a gap with a test through the proxy's ways in and out, never by removing the check.
 - GitHub Actions are pinned to exact commits, with the tag in a comment; Dependabot updates them (Aikido finding, 2026-11-02).
