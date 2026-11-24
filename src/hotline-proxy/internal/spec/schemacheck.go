@@ -68,7 +68,7 @@ type RequestCheck interface {
 	// place in the route's Body list of the content it was sent as, and
 	// reads how to read it; spec has found both, and the body is not empty
 	// and small enough to check.
-	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
+	Body(contentIndex ContentIndex, reads Reads, body []byte) ([]Finding, []Field)
 }
 
 // ResponseCheck checks one response the spec lists, the way RequestCheck
@@ -77,8 +77,14 @@ type ResponseCheck interface {
 	// Headers checks the response's headers.
 	Headers(header http.Header) []Finding
 	// Body checks a response body, as RequestCheck.Body does.
-	Body(content int, reads Reads, body []byte) ([]Finding, []Field)
+	Body(contentIndex ContentIndex, reads Reads, body []byte) ([]Finding, []Field)
 }
+
+// ContentIndex is the place of a content in RequestSpec.Body or
+// ResponseSpec.Body, counted from 0, in the order spec lists them (Peter,
+// 2026-11-24, Q7). Revisit if the engine ever sorts or merges contents:
+// then a handle to the compiled schema.
+type ContentIndex int
 
 // Reads is how a body is read before it is checked.
 type Reads int

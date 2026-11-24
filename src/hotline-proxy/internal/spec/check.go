@@ -219,7 +219,7 @@ func (s *Spec) CheckRequest(found Route, e Exchange) Checked {
 // checkParts checks a multipart body read part by part: its text parts as
 // one object against the content's schema, and the types of its file
 // parts.
-func (c *checks) checkParts(checked Checked, contentIndex int, parts FormParts) Checked {
+func (c *checks) checkParts(checked Checked, contentIndex ContentIndex, parts FormParts) Checked {
 	if parts.Broken {
 		checked.Request = append(checked.Request, Finding{Part: partBody, Place: whole, Rule: "multipart"})
 		return checked
@@ -398,7 +398,7 @@ func (cred credential) present(header http.Header, query url.Values, cookies map
 // body as and how to read it, 0 when the body is not checked. A body that
 // cannot be read, or is too large to check, is skipped, and the reason
 // returned.
-func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, contentIndex int, reads Reads) {
+func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skipped string, contentIndex ContentIndex, reads Reads) {
 	empty := len(body.Data) == 0 && !body.TooLarge && body.Parts == nil
 	switch {
 	case b == nil && empty:
@@ -434,12 +434,12 @@ func (b *bodySpec) gate(contentType string, body Body) (findings []Finding, skip
 
 // find picks the content for a media type: the exact type first, then
 // type/* and */*. It returns the content and its place in the list.
-func (b *bodySpec) find(mediaType string) (*content, int) {
+func (b *bodySpec) find(mediaType string) (*content, ContentIndex) {
 	major, _, _ := strings.Cut(mediaType, "/")
 	for _, want := range []string{mediaType, major + "/*", "*/*"} {
 		for i, c := range b.content {
 			if strings.EqualFold(c.mediaType, want) {
-				return &b.content[i], i
+				return &b.content[i], ContentIndex(i)
 			}
 		}
 	}

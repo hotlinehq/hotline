@@ -38,11 +38,11 @@ func (accepting) Response(spec.ResponseSpec) (spec.ResponseCheck, error) {
 	return acceptResponse{}, nil
 }
 func (acceptRequest) Params(string, string, http.Header) []spec.Finding { return nil }
-func (acceptRequest) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
+func (acceptRequest) Body(spec.ContentIndex, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
 func (acceptResponse) Headers(http.Header) []spec.Finding { return nil }
-func (acceptResponse) Body(int, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
+func (acceptResponse) Body(spec.ContentIndex, spec.Reads, []byte) ([]spec.Finding, []spec.Field) {
 	return nil, nil
 }
 
@@ -84,15 +84,15 @@ func (t *told) body(content int, reads spec.Reads, body []byte) ([]spec.Finding,
 type toldRequest struct{ t *told }
 
 func (toldRequest) Params(string, string, http.Header) []spec.Finding { return nil }
-func (c toldRequest) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return c.t.body(content, reads, body)
+func (c toldRequest) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), reads, body)
 }
 
 type toldResponse struct{ t *told }
 
 func (toldResponse) Headers(http.Header) []spec.Finding { return nil }
-func (c toldResponse) Body(content int, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
-	return c.t.body(content, reads, body)
+func (c toldResponse) Body(contentIndex spec.ContentIndex, reads spec.Reads, body []byte) ([]spec.Finding, []spec.Field) {
+	return c.t.body(int(contentIndex), reads, body)
 }
 
 // tell parses a spec with a told engine.
