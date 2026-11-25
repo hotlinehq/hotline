@@ -476,8 +476,12 @@ func clientIP(address string) string {
 // end.Sub(start) would use the monotonic readings instead, which differ
 // from the wall clock's by a few nanoseconds, and so by a whole
 // microsecond in about one call in 150.
+//
+// Both times are cut to whole microseconds first, as the ledger cuts every
+// span time before it is hashed and sent, so the length matches the span
+// as sent (2026-11-25).
 func micros(from, to time.Time) int64 {
-	return (to.UnixNano() - from.UnixNano()) / 1000
+	return to.UnixMicro() - from.UnixMicro()
 }
 
 func orNotPassed(id string) string {
