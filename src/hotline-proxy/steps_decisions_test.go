@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -22,6 +23,31 @@ import (
 // repoRoot is the repository's root, seen from this module, where the
 // tests run.
 const repoRoot = "../.."
+
+// errNotFollowed is a Confirmation line that does not hold.
+var errNotFollowed = errors.New("the decision is not followed")
+
+// statRepo looks up a file by its path from the repository's root, never
+// outside it.
+func statRepo(path string) (os.FileInfo, error) {
+	root, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.Stat(filepath.Clean(path))
+}
+
+// readRepo reads a file by its path from the repository's root, never
+// outside it.
+func readRepo(path string) ([]byte, error) {
+	root, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(filepath.Clean(path))
+}
 
 // decisionSteps check the Confirmation lines of docs/decisions: rules
 // about the proxy's source and the repository's other files
@@ -70,7 +96,7 @@ func everyDecisionHasAConfirmation() error {
 	}
 	var missing []string
 	for _, name := range names {
-		text, err := os.ReadFile(filepath.Join(repoRoot, "docs/decisions", name+".md"))
+		text, err := readRepo(filepath.Join("docs/decisions", name+".md"))
 		if err != nil {
 			return err
 		}
@@ -79,7 +105,7 @@ func everyDecisionHasAConfirmation() error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("decision files whose last section is not Tripwires, with a Confirmation and a Revisit if line: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("%w: decision files whose last section is not Tripwires, with a Confirmation and a Revisit if line: %s", errNotFollowed, strings.Join(missing, ", "))
 	}
 	return nil
 }
@@ -124,7 +150,7 @@ func everyDecisionHasAScenario() error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("decision files with no scenario in decisions.feature: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("%w: decision files with no scenario in decisions.feature: %s", errNotFollowed, strings.Join(missing, ", "))
 	}
 	return nil
 }
@@ -148,7 +174,7 @@ func proxyCode() (map[string]string, error) {
 	})
 	if _, found := code["proxy.go"]; err == nil && !found {
 		// Run from another folder, every "no proxy code" check would pass.
-		return nil, fmt.Errorf("found no proxy.go: the checks must run in the proxy's module folder")
+		return nil, fmt.Errorf("%w: found no proxy.go: the checks must run in the proxy's module folder", errNotFollowed)
 	}
 	return code, err
 }
@@ -199,10 +225,10 @@ func textOnlyIn(quoted, files string) error {
 	}
 	slices.Sort(elsewhere)
 	if len(elsewhere) > 0 {
-		return fmt.Errorf("%q is also in %s", text, strings.Join(elsewhere, ", "))
+		return fmt.Errorf("%w: %q is also in %s", errNotFollowed, text, strings.Join(elsewhere, ", "))
 	}
 	if len(found) == 0 {
-		return fmt.Errorf("%q is in no proxy code, so the check checks nothing: update the decision", text)
+		return fmt.Errorf("%w: %q is in no proxy code, so the check checks nothing: update the decision", errNotFollowed, text)
 	}
 	return nil
 }
@@ -226,7 +252,7 @@ func noProxyCodeImports(path string) error {
 	}
 	slices.Sort(importers)
 	if len(importers) > 0 {
-		return fmt.Errorf("%s imports %s", strings.Join(importers, ", "), path)
+		return fmt.Errorf("%w: %s imports %s", errNotFollowed, strings.Join(importers, ", "), path)
 	}
 	return nil
 }
@@ -244,7 +270,7 @@ func noProxyCodeHolds(text string) error {
 	}
 	slices.Sort(holders)
 	if len(holders) > 0 {
-		return fmt.Errorf("%q is in %s", text, strings.Join(holders, ", "))
+		return fmt.Errorf("%w: %q is in %s", errNotFollowed, text, strings.Join(holders, ", "))
 	}
 	return nil
 }
@@ -259,7 +285,7 @@ func proxyFileMatches(path, pattern string) error {
 		return err
 	}
 	if !re.MatchString(src) {
-		return fmt.Errorf("%s has nothing matching %q", path, pattern)
+		return fmt.Errorf("%w: %s has nothing matching %q", errNotFollowed, path, pattern)
 	}
 	return nil
 }
@@ -270,7 +296,7 @@ func proxyFileHolds(path, text string) error {
 		return err
 	}
 	if !strings.Contains(src, text) {
-		return fmt.Errorf("%s does not hold %q", path, text)
+		return fmt.Errorf("%w: %s does not hold %q", errNotFollowed, path, text)
 	}
 	return nil
 }
@@ -281,7 +307,7 @@ func proxyFileDoesNotHold(path, text string) error {
 		return err
 	}
 	if strings.Contains(src, text) {
-		return fmt.Errorf("%s holds %q", path, text)
+		return fmt.Errorf("%w: %s holds %q", errNotFollowed, path, text)
 	}
 	return nil
 }
@@ -294,7 +320,7 @@ type workflow struct {
 
 func readWorkflow(name string) (workflow, error) {
 	var w workflow
-	text, err := os.ReadFile(filepath.Join(repoRoot, ".github/workflows", name))
+	text, err := readRepo(filepath.Join(".github/workflows", name))
 	if err != nil {
 		return w, err
 	}
@@ -319,14 +345,14 @@ func workflowStartsOnlyOnMainOrByHand(name string) error {
 				return err
 			}
 			if !slices.Equal(push.Branches, []string{"main"}) || len(push.Tags) > 0 {
-				return fmt.Errorf("%s starts on a push to %v, not only to main", name, append(push.Branches, push.Tags...))
+				return fmt.Errorf("%w: %s starts on a push to %v, not only to main", errNotFollowed, name, append(push.Branches, push.Tags...))
 			}
 		default:
-			return fmt.Errorf("%s also starts on %s", name, event)
+			return fmt.Errorf("%w: %s also starts on %s", errNotFollowed, name, event)
 		}
 	}
 	if len(w.On) == 0 {
-		return fmt.Errorf("%s names no event it starts on", name)
+		return fmt.Errorf("%w: %s names no event it starts on", errNotFollowed, name)
 	}
 	return nil
 }
@@ -337,7 +363,7 @@ func workflowHasNoConcurrency(name string) error {
 		return err
 	}
 	if w.Concurrency != nil {
-		return fmt.Errorf("%s has a concurrency group, which cancels a waiting run", name)
+		return fmt.Errorf("%w: %s has a concurrency group, which cancels a waiting run", errNotFollowed, name)
 	}
 	return nil
 }
@@ -349,7 +375,7 @@ func onlyWorkflowNamesRunner(name, runner string) error {
 	}
 	var users []string
 	for _, p := range paths {
-		text, err := os.ReadFile(p)
+		text, err := readRepo(filepath.Join(".github/workflows", filepath.Base(p)))
 		if err != nil {
 			return err
 		}
@@ -358,13 +384,13 @@ func onlyWorkflowNamesRunner(name, runner string) error {
 		}
 	}
 	if !slices.Equal(users, []string{name}) {
-		return fmt.Errorf("the workflows naming %q are %v, not only %s", runner, users, name)
+		return fmt.Errorf("%w: the workflows naming %q are %v, not only %s", errNotFollowed, runner, users, name)
 	}
 	return nil
 }
 
 func repoFileMatches(path, pattern string) error {
-	text, err := os.ReadFile(filepath.Join(repoRoot, path))
+	text, err := readRepo(path)
 	if err != nil {
 		return err
 	}
@@ -373,18 +399,18 @@ func repoFileMatches(path, pattern string) error {
 		return err
 	}
 	if !re.Match(text) {
-		return fmt.Errorf("%s has nothing matching %q", path, pattern)
+		return fmt.Errorf("%w: %s has nothing matching %q", errNotFollowed, path, pattern)
 	}
 	return nil
 }
 
 func repoFileHolds(path, text string) error {
-	got, err := os.ReadFile(filepath.Join(repoRoot, path))
+	got, err := readRepo(path)
 	if err != nil {
 		return err
 	}
 	if !bytes.Contains(got, []byte(text)) {
-		return fmt.Errorf("%s does not hold %q", path, text)
+		return fmt.Errorf("%w: %s does not hold %q", errNotFollowed, path, text)
 	}
 	return nil
 }
@@ -392,7 +418,7 @@ func repoFileHolds(path, text string) error {
 // makeTestDoesNotHold reads the commands of the Makefile's test target:
 // the tab-indented lines after "test:", up to the next line that is not.
 func makeTestDoesNotHold(text string) error {
-	makefile, err := os.ReadFile(filepath.Join(repoRoot, "Makefile"))
+	makefile, err := readRepo("Makefile")
 	if err != nil {
 		return err
 	}
@@ -403,14 +429,14 @@ func makeTestDoesNotHold(text string) error {
 			in, found = true, true
 		case in && strings.HasPrefix(line, "\t"):
 			if command := strings.TrimSpace(line); !strings.HasPrefix(command, "#") && strings.Contains(command, text) {
-				return fmt.Errorf("make test runs %q", command)
+				return fmt.Errorf("%w: make test runs %q", errNotFollowed, command)
 			}
 		case in:
 			in = false
 		}
 	}
 	if !found {
-		return fmt.Errorf("the Makefile has no test target")
+		return fmt.Errorf("%w: the Makefile has no test target", errNotFollowed)
 	}
 	return nil
 }
@@ -419,19 +445,19 @@ func makeTestDoesNotHold(text string) error {
 var markdownLink = regexp.MustCompile(`\]\(([^)#:\s]+)(?:#[^)]*)?\)`)
 
 func everyLinkExists(path string) error {
-	text, err := os.ReadFile(filepath.Join(repoRoot, path))
+	text, err := readRepo(path)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(filepath.Join(repoRoot, path))
+	dir := filepath.Dir(path)
 	var broken []string
 	for _, m := range markdownLink.FindAllSubmatch(text, -1) {
-		if _, err := os.Stat(filepath.Join(dir, string(m[1]))); err != nil {
+		if _, err := statRepo(filepath.Join(dir, string(m[1]))); err != nil {
 			broken = append(broken, string(m[1]))
 		}
 	}
 	if len(broken) > 0 {
-		return fmt.Errorf("%s links to files that do not exist: %s", path, strings.Join(broken, ", "))
+		return fmt.Errorf("%w: %s links to files that do not exist: %s", errNotFollowed, path, strings.Join(broken, ", "))
 	}
 	return nil
 }
@@ -443,7 +469,7 @@ func proxyFileDoesNotImport(path, pkg string) error {
 	}
 	for _, spec := range f.Imports {
 		if name, _ := strconv.Unquote(spec.Path.Value); name == pkg {
-			return fmt.Errorf("%s imports %s", path, pkg)
+			return fmt.Errorf("%w: %s imports %s", errNotFollowed, path, pkg)
 		}
 	}
 	return nil
@@ -452,7 +478,7 @@ func proxyFileDoesNotImport(path, pkg string) error {
 // linterIsOn looks only in the list of linters that are on, not in their
 // settings, which may name a linter that is off.
 func linterIsOn(name string) error {
-	text, err := os.ReadFile(filepath.Join(repoRoot, ".golangci.yaml"))
+	text, err := readRepo(".golangci.yaml")
 	if err != nil {
 		return err
 	}
@@ -465,7 +491,7 @@ func linterIsOn(name string) error {
 		return err
 	}
 	if !slices.Contains(lint.Linters.Enable, name) {
-		return fmt.Errorf("the linter %s is not on in .golangci.yaml", name)
+		return fmt.Errorf("%w: the linter %s is not on in .golangci.yaml", errNotFollowed, name)
 	}
 	return nil
 }
@@ -501,16 +527,16 @@ func everyFuzzPackageCapturesLogs() error {
 	}
 	slices.Sort(missing)
 	if len(missing) > 0 {
-		return fmt.Errorf("packages with fuzz tests that never call fuzzlog.Capture(): %s", strings.Join(missing, ", "))
+		return fmt.Errorf("%w: packages with fuzz tests that never call fuzzlog.Capture(): %s", errNotFollowed, strings.Join(missing, ", "))
 	}
 	if len(fuzz) == 0 {
-		return fmt.Errorf("found no fuzz tests, so the check checks nothing")
+		return fmt.Errorf("%w: found no fuzz tests, so the check checks nothing", errNotFollowed)
 	}
 	return nil
 }
 
 func repoFileExists(path string) error {
-	_, err := os.Stat(filepath.Join(repoRoot, path))
+	_, err := statRepo(path)
 	return err
 }
 
@@ -534,13 +560,13 @@ func packageDeclaresNoType(dir, name string) error {
 			}
 			for _, spec := range gen.Specs {
 				if spec.(*ast.TypeSpec).Name.Name == name {
-					return fmt.Errorf("%s declares the type %s", p, name)
+					return fmt.Errorf("%w: %s declares the type %s", errNotFollowed, p, name)
 				}
 			}
 		}
 	}
 	if len(paths) == 0 {
-		return fmt.Errorf("%s holds no Go files", dir)
+		return fmt.Errorf("%w: %s holds no Go files", errNotFollowed, dir)
 	}
 	return nil
 }
