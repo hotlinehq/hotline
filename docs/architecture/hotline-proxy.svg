@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1000" width="1800" height="1000" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" xmlns:c2pa="http://c2pa.org/manifest">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1050" width="1800" height="1000" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" xmlns:c2pa="http://c2pa.org/manifest">
   <title>Hotline proxy: forwards every vendor call unchanged and records how it went</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -22,7 +22,7 @@
     </filter>
   </defs>
 
-  <rect width="1800" height="1000" fill="#FFFFFF"/>
+  <rect width="1800" height="1050" fill="#FFFFFF"/>
 
   <!-- Header -->
   <text x="60" y="78" font-size="38" font-weight="700" fill="#0F172A">hotline</text>
@@ -46,20 +46,26 @@
   </g>
 
   <!-- Your services -->
-  <text x="150" y="430" font-size="18" font-weight="600" fill="#0F172A" text-anchor="middle">Your services</text>
+  <text x="150" y="374" font-size="18" font-weight="600" fill="#0F172A" text-anchor="middle">Your services</text>
   <g font-size="14" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">
+    <rect x="60" y="394" width="180" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="80" cy="416" r="5" fill="#22C55E"/>
+    <text x="94" y="421">checkout</text>
     <rect x="60" y="450" width="180" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
     <circle cx="80" cy="472" r="5" fill="#22C55E"/>
-    <text x="94" y="477">checkout</text>
+    <text x="94" y="477">invoices</text>
     <rect x="60" y="506" width="180" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
     <circle cx="80" cy="528" r="5" fill="#22C55E"/>
-    <text x="94" y="533">invoices</text>
+    <text x="94" y="533">mailer</text>
     <rect x="60" y="562" width="180" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
     <circle cx="80" cy="584" r="5" fill="#22C55E"/>
     <text x="94" y="589">refunds</text>
+    <rect x="60" y="618" width="180" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="80" cy="640" r="5" fill="#22C55E"/>
+    <text x="94" y="645">support</text>
   </g>
-  <text x="150" y="634" font-size="13" fill="#64748B" text-anchor="middle">any HTTP client,</text>
-  <text x="150" y="652" font-size="13" fill="#64748B" text-anchor="middle">no code change</text>
+  <text x="150" y="690" font-size="13" fill="#64748B" text-anchor="middle">any HTTP client,</text>
+  <text x="150" y="708" font-size="13" fill="#64748B" text-anchor="middle">no code change</text>
   <path d="M240,528 L276,528" fill="none" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
 
   <!-- Ingresses -->
@@ -94,7 +100,7 @@
   <text x="415" y="862" font-size="13" fill="#64748B" text-anchor="middle">Proxy-Authorization names the integration</text>
 
   <!-- Proxy container -->
-  <rect x="590" y="200" width="760" height="700" rx="20" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
+  <rect x="590" y="200" width="760" height="756" rx="20" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
   <text x="614" y="240" font-size="22" font-weight="700" fill="#0F172A">hotline-proxy</text>
   <text x="772" y="240" font-size="16" fill="#64748B">Go, one program</text>
 
@@ -126,105 +132,116 @@
     <rect x="1410" y="264" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
     <circle cx="1430" cy="286" r="5" fill="#22C55E"/>
     <text x="1444" y="291">api.stripe.com</text>
-    <rect x="1410" y="320" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
-    <circle cx="1430" cy="342" r="5" fill="#22C55E"/>
-    <text x="1444" y="347">sqs.eu-west-1.amazonaws.com</text>
-    <rect x="1410" y="376" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
-    <circle cx="1430" cy="398" r="5" fill="#22C55E"/>
-    <text x="1444" y="403">s3.eu-west-1.amazonaws.com</text>
+    <rect x="1410" y="316" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="1430" cy="338" r="5" fill="#22C55E"/>
+    <text x="1444" y="343">hooks.slack.com</text>
+    <rect x="1410" y="368" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="1430" cy="390" r="5" fill="#22C55E"/>
+    <text x="1444" y="395">api.anthropic.com</text>
+    <rect x="1410" y="420" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="1430" cy="442" r="5" fill="#22C55E"/>
+    <text x="1444" y="447">ws.kraken.com</text>
+    <rect x="1410" y="472" width="320" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5" filter="url(#shadow)"/>
+    <circle cx="1430" cy="494" r="5" fill="#22C55E"/>
+    <text x="1444" y="499">sqs.eu-west-1.amazonaws.com</text>
   </g>
-  <path d="M1318,319 C1360,319 1360,342 1406,342" fill="none" stroke="#0E7490" stroke-width="2" marker-end="url(#arrowTeal)"/>
-  <text x="1570" y="446" font-size="13" fill="#64748B" text-anchor="middle">each api: hosts, OpenAPI spec, timeout</text>
+  <path d="M1318,319 C1360,319 1360,338 1406,338" fill="none" stroke="#0E7490" stroke-width="2" marker-end="url(#arrowTeal)"/>
+  <text x="1570" y="538" font-size="13" fill="#64748B" text-anchor="middle">each api: hosts, OpenAPI 3.2 spec, timeout</text>
 
   <!-- Row 2: checks and records -->
   <path d="M1060,374 C1060,420 725,410 725,462" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#arrowPurple)"/>
   <text x="1072" y="404" font-size="13" fill="#6D28D9">body copies, timings</text>
 
   <g filter="url(#shadow)">
-    <rect x="620" y="466" width="210" height="110" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
+    <rect x="620" y="466" width="210" height="126" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
   </g>
   <text x="725" y="504" font-size="20" font-weight="700" fill="#5B21B6" text-anchor="middle">Body tap</text>
   <text x="725" y="530" font-size="14" fill="#4C1D95" text-anchor="middle">passes bodies on,</text>
-  <text x="725" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">keeps a copy ≤ 2 MiB</text>
+  <text x="725" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">keeps a copy ≤ 2 MiB,</text>
+  <text x="725" y="572" font-size="14" fill="#4C1D95" text-anchor="middle">cuts streams into items</text>
 
-  <rect x="882" y="450" width="230" height="110" rx="14" fill="#E9E0FF" stroke="#C4B5FD" stroke-width="1.5"/>
-  <rect x="874" y="458" width="230" height="110" rx="14" fill="#EEE7FF" stroke="#C4B5FD" stroke-width="1.5"/>
+  <rect x="882" y="450" width="230" height="126" rx="14" fill="#E9E0FF" stroke="#C4B5FD" stroke-width="1.5"/>
+  <rect x="874" y="458" width="230" height="126" rx="14" fill="#EEE7FF" stroke="#C4B5FD" stroke-width="1.5"/>
   <g filter="url(#shadow)">
-    <rect x="866" y="466" width="230" height="110" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
+    <rect x="866" y="466" width="230" height="126" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
   </g>
   <text x="981" y="504" font-size="20" font-weight="700" fill="#5B21B6" text-anchor="middle">Spec checks × N</text>
   <text x="981" y="530" font-size="14" fill="#4C1D95" text-anchor="middle">each side against the spec,</text>
-  <text x="981" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">beside the call, not in its way</text>
-  <path d="M830,521 L862,521" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#arrowPurple)"/>
+  <text x="981" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">each message and stream item,</text>
+  <text x="981" y="572" font-size="14" fill="#4C1D95" text-anchor="middle">beside the call, not in its way</text>
+  <path d="M830,529 L862,529" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#arrowPurple)"/>
 
   <g filter="url(#shadow)">
-    <rect x="1136" y="466" width="192" height="110" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
+    <rect x="1136" y="466" width="192" height="126" rx="14" fill="#F3EEFF" stroke="#7C3AED" stroke-width="2"/>
   </g>
   <text x="1230" y="504" font-size="20" font-weight="700" fill="#5B21B6" text-anchor="middle">Record builder</text>
   <text x="1230" y="530" font-size="14" fill="#4C1D95" text-anchor="middle">redacts secrets,</text>
-  <text x="1230" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">SHA-256 per record</text>
-  <path d="M1112,521 L1132,521" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#arrowPurple)"/>
-  <text x="981" y="596" font-size="13" fill="#64748B" text-anchor="middle" font-family="'SF Mono', Menlo, Consolas, monospace">specChecks.queueMemory: 64MiB</text>
+  <text x="1230" y="551" font-size="14" fill="#4C1D95" text-anchor="middle">SHA-256 per record,</text>
+  <text x="1230" y="572" font-size="14" fill="#4C1D95" text-anchor="middle">per call, message, item</text>
+  <path d="M1112,529 L1132,529" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#arrowPurple)"/>
+  <text x="981" y="614" font-size="13" fill="#64748B" text-anchor="middle" font-family="'SF Mono', Menlo, Consolas, monospace">specChecks.queueMemory: 64MiB</text>
 
   <!-- Row 3: evidence and export -->
-  <path d="M1180,576 C1180,620 785,612 785,652" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <text x="770" y="626" font-size="13" fill="#1D4ED8" text-anchor="end">record hash</text>
-  <path d="M1270,576 L1270,636" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <text x="1280" y="620" font-size="13" fill="#1D4ED8">record, trace</text>
+  <path d="M1180,592 C1180,644 785,644 785,692" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="770" y="652" font-size="13" fill="#1D4ED8" text-anchor="end">record hash</text>
+  <path d="M1270,592 L1270,676" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="1280" y="640" font-size="13" fill="#1D4ED8">record, trace</text>
 
   <g filter="url(#shadow)">
-    <rect x="620" y="656" width="330" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
+    <rect x="620" y="696" width="330" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
   </g>
-  <text x="785" y="694" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Evidence ledger</text>
-  <text x="785" y="720" font-size="14" fill="#1E3A8A" text-anchor="middle">one chain per integration</text>
-  <text x="785" y="741" font-size="14" fill="#1E3A8A" text-anchor="middle">batch every 10 s, signed Ed25519</text>
+  <text x="785" y="734" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Evidence ledger</text>
+  <text x="785" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">one chain per integration</text>
+  <text x="785" y="781" font-size="14" fill="#1E3A8A" text-anchor="middle">batch every 10 s, signed Ed25519</text>
 
-  <rect x="1022" y="640" width="300" height="110" rx="14" fill="#E0EAFF" stroke="#93B4F5" stroke-width="1.5"/>
-  <rect x="1014" y="648" width="300" height="110" rx="14" fill="#E8F0FF" stroke="#93B4F5" stroke-width="1.5"/>
+  <rect x="1022" y="680" width="300" height="110" rx="14" fill="#E0EAFF" stroke="#93B4F5" stroke-width="1.5"/>
+  <rect x="1014" y="688" width="300" height="110" rx="14" fill="#E8F0FF" stroke="#93B4F5" stroke-width="1.5"/>
   <g filter="url(#shadow)">
-    <rect x="1006" y="656" width="300" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
+    <rect x="1006" y="696" width="300" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
   </g>
-  <text x="1156" y="694" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Exporters</text>
-  <text x="1156" y="720" font-size="14" fill="#1E3A8A" text-anchor="middle">one bounded queue each</text>
-  <text x="1156" y="741" font-size="14" fill="#1E3A8A" text-anchor="middle" font-family="'SF Mono', Menlo, Consolas, monospace">otlp · file · console</text>
-  <path d="M950,711 L1002,711" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <text x="976" y="700" font-size="13" fill="#1D4ED8" text-anchor="middle">batch</text>
+  <text x="1156" y="734" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Exporters</text>
+  <text x="1156" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">one bounded queue each</text>
+  <text x="1156" y="781" font-size="14" fill="#1E3A8A" text-anchor="middle" font-family="'SF Mono', Menlo, Consolas, monospace">otlp · file · console</text>
+  <path d="M950,751 L1002,751" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="976" y="740" font-size="13" fill="#1D4ED8" text-anchor="middle">batch</text>
 
   <!-- Row 4: config and admin -->
   <g filter="url(#shadow)">
-    <rect x="620" y="800" width="330" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1006" y="800" width="150" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1172" y="800" width="150" height="76" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="620" y="840" width="300" height="96" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="940" y="840" width="176" height="96" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1136" y="840" width="186" height="96" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
   </g>
-  <text x="640" y="831" font-size="17" font-weight="700" fill="#0F172A">Config loader</text>
-  <text x="640" y="857" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">watches the file, reloads live</text>
-  <text x="1022" y="831" font-size="17" font-weight="700" fill="#0F172A">Admin port</text>
-  <text x="1022" y="857" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">health · ready · pprof</text>
-  <text x="1188" y="831" font-size="17" font-weight="700" fill="#0F172A">Probes</text>
-  <text x="1188" y="857" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">why a connect failed</text>
-  <path d="M620,838 L604,838 L604,400 L660,400 L660,378" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+  <text x="640" y="874" font-size="17" font-weight="700" fill="#0F172A">Config loader</text>
+  <text x="640" y="902" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">watches the file, reloads live</text>
+  <text x="958" y="874" font-size="17" font-weight="700" fill="#0F172A">Admin port</text>
+  <text x="958" y="900" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">/livez · /readyz</text>
+  <text x="958" y="919" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">pprof, when on</text>
+  <text x="1154" y="874" font-size="17" font-weight="700" fill="#0F172A">Probes</text>
+  <text x="1154" y="900" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">why a connect failed</text>
+  <text x="1154" y="919" font-size="12" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">dns, tcp, tls, path</text>
+  <path d="M620,888 L604,888 L604,400 L660,400 L660,378" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
   <text x="672" y="396" font-size="13" fill="#64748B">integrations, specs, certs</text>
 
   <!-- Exporters -->
   <g filter="url(#shadow)">
-    <rect x="1410" y="600" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1410" y="702" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1410" y="804" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="640" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="742" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="844" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
   </g>
-  <text x="1430" y="634" font-size="17" font-weight="700" fill="#0F172A">OTLP collector, own tools</text>
-  <text x="1430" y="660" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">OTLP logs · traces</text>
-  <text x="1430" y="736" font-size="17" font-weight="700" fill="#0F172A">Local folder</text>
-  <text x="1430" y="762" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">hotline-proxy verify &lt;folder&gt;</text>
-  <text x="1430" y="838" font-size="17" font-weight="700" fill="#0F172A">Terminal</text>
-  <text x="1430" y="864" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">two coloured lines per call</text>
-  <path d="M1322,700 C1366,700 1360,641 1406,641" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <path d="M1322,720 C1366,720 1360,743 1406,743" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <path d="M1322,740 C1366,740 1360,845 1406,845" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="1430" y="674" font-size="17" font-weight="700" fill="#0F172A">OTLP collector, own tools</text>
+  <text x="1430" y="700" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">OTLP logs · traces</text>
+  <text x="1430" y="776" font-size="17" font-weight="700" fill="#0F172A">Local folder</text>
+  <text x="1430" y="802" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">hotline-proxy verify &lt;folder&gt;</text>
+  <text x="1430" y="878" font-size="17" font-weight="700" fill="#0F172A">Terminal</text>
+  <text x="1430" y="904" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">two coloured lines per call</text>
+  <path d="M1322,740 C1366,740 1360,681 1406,681" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1322,760 C1366,760 1360,783 1406,783" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1322,780 C1366,780 1360,885 1406,885" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
 
   <!-- Footer -->
-  <line x1="60" y1="930" x2="1740" y2="930" stroke="#E2E8F0" stroke-width="1.5"/>
+  <line x1="60" y1="980" x2="1740" y2="980" stroke="#E2E8F0" stroke-width="1.5"/>
   <g font-size="15" fill="#475569">
-    <text x="60" y="962"><tspan font-weight="700" fill="#0F172A">Never in the way:</tspan> the call goes out unchanged · checks run beside it · every record hashed, every batch signed</text>
-    <text x="1740" y="962" text-anchor="end">hotline.ingress: forward_proxy · url_in_path · host_header · connect · transparent · capture</text>
+    <text x="60" y="1012"><tspan font-weight="700" fill="#0F172A">Never in the way:</tspan> the call goes out unchanged · checks run beside it · every record hashed, every batch signed</text>
+    <text x="1740" y="1012" text-anchor="end">hotline.ingress: forward_proxy · url_in_path · host_header · connect · transparent · capture</text>
   </g>
-<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTpkMzFiZWUyZC0wM2RjLTQ1MjctYTk1ZS05MTM4NGFhOWNiMmUAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaPrbjmAsweOQtzGd3QcsbusAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpmM2U4NjQ1Zi1mYWYxLTQ0MGQtOWM0OS1jZGNjMWQ4MGRmYTZscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNoitoA2KC15T3QzY5XybXfZwAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggq2fBmtwuBaXwsgbBCefd2ZnUoFMrJYjhXrVkcKnR2aikZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaMaqzAyU0B2E764Gg8Xi7acAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYIL6UPCzz7kvvWFZLrHLzxC5clxos22K/ywNntc7Vop9NZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GUBtZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmQzMWJlZTJkLTAzZGMtNDUyNy1hOTVlLTkxMzg0YWE5Y2IyZS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOjViZWMxODZkLTJiOTItNGNiMi1hNGM2LTliN2RkN2Y0MjJkMXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCCrZ8Ga3C4FpfCyBsEJ593ZmdSgUysliOFetWRwqdHZqKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggEo9QEFi4MQItpli0kQgesLu6VeFNhzTLAwr+hv7yJHOiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggS1YpObOx2TibO7crLF8aoIS/a+JqiTghn5NiJr5WowN0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQJAp9okH2GaAfkskdtimygoGXuFPHRqmNArGb2Fh7Wny+c9Irf8WtxwOHnGNHUKbzjA3onQ2suQ+am96/DekkGU=</c2pa:manifest></metadata></svg>
+</svg>
