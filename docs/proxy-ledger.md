@@ -87,11 +87,12 @@ An exporter whose queue was full drops records. So that its copy still rebuilds 
 | Attribute | What it holds |
 |---|---|
 | `hotline.batch.id` | The batch the dropped records belong to. |
+| `hotline.exporter` | The exporter that dropped them: its endpoint, or a file exporter's path. |
 | `hotline.batch.dropped` | The index and hash of each record the exporter dropped from the batch, up to 1,024. |
 | `hotline.batch.dropped_count` | In place of the list, when it dropped more than 1,024. That copy cannot rebuild the root. |
 | `hotline.batch.key`, `hotline.dropped.signature` | The batch's own public key, and the signature. |
 
-The signature is made the same way as a batch's, with the word `hotline.dropped.v1`, and with the batch's key, which the ledger hands to the exporters beside the batch record and nobody keeps. `verify` takes a drop record only when it checks out with the key of its batch, so a record deleted and listed in a made-up drop record still shows.
+The signature is made the same way as a batch's, with the word `hotline.dropped.v1`, and with the batch's key, which the ledger hands to the exporters beside the batch record and nobody keeps. `verify` takes a drop record only when it checks out with the key of its batch, so a record deleted and listed in a made-up drop record still shows. A folder is one exporter's copy, so `verify` also refuses a second drop record for a batch, drop records that name two exporters, and a drop record that lists a record the folder still holds: each is a drop record taken from another copy. It names the exporter of the drop records it used, so a reader can check that it is this folder's.
 
 ## When batches close
 
@@ -123,7 +124,7 @@ It reads only the formats of this build: a folder written by an older edge build
 
 It exits with 0 when everything checks out, 1 when it found a problem, and 2 when it could not read its input. With `--format json` it prints one object, `format: hotline.verify.v1`, with `ok`, `summary`, `runs`, `problems` and `notes`, each with a fixed `code` and a plain `message`.
 
-- Problems: `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `drop_signature_invalid`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
+- Problems: `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `drop_signature_invalid`, `drop_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
 - Notes, which leave the exit code at 0: `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
 
 ## Limits

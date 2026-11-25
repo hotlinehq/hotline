@@ -138,7 +138,7 @@ func (b *book) record(ctx context.Context, f finished) string {
 		attribute.Int("hotline.batch.index", len(open.leaves)),
 	)
 	call := export.Call{
-		Event: f.event, Trace: f.sc, At: at, Observed: observed, Attrs: attrs, Body: f.body, Spans: f.spans, Content: f.content,
+		Event: f.event, Trace: f.sc, At: at, Observed: observed, Severity: export.Level(attrs), Attrs: attrs, Body: f.body, Spans: f.spans, Content: f.content,
 	}
 	sum := b.hashes.Record(b.exporters.LedgerRecord(call))
 	hash := ledger.Text(sum)

@@ -45,9 +45,11 @@ type receivedRecord struct {
 	// body is the record's text, when it is one.
 	body string
 	// fields are the numbers of the LogRecord fields the proxy set, and
-	// scope the name of the scope the record came in.
-	fields []int
-	scope  string
+	// unknown the bytes of fields this version of OTLP does not name; scope
+	// is the name of the scope the record came in.
+	fields  []int
+	unknown int
+	scope   string
 }
 
 // receivedSpan is one span the fake OTLP receiver got, the ids in hex.
@@ -346,6 +348,7 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 					timestamp:      lr.GetTimeUnixNano(),
 					observed:       lr.GetObservedTimeUnixNano(),
 					fields:         setFields(lr),
+					unknown:        len(lr.ProtoReflect().GetUnknown()),
 					scope:          sl.GetScope().GetName(),
 					severityText:   lr.GetSeverityText(),
 					severityNumber: int32(lr.GetSeverityNumber()),

@@ -200,6 +200,7 @@ Feature: Checking records with hotline-proxy verify
         | severity             |
         | event                |
         | trace_id             |
+        | span_id              |
         | flags                |
         | body                 |
         | resource's service.name |
@@ -265,6 +266,36 @@ Feature: Checking records with hotline-proxy verify
         | signed                               |
         | signed with another key              |
         | with the signature of another record |
+
+    Scenario Outline: A drop record from another exporter's copy is refused
+      Each copy is one exporter's, and its drop records name that exporter,
+      so a real drop record taken from another copy shows (Peter,
+      2026-11-25, from the decomplect review).
+      Given two file exporters, <which> of them dropped one record of batch 0
+      When the second folder's drop record is added to the first folder
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that <message>
+
+      Examples:
+        | which                | message                                                 |
+        | both                 | batch 0 has more than one drop record in this copy      |
+        | only the second      | the drop record of batch 0 lists index 2, which this copy holds |
+
+    Scenario Outline: A change to any field of a drop record shows
+      Given the file exporter's queue was full for one record of batch 0
+      When the <field> of the drop record's line is changed
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the drop record of batch 0 does not check out with the batch's key
+
+      Examples:
+        | field                   |
+        | time                    |
+        | observed_time           |
+        | severity                |
+        | resource's service.name |
+        | hotline.exporter        |
 
   Rule: Bodies are checked against a record
 

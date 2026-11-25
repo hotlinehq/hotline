@@ -157,14 +157,17 @@ func (l *batchLine) dropped(e LedgerEntry) {
 }
 
 // add queues a batch record. The exporter's drops for that batch are final
-// now, so its drop record is made and signed here, once.
+// now, as the ledger hands over a call's record and closes its batch under
+// the same lock, so the drop record is made and signed here, once.
 func (l *batchLine) add(b Batch, key ledger.Key) {
 	l.mu.Lock()
 	items := [][]byte{l.render(b)}
 	if d := l.drops[b.ID]; d != nil {
 		drop := Batch{
 			ID: b.ID, Event: DroppedEvent, Severity: log.SeverityWarn, At: b.At, Observed: b.Observed,
-			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.id", b.ID), d.list()},
+			// The exporter is named, so verify can tell one exporter's
+			// copy from another's.
+			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.id", b.ID), attribute.String("hotline.exporter", l.name), d.list()},
 		}
 		drop.Attrs = key.Sign(ledger.DroppedFormat, signedRecord(drop, l.resource))
 		items = append(items, l.render(drop))

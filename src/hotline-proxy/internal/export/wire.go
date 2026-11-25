@@ -141,9 +141,7 @@ func appendRecord(b []byte, event string, at, observed time.Time, severity log.S
 	for _, kv := range attrs {
 		b = appendKeyValue(b, 6, kv)
 	}
-	if sc.IsValid() {
-		b = appendFixed32(b, 8, uint32(sc.TraceFlags()))
-	}
+	b = appendFixed32(b, 8, recordFlags(sc))
 	if id := sc.TraceID(); id.IsValid() {
 		b = appendBytes(b, 9, id[:])
 	}

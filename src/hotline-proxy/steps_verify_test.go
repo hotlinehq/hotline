@@ -568,11 +568,55 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^it prints that batch 0 cannot be proven from this copy: 1,025 records were dropped by this exporter$`, func() error {
 		return result.prints("batch 0 cannot be proven from this copy: 1,025 records were dropped by this exporter")
 	})
-	sc.Step(`^the (time|observed_time|severity|event|trace_id|flags|body|resource's service.name) of the second record's line is changed$`, func(field string) error {
+	sc.Step(`^the (time|observed_time|severity|event|trace_id|span_id|flags|body|resource's service.name) of the second record's line is changed$`, func(field string) error {
 		return w.changeLine(2, func(line map[string]any) {
-			changedSpan = sprint(line["span_id"])
 			changeField(line, field)
+			changedSpan = sprint(line["span_id"])
 		})
+	})
+	sc.Step(`^the (time|observed_time|severity|resource's service.name|hotline.exporter) of the drop record's line is changed$`, func(field string) error {
+		lines, err := w.folderLines()
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			if line["event"] == "hotline.ledger.dropped" {
+				changeField(line, field)
+				return w.writeLines(lines)
+			}
+		}
+		return failf("the folder has no drop record")
+	})
+	sc.Step(`^two file exporters, (both|only the second) of them dropped one record of batch 0$`, func(which string) error {
+		w.fullForThird()
+		if which != "both" {
+			w.files[0].extra = ""
+		}
+		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
+		if err := w.ordersTimes(3); err != nil {
+			return err
+		}
+		w.settle()
+		return nil
+	})
+	sc.Step(`^the second folder's drop record is added to the first folder$`, func() error {
+		second, err := w.linesIn("calls2")
+		if err != nil {
+			return err
+		}
+		lines, err := w.folderLines()
+		if err != nil {
+			return err
+		}
+		for _, line := range second {
+			if line["event"] == "hotline.ledger.dropped" {
+				return w.writeLines(append(lines, line))
+			}
+		}
+		return failf("the second folder has no drop record")
+	})
+	sc.Step(`^it prints that (batch 0 has more than one drop record in this copy|the drop record of batch 0 lists index 2, which this copy holds)$`, func(message string) error {
+		return result.prints(message)
 	})
 	sc.Step(`^the flags of the first span in the second line's spans are changed$`, func() error {
 		return w.changeLine(2, func(line map[string]any) {
@@ -939,8 +983,19 @@ func (w *world) lastSpanID() string {
 }
 
 // folderLines are the lines of calls/calls.jsonl, numbers kept as written.
-func (w *world) folderLines() ([]map[string]any, error) {
-	data, err := os.ReadFile(filepath.Join(w.dir, "calls", "calls.jsonl"))
+func (w *world) folderLines() ([]map[string]any, error) { return w.linesIn("calls") }
+
+// linesIn are the lines of calls.jsonl in a folder of the scenario's,
+// numbers kept as written.
+func (w *world) linesIn(folder string) ([]map[string]any, error) {
+	// The folder is read through a root, so the name cannot leave the
+	// scenario's own folder.
+	root, err := os.OpenRoot(w.dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	data, err := root.ReadFile(filepath.Join(folder, "calls.jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -1102,6 +1157,10 @@ func changeField(line map[string]any, field string) {
 		line[field] = "hotline.probe"
 	case "trace_id":
 		line[field] = strings.Repeat("ab", 16)
+	case "span_id":
+		line[field] = "00000000000000ab"
+	case "hotline.exporter":
+		line["attributes"].(map[string]any)[field] = "another-exporter"
 	case "flags":
 		line[field] = map[bool]string{true: "00", false: "01"}[line[field] == "01"]
 	case "body":

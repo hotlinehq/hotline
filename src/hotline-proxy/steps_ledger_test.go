@@ -185,21 +185,29 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^every LogRecord field the receiver got is one the record's hash covers, in a scope named hotline-proxy$`, func() error {
+	sc.Step(`^every LogRecord field the receiver got, on the call record and the batch record, is one the hash or signature covers, in a scope named hotline-proxy$`, func() error {
 		records := w.records()
+		batches, err := w.waitBatches(1)
+		if err != nil {
+			return err
+		}
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
-		r := records[len(records)-1]
-		for _, field := range r.fields {
-			if !slices.Contains(coveredFields(), field) {
-				return failf("the record has LogRecord field %d, which its hash does not cover", field)
+		for _, r := range append(records[len(records)-1:], batches...) {
+			for _, field := range r.fields {
+				if !slices.Contains(coveredFields(), field) {
+					return failf("the %s record has LogRecord field %d, which its hash does not cover", r.eventName, field)
+				}
+			}
+			if r.unknown > 0 {
+				return failf("the %s record has %d bytes of fields OTLP does not name", r.eventName, r.unknown)
+			}
+			if r.scope != "hotline-proxy" {
+				return failf("the %s record came in the scope %q", r.eventName, r.scope)
 			}
 		}
-		if r.scope != "hotline-proxy" {
-			return failf("the record came in the scope %q", r.scope)
-		}
-		return nil
+		return checkBatchSignature(batches[0])
 	})
 	sc.Step(`^the hash no longer checks out$`, func() error {
 		if checkRecordHash(changed) == nil {

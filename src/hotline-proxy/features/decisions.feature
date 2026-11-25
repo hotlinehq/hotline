@@ -150,8 +150,10 @@ Feature: The code still follows the decision log
       The list of covered fields is closed: a field the proxy starts to send
       fails here until the hash covers it (Peter, 2026-11-25).
       Given the shop spec
+      And the proxy's clock is a test clock, so a wait of minutes passes at once
       When the app sends GET /orders
-      Then every LogRecord field the receiver got is one the record's hash covers, in a scope named hotline-proxy
+      And 10 seconds pass
+      Then every LogRecord field the receiver got, on the call record and the batch record, is one the hash or signature covers, in a scope named hotline-proxy
       And the hash checks out when rebuilt from the record alone
 
     Scenario: ledger. verify passes on the folder a file exporter wrote

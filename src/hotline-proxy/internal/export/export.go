@@ -97,6 +97,9 @@ type Call struct {
 	// At is the record's time, and Observed when the record was written:
 	// both cut to whole microseconds, as the record's hash covers them.
 	At, Observed time.Time
+	// Severity is the record's level, worked out once by Level, before
+	// the hash, so the level hashed is the level sent.
+	Severity log.Severity
 	// Attrs is the record every exporter gets.
 	Attrs []attribute.KeyValue
 	// Body is the record's text, when it has one: a probe's verdict in a
@@ -351,8 +354,12 @@ func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
 
 // LedgerRecord is the call's record as its hash covers it: every field the
 // exporters send, as they send it. c.Attrs must not hold the hash yet.
+//
+// The hash and the two writers, appendRecord and appendLine, read the same
+// Call, and the same helpers for what they work out: event, recordFlags
+// and the level in c.Severity.
 func (s *Exporters) LedgerRecord(c Call) ledger.Record {
-	severity := level(c.Attrs)
+	severity := c.Severity
 	return ledger.Record{
 		Attrs: c.Attrs, At: c.At, Observed: c.Observed,
 		TraceID: c.Trace.TraceID().String(), SpanID: c.Trace.SpanID().String(), Flags: recordFlags(c.Trace),
@@ -375,7 +382,7 @@ func recordFlags(sc trace.SpanContext) uint32 {
 // The record is written once, for every exporter.
 func (s *Exporters) record(c Call) {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], c.event(), c.At, c.Observed, level(c.Attrs), c.Trace, c.Body, c.Attrs)
+	b := appendRecord((*scratch)[:0], c.event(), c.At, c.Observed, c.Severity, c.Trace, c.Body, c.Attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)
@@ -386,11 +393,12 @@ func (s *Exporters) record(c Call) {
 	}
 }
 
-// level is INFO unless something went wrong: WARN when the call or the response
+// Level is a record's level, from its attributes: INFO unless something
+// went wrong: WARN when the call or the response
 // broke the spec, the vendor refused the call (a 4xx) or a probe found a
 // problem, ERROR when the
 // vendor failed (a 5xx) or the call failed in the proxy.
-func level(attrs []attribute.KeyValue) log.Severity {
+func Level(attrs []attribute.KeyValue) log.Severity {
 	severity := log.SeverityInfo
 	for _, kv := range attrs {
 		switch kv.Key {

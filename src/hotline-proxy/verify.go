@@ -81,9 +81,11 @@ type verifier struct {
 	o       VerifyOptions
 	records []*lineRecord
 	batches []*lineBatch
-	// drops are the drop records, by the id of their batch.
-	drops map[string][]*lineBatch
-	runs  []*verifiedRun
+	// drops are the drop records, by the id of their batch, and dropsFrom
+	// the exporter the first one taken names.
+	drops     map[string][]*lineBatch
+	dropsFrom string
+	runs      []*verifiedRun
 	// problems and notes are what the checks found; matched and cut count
 	// the kept bodies checked and those cut short.
 	problems []finding
@@ -424,14 +426,26 @@ func (v *verifier) checkBatch(b *lineBatch) {
 	}
 	// The drop record of this copy, if its exporter dropped records of the
 	// batch: signed with the batch's own key, or it is not the proxy's.
+	// A copy is one exporter's, so it holds one drop record of a batch at
+	// most, and all its drop records name the same exporter.
 	drop := &lineBatch{attrs: map[string]any{}}
 	for _, d := range v.drops[b.id] {
-		if d.text("hotline.batch.key") != b.text("hotline.batch.key") || !ledger.CheckSignature(ledger.DroppedFormat, recordOf(d.read, attributes(d.attrs))) {
+		exporter := d.text("hotline.exporter")
+		switch {
+		case d.text("hotline.batch.key") != b.text("hotline.batch.key") || !ledger.CheckSignature(ledger.DroppedFormat, recordOf(d.read, attributes(d.attrs))):
 			v.problem(finding{Code: "drop_signature_invalid", File: d.file, Line: d.line,
 				Message: "the drop record of " + name + " does not check out with the batch's key"}, b)
 			continue
+		case drop.id != "":
+			v.problem(finding{Code: "drop_record_foreign", File: d.file, Line: d.line,
+				Message: name + " has more than one drop record in this copy"}, b)
+			continue
+		case v.dropsFrom != "" && exporter != v.dropsFrom:
+			v.problem(finding{Code: "drop_record_foreign", File: d.file, Line: d.line,
+				Message: fmt.Sprintf("the drop record of %s is from the exporter %s, and this copy's other drop records from %s", name, safe(exporter), safe(v.dropsFrom))}, b)
+			continue
 		}
-		drop = d
+		v.dropsFrom, drop = exporter, d
 	}
 	count, _ := b.number("hotline.batch.records")
 	if dropped, _ := drop.number("hotline.batch.dropped_count"); dropped > 0 {
@@ -454,8 +468,15 @@ func (v *verifier) checkBatch(b *lineBatch) {
 		n, _ := entry["index"].(json.Number)
 		index, err := n.Int64()
 		hash, _ := entry["hash"].(string)
-		// An entry that names no free place in the batch is left out.
-		if err == nil && index >= 0 && index < count && !have[index] {
+		switch {
+		case err != nil || index < 0 || index >= count:
+			// An entry that names no place in the batch is left out.
+		case have[index]:
+			// The exporter dropped the record, so its copy cannot hold it:
+			// the drop record is another copy's.
+			v.problem(finding{Code: "drop_record_foreign", File: drop.file, Line: drop.line, Index: &index,
+				Message: fmt.Sprintf("the drop record of %s lists index %d, which this copy holds", name, index)}, b)
+		default:
 			leaves[index], have[index] = parseHash(hash), true
 			droppedAt = append(droppedAt, index)
 		}
@@ -474,7 +495,7 @@ func (v *verifier) checkBatch(b *lineBatch) {
 	if len(droppedAt) > 0 {
 		slices.Sort(droppedAt)
 		v.notes = append(v.notes, v.about(finding{Code: "records_dropped", Indexes: droppedAt,
-			Message: fmt.Sprintf("%s rebuilds from %d records and %d dropped hash, at index %s", name, count-int64(len(droppedAt)), len(droppedAt), joinInts(droppedAt))}, b))
+			Message: fmt.Sprintf("%s rebuilds from %d records and %d dropped hash, at index %s, dropped by the exporter %s", name, count-int64(len(droppedAt)), len(droppedAt), joinInts(droppedAt), safe(drop.text("hotline.exporter")))}, b))
 	}
 	if ledger.Text(ledger.Root(leaves)) != b.text("hotline.batch.root") {
 		v.problem(finding{Code: "batch_root_mismatch", Message: name + " of that run does not rebuild its root from its records"}, b)

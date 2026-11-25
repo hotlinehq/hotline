@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/export"
@@ -22,7 +23,7 @@ var _ = Describe("Reading back a call's line", func() {
 	})
 	link := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{9}, SpanID: trace.SpanID{8}, TraceFlags: trace.FlagsSampled})
 	call := export.Call{
-		Trace: sc, At: at, Observed: at.Add(time.Second), Body: "a note",
+		Trace: sc, At: at, Observed: at.Add(time.Second), Severity: log.SeverityInfo, Body: "a note",
 		Attrs: []attribute.KeyValue{
 			attribute.String("hotline.integration.id", "checkout"),
 			attribute.String("hotline.content.hash", "sha256:00"),
