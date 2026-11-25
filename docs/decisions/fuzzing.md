@@ -21,3 +21,8 @@ Fuzzing makes up input after input, changing each one a little, and keeps any in
    - Go sends a fuzz worker's output nowhere, so a crash showed only "fuzzing process hung or terminated unexpectedly". Each package with fuzz tests calls `fuzzlog.Capture()` (`internal/fuzzlog`) from its `TestMain`, so a new target gets it too: when `HOTLINE_FUZZ_LOGS` names a folder, a worker writes its error output to `worker-<pid>.log` there. Inside a worker Go throws away what `f.Fatal` says, so a fuzz test whose setup fails also writes `fuzz setup failed:` and the error to error output, which left the log empty on 2026-11-25. A failing job prints each panic or setup failure in its log and saves the logs with the input.
    - A nightly `race` job in the same workflow runs every test, the `fuzz` tag included, under Go's race detector, which flags two goroutines touching the same memory. Pull requests skip it to stay fast. Its first run found the admin port's certificate set after the own telemetry had started reading it; it is now set before.
    - Revisit if the race job takes longer than about 15 minutes, or a race slips past it into a fuzz crash: then run the exporter fuzz targets under the race detector too.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: every package with a fuzz test calls `fuzzlog.Capture()` in its tests, and `fuzz.yml` runs at 01:00 UTC (`0 1 * * *`).
+- Revisit if: see the Revisit if lines in the decisions above.

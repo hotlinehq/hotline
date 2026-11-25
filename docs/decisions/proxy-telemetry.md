@@ -19,3 +19,8 @@ Reworked with Peter on 2026-11-01, from 27 metrics to 14: no unit on 1 or 0 gaug
 2. The proxy's own telemetry stays, and no number in it is ever split by integration.
 3. `metricInterval` and `temporality` under an exporter are ignored, with no error and no warning, since only edge versions exist so far. Revisit if: a stable release ships and old configs need a clear message.
 4. The two settings live on `config.Telemetry` (`MetricInterval`, `Delta`), not on `config.Exporter`, so an exporter cannot carry a setting it ignores.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: no proxy code names `hotline.requests`.
+- Revisit if: see the Revisit if lines in the decisions above.

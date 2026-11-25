@@ -9,5 +9,5 @@ From the ADR check of 2026-11-25 (`decomplect/adr-check-2026-11-25.md` in the pr
 
 ## Tripwires
 
-- Confirmation: every file in `docs/decisions` has a Confirmation line, and `decisions.feature` has a scenario named after each file.
+- Confirmation: every file in `docs/decisions` ends with a Tripwires section holding a Confirmation and a Revisit if line, and `decisions.feature` has a scenario named after each file.
 - Revisit if the feature file grows too slow for `make test`, or most of its scenarios only repeat other feature files.

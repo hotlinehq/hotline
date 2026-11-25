@@ -130,6 +130,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reser
 	streamSteps(sc, w)
 	probeSteps(sc, w)
 	pathSteps(sc, w)
+	decisionSteps(sc)
 }
 
 var errCheck = errors.New("check failed")

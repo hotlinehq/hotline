@@ -15,3 +15,8 @@ Full wording in [docs/proxy-file-export.md](../proxy-file-export.md). Requiremen
 Changed 2026-11-16 with the evidence ledger ([docs/decisions/ledger.md](ledger.md)): full content goes beside the record under `hotline.content.*`, with `hotline.content.hash`, and the record stays as every exporter gets it. This replaces 6's names and 7.
 
 Changed 2026-11-18 (Peter): under `content: full`, secrets are written as `REDACTED`, so no vendor key is copied out of a file kept for debugging. Secret, always: `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`; with a spec, also the login its security section names and every value marked `x-hotline-redact: true`. Other values stay as sent. `hotline.content.hash` covers the content as written, with `REDACTED` in it, so `hotline-proxy verify` works unchanged. Revisit if apps often use `content: full` for vendors that have no spec (then a fixed list of key headers), or if someone must later prove which key an app used (then a keyed hash of the secret instead of `REDACTED`). The rule lives in `spec.Hide`, beside the record's `Redact`.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: the file exporter writes its lines with Go's `encoding/json/jsontext` (`jsontext.NewEncoder` in `internal/export/line.go`).
+- Revisit if: see the Revisit if lines in the decisions above.
