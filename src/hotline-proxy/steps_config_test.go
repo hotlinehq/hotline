@@ -438,6 +438,12 @@ func (w *world) brokenConfig(problem string) error {
 	case "a records transform step is not labels":
 		w.rawConfig = start + exporters + "records:\n  transform:\n    - rename: { a: b }\n"
 		w.problem = "records.transform: each step is labels"
+	case "a records labels step is not a map":
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - labels: [a]\n"
+		w.problem = "records.transform labels: "
+	case "the telemetry section's resource sets service.version":
+		w.rawConfig = start + exporters + ownTelemetry + "    resource:\n      service.version: \"9\"\n"
+		w.problem = "resource: service.version is the proxy's own and cannot be set"
 	case "the telemetry section's metricInterval is zero":
 		w.rawConfig = start + exporters + ownTelemetry + "    metricInterval: 0s\n"
 		w.problem = "metricInterval \"0s\" must be a duration above zero"

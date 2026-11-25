@@ -38,7 +38,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the file exporter's queue is full for one record$`, func() error {
 		w.fileExporterOnce()
-		w.fullForThird()
+		w.fullForEveryThird()
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full(?: for 1,025 records)?$`, func() error {
@@ -209,9 +209,6 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 	verifySteps(sc, w)
 }
 
-// fullForThird fills the file exporter's queue for the third call only: the
-// queue holds 10KiB, and the vendor's third response has a header of 20KiB,
-// which the record keeps, so that record alone does not fit.
 // fileExporterOnce adds a file exporter when the scenario has none yet.
 func (w *world) fileExporterOnce() {
 	if len(w.files) == 0 {
@@ -219,19 +216,44 @@ func (w *world) fileExporterOnce() {
 	}
 }
 
-func (w *world) fullForThird() {
+// fullForEveryThird fills the file exporter's queue for every third call: the
+// queue holds 10KiB, and the vendor's third, sixth and later such responses
+// have a header of 20KiB, which the record keeps, so that record alone does
+// not fit.
+func (w *world) fullForEveryThird() {
 	w.files[0].extra = "      queueMemory: 10KiB\n"
 	var n atomic.Int64
 	w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		id := "r1"
-		if n.Add(1) == 3 {
+		if n.Add(1)%3 == 0 {
 			id = strings.Repeat("r", 20<<10)
 		}
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Header().Set("X-Request-Id", id)
 		_, _ = rw.Write([]byte(`{"orders":[]}`))
 	})
+}
+
+// twoFilesDropping sends three calls in each of the given batch windows to
+// two file exporters. The second always drops the third call of each batch;
+// the first drops it too when both is set.
+func (w *world) twoFilesDropping(both bool, batches int) error {
+	w.fullForEveryThird()
+	if !both {
+		w.files[0].extra = ""
+	}
+	w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
+	for i := range batches {
+		if i > 0 {
+			w.clock.pass(10 * time.Second)
+		}
+		if err := w.ordersTimes(3); err != nil {
+			return err
+		}
+	}
+	w.settle()
+	return nil
 }
 
 // fileLedger are the attributes of the file exporter's call lines and of
@@ -536,7 +558,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("the run has no last batch: it crashed, or its end is missing")
 	})
 	sc.Step(`^the file exporter's queue was full for one record of batch 0$`, func() error {
-		w.fullForThird()
+		w.fullForEveryThird()
 		if err := w.ordersTimes(3); err != nil {
 			return err
 		}
@@ -544,7 +566,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the file exporter dropped one record of batch 0$`, func() error {
-		w.fullForThird()
+		w.fullForEveryThird()
 		if err := w.ordersTimes(3); err != nil {
 			return err
 		}
@@ -588,16 +610,36 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return failf("the folder has no drop record")
 	})
 	sc.Step(`^two file exporters, (both|only the second) of them dropped one record of batch 0$`, func(which string) error {
-		w.fullForThird()
-		if which != "both" {
-			w.files[0].extra = ""
-		}
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
-		if err := w.ordersTimes(3); err != nil {
+		return w.twoFilesDropping(which == "both", 1)
+	})
+	sc.Step(`^two file exporters both dropped one record of batch 0 and one of batch 1$`, func() error {
+		return w.twoFilesDropping(true, 2)
+	})
+	sc.Step(`^the first folder's drop record of batch 1 is swapped for the second folder's$`, func() error {
+		second, err := w.linesIn("calls2")
+		if err != nil {
 			return err
 		}
-		w.settle()
-		return nil
+		lines, err := w.folderLines()
+		if err != nil {
+			return err
+		}
+		// Batch 1's drop record is the second drop record in each folder.
+		drops := func(lines []map[string]any) []int {
+			var at []int
+			for i, line := range lines {
+				if line["event"] == "hotline.ledger.dropped" {
+					at = append(at, i)
+				}
+			}
+			return at
+		}
+		mine, theirs := drops(lines), drops(second)
+		if len(mine) != 2 || len(theirs) != 2 {
+			return failf("the folders have %d and %d drop records", len(mine), len(theirs))
+		}
+		lines[mine[1]] = second[theirs[1]]
+		return w.writeLines(lines)
 	})
 	sc.Step(`^the second folder's drop record is added to the first folder$`, func() error {
 		second, err := w.linesIn("calls2")
@@ -617,6 +659,9 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^it prints that (batch 0 has more than one drop record in this copy|the drop record of batch 0 lists index 2, which this copy holds)$`, func(message string) error {
 		return result.prints(message)
+	})
+	sc.Step(`^it prints that the drop record of batch 1 is from another exporter than this copy's other drop records$`, func() error {
+		return result.prints("the drop record of batch 1 is from the exporter")
 	})
 	sc.Step(`^the flags of the first span in the second line's spans are changed$`, func() error {
 		return w.changeLine(2, func(line map[string]any) {

@@ -282,6 +282,16 @@ Feature: Checking records with hotline-proxy verify
         | both                 | batch 0 has more than one drop record in this copy      |
         | only the second      | the drop record of batch 0 lists index 2, which this copy holds |
 
+    Scenario: A drop record swapped for another exporter's shows
+      Both copies dropped the same records, so the other copy's drop
+      record lists no record this copy holds; it still names another
+      exporter than the copy's other drop records.
+      Given two file exporters both dropped one record of batch 0 and one of batch 1
+      When the first folder's drop record of batch 1 is swapped for the second folder's
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the drop record of batch 1 is from another exporter than this copy's other drop records
+
     Scenario Outline: A change to any field of a drop record shows
       Given the file exporter's queue was full for one record of batch 0
       When the <field> of the drop record's line is changed

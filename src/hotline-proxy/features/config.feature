@@ -128,6 +128,8 @@ Feature: Loading the config file
       | a records labels step has the name "my label"        |
       | a records labels environment variable is not set     |
       | a records transform step is not labels               |
+      | a records labels step is not a map                   |
+      | the telemetry section's resource sets service.version |
       | two integrations have the same ID                    |
       | one integration names two apis with the same host    |
       | an integration names an api that is not in apis      |
