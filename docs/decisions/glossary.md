@@ -13,3 +13,8 @@ The words themselves live in [GLOSSARY.md](../../GLOSSARY.md). These are the cho
 9. `export.Sink`, the part that hands each call to every exporter, is `export.Exporters`, as the architecture diagram calls it.
 
 Standing rule: breaking changes to the config and the records are allowed (Peter, 2026-11-19).
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `GLOSSARY.md` is at the root of the repository, and no package declares `export.Sink` or `config.Intercept`.
+- Revisit if: see the Revisit if lines in the decisions above.

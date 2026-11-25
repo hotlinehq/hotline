@@ -11,3 +11,8 @@
    - fields forbidden after the body, such as `Content-Type`, are dropped from response trailers (Go issues 82649 and 82450).
 7. Measured gain, whole process (app, proxy and fake vendor in one test process) per call, `BenchmarkCall`, median of 9 runs of 3000 calls: 808 allocations instead of 822, and 92.3 KB allocated instead of 94.5 KB. Time per call was within the noise of the shared machine.
 8. Changed 2026-11-18 (Peter, Q15 of the WebSocket interview): `forward.Switcher`, an optional method `Switched()` on the response writer. `Forward` calls it once the app has the `101`, before any byte passes after it, so the handler records the opening call there while the session goes on. A writer without it is told nothing. Revisit if `internal/forward` must never change again; then the handler would have to guess from the first read of the vendor's side, with a feature test pinning that order.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: no proxy code uses `httputil.ReverseProxy`, and the handler forwards with `h.forward.Forward`.
+- Revisit if: see the Revisit if lines in the decisions above.

@@ -20,5 +20,5 @@ Found while building: Go's client offers HTTP/2 to an `https` proxy address and 
 
 ## Tripwires (2026-11-25)
 
-- Confirmation: host certificates live 24 hours (`leafLife` in `connect.go`) and are never written to disk; a tunnel's bytes are relayed unread only for hosts on a `passthrough` list.
+- Confirmation: host certificates live 24 hours (`leafLife` in `connect.go`) and `connect.go` does not import `os`, so they are never written to disk; a tunnel's bytes are relayed unread only for hosts on a `passthrough` list.
 - Revisit if an app pins certificates and cannot use `NO_PROXY`, or the host certificates kept in memory grow large because apps call many hosts.

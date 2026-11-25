@@ -18,3 +18,8 @@ From the streamed responses interview in the project thread (roadmap M2). Requir
 14. Stream item records wait for the call's record to be handed on, which happens once the headers reach the app. The forwarder sends a Server-Sent Events stream's headers before it reads its body, so no item comes before. Since JSON Lines and JSON sequences came, the proxy sends every stream's headers to the app as soon as it writes them, so the call record never waits for a first byte.
 15. JSON Lines: one stream item per line, ended by a line feed, a carriage return before it allowed; empty lines are skipped and the last line needs no line end. JSON sequences (RFC 7464): one stream item per record, started by the record separator (byte 0x1E), which may span lines; empty records are skipped and the last needs no line feed. Bytes before the first separator count as a record, so a stream that is no sequence fails its check. Each item is checked as sent, against the `itemSchema`. A stream that ends whole hands on its last open line or record; a cut stream drops it, unchecked (requirement 9).
 16. The `support` app uses Anthropic's Go SDK v2.13.0, which sends `anthropic-version: 2026-10-21` and the api key as `Authorization: Bearer`, not `x-api-key`. The stream is the same, so `specs/anthropic/messages` names both logins in its security section and serves both versions (found while building the app, 2026-11-22). Revisit if Anthropic changes the stream's events in a later version: then give it a spec of its own.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: the Anthropic messages spec in `specs/anthropic/messages` gives its stream an `itemSchema`.
+- Revisit if: see the Revisit if lines in the decisions above.
