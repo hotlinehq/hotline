@@ -1,5 +1,7 @@
 # CONNECT ingress decisions (Peter, 2026-10-29)
 
+*Since [listeners.md](listeners.md) (2026-11-13), every `listen.*` section is a named listener under `listeners`, `listen.admin` is the top-level `admin` section, and `issuers` is `certs`; the old keys are only warned about. The names below are as they were when decided.*
+
 Full wording in [docs/proxy-connect.md](../proxy-connect.md). Why: a proxy deployed apart from the apps needs the hop to it encrypted, with no change in the app.
 
 1. The certificate authority comes from the customer: an `issuers` section names each certificate authority with its `cert` and `key` files, and `listen.connect: { issuer: name }` picks one (Peter, 2026-11-08; the inline `listen.connect: { cert, key }` is removed and refused at start). Re-read on change (since 2026-10-31 through the shared config reload). Without it, `CONNECT` gets `501`.

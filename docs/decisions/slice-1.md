@@ -14,7 +14,7 @@ Full wording is at the end of [docs/proxy-slice-1.md](../proxy-slice-1.md).
 10. Each timing is its own phase, except `first_byte`, counted from arrival. The proxy's own time is split into `hotline.timing.proxy_request_us` and `hotline.timing.proxy_response_us`.
 11. Empty query values like `customer=` stay as they are.
 12. Fields not built yet (schema, fingerprints) are left out of the record.
-13. Dropped records: a warning at most once a minute per exporter, plus one at shutdown. Queues hold 10 000 records unless `queueSize` says otherwise. Each exporter sends counts every 60s (`metricInterval`), records and spans every 15s (`logInterval`, `traceInterval`), or sooner once 512 wait (Peter, 2026-11-01): a data point a minute fits Grafana Cloud's standard pricing.
+13. Dropped records: a warning at most once a minute per exporter, plus one at shutdown. Queues hold 10 000 records unless `queueSize` says otherwise. Each exporter sends counts every 60s (`metricInterval`), records and spans every 15s (`logInterval`, `traceInterval`), or sooner once 512 wait (Peter, 2026-11-01): a data point a minute fits Grafana Cloud's standard pricing. *Since 2026-11-21 exporters send no counts, so `metricInterval` under an exporter is ignored ([proxy-telemetry.md](proxy-telemetry.md), "No metrics to exporters").*
 14. TLS from apps to the proxy waits for a later slice.
 
 Also from the review of pull request #11: `vendorTimeout` also limits how long a response may go silent between its parts. A vendor silent for longer is cut off, recorded as `http_response_incomplete`. WebSockets are exempt.

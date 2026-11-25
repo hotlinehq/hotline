@@ -7,5 +7,5 @@ Full wording in [docs/proxy-trace-context.md](../proxy-trace-context.md).
 3. No trace id, or one the proxy can't read, gets a new one, so every record has one.
 4. `traceFormat` per integration: `w3c` (default), `b3`, `xray` or `jaeger`.
 5. `traceForward` per integration, off by default, sends our trace id and span id to the vendor.
-6. The trace id, span id and flags are signed with the record.
-7. No traces (spans) are sent for now; the call timeline design waits in the project files.
+6. The trace id, span id and flags are signed with the record. *The signatures were replaced by the evidence ledger (2026-11-16): the record's hash covers the trace id and span id, but not the flags ([ledger.md](ledger.md), [proxy-ledger.md](../proxy-ledger.md)).*
+7. No traces (spans) are sent for now; the call timeline design waits in the project files. *Replaced: every call sends a trace since 2026-10-31 (slice plan, "each call's timings as a trace").*
