@@ -239,7 +239,9 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 	if err != nil {
 		h.logger.Debug("app TLS setup on an intercepting ingress failed", "ingress", src.ingress, "reason", err.Error())
 		h.own.tlsFailed(err, src.ingressAttr())
-		h.transparentRecord(src, conn, start, host, untrustedOr(err))
+		s := src.unforwardedRecord(conn, start, host, untrustedOr(err))
+		s.appTLS = &a.handshake
+		h.recordShort(s)
 		_ = conn.Close()
 		return
 	}
@@ -305,8 +307,16 @@ func closeWrite(c net.Conn) {
 // errorType is empty when nothing went wrong. The proxy read no HTTP call,
 // so the record has no body hashes.
 func (h *handler) transparentRecord(src *source, conn net.Conn, start time.Time, host, errorType string, extra ...attribute.KeyValue) {
-	h.recordShort(short{
+	s := src.unforwardedRecord(conn, start, host, errorType)
+	s.extra = extra
+	h.recordShort(s)
+}
+
+// unforwardedRecord is the record of a connection from src that never
+// became a forwarded call, to host, with the error type when it failed.
+func (src *source) unforwardedRecord(conn net.Conn, start time.Time, host, errorType string) short {
+	return short{
 		id: src.id, ingress: src.ingress, client: clientIP(conn.RemoteAddr().String()), host: host,
-		errorType: errorType, process: src.process, extra: extra, start: start, cfg: src.cfg,
-	})
+		errorType: errorType, process: src.process, start: start, cfg: src.cfg,
+	}
 }

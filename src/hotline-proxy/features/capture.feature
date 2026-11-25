@@ -97,6 +97,7 @@ Feature: The capture ingress
       Then TLS inside the tunnel fails to set up
       And nothing is sent to any vendor
       And the capture record has hotline.integration.id not-passed, server.address api.talon.one, error.type tls_untrusted_by_app, process.pid 4242 and process.executable.path /usr/bin/curl
+      And the trace has the spans "hotline call" and "app tls handshake", with status error
 
 
   Rule: The capture listener says which ports are read as calls; every other port is relayed as tcp

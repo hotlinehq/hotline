@@ -147,6 +147,7 @@ Feature: The transparent ingress
       Then TLS inside the tunnel fails to set up
       And nothing is sent to any vendor
       And the transparent record has hotline.integration.id ci-lint, server.address api.talon.one and error.type tls_untrusted_by_app
+      And the trace has the spans "hotline call" and "app tls handshake", with status error
 
     Scenario: Plain text on the listener
       When the app sends plain HTTP bytes to the listener
