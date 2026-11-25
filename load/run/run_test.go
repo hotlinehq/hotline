@@ -96,7 +96,8 @@ var _ = Describe("A run that cannot start", func() {
 
 // The whole run, against the real proxy and k6. It needs both: set
 // HOTLINE_PROXY to the built program, HOTLINE_SPEC to the SSM spec,
-// HOTLINE_S3_SPEC to the S3 spec, and have k6 on the path (or K6).
+// HOTLINE_S3_SPEC to the S3 spec, HOTLINE_ANTHROPIC_SPEC and
+// HOTLINE_OPENAI_AUDIO_SPEC to theirs, and have k6 on the path (or K6).
 var _ = DescribeTable("A run with the proxy at a tiny rate",
 	func(shape, specVar string) {
 		proxy, spec := os.Getenv("HOTLINE_PROXY"), os.Getenv(specVar)
@@ -134,6 +135,8 @@ var _ = DescribeTable("A run with the proxy at a tiny rate",
 	Entry("finishes an SSM call with no failures and writes every repeat", "small-json", "HOTLINE_SPEC"),
 	Entry("finishes an S3 listing in XML with no failures and writes every repeat", "xml", "HOTLINE_S3_SPEC"),
 	Entry("finishes a streamed Anthropic answer with no failures and writes every repeat", "stream-sse", "HOTLINE_ANTHROPIC_SPEC"),
+	Entry("finishes an OpenAI audio upload with no failures and writes every repeat", "multipart", "HOTLINE_OPENAI_AUDIO_SPEC"),
+	Entry("finishes an OpenAI audio upload with a long prompt with no failures and writes every repeat", "multipart-long-prompt", "HOTLINE_OPENAI_AUDIO_SPEC"),
 )
 
 var _ = Describe("The scenario line", func() {
@@ -142,6 +145,13 @@ var _ = Describe("The scenario line", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(line).To(Equal("scenario: large-json (AmazonSSM.GetParametersByPath, response about 115 KB), " +
 			"200 calls a second for 20s, 3 repeats, each direct then through the proxy"))
+	})
+
+	It("names an upload by what it sends", func() {
+		line, err := run.Scenario(run.Config{Shape: "multipart-long-prompt", Rate: 50, Duration: "20s", Repeats: 1})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(line).To(Equal("scenario: multipart-long-prompt (OpenAI transcription, a 300 KiB audio file and a 1 MiB prompt, response about 100 bytes), " +
+			"50 calls a second for 20s, 1 repeat, each direct then through the proxy"))
 	})
 
 	It("gives the medium and huge responses the same call as the large one", func() {

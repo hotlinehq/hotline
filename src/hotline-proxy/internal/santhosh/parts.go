@@ -17,7 +17,7 @@ func (q *requestCheck) TextPart(contentIndex spec.ContentIndex, property string,
 		values.Add(p.Name, string(p.Value))
 	}
 	place := whole + "." + property
-	form, err := read.Form([]byte(values.Encode()))
+	form, err := read.FormValues(values)
 	if err != nil {
 		return []spec.Finding{{Part: partBody, Place: place, Rule: "form"}}, nil
 	}

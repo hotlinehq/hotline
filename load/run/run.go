@@ -183,8 +183,13 @@ func NextRunDir(out string) (string, error) {
 // call is what k6 sends for a shape: the API the proxy knows it as, the
 // method, what follows the vendor's address (the path and query), the
 // service the request is signed for, and for SSM the action and body. name
-// is how the scenario line names the call.
-type call struct{ api, method, path, service, action, body, name string }
+// is how the scenario line names the call. For a multipart upload, k6
+// builds the body itself from fileBytes and promptBytes, as a body that
+// large can't go in an environment variable.
+type call struct {
+	api, method, path, service, action, body, name string
+	fileBytes, promptBytes                         int
+}
 
 func callFor(shape string) (call, error) {
 	if _, ok := fakes.Shapes()[shape]; !ok {
@@ -200,6 +205,16 @@ func callFor(shape string) (call, error) {
 		return ssm("AmazonSSM.GetParameter", `{"Name":"/shop/db-url","WithDecryption":true}`), nil
 	case "xml":
 		return call{api: "s3", method: http.MethodGet, path: "?list-type=2&prefix=invoice-", service: "s3", name: "S3 ListObjectsV2"}, nil
+	case "multipart", "multipart-long-prompt":
+		upload := call{
+			api: "openai", method: http.MethodPost, path: "v1/audio/transcriptions", service: "openai",
+			fileBytes: 300 << 10, name: "OpenAI transcription, a 300 KiB audio file",
+		}
+		if shape == "multipart-long-prompt" {
+			upload.promptBytes = 1 << 20
+			upload.name += " and a 1 MiB prompt"
+		}
+		return upload, nil
 	case "stream-sse":
 		return call{
 			api: "anthropic", method: http.MethodPost, path: "v1/messages", service: "anthropic",
@@ -480,6 +495,7 @@ func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int, ph
 	cmd := exec.CommandContext(context.Background(), d.k6, args...) //nolint:gosec // the k6 the person chose
 	cmd.Env = append(os.Environ(), "URL="+url+d.call.path, "METHOD="+d.call.method, "SERVICE="+d.call.service,
 		"BODY="+d.call.body, "ACTION="+d.call.action, "AUTH="+auth,
+		"FILE_BYTES="+strconv.Itoa(d.call.fileBytes), "PROMPT_BYTES="+strconv.Itoa(d.call.promptBytes),
 		"RATE="+strconv.Itoa(rate), "DURATION="+duration)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Latency{}, fmt.Errorf("k6 failed: %w: %s", err, strings.TrimSpace(string(out)))

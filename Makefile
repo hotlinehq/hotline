@@ -68,6 +68,11 @@ load: k6
 	# checked and recorded on its own, so 100 item records per call.
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 50
 	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 100 -profile
+	# Multipart uploads: an OpenAI transcription of a 300 KiB audio file,
+	# read part by part as it passes, and the same with a 1 MiB prompt, the
+	# text part the proxy keeps and checks.
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart -rate 100
+	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart-long-prompt -rate 50 -profile
 	# WebSockets: Gemini Live sessions, each sending and getting 25 messages
 	# of audio a second, so 50 messages a second per session both ways.
 	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20
@@ -115,6 +120,7 @@ BASE_LABEL ?= main
 CAND_LABEL ?= branch
 SSM_SPEC = specs/aws/ssm/2014-11-06.openapi.yaml
 S3_SPEC = specs/aws/s3/2006-03-01.openapi.yaml
+OPENAI_AUDIO_SPEC = specs/openai/audio/2026-11-24.openapi.yaml
 LOAD_RUNS = "small-json 1000 $(SSM_SPEC)" "medium-json 400 $(SSM_SPEC)" "large-json 200 $(SSM_SPEC)" \
 	"large-json 500 $(SSM_SPEC)" "huge-json 50 $(SSM_SPEC)" "xml 500 $(S3_SPEC)"
 .PHONY: load-compare

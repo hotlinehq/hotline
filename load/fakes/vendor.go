@@ -72,8 +72,10 @@ func parameters(n int) []byte {
 // GetParameter), JSON responses of about 30 KB, 115 KB and 500 KB (an SSM
 // GetParametersByPath of 105, 400 and 1780 parameters), an XML response of
 // about 7 KB (an S3 ListObjectsV2 of 50 files), a small response after a
-// wait of 50 ms, and an Anthropic answer streamed as 100 Server-Sent Events
-// (about 13 KB).
+// wait of 50 ms, an Anthropic answer streamed as 100 Server-Sent Events
+// (about 13 KB), and OpenAI's small answer to a multipart audio upload,
+// whose body k6 builds itself (multipart, and multipart-long-prompt with a
+// 1 MiB text part as well).
 func Shapes() map[string]Shape {
 	const json = "application/x-amz-json-1.1"
 	small := []byte(`{"Parameter":{"Name":"/shop/db-url","Type":"String","Value":"postgres://db:5432/shop",` +
@@ -87,14 +89,17 @@ func Shapes() map[string]Shape {
 	}
 	xml.WriteString(`</ListBucketResult>`)
 	stream := anthropicStream(100)
+	transcription := []byte(`{"text":"Please send the invoice for order 1042 by Friday."}`)
 	return map[string]Shape{
-		"stream-sse":  {Body: bytes.Join(stream, nil), ContentType: "text/event-stream", Events: stream},
-		"small-json":  {Body: small, ContentType: json},
-		"medium-json": {Body: parameters(105), ContentType: json},
-		"large-json":  {Body: parameters(400), ContentType: json},
-		"huge-json":   {Body: parameters(1780), ContentType: json},
-		"xml":         {Body: []byte(xml.String()), ContentType: "application/xml"},
-		"slow":        {Body: small, ContentType: json, Delay: 50 * time.Millisecond},
+		"stream-sse":            {Body: bytes.Join(stream, nil), ContentType: "text/event-stream", Events: stream},
+		"small-json":            {Body: small, ContentType: json},
+		"medium-json":           {Body: parameters(105), ContentType: json},
+		"large-json":            {Body: parameters(400), ContentType: json},
+		"huge-json":             {Body: parameters(1780), ContentType: json},
+		"xml":                   {Body: []byte(xml.String()), ContentType: "application/xml"},
+		"slow":                  {Body: small, ContentType: json, Delay: 50 * time.Millisecond},
+		"multipart":             {Body: transcription, ContentType: "application/json"},
+		"multipart-long-prompt": {Body: transcription, ContentType: "application/json"},
 	}
 }
 

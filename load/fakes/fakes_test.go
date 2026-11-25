@@ -135,6 +135,8 @@ var _ = Describe("The fake vendor", func() {
 		Expect(fakes.Shapes()).To(HaveKey("xml"))
 		Expect(fakes.Shapes()).To(HaveKey("slow"))
 		Expect(fakes.Shapes()).To(HaveKey("stream-sse"))
+		Expect(fakes.Shapes()).To(HaveKey("multipart"))
+		Expect(fakes.Shapes()).To(HaveKey("multipart-long-prompt"))
 	})
 })
 
