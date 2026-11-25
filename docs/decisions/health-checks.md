@@ -1,5 +1,7 @@
 # Health check decisions (Peter, 2026-10-31)
 
+*Since [listeners.md](listeners.md) (2026-11-13), every `listen.*` section is a named listener under `listeners`, `listen.admin` is the top-level `admin` section, and `issuers` is `certs`; the old keys are only warned about. The names below are as they were when decided.*
+
 Full wording in [docs/proxy-health-checks.md](../proxy-health-checks.md).
 
 1. `/readyz` says no (503) only before the first config has loaded, while the proxy port is not listening, and from the first stop signal on. Never because a reload failed or an exporter is down: one bad shared config edit would otherwise take every copy out of service.

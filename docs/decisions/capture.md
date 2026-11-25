@@ -1,10 +1,12 @@
 # Capture ingress decisions (Peter, 2026-11-10)
 
+*Since [listeners.md](listeners.md) (2026-11-13), every `listen.*` section is a named listener under `listeners`, `listen.admin` is the top-level `admin` section, and `issuers` is `certs`; the old keys are only warned about. The names below are as they were when decided.*
+
 Full wording in [docs/proxy-capture.md](../proxy-capture.md). The macOS side lives in `petercipov/hotline-macos-capture`; the plan is `mitmproxy-ideas/capture-connect-plan.md` in the project files.
 
 1. Hotline never runs the programs it captures; it only watches for the apps named by `--capture`.
-2. Each captured connection is a standard CONNECT to the proxy port with the headers `Hotline-Capture` (version, now 1), `Hotline-Capture-Pid` and `Hotline-Capture-Program`, plus a standard `User-Agent: HotlineCapture/<version>`. This replaces the earlier framed JSON messages, the control connection and the use of `listen.intercept`.
-3. Captured tunnels are served by the existing CONNECT ingress (`listen.connect`) and handled like intercepted connections inside, with `hotline.ingress=capture`.
+2. Each captured connection is a standard CONNECT to the proxy port with the headers `Hotline-Capture` (version, now 1), `Hotline-Capture-Pid` and `Hotline-Capture-Program`, plus a standard `User-Agent: HotlineCapture/<version>`. This replaces the earlier framed JSON messages, the control connection and the use of `listen.intercept`. *Partly replaced by 11 (2026-11-12): the headers stand, but the CONNECT goes over the capture socket file, and only capture version 2 is taken.*
+3. Captured tunnels are served by the existing CONNECT ingress (`listen.connect`) and handled like intercepted connections inside, with `hotline.ingress=capture`. *Replaced by 12 (2026-11-12).*
 4. The app list is not sent to the proxy. Hotline passes it to the helper at start; a new list means a new start. Nothing new in `proxy.Options`.
 5. ~~The capture headers count only from a loopback address.~~ Replaced on 2026-11-12, see 11.
 6. `listen.connect` gets a `passthrough` list, same meaning as for the transparent ingress, for captured and ordinary tunnels. Contract: `config.Passthrough` and `Config.ConnectPassthrough`.

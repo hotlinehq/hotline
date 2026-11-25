@@ -1,5 +1,7 @@
 # Transparent ingress decisions (Peter, 2026-11-08)
 
+*Since [listeners.md](listeners.md) (2026-11-13), every `listen.*` section is a named listener under `listeners`, `listen.admin` is the top-level `admin` section, and `issuers` is `certs`; the old keys are only warned about. The names below are as they were when decided.*
+
 Full wording in [docs/proxy-transparent.md](../proxy-transparent.md).
 
 1. A port of its own, `listen.intercept`, with `address`, `issuer` (a name from `issuers`), `integration` (default not-passed), `passthrough` and `ech.relay` (both empty by default).
