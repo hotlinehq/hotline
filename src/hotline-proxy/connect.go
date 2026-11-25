@@ -209,14 +209,10 @@ func (h *handler) tunnelFailed(r *http.Request, start time.Time, cfg *config.Con
 	h.own.tlsFailed(err, attribute.String("hotline.ingress", "connect"))
 	// No HTTP call was sent inside the tunnel, so the record has no body
 	// hashes.
-	s := short{
+	h.recordShort(short{
 		id: t.id, ingress: "connect", client: clientIP(r.RemoteAddr), host: t.host, method: r.Method,
-		errorType: untrustedOr(err), header: r.Header, start: start, cfg: cfg,
-	}
-	if from, to, timed := a.handshakeTime(); timed {
-		s.appTLS = &[2]time.Time{from, to}
-	}
-	h.recordShort(s)
+		errorType: untrustedOr(err), header: r.Header, start: start, cfg: cfg, appTLS: &a.handshake,
+	})
 }
 
 // find works out the vendor address of a call inside the tunnel. The call

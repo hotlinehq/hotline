@@ -91,6 +91,7 @@ Feature: The CONNECT ingress, with interception
     Then TLS inside the tunnel fails to set up
     And nothing is sent to any vendor
     And the record is minimal with hotline.integration.id talon-shop-a, server.address api.talon.one and error.type tls_untrusted_by_app
+    And the trace has the spans "hotline call" and "app tls handshake", with status error
 
   Scenario: The guard against internal addresses still applies
     When the app calls https://10.0.0.5 through the proxy as integration talon-shop-a
