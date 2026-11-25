@@ -7,3 +7,8 @@ Full wording in [docs/proxy-sqs-example.md](../proxy-sqs-example.md).
 3. Stable vendor specs live in `specs/<vendor>/<api>/<version>.openapi.yaml`; the SQS one is generated from AWS's Smithy model, and a test keeps it in step.
 4. Tests use a fake SQS, never real AWS; running against AWS is a manual step in the example's README.
 5. Other AWS services (S3, DynamoDB) come later.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: a test in `tools/aws-openapi/smithy/convert_test.go` makes the committed SQS spec from the committed SQS model and fails when they differ.
+- Revisit if the fake SQS answers differently from real AWS in a way a test missed.

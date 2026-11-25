@@ -6,3 +6,8 @@ Full wording in [docs/proxy-transparent-redirect.md](../proxy-transparent-redire
 2. The app adds `Proxy-Authorization` itself as a default header; no new way to pass the integration ID.
 3. No separate port or record value: a redirected call is a Host header call, `hotline.ingress=host_header`.
 4. The port is always kept, port 80 too (`Host: api.x.com:80` goes to `https` on port 80); no port means 443.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: there is no ingress value for a redirected call; it is recorded as `hotline.ingress=host_header`.
+- Revisit if a cluster's redirect loses the Host header, so the call can no longer be read as a Host header call.

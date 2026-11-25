@@ -16,3 +16,19 @@ Full wording in [docs/proxy-ledger.md](../proxy-ledger.md). Requirements, with t
 12. Each exporter keeps the records of a batch it dropped and adds them to that batch's record itself, so the ledger never matches exporters by their place in a list (Peter, 2026-11-16, over keying by endpoint, which two exporters may share).
 13. An empty last batch, sent when a reload removes an integration or at a clean stop, names the config of the chain's batch before it, not the config in use then (Peter, 2026-11-17, from the decomplect review).
 14. Later, with the control plane: the minute entry, the witness, the qualified time stamp, and secure hardware for the build hash.
+
+## Every field covered (Peter, 2026-11-25, decided, not built yet)
+
+From the ADR check: the record hash left out some fields the proxy sends, such as the level, so a failed call's ERROR could become INFO unseen. Requirements, reviewed with decomplect: `decision-tripwires/record-hash-v2-requirements.md` in the project files. Breaking changes are allowed, since only edge builds exist.
+
+15. The record hash covers every field the proxy writes, a closed list by OTLP field number: the attributes, time, trace id, span id, trace flags, level, event name, body, observed time and the full resource as sent (Q5). `verify` reads only the new format.
+16. The observed time is read once from the proxy's clock before the hash, and that value is both hashed and sent. It still says when the record was written, such as a WebSocket session's end (Q6).
+17. The resource labels are no longer per exporter. A top-level `records.transform` list holds steps run on every record before the hash; the only kind for now is `labels`. A `resource` under an exporter refuses the config (Q7, Q8).
+18. The trace hash covers span links and span flags, and every time is cut to whole microseconds before it is hashed and sent.
+19. The batch record is the same for every exporter and signed once by the ledger. An exporter that dropped records of a batch sends a separate drop record, `hotline.ledger.dropped`, signed when the batch is handed over, with the key passed beside it (Q9, and the decomplect review).
+20. `hotline.batch.lost_batches` is removed: the signed chain shows a missing batch, and the proxy's own telemetry says which exporter lost it (Q10).
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `hotline-proxy verify` passes on the folder a file exporter wrote during a short run of the proxy.
+- Revisit if batches of 10 seconds are too slow for the control plane, a run often fills a batch at 65,536 records, or a customer needs a signing key that outlives one run.

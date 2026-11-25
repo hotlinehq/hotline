@@ -8,3 +8,8 @@ Full wording in [docs/proxy-url-in-path.md](../proxy-url-in-path.md).
 4. Every request the proxy reads and refuses (`400`, `501`) still gets a minimal record and is counted, on every ingress. Plain HTTP on a TLS port stays without a record.
 5. Every record of a call that reached a vendor holds the vendor IP the proxy connected to (`network.peer.address`), minimal records too. Every record also holds the app's IP, from its connection, as `client.address` (Peter, 2026-10-31).
 6. No loop guard in this slice; the loop question moves to the Host header slice.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: a squashed slash or an encoded address in the path gets `400`, and still gets a minimal record.
+- Revisit if an app's HTTP client squashes slashes in the path and cannot be told not to.

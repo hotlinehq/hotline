@@ -10,3 +10,8 @@ Full wording in [docs/proxy-health-checks.md](../proxy-health-checks.md).
 4. No `listen.admin` means no health checks and one warning; the proxy still runs.
 5. Plain HTTP, only `/livez` and `/readyz`, no records. No detail page: the state of each part comes with the proxy's own telemetry, a chapter of its own.
 6. The end-to-end tests pass `--drain-delay 0s` unless a scenario sets it, so they stop at once.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `/readyz` in `proxy.go` looks only at whether the proxy is stopping, never at reloads or exporters.
+- Revisit if a deployment needs a copy taken out of service when its exporter is down, or Kubernetes needs more than the 5 second drain delay.

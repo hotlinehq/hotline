@@ -20,3 +20,8 @@ Full wording is at the end of [docs/proxy-slice-1.md](../proxy-slice-1.md).
 Also from the review of pull request #11: `vendorTimeout` also limits how long a response may go silent between its parts. A vendor silent for longer is cut off, recorded as `http_response_incomplete`. WebSockets are exempt.
 
 Export queues, from the load test (Peter, 2026-11-09): a full queue keeps what waits and refuses what is new, for records and spans alike, replacing the drop of the oldest in point 13. A call's spans go into the span queue together or not at all, so the queue never splits a trace; a call with more spans than the whole queue holds is dropped. Both queues become fixed-size rings that never grow. `queueSize` still counts records and spans, and `hotline.exporter.dropped` still counts spans. Built: `features/export.feature` keeps it so.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: the proxy adds no forwarding headers (`internal/forward/forward.go`), and an unknown config field is a warning, not an error.
+- Revisit if a typo in a config reaches production unnoticed because unknown fields are only warned about, or the queues of 10,000 records fill in normal use.

@@ -32,3 +32,8 @@ Requirements: `connection-diagnosis/probe-slice-2/requirements.md` in the projec
 23. New verdicts: `silent_drop_at_vendor` (the machine answers, its port does not), `silent_drop` (silence, naming the last router that answered), `path_stops_on_our_side`, and `rejected_by_firewall` ("administratively prohibited", ICMP 3 with code 9, 10 or 13, naming the firewall). `unreachable` names the router that said so. No confidence field: a guess says "most likely" in its sentence (Q3).
 24. Each packet of the trace is a span `hop` under the `path_reaches_vendor` span, with `hotline.probe.hop.ttl`, `.answer`, `.from`, `.icmp_type`, `.icmp_code` and `network.transport`. Child spans, not span events, because the exporters have none and adding them would change the ledger's trace hash.
 25. No root and no extra capability: `internal/pathprobe` uses an ordinary socket with `IP_RECVERR` on Linux, and the ICMP socket any user may open on macOS, matching each router's error to its packet by the ports it quotes. Elsewhere, and over IPv6, nothing is sent and both questions are `not_checked`, with the reason. New direct dependency: `golang.org/x/net` (BSD), for ICMP.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: probes run on 2 workers (`probeWorkers` in `probe.go`), off the call path.
+- Revisit if probes often wait for a free worker, or a vendor complains about the probes, or customers ask for the vendor health check before calls fail.

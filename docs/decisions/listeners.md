@@ -12,3 +12,8 @@ Full wording in [docs/proxy-listeners.md](../proxy-listeners.md). Breaking chang
 8. The capture port list is `capture.ports` (was `http`), `[80, 443]` by default.
 9. `hotline.ingress=intercept` is renamed `transparent`. `hotline.certificate.use` is `<listener>.<part>`, such as `apps.tls` or `admin.tls`.
 10. A connection reads its listener's settings (passthrough lists, ports, integration) from the config it loaded when it arrived, so a reload under way never gives it a new listener with an old config. The settings a listener keeps until a restart are used only where that config has the listener in another shape, or not at all (Peter, 2026-11-17, from the decomplect review).
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `internal/config` reads `listen` and `issuers` only to warn about them.
+- Revisit if a deployment needs one listener with two parts that today each need a listener of their own, such as `transparent` and `capture`.
