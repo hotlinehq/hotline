@@ -32,14 +32,14 @@ specification {
 model {
   operator = person 'Operator' 'Writes the config and vendor specs, runs the proxy'
 
-  apps = system 'Your services' 'Call vendor APIs over HTTP, with no code change'
+  apps = system 'Your services' 'Call vendor APIs over HTTP and WebSocket, with no code change'
   redirect = system 'Network redirect' 'Sends plain http calls to the proxy (transparent ingress)'
   macApps = system 'Mac apps' 'Programs on a Mac that cannot be told about a proxy'
   captureHelper = system 'Hotline Capture' 'macOS system extension, built in its own project'
   runner = system 'Kubernetes or other runner' 'Starts the proxy and asks if it is healthy'
   otlpBackend = system 'OTLP backend' 'OpenTelemetry Collector, Grafana Cloud or similar'
   terminal = system 'Terminal' 'Standard output of the proxy'
-  vendors = external 'Vendor APIs' 'Payments, AWS, booking, anything over HTTP'
+  vendors = external 'Vendor APIs' 'Stripe, Slack webhooks, Anthropic, Kraken WebSocket, AWS: anything over HTTP or WebSocket'
 
   hotline = system 'Hotline' 'Checks, times and records every vendor call' {
     style { color hotline; size large }
@@ -57,12 +57,12 @@ model {
         description 'Calls the vendor with the bytes unchanged, times DNS, connect, TLS and first byte'
       }
       guard = component 'Address guard' 'Refuses loopback and private addresses unless allowInternalIPs'
-      tap = component 'Body tap' 'Passes bodies straight on, keeps a copy up to 2 MiB'
+      tap = component 'Body tap' 'Passes bodies straight on, keeps a copy up to 2 MiB; cuts WebSocket messages, streamed responses (Server-Sent Events, JSON Lines, JSON sequences) and multipart uploads into items as they pass'
       checker = component 'Spec checks' {
         technology 'internal/spec, one worker per core'
-        description 'Checks each side against the OpenAPI spec beside the call; waiting copies capped by specChecks.queueMemory'
+        description 'Checks each side, each WebSocket message and each stream item against the OpenAPI 3.2 spec beside the call; waiting copies capped by specChecks.queueMemory'
       }
-      recorder = component 'Record builder' 'Redacts secrets, builds the record and trace, hashes the record with SHA-256'
+      recorder = component 'Record builder' 'Redacts secrets, builds the records and spans (per call, WebSocket session and message, stream and stream item), hashes each record with SHA-256'
       ledger = component 'Evidence ledger' {
         technology 'internal/ledger'
         description 'One chain per integration; a batch every 10 seconds, signed with Ed25519'
@@ -76,15 +76,15 @@ model {
         description 'Reads the config, specs and certs; reloads within 5 seconds or on kill -HUP'
       }
       probes = component 'Probes' {
-        description 'When calls fail to connect, checks the vendor\'s host and port (DNS, TCP, TLS) to say which side the problem is on; one per host and port, with backoff, 2 workers'
+        description 'When calls fail to connect, checks the vendor\'s host and port (DNS, TCP, TLS, and a path trace to where the path stops) to say which side the problem is on; one per host and port, with backoff, 2 workers'
       }
       admin = component 'Admin port' '/livez and /readyz, optional pprof pages'
       telemetry = component 'Own telemetry' 'The proxy\'s own numbers, sent if telemetry is set'
 
       ingress -> forwarder 'call, integration'
       forwarder -> guard 'dials'
-      forwarder -> tap 'bodies'
-      tap -> checker 'body copies'
+      forwarder -> tap 'bodies, frames'
+      tap -> checker 'body copies, items'
       checker -> recorder 'check results'
       forwarder -> recorder 'step timings'
       recorder -> probes 'failed connection'
@@ -107,12 +107,12 @@ model {
     folder = store 'Records folder' 'File exporter output: every call as a line of JSON'
   }
 
-  apps -> hotline.proxy.ingress 'vendor calls: HTTP proxy, CONNECT, URL in path, Host header'
+  apps -> hotline.proxy.ingress 'vendor calls and WebSockets: HTTP proxy, CONNECT, URL in path, Host header'
   apps -> redirect 'plain http to the vendor name'
   redirect -> hotline.proxy.ingress 'redirected connections'
   macApps -> captureHelper 'chosen apps\' connections'
   captureHelper -> hotline.proxy.ingress 'CONNECT over a socket file'
-  hotline.proxy.guard -> vendors 'calls, unchanged, HTTPS'
+  hotline.proxy.guard -> vendors 'calls and WebSockets, unchanged, HTTPS'
   hotline.proxy.probes -> vendors 'DNS lookup, path trace, TCP connect, TLS handshake'
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
   hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
