@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -43,17 +44,28 @@ func fuzzWorld(f *testing.F, setup func(w *world)) *world {
 	f.Helper()
 	w, err := newWorld(newReservedPorts())
 	if err != nil {
-		f.Fatal(err)
+		setupFailed(f, err)
 	}
 	f.Cleanup(w.close)
 	w.checkWorkers = 1
 	setup(w)
 	if err := w.start(); err != nil {
-		f.Fatal(err)
+		setupFailed(f, err)
 	}
 	// A vendor for the normal call each input is followed by.
 	w.vendor("api.talon.one")
 	return w
+}
+
+// setupFailed fails the fuzz test over an error in its setup. Inside a fuzz
+// worker Go throws away what f.Fatal says, so the error is also written to
+// standard error, which the worker's log keeps (internal/fuzzlog). The
+// workflow looks for "fuzz setup failed:" there (nightly fuzz run 11,
+// 2026-11-25, left an empty log).
+func setupFailed(f *testing.F, err error) {
+	f.Helper()
+	_, _ = fmt.Fprintln(os.Stderr, "fuzz setup failed:", err)
+	f.Fatal(err)
 }
 
 // tryTwice sends one input with send, which says how long the proxy took

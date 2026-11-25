@@ -96,11 +96,12 @@ jobs:
             go test -tags "$TAGS" -run '^$' -fuzz "^${TARGET}\$" -fuzztime "$FUZZTIME" "$PACKAGE"
       - name: show why a fuzz process crashed
         if: failure()
-        # A crash leaves a Go panic or fatal error in its worker's file.
+        # A crash leaves a Go panic or fatal error in its worker's file, and
+        # a fuzz test whose setup failed says "fuzz setup failed:".
         run: |
           crashed=0
           for log in "$GITHUB_WORKSPACE"/fuzz-logs/*.log; do
-            first=$(grep -m1 -E '^(panic|fatal error):' "$log" 2>/dev/null) || continue
+            first=$(grep -m1 -E '^(panic|fatal error|fuzz setup failed):' "$log" 2>/dev/null) || continue
             crashed=1
             echo "::error title=fuzz process crashed::$first"
             echo "::group::$(basename "$log")"
