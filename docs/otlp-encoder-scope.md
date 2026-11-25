@@ -14,7 +14,7 @@ Today each call goes through these steps: the proxy builds a list of attributes,
 
 Write the two hot messages, the call record and the call's trace, straight into OTLP protobuf bytes, once, into reused buffers. The queue then holds ready bytes instead of library objects. A send joins the waiting bytes into one request, compresses it and posts it. The wire format stays standard OTLP, so every collector keeps working.
 
-Why joining bytes works: an OTLP request is a resource (the sender's labels), holding one scope (the sending code's name), holding a repeated list of records. In protobuf, a repeated field is just the same field written again and again, so already encoded records can be placed one after another behind a small header. A record is encoded once, and every exporter reuses the same bytes. Only the header differs, because each exporter has its own resource labels, and that header is made once per exporter.
+Why joining bytes works: an OTLP request is a resource (the sender's labels), holding one scope (the sending code's name), holding a repeated list of records. In protobuf, a repeated field is just the same field written again and again, so already encoded records can be placed one after another behind a small header. A record is encoded once, and every exporter reuses the same bytes. Only the header is added, made once: every exporter sends the same resource labels, which the record's hash covers (2026-11-25).
 
 ## In scope
 

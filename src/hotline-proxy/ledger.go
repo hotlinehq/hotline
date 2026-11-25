@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/log"
 
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
@@ -99,10 +99,16 @@ func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, insta
 // every call record points to the latest probe of its vendor.
 func (b *book) record(ctx context.Context, f finished) string {
 	cfg, name := f.cfg, f.chain
-	traceID, spanID := f.sc.TraceID().String(), f.sc.SpanID().String()
+	// Every time is cut to whole microseconds, so the hashes cover each
+	// time as it is sent. The observed time is read once, here, so the
+	// time sent is the time hashed (Peter, 2026-11-25).
+	at, observed := wholeMicros(f.at), wholeMicros(b.clock.Now())
+	for i := range f.spans {
+		f.spans[i].Start, f.spans[i].End = wholeMicros(f.spans[i].Start), wholeMicros(f.spans[i].End)
+	}
 	// The trace's hash needs nothing from the batch, so it is worked out
 	// before the lock that every call's record waits for.
-	traceHash := ledger.Text(b.hashes.Trace(traceID, ledgerSpans(f.spans)))
+	traceHash := ledger.Text(b.hashes.Trace(f.sc.TraceID().String(), export.LedgerSpans(f.sc, f.spans)))
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := b.chains[name]
@@ -131,13 +137,15 @@ func (b *book) record(ctx context.Context, f finished) string {
 		attribute.String("hotline.batch.id", open.id),
 		attribute.Int("hotline.batch.index", len(open.leaves)),
 	)
-	sum := b.hashes.Record(ledger.Record{Attrs: attrs, At: f.at, TraceID: traceID, SpanID: spanID})
+	call := export.Call{
+		Event: f.event, Trace: f.sc, At: at, Observed: observed, Attrs: attrs, Body: f.body, Spans: f.spans, Content: f.content,
+	}
+	sum := b.hashes.Record(b.exporters.LedgerRecord(call))
 	hash := ledger.Text(sum)
 	attrs = append(attrs, attribute.String("hotline.record.hash", hash))
-	b.exporters.Call(ctx, export.Call{
-		Event: f.event, Trace: f.sc, At: f.at, Attrs: attrs, Body: f.body, Spans: f.spans, Content: f.content,
-		Ledger: export.LedgerEntry{Batch: open.id, Index: len(open.leaves), Hash: hash},
-	})
+	call.Attrs = attrs
+	call.Ledger = export.LedgerEntry{Batch: open.id, Index: len(open.leaves), Hash: hash}
+	b.exporters.Call(ctx, call)
 	open.leaves = append(open.leaves, sum)
 	if len(open.leaves) >= open.maxRecords {
 		b.close(ch, false)
@@ -208,6 +216,7 @@ func (b *book) close(ch *chain, last bool) {
 		open = &openBatch{id: ch.lastID, config: ch.config}
 	}
 	root := ledger.Text(ledger.Root(open.leaves))
+	now := wholeMicros(b.clock.Now())
 	attrs := []attribute.KeyValue{
 		attribute.String("hotline.batch.format", ledger.BatchFormat),
 		attribute.String("hotline.batch.id", open.id),
@@ -216,7 +225,6 @@ func (b *book) close(ch *chain, last bool) {
 		attribute.Int64("hotline.batch.sequence", ch.sequence),
 		attribute.Int("hotline.batch.records", len(open.leaves)),
 		attribute.String("hotline.batch.root", root),
-		attribute.String("hotline.batch.key", b.key.Public),
 		attribute.String("hotline.batch.version", b.version),
 		attribute.String("hotline.batch.config", open.config),
 	}
@@ -229,24 +237,13 @@ func (b *book) close(ch *chain, last bool) {
 	if last {
 		attrs = append(attrs, attribute.Bool("hotline.batch.last", true))
 	}
-	attrs = append(attrs, b.key.Sign(attrs))
-	b.exporters.Batch(export.Batch{ID: open.id, At: b.clock.Now(), Attrs: attrs})
+	batch := export.Batch{ID: open.id, Event: export.BatchEvent, Severity: log.SeverityInfo, At: now, Observed: now, Attrs: attrs}
+	// Sign adds hotline.batch.key, then the signature.
+	batch.Attrs = b.key.Sign(ledger.BatchFormat, b.exporters.SignedRecord(batch))
+	b.exporters.Batch(batch, b.key)
 	ch.previous = root
 	ch.sequence++
 }
 
-// ledgerSpans are a trace's spans as the trace's hash covers them, with the
-// kind and status as the file exporter writes them.
-func ledgerSpans(spans []export.Span) []ledger.Span {
-	out := make([]ledger.Span, len(spans))
-	for i, s := range spans {
-		// An invalid parent is the zero id: no span.
-		out[i] = ledger.Span{
-			ID: ledger.SpanID(s.ID), Parent: ledger.SpanID(s.Parent), Name: s.Name, Kind: spanKind(s.Kind),
-			Start: s.Start, End: s.End, Status: s.Status.String(), Attrs: s.Attrs,
-		}
-	}
-	return out
-}
-
-func spanKind(k trace.SpanKind) string { return k.String() }
+// wholeMicros is t cut to a whole microsecond, as the proxy sends every time.
+func wholeMicros(t time.Time) time.Time { return t.Truncate(time.Microsecond) }

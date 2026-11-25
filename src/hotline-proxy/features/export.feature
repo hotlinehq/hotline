@@ -11,20 +11,30 @@ Feature: Sending OpenTelemetry data
     Then its resource has service.name hotline-proxy, service.version and service.instance.id
 
   Scenario: Labels from the config
-    Each exporter may set its own resource labels, to say where the proxy
-    runs. A value is written out, or read from { env: NAME } or
-    { file: path }. service.name and service.instance.id may be changed;
-    service.version is always the proxy's own (Peter, 2026-10-30).
-    Given an exporter with the resource service.name invoices-proxy, service.instance.id from the env POD_NAME and deployment.environment.name from the file env-name
+    The records section's transform steps run on every record before its
+    hash. A labels step sets resource labels, to say where the proxy runs.
+    A value is written out, or read from { env: NAME } or { file: path }.
+    service.name and service.instance.id may be changed; service.version is
+    always the proxy's own (Peter, 2026-10-30).
+    Given the records transform labels service.name invoices-proxy, service.instance.id from the env POD_NAME and deployment.environment.name from the file env-name
     When the proxy sends any signal
     Then its resource has service.name invoices-proxy, service.instance.id from POD_NAME and deployment.environment.name from the file
     And service.version is still the proxy's own
 
-  Scenario: Each exporter has its own labels
-    Given two exporters, the second with the resource deployment.environment.name staging
+  Scenario: Every exporter gets the same labels, and the record's hash covers them
+    Labels are no longer set per exporter: the hash covers the resource,
+    so every copy of a record must carry the same one (Peter, 2026-11-25).
+    Given two OTLP exporters and a file exporter
+    And the records transform labels deployment.environment.name staging
     When a call ends
-    Then the first gets the proxy's own resource, with no deployment.environment.name
-    And the second gets deployment.environment.name staging
+    Then both exporters get deployment.environment.name staging
+    And the file line has the same resource
+    And the hash checks out when rebuilt from the record alone
+
+  Scenario: A later labels step wins
+    Given the records transform labels deployment.environment.name staging, then deployment.environment.name production
+    When a call ends
+    Then its resource has deployment.environment.name production
 
   Scenario: One log record per call
     When a call ends

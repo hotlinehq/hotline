@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,33 +49,43 @@ func Root(leaves [][sha256.Size]byte) [sha256.Size]byte {
 	return sha256.Sum256(b[:])
 }
 
-// Unsigned says whether a batch attribute is left out of the signature:
-// the signature itself, and what each exporter adds on its own, which
-// differs between exporters of the same batch.
-func Unsigned(name string) bool {
-	switch name {
-	case "hotline.batch.signature", "hotline.batch.dropped", "hotline.batch.dropped_count", "hotline.batch.lost_batches":
-		return true
+// The attributes that hold a signature and the key that checks it.
+const (
+	batchSignature   = "hotline.batch.signature"
+	droppedSignature = "hotline.dropped.signature"
+	keyAttribute     = "hotline.batch.key"
+)
+
+// signatureOf is the attribute that holds the signature of a record of
+// format.
+func signatureOf(format string) string {
+	if format == DroppedFormat {
+		return droppedSignature
 	}
-	return false
+	return batchSignature
 }
 
-// signedDigest is what a batch's signature covers: SHA-256 of the word
-// hotline.batch.v1, then every signed attribute sorted by name.
-func signedDigest(attrs []attribute.KeyValue) [sha256.Size]byte {
-	signed := make([]attribute.KeyValue, 0, len(attrs))
-	for _, kv := range attrs {
-		if !Unsigned(string(kv.Key)) {
+// signedDigest is what a batch or drop record's signature covers: SHA-256
+// of its format, every attribute but its own signature sorted by name,
+// then the record's other fields, as a record's hash covers them. Every
+// other attribute is signed, so nothing can be added to a signed record.
+func signedDigest(format string, r Record) [sha256.Size]byte {
+	unsigned := signatureOf(format)
+	signed := make([]attribute.KeyValue, 0, len(r.Attrs))
+	for _, kv := range r.Attrs {
+		if string(kv.Key) != unsigned {
 			signed = append(signed, kv)
 		}
 	}
 	w := newWriter()
-	w.piece(BatchFormat)
+	w.piece(format)
 	w.entries(signed)
+	w.fields(r)
 	return w.sum()
 }
 
 // Key is a signing key the proxy makes in memory and never writes down.
+// It prints as redacted, so a log line can never show it.
 type Key struct {
 	private ed25519.PrivateKey
 	// Public is the public key as the batch record holds it.
@@ -87,23 +98,31 @@ func NewKey() Key {
 	return Key{private: private, Public: keyPrefix + base64.StdEncoding.EncodeToString(public)}
 }
 
-// Sign signs a batch's attributes, which must hold hotline.batch.key, and
-// gives the signature as the batch record holds it.
-func (k Key) Sign(attrs []attribute.KeyValue) attribute.KeyValue {
-	digest := signedDigest(attrs)
+// String hides the key when it is printed.
+func (Key) String() string { return "redacted" }
+
+// GoString hides the key when it is printed with %#v.
+func (Key) GoString() string { return "redacted" }
+
+// Sign signs a batch or drop record of format, and gives its attributes
+// with the key and the signature added: hotline.batch.key, then
+// hotline.batch.signature or hotline.dropped.signature.
+func (k Key) Sign(format string, r Record) []attribute.KeyValue {
+	r.Attrs = append(slices.Clip(r.Attrs), attribute.String(keyAttribute, k.Public))
+	digest := signedDigest(format, r)
 	signature := ed25519.Sign(k.private, digest[:])
-	return attribute.String("hotline.batch.signature", signaturePrefix+base64.StdEncoding.EncodeToString(signature))
+	return append(r.Attrs, attribute.String(signatureOf(format), signaturePrefix+base64.StdEncoding.EncodeToString(signature)))
 }
 
-// CheckSignature says whether a batch's signature checks out with the key
-// it names.
-func CheckSignature(attrs []attribute.KeyValue) bool {
+// CheckSignature says whether a batch or drop record of format checks out
+// with the key it names.
+func CheckSignature(format string, r Record) bool {
 	var key, signature string
-	for _, kv := range attrs {
-		switch kv.Key {
-		case "hotline.batch.key":
+	for _, kv := range r.Attrs {
+		switch string(kv.Key) {
+		case keyAttribute:
 			key = kv.Value.AsString()
-		case "hotline.batch.signature":
+		case signatureOf(format):
 			signature = kv.Value.AsString()
 		}
 	}
@@ -115,7 +134,7 @@ func CheckSignature(attrs []attribute.KeyValue) bool {
 	if err != nil {
 		return false
 	}
-	digest := signedDigest(attrs)
+	digest := signedDigest(format, r)
 	return ed25519.Verify(public, digest[:], sig)
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,13 +22,16 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // receivedRecord is one log record the fake OTLP receiver got.
 type receivedRecord struct {
 	eventName string
-	// timestamp is the record's time, in nanoseconds since 1970.
+	// timestamp and observed are the record's time and the time it was
+	// written, in nanoseconds since 1970.
 	timestamp uint64
+	observed  uint64
 	// severityText and severityNumber are the record's level.
 	severityText   string
 	severityNumber int32
@@ -40,6 +44,10 @@ type receivedRecord struct {
 	flags   uint32
 	// body is the record's text, when it is one.
 	body string
+	// fields are the numbers of the LogRecord fields the proxy set, and
+	// scope the name of the scope the record came in.
+	fields []int
+	scope  string
 }
 
 // receivedSpan is one span the fake OTLP receiver got, the ids in hex.
@@ -61,8 +69,9 @@ type receivedSpan struct {
 	attrs    map[string]any
 	resource map[string]any
 	// links are the spans this one links to, each as trace id and span id
-	// in hex, joined by a slash.
-	links []string
+	// in hex, joined by a slash, and linkFlags their flags, in the same order.
+	links     []string
+	linkFlags []uint32
 }
 
 // receivedPoint is one data point of any metric the receiver got.
@@ -130,6 +139,8 @@ type receiver struct {
 	// taken counts every call record ever got, also those forget dropped.
 	taken   int
 	batches []receivedRecord
+	// drops are the ledger's drop records.
+	drops []receivedRecord
 	// sessions are the WebSocket session records, kept apart from the
 	// calls' records, as the batches are.
 	sessions []receivedRecord
@@ -315,6 +326,8 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 				switch lr.GetEventName() {
 				case "hotline.ledger.batch":
 					list = &r.batches
+				case "hotline.ledger.dropped":
+					list = &r.drops
 				case "hotline.websocket.session":
 					list = &r.sessions
 				case "hotline.websocket.message":
@@ -331,6 +344,9 @@ func (r *receiver) Export(ctx context.Context, req *collogs.ExportLogsServiceReq
 				*list = append(*list, receivedRecord{
 					eventName:      lr.GetEventName(),
 					timestamp:      lr.GetTimeUnixNano(),
+					observed:       lr.GetObservedTimeUnixNano(),
+					fields:         setFields(lr),
+					scope:          sl.GetScope().GetName(),
 					severityText:   lr.GetSeverityText(),
 					severityNumber: int32(lr.GetSeverityNumber()),
 					resource:       res,
@@ -410,22 +426,25 @@ func (r *receiver) exportTraces(ctx context.Context, req *coltrace.ExportTraceSe
 		for _, ss := range rs.GetScopeSpans() {
 			for _, s := range ss.GetSpans() {
 				var links []string
+				var linkFlags []uint32
 				for _, l := range s.GetLinks() {
 					links = append(links, hex.EncodeToString(l.GetTraceId())+"/"+hex.EncodeToString(l.GetSpanId()))
+					linkFlags = append(linkFlags, l.GetFlags())
 				}
 				r.spanList = append(r.spanList, receivedSpan{
-					links:    links,
-					traceID:  hex.EncodeToString(s.GetTraceId()),
-					spanID:   hex.EncodeToString(s.GetSpanId()),
-					parent:   hex.EncodeToString(s.GetParentSpanId()),
-					name:     s.GetName(),
-					kind:     kinds[s.GetKind()],
-					start:    int64(s.GetStartTimeUnixNano()), //nolint:gosec // nanoseconds since 1970 fit until 2262
-					end:      int64(s.GetEndTimeUnixNano()),   //nolint:gosec // as above
-					status:   statuses[s.GetStatus().GetCode()],
-					flags:    s.GetFlags(),
-					attrs:    values(s.GetAttributes()),
-					resource: res,
+					links:     links,
+					linkFlags: linkFlags,
+					traceID:   hex.EncodeToString(s.GetTraceId()),
+					spanID:    hex.EncodeToString(s.GetSpanId()),
+					parent:    hex.EncodeToString(s.GetParentSpanId()),
+					name:      s.GetName(),
+					kind:      kinds[s.GetKind()],
+					start:     int64(s.GetStartTimeUnixNano()), //nolint:gosec // nanoseconds since 1970 fit until 2262
+					end:       int64(s.GetEndTimeUnixNano()),   //nolint:gosec // as above
+					status:    statuses[s.GetStatus().GetCode()],
+					flags:     s.GetFlags(),
+					attrs:     values(s.GetAttributes()),
+					resource:  res,
 				})
 			}
 		}
@@ -546,7 +565,7 @@ func (r *receiver) takenCalls() int {
 func (r *receiver) forget() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.records, r.batches, r.sessions, r.messages, r.points = nil, nil, nil, nil, nil
+	r.records, r.batches, r.drops, r.sessions, r.messages, r.points = nil, nil, nil, nil, nil, nil
 	r.streams, r.items = nil, nil
 	r.spanList, r.seen = nil, nil
 }
@@ -555,6 +574,24 @@ func (r *receiver) ledger() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]receivedRecord(nil), r.batches...)
+}
+
+// dropRecords are the ledger's drop records the receiver got.
+func (r *receiver) dropRecords() []receivedRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]receivedRecord(nil), r.drops...)
+}
+
+// setFields are the numbers of the fields a message holds, in order.
+func setFields(m proto.Message) []int {
+	var numbers []int
+	m.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		numbers = append(numbers, int(fd.Number()))
+		return true
+	})
+	slices.Sort(numbers)
+	return numbers
 }
 
 func (r *receiver) got() []receivedRecord {

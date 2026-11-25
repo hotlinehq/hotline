@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
 
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
@@ -80,7 +81,9 @@ type verifier struct {
 	o       VerifyOptions
 	records []*lineRecord
 	batches []*lineBatch
-	runs    []*verifiedRun
+	// drops are the drop records, by the id of their batch.
+	drops map[string][]*lineBatch
+	runs  []*verifiedRun
 	// problems and notes are what the checks found; matched and cut count
 	// the kept bodies checked and those cut short.
 	problems []finding
@@ -120,10 +123,9 @@ type place struct {
 // lineRecord is a call's record as one line holds it.
 type lineRecord struct {
 	place
-	at              time.Time
+	read            export.Line
 	traceID, spanID string
 	attrs           map[string]any
-	spans           []export.LineSpan
 	batchID         string
 	index           int64
 	hash            string
@@ -134,9 +136,10 @@ func (r *lineRecord) text(name string) string {
 	return s
 }
 
-// lineBatch is a batch record as one line holds it.
+// lineBatch is a batch or drop record as one line holds it.
 type lineBatch struct {
 	place
+	read  export.Line
 	at    time.Time
 	attrs map[string]any
 	id    string
@@ -240,16 +243,26 @@ func (v *verifier) readLine(at place, data []byte) error {
 	}
 	switch line.Event {
 	case export.BatchEvent:
-		b := &lineBatch{place: at, at: line.Time, attrs: line.Attributes, records: map[int64]*lineRecord{}}
-		if format := b.text("hotline.batch.format"); format != ledger.BatchFormat {
+		b := &lineBatch{place: at, read: line, at: line.Time, attrs: line.Attributes, records: map[int64]*lineRecord{}}
+		switch format := b.text("hotline.batch.format"); {
+		case format == oldBatchFormat:
+			return fmt.Errorf("%w: %s line %d: the folder was written by an older edge build (%s), which this verify cannot check", errUnreadable, at.file, at.line, oldBatchFormat)
+		case format != ledger.BatchFormat:
 			return fmt.Errorf("%w: %s line %d: %s is not a known format", errUnreadable, at.file, at.line, safe(format))
 		}
 		b.id = b.text("hotline.batch.id")
 		if v.o.Integration == "" || b.text("hotline.batch.integration") == v.o.Integration {
 			v.batches = append(v.batches, b)
 		}
+	case export.DroppedEvent:
+		d := &lineBatch{place: at, read: line, at: line.Time, attrs: line.Attributes}
+		d.id = d.text("hotline.batch.id")
+		if v.drops == nil {
+			v.drops = map[string][]*lineBatch{}
+		}
+		v.drops[d.id] = append(v.drops[d.id], d)
 	case export.CallEvent, export.SessionEvent, export.MessageEvent, export.StreamEvent, export.StreamItemEvent, export.ProbeEvent:
-		r := &lineRecord{place: at, at: line.Time, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes, spans: line.Spans}
+		r := &lineRecord{place: at, read: line, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes}
 		r.batchID = r.text("hotline.batch.id")
 		r.hash = r.text("hotline.record.hash")
 		if n, ok := r.attrs["hotline.batch.index"].(json.Number); ok {
@@ -315,12 +328,12 @@ func (v *verifier) checkRecord(r *lineRecord, b *lineBatch) {
 		index := r.index
 		at.Index = &index
 	}
-	if ledger.Text(ledger.RecordHash(ledger.Record{Attrs: attrs, At: r.at, TraceID: r.traceID, SpanID: r.spanID})) != r.hash {
+	if ledger.Text(ledger.RecordHash(recordOf(r.read, attrs))) != r.hash {
 		at.Code, at.Message = "record_hash_mismatch", "the record with span id "+safe(r.spanID)+" does not match its hotline.record.hash"
 		v.problems = append(v.problems, at)
 		return
 	}
-	if want := r.text("hotline.trace.hash"); want != "" && !traceMatches(r.traceID, r.spans, want) {
+	if want := r.text("hotline.trace.hash"); want != "" && !traceMatches(r.traceID, r.read.Spans, want) {
 		at.Code, at.Message = "trace_hash_mismatch", "the trace of the record with span id "+safe(r.spanID)+" does not match its hotline.trace.hash"
 		v.problems = append(v.problems, at)
 	}
@@ -406,18 +419,22 @@ func (v *verifier) about(f finding, b *lineBatch) finding {
 
 func (v *verifier) checkBatch(b *lineBatch) {
 	name := "batch " + b.sequenceText()
-	attrs := make([]attribute.KeyValue, 0, len(b.attrs))
-	for key, value := range b.attrs {
-		attrs = append(attrs, attribute.KeyValue{Key: attribute.Key(key), Value: valueOf(value)})
-	}
-	if !ledger.CheckSignature(attrs) {
+	if !ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs))) {
 		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
 	}
-	if lost, _ := b.number("hotline.batch.lost_batches"); lost > 0 {
-		v.problem(finding{Code: "batches_lost", Message: fmt.Sprintf("%d batches before %s were lost by this exporter, and their records cannot be proven", lost, name)}, b)
+	// The drop record of this copy, if its exporter dropped records of the
+	// batch: signed with the batch's own key, or it is not the proxy's.
+	drop := &lineBatch{attrs: map[string]any{}}
+	for _, d := range v.drops[b.id] {
+		if d.text("hotline.batch.key") != b.text("hotline.batch.key") || !ledger.CheckSignature(ledger.DroppedFormat, recordOf(d.read, attributes(d.attrs))) {
+			v.problem(finding{Code: "drop_signature_invalid", File: d.file, Line: d.line,
+				Message: "the drop record of " + name + " does not check out with the batch's key"}, b)
+			continue
+		}
+		drop = d
 	}
 	count, _ := b.number("hotline.batch.records")
-	if dropped, _ := b.number("hotline.batch.dropped_count"); dropped > 0 {
+	if dropped, _ := drop.number("hotline.batch.dropped_count"); dropped > 0 {
 		v.problem(finding{Code: "batch_unprovable", Message: fmt.Sprintf("%s cannot be proven from this copy: %s records were dropped by this exporter", name, thousands(dropped))}, b)
 		return
 	}
@@ -430,7 +447,7 @@ func (v *verifier) checkBatch(b *lineBatch) {
 		}
 		leaves[index], have[index] = parseHash(r.hash), true
 	}
-	listed, _ := b.attrs["hotline.batch.dropped"].([]any)
+	listed, _ := drop.attrs["hotline.batch.dropped"].([]any)
 	var droppedAt []int64
 	for _, item := range listed {
 		entry, _ := item.(map[string]any)
@@ -676,6 +693,41 @@ func valueOf(v any) attribute.Value {
 	return attribute.MapValue(entries...)
 }
 
+// oldBatchFormat is the batch format of the edge builds before every field
+// was covered (Peter, 2026-11-25). Their folders are refused by name.
+const oldBatchFormat = "hotline.batch.v1"
+
+// recordOf is a line as its hash or signature covers it, with the
+// attributes the hash covers: every field the line holds.
+func recordOf(line export.Line, attrs []attribute.KeyValue) ledger.Record {
+	return ledger.Record{
+		Attrs: attrs, At: line.Time, Observed: line.Observed, TraceID: line.TraceID, SpanID: line.SpanID, Flags: line.Flags,
+		SeverityNumber: severityNumber(line.Severity), SeverityText: line.Severity, Event: line.Event, Body: line.Body,
+		Resource: attributes(line.Resource),
+	}
+}
+
+// severityNumber is the number OTLP gives a level the proxy writes by its
+// name, 0 for a name it never writes.
+func severityNumber(text string) int {
+	for s := log.SeverityTrace1; s <= log.SeverityFatal4; s++ {
+		if s.String() == text {
+			return int(s)
+		}
+	}
+	return 0
+}
+
+// attributes are values read from a line as the attributes the proxy
+// hashed.
+func attributes(values map[string]any) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, len(values))
+	for name, value := range values {
+		attrs = append(attrs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
+	}
+	return attrs
+}
+
 // traceMatches says whether a line's spans have the trace hash want. A span
 // id the proxy never writes does not match.
 func traceMatches(traceID string, raw []export.LineSpan, want string) bool {
@@ -695,13 +747,13 @@ func lineSpans(raw []export.LineSpan) ([]ledger.Span, error) {
 		if err != nil {
 			return nil, err
 		}
-		kvs := make([]attribute.KeyValue, 0, len(s.Attributes))
-		for name, value := range s.Attributes {
-			kvs = append(kvs, attribute.KeyValue{Key: attribute.Key(name), Value: valueOf(value)})
+		var links []ledger.Link
+		for _, link := range s.Links {
+			links = append(links, ledger.Link{TraceID: link.TraceID, SpanID: link.SpanID, Flags: link.Flags})
 		}
 		spans = append(spans, ledger.Span{
 			ID: id, Parent: parent, Name: s.Name, Kind: s.Kind,
-			Start: s.Start, End: s.End, Status: s.Status, Attrs: kvs,
+			Start: s.Start, End: s.End, Status: s.Status, Flags: s.Flags, Links: links, Attrs: attributes(s.Attributes),
 		})
 	}
 	return spans, nil

@@ -154,26 +154,14 @@ func appendRecord(b []byte, event string, at, observed time.Time, severity log.S
 	return appendText(b, 12, event)
 }
 
-// The span flags of OTLP besides the W3C trace flags: that the span says
-// whether its parent is remote, and that it is.
-const (
-	flagHasIsRemote = 0x100
-	flagIsRemote    = 0x200
-)
-
 // appendSpan writes the content of one Span message, without its own tag
-// and length. Only the call span's parent, the app's span, ran in another
-// program, so only it is remote (Peter, 2026-11-08).
+// and length.
 func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 	traceID := sc.TraceID()
 	b = appendBytes(b, 1, traceID[:])
 	b = appendBytes(b, 2, s.ID[:])
-	flags := uint32(sc.TraceFlags()) | flagHasIsRemote
 	if s.Parent.IsValid() {
 		b = appendBytes(b, 4, s.Parent[:])
-		if s.ID == sc.SpanID() {
-			flags |= flagIsRemote
-		}
 	}
 	b = appendText(b, 5, s.Name)
 	kind, _ := fits.Uint64(int(s.Kind)) // numbered as in OTLP; a negative kind goes as 0, unspecified
@@ -189,7 +177,7 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 		traceID, spanID := link.TraceID(), link.SpanID()
 		b = appendBytes(b, 1, traceID[:])
 		b = appendBytes(b, 2, spanID[:])
-		b = appendFixed32(b, 6, uint32(link.TraceFlags())|flagHasIsRemote)
+		b = appendFixed32(b, 6, linkFlags(link))
 		b = closeField(b, start)
 	}
 	var status int
@@ -201,7 +189,7 @@ func appendSpan(b []byte, sc trace.SpanContext, s Span) []byte {
 		b = appendVarint(b, 3, code)
 	}
 	b = closeField(b, status)
-	return appendFixed32(b, 16, flags)
+	return appendFixed32(b, 16, s.flags(sc))
 }
 
 // resourceOf writes the content of a Resource message.

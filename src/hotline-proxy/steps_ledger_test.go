@@ -153,6 +153,19 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 			changed.traceID = strings.Repeat("ab", 16)
 		case "the timestamp is changed":
 			changed.timestamp += 1000
+		case "the observed time is changed":
+			changed.observed += 1000
+		case "the level is changed":
+			changed.severityNumber, changed.severityText = 13, "WARN"
+		case "the event name is changed":
+			changed.eventName = "hotline.probe"
+		case "the flags are changed":
+			changed.flags ^= 1
+		case "a body is added":
+			changed.body = "a note"
+		case "a resource label is changed":
+			changed.resource = maps.Clone(changed.resource)
+			changed.resource["service.name"] = "another-proxy"
 		case "hotline.request.body.hash is changed", "hotline.trace.hash is changed":
 			name := strings.TrimSuffix(change, " is changed")
 			changed.attrs[name] = "sha256:" + strings.Repeat("00", 32)
@@ -169,6 +182,22 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		if recompute {
 			changed.attrs["hotline.record.hash"] = recordHash(changed)
+		}
+		return nil
+	})
+	sc.Step(`^every LogRecord field the receiver got is one the record's hash covers, in a scope named hotline-proxy$`, func() error {
+		records := w.records()
+		if len(records) == 0 {
+			return failf("no record arrived")
+		}
+		r := records[len(records)-1]
+		for _, field := range r.fields {
+			if !slices.Contains(coveredFields(), field) {
+				return failf("the record has LogRecord field %d, which its hash does not cover", field)
+			}
+		}
+		if r.scope != "hotline-proxy" {
+			return failf("the record came in the scope %q", r.scope)
 		}
 		return nil
 	})
@@ -329,13 +358,13 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		_, err := w.waitBatches(1)
 		return err
 	})
-	sc.Step(`^it has hotline.batch.format hotline.batch.v1, hotline.batch.records (\d+) and hotline.batch.root$`, func(n int64) error {
+	sc.Step(`^it has hotline.batch.format hotline.batch.v2, hotline.batch.records (\d+) and hotline.batch.root$`, func(n int64) error {
 		batches, err := w.waitBatches(1)
 		if err != nil {
 			return err
 		}
 		b := batches[0].attrs
-		if err := has(b, "hotline.batch.format", "hotline.batch.v1"); err != nil {
+		if err := has(b, "hotline.batch.format", "hotline.batch.v2"); err != nil {
 			return err
 		}
 		if err := has(b, "hotline.batch.records", n); err != nil {
@@ -359,7 +388,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		return checkBatchSignature(batches[0].attrs)
+		return checkBatchSignature(batches[0])
 	})
 	sc.Step(`^ledger batches hold at most (\d+) records$`, func(n int) error {
 		w.topExtra += fmt.Sprintf("ledger:\n  batch:\n    maxRecords: %d\n", n)
@@ -735,7 +764,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		for _, b := range batches {
-			if err := checkBatchSignature(b.attrs); err != nil {
+			if err := checkBatchSignature(b); err != nil {
 				return err
 			}
 		}
@@ -1055,20 +1084,48 @@ func (b *hashBytes) sum() string {
 }
 
 // recordHash rebuilds a record's hash as docs/proxy-ledger.md describes
-// it: the word hotline.record.v1, every attribute but the hash in name
-// order, then the time in microseconds, the trace id and the span id.
+// it: the word hotline.record.v2, every attribute but the hash in name
+// order, then every other field of the record.
 func recordHash(r receivedRecord) string {
 	var b hashBytes
-	b.piece([]byte("hotline.record.v1"))
+	b.piece([]byte("hotline.record.v2"))
 	for _, name := range slices.Sorted(maps.Keys(r.attrs)) {
 		if name != "hotline.record.hash" {
 			b.entry(name, r.attrs[name])
 		}
 	}
-	b.entry("log.record.timestamp", int64(r.timestamp/1000)) //nolint:gosec // microseconds since 1970 fit
+	b.recordFields(r)
+	return b.sum()
+}
+
+// recordFields are the fields of a record besides its attributes, in the
+// order a record's hash and a batch's signature cover them: every field the
+// proxy sends, by its OTLP name, times in microseconds.
+func (b *hashBytes) recordFields(r receivedRecord) {
+	resource := r.resource
+	if resource == nil {
+		resource = map[string]any{}
+	}
+	b.entry("log.record.timestamp", int64(r.timestamp/1000))    //nolint:gosec // microseconds since 1970 fit
+	b.entry("log.record.observed_time", int64(r.observed/1000)) //nolint:gosec // as above
 	b.entry("log.record.trace_id", r.traceID)
 	b.entry("log.record.span_id", r.spanID)
-	return b.sum()
+	b.entry("log.record.flags", int64(r.flags))
+	b.entry("log.record.severity_number", int64(r.severityNumber))
+	b.entry("log.record.severity_text", r.severityText)
+	b.entry("log.record.event_name", r.eventName)
+	b.entry("log.record.body", r.body)
+	b.entry("log.record.resource", resource)
+}
+
+// coveredFields are the LogRecord fields a record's hash covers, by their
+// number in OTLP: time, level number and text, body, attributes, flags,
+// trace id, span id, observed time and event name (Peter, 2026-11-25).
+func coveredFields() []int { return []int{1, 2, 3, 5, 6, 8, 9, 10, 11, 12} }
+
+// severityNumber is the number of a level the proxy writes, by its text.
+func severityNumber(text string) int32 {
+	return map[string]int32{"INFO": 9, "WARN": 13, "ERROR": 17}[text]
 }
 
 func checkRecordHash(r receivedRecord) error {
@@ -1089,7 +1146,7 @@ func checkTraceHash(t callTrace) error {
 		return spans[i].spanID < spans[j].spanID
 	})
 	var b hashBytes
-	b.piece([]byte("hotline.trace.v1"))
+	b.piece([]byte("hotline.trace.v2"))
 	b.entry("trace.trace_id", t.record.traceID)
 	for _, s := range spans {
 		b.entry("span.span_id", s.spanID)
@@ -1099,6 +1156,14 @@ func checkTraceHash(t callTrace) error {
 		b.entry("span.start_time", s.start/1000)
 		b.entry("span.end_time", s.end/1000)
 		b.entry("span.status", s.status)
+		b.entry("span.flags", int64(s.flags))
+		b.entry("span.link_count", int64(len(s.links)))
+		for i, link := range s.links {
+			traceID, spanID, _ := strings.Cut(link, "/")
+			b.entry("link.trace_id", traceID)
+			b.entry("link.span_id", spanID)
+			b.entry("link.flags", int64(s.linkFlags[i]))
+		}
 		b.entry("span.attribute_count", int64(len(s.attrs)))
 		for _, name := range slices.Sorted(maps.Keys(s.attrs)) {
 			b.entry(name, s.attrs[name])
@@ -1169,31 +1234,44 @@ func checkRoot(batch receivedRecord, records []receivedRecord, dropped map[int64
 }
 
 // checkBatchSignature checks a batch record's signature with the key it
-// names: the word hotline.batch.v1 and every signed attribute in name
-// order, hashed with SHA-256, signed with Ed25519.
-func checkBatchSignature(attrs map[string]any) error {
-	var b hashBytes
-	b.piece([]byte("hotline.batch.v1"))
-	for _, name := range slices.Sorted(maps.Keys(attrs)) {
-		switch name {
-		case "hotline.batch.signature", "hotline.batch.dropped", "hotline.batch.dropped_count", "hotline.batch.lost_batches":
-			continue
-		}
-		b.entry(name, attrs[name])
-	}
-	digest := sha256.Sum256(b.buf)
-	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(attrs["hotline.batch.key"]), "ed25519:"))
+// names.
+func checkBatchSignature(r receivedRecord) error {
+	return checkSigned("hotline.batch.v2", "hotline.batch.signature", r)
+}
+
+// checkSigned checks a batch or drop record's signature with the key it
+// names: SHA-256 of the format word, every attribute but the signature in
+// name order, and every other field of the record as a record's hash
+// covers it, signed with Ed25519.
+func checkSigned(format, signatureName string, r receivedRecord) error {
+	digest := signedDigest(format, r)
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.key"]), "ed25519:"))
 	if err != nil {
 		return err
 	}
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(attrs["hotline.batch.signature"]), "ed25519:"))
+	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs[signatureName]), "ed25519:"))
 	if err != nil {
 		return err
 	}
 	if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, digest[:], signature) {
-		return failf("the batch's signature does not check out with its key")
+		return failf("the %s does not check out with its key", signatureName)
 	}
 	return nil
+}
+
+// signedDigest is what a batch or drop record's signature covers: every
+// attribute but its own signature.
+func signedDigest(format string, r receivedRecord) [sha256.Size]byte {
+	signature := map[string]string{"hotline.batch.v2": "hotline.batch.signature", "hotline.dropped.v1": "hotline.dropped.signature"}[format]
+	var b hashBytes
+	b.piece([]byte(format))
+	for _, name := range slices.Sorted(maps.Keys(r.attrs)) {
+		if name != signature {
+			b.entry(name, r.attrs[name])
+		}
+	}
+	b.recordFields(r)
+	return sha256.Sum256(b.buf)
 }
 
 // checkChain checks that batches are one chain: sequence 0 on, each naming

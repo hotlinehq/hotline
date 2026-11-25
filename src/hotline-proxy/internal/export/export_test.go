@@ -56,10 +56,10 @@ func (t TestQueue) Flush(ctx context.Context) error { return t.q.ForceFlush(ctx)
 func (t TestQueue) Shutdown(ctx context.Context) error { return t.q.Shutdown(ctx) }
 
 // LineOf is a call's line as a file exporter writes it, with content:
-// full.
+// full and the proxy's own resource.
 func LineOf(c Call) []byte {
 	buf := &bytes.Buffer{}
-	appendLine(buf, nil, c, true)
+	appendLine(buf, describe(Service{}, nil).Attributes(), c, true)
 	return buf.Bytes()
 }
 

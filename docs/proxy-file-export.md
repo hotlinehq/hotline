@@ -30,10 +30,12 @@ A line looks like this, spread out here to read:
 ```json
 {
   "time": "2026-11-11T07:36:04.000000Z",
+  "observed_time": "2026-11-11T07:36:04.012345Z",
   "severity": "INFO",
   "event": "hotline.request",
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span_id": "00f067aa0ba902b7",
+  "flags": "01",
   "resource": { "service.name": "hotline-proxy", "service.version": "…", "service.instance.id": "…" },
   "attributes": {
     "hotline.integration.id": "checkout",
@@ -41,17 +43,18 @@ A line looks like this, spread out here to read:
     "http.response.status_code": 201,
     "hotline.trace.spans": [
       { "span_id": "00f067aa0ba902b7", "parent_span_id": null, "name": "hotline call", "kind": "server",
-        "start_time": "…", "end_time": "…", "status": "unset" },
+        "start_time": "…", "end_time": "…", "status": "unset", "flags": 257 },
       { "span_id": "a2fb4a1d1a96d312", "parent_span_id": "00f067aa0ba902b7", "name": "vendor call", "kind": "client",
-        "start_time": "…", "end_time": "…", "status": "unset" }
+        "start_time": "…", "end_time": "…", "status": "unset", "flags": 257 }
     ]
   }
 }
 ```
 
 - The attributes are the record every exporter gets, with the same names ([otel-export.md](otel-export.md)): numbers are numbers, header values are lists of text.
+- The line holds every field the proxy sends on the record, so `hotline-proxy verify` rebuilds the record's hash from the line alone ([proxy-ledger.md](proxy-ledger.md)): `observed_time` is when the record was written, `flags` the trace's flags as two hex digits, as the trace header writes them, and each span's `flags` its flags as OTLP sends them, a whole number (257 is sampled, with a parent in this program; 769 adds that the parent is the app's span, in another program).
 - The names of the line's own fields follow OpenTelemetry's data model for logs and spans. The line is not OTLP's own JSON (`resourceLogs` and so on), so the OpenTelemetry Collector cannot read the file back; the `otlp` exporters are the way to a collector.
-- A probe's line (`hotline.probe`) also has `body`, the verdict as a sentence, and its root span has `links`, each with `trace_id` and `span_id`: the failed call that made the probe due ([decisions/probe.md](decisions/probe.md)).
+- A probe's line (`hotline.probe`) also has `body`, the verdict as a sentence, and its root span has `links`, each with `trace_id`, `span_id` and `flags`: the failed call that made the probe due ([decisions/probe.md](decisions/probe.md)).
 - A line shows up at most 100 ms after the call's record is made, or sooner once 512 wait. The record is made once the response has gone back to the app and the spec checks have ended, as for every exporter.
 
 To follow calls as they come: `tail -f calls/calls.jsonl | jq .`

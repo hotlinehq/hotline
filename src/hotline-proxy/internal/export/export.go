@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/config"
+	"hotline-proxy/internal/ledger"
 )
 
 // Timing says how long one send to an exporter may take, retries
@@ -50,8 +51,9 @@ type Exporters struct {
 	// batches hold the ledger's batch records waiting for each
 	// exporter that takes records, the OTLP ones first, then the files.
 	batches []*batchLine
-	// lineResource is the resource every call line carries.
-	lineResource []attribute.KeyValue
+	// resource is the resource every exporter sends, the same for all of
+	// them, as every record's hash covers it.
+	resource []attribute.KeyValue
 	// lines holds buffers to write a call line in.
 	lines sync.Pool
 	// scratch holds buffers to write a record or a call's spans in,
@@ -59,7 +61,7 @@ type Exporters struct {
 	scratch sync.Pool
 }
 
-// exporter is the pipeline of one otlp exporter, with its own resource.
+// exporter is the pipeline of one otlp exporter.
 type exporter struct {
 	// queue holds the written records and spans the written spans, both
 	// sent with transport.
@@ -92,7 +94,9 @@ type Call struct {
 	// hotline.request, or SessionEvent for a WebSocket session.
 	Event string
 	Trace trace.SpanContext
-	At    time.Time
+	// At is the record's time, and Observed when the record was written:
+	// both cut to whole microseconds, as the record's hash covers them.
+	At, Observed time.Time
 	// Attrs is the record every exporter gets.
 	Attrs []attribute.KeyValue
 	// Body is the record's text, when it has one: a probe's verdict in a
@@ -136,9 +140,12 @@ type Setup struct {
 	Out     Console
 	Roots   *x509.CertPool
 	Service Service
-	Timing  Timing
-	Logger  *slog.Logger
-	Meter   metric.Meter
+	// Labels are the resource labels of the records section's transform
+	// steps, on top of the proxy's own (Peter, 2026-11-25).
+	Labels map[string]string
+	Timing Timing
+	Logger *slog.Logger
+	Meter  metric.Meter
 }
 
 // New starts one queue and sender per exporter. Nothing is sent to a
@@ -162,7 +169,8 @@ func New(setup Setup) (*Exporters, error) {
 	}
 	s.lines.New = func() any { return &bytes.Buffer{} }
 	stats := newSendStats(meter)
-	s.lineResource = describe(service, nil).Attributes()
+	s.resource = describe(service, setup.Labels).Attributes()
+	written := resourceOf(s.resource)
 	for _, e := range files {
 		writer, err := openFileWriter(e)
 		if err != nil {
@@ -196,8 +204,6 @@ func New(setup Setup) (*Exporters, error) {
 		spanSetup := setup
 		spanSetup.labels = signalLabels(e, "span")
 		spanSetup.interval = e.TraceInterval
-		res := describe(service, e.Resource)
-		written := resourceOf(res.Attributes())
 		d := exporter{
 			queue:     newItemQueue("records", records, t, written, timing.Timeout, logSetup),
 			spans:     newItemQueue("spans", spans, t, written, timing.Timeout, spanSetup),
@@ -208,23 +214,31 @@ func New(setup Setup) (*Exporters, error) {
 		// The batch line sends records too, at the same time as the record
 		// queue, so it has its own zipper.
 		batchZip := t.newZipper()
-		d.batches = newBatchLine(e.Endpoint, logger, d.queue.ForceFlush, func(ctx context.Context, items [][]byte) error {
-			body := appendBatch(nil, written, items)
-			return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
-		}, func(b Batch, attrs []attribute.KeyValue) []byte {
-			return appendRecord(nil, BatchEvent, b.At, time.Now(), log.SeverityInfo, trace.SpanContext{}, "", attrs)
+		d.batches = newBatchLine(batchLineSetup{
+			name: e.Endpoint, logger: logger, before: d.queue.ForceFlush, resource: s.resource,
+			send: func(ctx context.Context, items [][]byte) error {
+				body := appendBatch(nil, written, items)
+				return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
+			},
+			render: func(b Batch) []byte {
+				return appendRecord(nil, b.Event, b.At, b.Observed, b.Severity, trace.SpanContext{}, "", b.Attrs)
+			},
+			lost: lostBatch(stats, attribute.NewSet(exporterLabel(e), attribute.String("hotline.signal", "batch"))),
 		})
 		s.exporters = append(s.exporters, d)
 		s.batches = append(s.batches, d.batches)
 	}
 	for i := range s.files {
 		f := &s.files[i]
-		f.batches = newBatchLine(f.writer.e.Path, logger, f.queue.ForceFlush, func(_ context.Context, items [][]byte) error {
-			return f.writer.write(items)
-		}, func(b Batch, attrs []attribute.KeyValue) []byte {
-			buf := &bytes.Buffer{}
-			appendBatchLine(buf, s.lineResource, b.At, attrs)
-			return buf.Bytes()
+		f.batches = newBatchLine(batchLineSetup{
+			name: f.writer.e.Path, logger: logger, before: f.queue.ForceFlush, resource: s.resource,
+			send: func(_ context.Context, items [][]byte) error { return f.writer.write(items) },
+			render: func(b Batch) []byte {
+				buf := &bytes.Buffer{}
+				appendBatchLine(buf, s.resource, b)
+				return buf.Bytes()
+			},
+			lost: lostBatch(stats, attribute.NewSet(attribute.String("hotline.exporter", f.writer.e.Path), attribute.String("hotline.signal", "batch"))),
 		})
 		s.batches = append(s.batches, f.batches)
 	}
@@ -256,7 +270,7 @@ func (s *Exporters) closeFiles() {
 	}
 }
 
-// describe is the resource one exporter gets: the proxy's own labels,
+// describe is the resource the proxy's signals go with: its own labels,
 // with the config's labels on top. The config has refused service.version.
 func describe(service Service, labels map[string]string) *resource.Resource {
 	attrs := []attribute.KeyValue{
@@ -291,9 +305,9 @@ func tlsFor(e config.Exporter, roots *x509.CertPool) *tls.Config {
 // lines on the console. It never blocks: a full queue refuses what is new,
 // and an exporter that keeps the ledger notes the record it dropped, to
 // list it in the record of the record's batch.
-func (s *Exporters) Call(ctx context.Context, c Call) {
+func (s *Exporters) Call(_ context.Context, c Call) {
 	if len(s.exporters) > 0 {
-		s.record(ctx, c, c.Attrs)
+		s.record(c)
 		s.trace(c.Trace, c.Spans)
 	}
 	// The file exporters' line, with every header when content is full.
@@ -326,7 +340,7 @@ func (s *Exporters) Call(ctx context.Context, c Call) {
 func (s *Exporters) line(c Call, withContent bool) []byte {
 	buf := s.lines.Get().(*bytes.Buffer)
 	buf.Reset()
-	appendLine(buf, s.lineResource, c, withContent)
+	appendLine(buf, s.resource, c, withContent)
 	line := slices.Clone(buf.Bytes())
 	s.lines.Put(buf)
 	return line
@@ -335,12 +349,33 @@ func (s *Exporters) line(c Call, withContent bool) []byte {
 // event is the record's event name.
 func (c Call) event() string { return cmp.Or(c.Event, CallEvent) }
 
+// LedgerRecord is the call's record as its hash covers it: every field the
+// exporters send, as they send it. c.Attrs must not hold the hash yet.
+func (s *Exporters) LedgerRecord(c Call) ledger.Record {
+	severity := level(c.Attrs)
+	return ledger.Record{
+		Attrs: c.Attrs, At: c.At, Observed: c.Observed,
+		TraceID: c.Trace.TraceID().String(), SpanID: c.Trace.SpanID().String(), Flags: recordFlags(c.Trace),
+		SeverityNumber: int(severity), SeverityText: severity.String(), Event: c.event(), Body: c.Body,
+		Resource: s.resource,
+	}
+}
+
+// recordFlags are a record's trace flags, as OTLP sends them: none for a
+// record with no trace.
+func recordFlags(sc trace.SpanContext) uint32 {
+	if !sc.IsValid() {
+		return 0
+	}
+	return uint32(sc.TraceFlags())
+}
+
 // record queues one log record for every OTLP exporter. It never
 // blocks: a full queue refuses the new record, and the ledger notes it.
 // The record is written once, for every exporter.
-func (s *Exporters) record(ctx context.Context, c Call, attrs []attribute.KeyValue) {
+func (s *Exporters) record(c Call) {
 	scratch := s.scratch.Get().(*[]byte)
-	b := appendRecord((*scratch)[:0], c.event(), c.At, time.Now(), level(attrs), trace.SpanContextFromContext(ctx), c.Body, attrs)
+	b := appendRecord((*scratch)[:0], c.event(), c.At, c.Observed, level(c.Attrs), c.Trace, c.Body, c.Attrs)
 	written := slices.Clone(b)
 	*scratch = b
 	s.scratch.Put(scratch)

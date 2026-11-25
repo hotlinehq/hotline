@@ -40,7 +40,7 @@ Every metric is sent with a description, its help text in Grafana, and a unit Gr
 | `go.memory.used`, `go.memory.limit`, `go.memory.gc.goal`, `go.goroutine.count` | gauges | `By`, `{goroutine}` | as the standard says | the Go runtime's memory and goroutines; the limit only when `GOMEMLIMIT` is set | `go_memory_used_bytes` and so on |
 | `go.memory.allocated` | count | `By` | as the standard says | memory the program handed out since it started, counting memory freed again; the load test divides its growth by the calls made | `go_memory_allocated_bytes_total` |
 
-`hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record` or `span`. It was also `count`, for the `hotline.requests` counter, until that counter was removed (Peter, 2026-11-21).
+`hotline.exporter` is the exporter's endpoint as the config writes it. `hotline.signal` is `record` or `span`, and `batch` on `hotline.exporter.dropped` for a ledger batch record let go after 64 waited for that exporter (2026-11-25). It was also `count`, for the `hotline.requests` counter, until that counter was removed (Peter, 2026-11-21).
 
 `error.type` on a call is the record's error type, such as `dns_error`. On a failed TLS setup it is `tls_untrusted_by_app` (the app refused the certificate), `plain_http` (plain HTTP on the TLS port), `tls_version` (only TLS versions the proxy does not take) or `tls_handshake_failed`.
 

@@ -129,6 +129,12 @@ ledger:                                 # the evidence ledger; the values shown 
     maxRecords: 65536                   # or sooner, at this many records
   instance: { env: POD_NAME }           # optional; left out, the name is random per run
 
+records:                                # how every record is built, before its hash
+  transform:                            # steps run on every record, in order
+    - labels:                           # resource labels every exporter sends; a later step wins
+        deployment.environment.name: prod
+        service.instance.id: { env: POD_NAME }
+
 exporters:                              # one or more; each gets the same records and spans
   - otlp:                               # plain HTTP
       endpoint: http://otel-collector.observability:4318
@@ -136,8 +142,6 @@ exporters:                              # one or more; each gets the same record
       logInterval: 15s
       traceInterval: 15s
       # h2c: true                       # HTTP/2 without TLS, when the collector takes it
-      resource:                         # labels on everything this exporter sends
-        deployment.environment.name: prod
   - otlp:                               # TLS, a login token and a client certificate
       endpoint: https://otel.example.com:4318/otlp
       headers:

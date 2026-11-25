@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"encoding/json/v2"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // lineWriter writes one call line. The tokens are always well formed and a
@@ -34,10 +36,12 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 	w.put(
 		jsontext.BeginObject,
 		jsontext.String("time"), jsontext.String(timeText(c.At)),
+		jsontext.String("observed_time"), jsontext.String(timeText(c.Observed)),
 		jsontext.String("severity"), jsontext.String(level(c.Attrs).String()),
 		jsontext.String("event"), jsontext.String(c.event()),
 		jsontext.String("trace_id"), jsontext.String(c.Trace.TraceID().String()),
 		jsontext.String("span_id"), jsontext.String(c.Trace.SpanID().String()),
+		jsontext.String("flags"), jsontext.String(flagsText(recordFlags(c.Trace))),
 	)
 	if c.Body != "" {
 		w.put(jsontext.String("body"), jsontext.String(c.Body))
@@ -51,31 +55,38 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 	}
 	w.put(jsontext.String(TraceSpans), jsontext.BeginArray)
 	for _, s := range c.Spans {
-		w.span(s)
+		w.span(c.Trace, s)
 	}
 	// The encoder ends the value with a line break.
 	w.put(jsontext.EndArray, jsontext.EndObject, jsontext.EndObject)
 }
 
-// appendBatchLine writes a ledger batch record as a line of flat JSON: its
-// time, its event and its attributes.
-func appendBatchLine(buf *bytes.Buffer, resource []attribute.KeyValue, at time.Time, attrs []attribute.KeyValue) {
+// appendBatchLine writes a ledger batch or drop record as a line of flat
+// JSON: its times, level, event, resource and attributes, every field its
+// signature covers.
+func appendBatchLine(buf *bytes.Buffer, resource []attribute.KeyValue, b Batch) {
 	w := lineWriter{jsontext.NewEncoder(buf, jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))}
 	w.put(
 		jsontext.BeginObject,
-		jsontext.String("time"), jsontext.String(timeText(at)),
-		jsontext.String("severity"), jsontext.String("INFO"),
-		jsontext.String("event"), jsontext.String(BatchEvent),
+		jsontext.String("time"), jsontext.String(timeText(b.At)),
+		jsontext.String("observed_time"), jsontext.String(timeText(b.Observed)),
+		jsontext.String("severity"), jsontext.String(b.Severity.String()),
+		jsontext.String("event"), jsontext.String(b.Event),
 		jsontext.String("resource"),
 	)
 	w.object(resource)
 	w.put(jsontext.String("attributes"))
-	w.object(attrs)
+	w.object(b.Attrs)
 	w.put(jsontext.EndObject)
 }
 
-// span writes one step of the call. The trace ID is the line's own.
-func (w lineWriter) span(s Span) {
+// flagsText is a record's trace flags as two hex digits, as the trace
+// header writes them.
+func flagsText(flags uint32) string { return fmt.Sprintf("%02x", flags) }
+
+// span writes one step of the call, in the trace sc, which is the line's
+// own.
+func (w lineWriter) span(sc trace.SpanContext, s Span) {
 	parent := jsontext.Null
 	if s.Parent.IsValid() {
 		parent = jsontext.String(s.Parent.String())
@@ -89,6 +100,7 @@ func (w lineWriter) span(s Span) {
 		jsontext.String("start_time"), jsontext.String(timeText(s.Start)),
 		jsontext.String("end_time"), jsontext.String(timeText(s.End)),
 		jsontext.String("status"), jsontext.String(s.Status.String()),
+		jsontext.String("flags"), jsontext.Uint(uint64(s.flags(sc))),
 		jsontext.String("attributes"),
 	)
 	w.object(s.Attrs)
@@ -98,6 +110,7 @@ func (w lineWriter) span(s Span) {
 			w.put(jsontext.BeginObject,
 				jsontext.String("trace_id"), jsontext.String(link.TraceID().String()),
 				jsontext.String("span_id"), jsontext.String(link.SpanID().String()),
+				jsontext.String("flags"), jsontext.Uint(uint64(linkFlags(link))),
 				jsontext.EndObject)
 		}
 		w.put(jsontext.EndArray)

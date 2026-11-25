@@ -146,6 +146,14 @@ Feature: The code still follows the decision log
       When the app sends GET /orders with "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
       Then the record's trace_id is 4bf92f3577b34da6a3ce929d0e0e4736 and its flags are 01
 
+    Scenario: ledger. Every field of a record is covered by its hash
+      The list of covered fields is closed: a field the proxy starts to send
+      fails here until the hash covers it (Peter, 2026-11-25).
+      Given the shop spec
+      When the app sends GET /orders
+      Then every LogRecord field the receiver got is one the record's hash covers, in a scope named hotline-proxy
+      And the hash checks out when rebuilt from the record alone
+
     Scenario: ledger. verify passes on the folder a file exporter wrote
       Given the proxy's clock is a test clock, so a wait of minutes passes at once
       And a file exporter writing to the folder calls

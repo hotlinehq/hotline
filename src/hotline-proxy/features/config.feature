@@ -123,9 +123,11 @@ Feature: Loading the config file
       | an exporter's compression is neither gzip nor none   |
       | an exporter sets h2c on an https:// endpoint         |
       | an exporter's h2c is neither true nor false          |
-      | an exporter's resource sets service.version          |
-      | an exporter's resource has the name "my label"       |
-      | an exporter's resource environment variable is not set |
+      | an exporter sets a resource                          |
+      | a records labels step sets service.version           |
+      | a records labels step has the name "my label"        |
+      | a records labels environment variable is not set     |
+      | a records transform step is not labels               |
       | two integrations have the same ID                    |
       | one integration names two apis with the same host    |
       | an integration names an api that is not in apis      |

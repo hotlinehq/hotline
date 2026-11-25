@@ -141,6 +141,8 @@ func (w *world) changeConfig(change string) error {
 		w.adminAddr = w.ports.take()
 	case "there is one more exporter":
 		w.downEndpoints = append(w.downEndpoints, "http://"+w.ports.take())
+	case "the records labels change":
+		w.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
 	case "the tls part is added":
 		cert := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
 		w.writeKeyPair(cert, cert)

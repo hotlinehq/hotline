@@ -69,6 +69,8 @@ type Config struct {
 	Digest string
 	// Ledger is how records are grouped into signed batches.
 	Ledger Ledger
+	// Records says how the proxy builds every record, before its hash.
+	Records Records
 	// Files are every file the load read or tried to read, each as it was
 	// just before the load read it (nil when it was not there), so the
 	// proxy can tell when one changes, even during the load. A refused
@@ -126,6 +128,17 @@ func (c *Config) Integration(id string) *Integration {
 // is outside its apis.
 func (i *Integration) API(host string) *API {
 	return i.APIs[strings.ToLower(host)]
+}
+
+// Records says how the proxy builds every record: the transform steps it
+// runs on each one, in order, before the record's hash (Peter,
+// 2026-11-25). It changes only on a restart, like the exporters.
+type Records struct {
+	// Labels are the resource labels of the labels steps, a later step
+	// winning over an earlier one for the same name. Every exporter sends
+	// them, on top of the proxy's own. They may change service.name and
+	// service.instance.id, never service.version.
+	Labels map[string]string
 }
 
 // Ledger is how records are grouped into signed batches (Peter,
@@ -209,8 +222,9 @@ type Exporter struct {
 	// sent. Both also go sooner once a batch of them waits.
 	LogInterval   time.Duration
 	TraceInterval time.Duration
-	// Resource are labels that describe where the proxy runs, sent to this
-	// exporter only. They may change service.name and
+	// Resource are labels that describe where the proxy runs, for the
+	// telemetry section's exporter only: a record exporter sends the
+	// records section's labels. They may change service.name and
 	// service.instance.id, never service.version.
 	Resource map[string]string
 }
@@ -289,6 +303,11 @@ type file struct {
 		} `yaml:"batch"`
 		Instance *secret `yaml:"instance"`
 	} `yaml:"ledger"`
+	Records struct {
+		// Transform are the steps, each one kind of step by its name.
+		// Labels is the only kind for now; new kinds are new names.
+		Transform []map[string]yaml.Node `yaml:"transform"`
+	} `yaml:"records"`
 }
 
 // fileExporterFile is one file exporter as the config writes it.
@@ -467,6 +486,9 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		case kinds > 1:
 			l.problem("an exporter is only one of otlp, file or console")
 		case e.OTLP != nil:
+			if len(e.OTLP.Resource) > 0 {
+				l.problem("exporter %s: resource is no longer set per exporter: use records.transform labels", e.OTLP.Endpoint)
+			}
 			c.Exporters = append(c.Exporters, l.exporter(*e.OTLP, now))
 		case e.File != nil:
 			c.FileExporters = append(c.FileExporters, l.fileExporter(*e.File, c.FileExporters))
@@ -476,6 +498,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			l.problem("an exporter must be otlp, file or console")
 		}
 	}
+	c.Records = l.records(f.Records.Transform)
 	c.Telemetry = l.telemetry(f.Telemetry, now)
 	if f.Telemetry != nil && f.Telemetry.Pprof {
 		c.Pprof = true
@@ -694,19 +717,6 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 	for _, name := range slices.Sorted(maps.Keys(f.Headers)) {
 		e.Headers[name] = l.secret(label+": header "+name, f.Headers[name])
 	}
-	for _, name := range slices.Sorted(maps.Keys(f.Resource)) {
-		switch {
-		case name == "service.version":
-			l.problem("%s: resource: service.version is the proxy's own and cannot be set", label)
-		case !resourceName.MatchString(name):
-			l.problem("%s: resource: the name %q may only hold letters, digits, dots and underscores", label, name)
-		default:
-			if e.Resource == nil {
-				e.Resource = map[string]string{}
-			}
-			e.Resource[name] = l.secret(label+": resource "+name, f.Resource[name])
-		}
-	}
 	if t := f.TLS; t != nil {
 		if e.URL != nil && e.URL.Scheme != "https" {
 			l.problem("%s: tls needs an https:// endpoint", label)
@@ -725,6 +735,45 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 		}
 	}
 	return e
+}
+
+// records reads the records section's transform steps. Each step is one
+// kind of step; labels is the only kind for now.
+func (l *loader) records(steps []map[string]yaml.Node) Records {
+	var r Records
+	for _, step := range steps {
+		node, isLabels := step["labels"]
+		if len(step) != 1 || !isLabels {
+			l.problem("records.transform: each step is labels, with the resource labels to set")
+			continue
+		}
+		var labels map[string]secret
+		if err := node.Decode(&labels); err != nil {
+			l.problem("records.transform labels: %v", err)
+			continue
+		}
+		if r.Labels == nil {
+			r.Labels = map[string]string{}
+		}
+		// A later step sets a name again on top of an earlier one.
+		l.labels("records.transform labels", labels, r.Labels)
+	}
+	return r
+}
+
+// labels reads resource labels into into, refusing service.version, which
+// is the proxy's own, and names that are not plain.
+func (l *loader) labels(label string, f map[string]secret, into map[string]string) {
+	for _, name := range slices.Sorted(maps.Keys(f)) {
+		switch {
+		case name == "service.version":
+			l.problem("%s: service.version is the proxy's own and cannot be set", label)
+		case !resourceName.MatchString(name):
+			l.problem("%s: the name %q may only hold letters, digits, dots and underscores", label, name)
+		default:
+			into[name] = l.secret(label+" "+name, f[name])
+		}
+	}
 }
 
 // resourceName is what a resource label's name may hold.
