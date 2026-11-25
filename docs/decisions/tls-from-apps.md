@@ -14,3 +14,8 @@ Full wording in [docs/proxy-tls-from-apps.md](../proxy-tls-from-apps.md).
 8. No record field for it; the proxy's own health data says it once. Changed 2026-10-29: the TLS setup time is recorded as `hotline.timing.app_tls_us`.
 9. A missing, broken, mismatched or expired certificate stops the proxy at start. A failed app TLS setup is a debug log line and, later, a count in health data. *The count is `hotline.app_tls.failures` (proxy telemetry 5).*
 10. The warning before the proxy's own certificate expires comes with the health data. *Done as `hotline.certificate.not_after` (proxy telemetry 5).*
+
+## Tripwires (2026-11-25)
+
+- Confirmation: every TLS setting in `src/hotline-proxy` asks for TLS 1.2 at least (`MinVersion: tls.VersionTLS12`), and none lists ciphers.
+- Revisit if a customer needs client certificates, or a rule such as FIPS asks for a chosen list of ciphers.

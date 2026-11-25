@@ -13,3 +13,8 @@ Scope, spike and numbers: [docs/otlp-encoder-scope.md](../otlp-encoder-scope.md)
 9. One pull request for the encoder, the sender, `h2c` and the removal of gRPC.
 10. No gRPC: the proxy sends only over HTTP, for records, spans and counts. The `protocol` setting is gone, endpoints must be `http://` or `https://` URLs, and old configs get no special handling: a leftover `protocol` is warned about and ignored. grpc-go is still in the program through the OpenTelemetry metrics HTTP exporter and the official OTLP types.
 11. Every text of a record and its trace is valid UTF-8 (found by fuzzing, 2026-11-18). OTLP text must be UTF-8, and a collector refuses a whole send that holds anything else, so a vendor header with one stray byte lost every record in the send. Before the ledger hashes a record, each byte that is not UTF-8 becomes the replacement character, `U+FFFD`, so the hash, the file lines and the OTLP send all hold the same text.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: no code in `src/hotline-proxy` imports `google.golang.org/grpc`.
+- Revisit if the OpenTelemetry Go log and trace exporters reach the same processor time on the small call, or a customer's collector takes only gRPC.

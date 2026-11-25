@@ -10,3 +10,8 @@ Full wording in [docs/proxy-transparent.md](../proxy-transparent.md).
 4. Nothing unread is relayed except the `passthrough` and `ech.relay` lists.
 5. New contract: optional `proxy.Options.OriginalDestination func(net.Conn) (netip.AddrPort, error)`, approved by Peter on 2026-11-08.
 6. The real firewall redirect is tested by one `@e2e` scenario that is skipped where the test cannot change the firewall.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: one `@e2e` scenario tests the real firewall redirect, and is skipped where the test cannot change the firewall.
+- Revisit if curl or Chrome do not retry without ECH, so their calls fail on this listener.

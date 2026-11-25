@@ -17,3 +17,8 @@ Full wording in [docs/proxy-connect.md](../proxy-connect.md). Why: a proxy deplo
 11. Plain HTTP inside a tunnel is allowed, handled like a forward proxy `http` call.
 
 Found while building: Go's client offers HTTP/2 to an `https` proxy address and then speaks HTTP/1.1, so the proxy sets up TLS with apps itself and picks the HTTP version from the app's first bytes.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: host certificates live 24 hours (`leafLife` in `connect.go`) and are never written to disk; a tunnel's bytes are relayed unread only for hosts on a `passthrough` list.
+- Revisit if an app pins certificates and cannot use `NO_PROXY`, or the host certificates kept in memory grow large because apps call many hosts.

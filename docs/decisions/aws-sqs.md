@@ -9,3 +9,8 @@ Full wording in [docs/proxy-aws.md](../proxy-aws.md).
 5. The test uses a signed request fixture made once; Hotline never depends on the AWS SDK.
 6. AWS headers to record are marked in our SQS spec; the default header list is unchanged. No patterns in `hosts`.
 7. The setup guide recommends the forward proxy for AWS, with the app's HTTP client turning `https` into `http` after signing, says vendor URL in path can't work for signed hosts, and warns about `NO_PROXY` and VPC endpoints.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: in `src/hotline-proxy`, the word `Authorization` appears in code only in the list of fields never sent after a body (`internal/forward/forward.go`) and in a spec's login for redaction (`internal/spec/compile.go`); nothing reads the header's value.
+- Revisit if an AWS service, or a VPC endpoint, cannot be reached through the forward proxy, so apps would need the proxy to sign calls itself.

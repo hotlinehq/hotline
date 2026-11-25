@@ -10,3 +10,8 @@ Full wording in [docs/proxy-config-reload.md](../proxy-config-reload.md).
 4. Live: integrations, apis, specs, overlays, keys, trace settings, certificates. Restart: listen addresses, adding or removing listen.tls or listen.connect, exporters (Envoy's split).
 5. `hotline.config.version` = config file name + `+` + first 12 hex of a SHA-256 over the config, specs and overlays (not keys or certificates).
 6. A failed reload is a warning in the log, and counted in the proxy's own telemetry (since 2026-10-31).
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `cmd/main.go` checks the files every 5 seconds (`checkEvery`) and reloads at once on SIGHUP, through one reload path for every file.
+- Revisit if a change must take effect in under 5 seconds, or the check every 5 seconds shows up in a profile, or exporters need to change without a restart.

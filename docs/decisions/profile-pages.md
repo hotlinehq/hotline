@@ -10,3 +10,8 @@ Full wording in [features/profile-pages.feature](../../src/hotline-proxy/feature
 4. Changing it needs a restart (`telemetry.pprof` shows in the restart-needed warning).
 5. The load test turns it on by writing it into the config it generates. The old `-tags loadprofile` build and `HOTLINE_LOAD_PPROF_ADDR` are gone.
 6. Sending profiles to a profile store (Pyroscope) is not part of the proxy. OpenTelemetry has no stable profiles signal in the Go SDK yet, no vendor library and no Grafana Alloy in the product: OpenTelemetry stays the facade, and a Collector (contrib) is the only middle piece if one is needed. The load test may upload its saved files by itself later.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: the profile pages are served only when `telemetry.pprof` is on, and the proxy then logs one warning (`serveAdmin` in `proxy.go`).
+- Revisit if the admin port gets a password or client certificates, or the OpenTelemetry Go SDK gets a stable profiles signal.

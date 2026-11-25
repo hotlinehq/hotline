@@ -16,3 +16,8 @@ Full wording in [docs/proxy-ledger.md](../proxy-ledger.md). Requirements, with t
 12. Each exporter keeps the records of a batch it dropped and adds them to that batch's record itself, so the ledger never matches exporters by their place in a list (Peter, 2026-11-16, over keying by endpoint, which two exporters may share).
 13. An empty last batch, sent when a reload removes an integration or at a clean stop, names the config of the chain's batch before it, not the config in use then (Peter, 2026-11-17, from the decomplect review).
 14. Later, with the control plane: the minute entry, the witness, the qualified time stamp, and secure hardware for the build hash.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `hotline-proxy verify` passes on the folder a file exporter wrote during a short run of the proxy.
+- Revisit if batches of 10 seconds are too slow for the control plane, a run often fills a batch at 65,536 records, or a customer needs a signing key that outlives one run.

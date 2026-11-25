@@ -5,3 +5,8 @@
 - No flaky tests: the rules (wait with `eventually` or `pause`, never `time.Sleep`; ports from `reservedPorts`; a test for every timing branch) and the log of flakes found are in [docs/flakes.md](../flakes.md) (Peter, 2026-11-24).
 - The test world picks new ports and starts the proxy again, up to three times, when a port it picked itself is taken (#139), as the end-to-end test does (#115).
 - The path probe's tests send a real ping on loopback, through the ICMP socket an ordinary user may open (#208). Linux allows it only for the groups in `net.ipv4.ping_group_range`: Docker allows every group, but GitHub's Ubuntu runner and a plain Linux machine allow none. The test and fuzz workflows set `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"` first; do the same before `make test` on Linux outside Docker. macOS needs nothing.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `make test` runs nothing under the race detector.
+- Revisit if a race reaches `main` that the nightly race job did not catch, or the test workflow gets fast enough to run the race detector on every pull request.

@@ -9,3 +9,8 @@ The files are in `examples/aws-shop/floci/`; how it works is in its README.
 5. The proxy also sends its records, counts and traces to **Grafana Cloud** when `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` are set. The workflow builds them from the same repository secrets and variable as the lint workflow (Peter, 2026-11-22: the probe must show in Grafana Cloud).
 6. The workflow `aws-shop-floci.yml` runs after every merge to main, and can still be started by hand (Peter, 2026-11-21; it started by hand only before, to save quota).
 7. The shop's `support` app (streamed responses, M2 Q6) runs only here, like the assistant: aimock 1.48.0 plays Anthropic's Messages api at `api.anthropic.com`, behind the same TLS front, so the run needs no Anthropic key. aimock's scripts are matched by the tool each app offers (`orderStatus`, `lookUpOrder`), since both apps ask about the same order. `run.sh` fails when the made-up Anthropic key is in a record or log, or when a stream record was cut or has a broken event (Peter, 2026-11-22, requirement 15).
+
+## Tripwires (2026-11-25)
+
+- Confirmation: the Floci image is pinned to one version in `up.sh`, and the workflow `aws-shop-floci.yml` starts only on a push to `main` or by hand.
+- Revisit if Floci answers differently from AWS in a way that hides a bug, or Floci stops being kept up, or AWS publishes a ready image of its own emulator.

@@ -9,3 +9,8 @@ Decided by Peter, 2026-11-09.
 - The repository is public. The workflow may start only on a push to `main` or by `workflow_dispatch`; never add `pull_request` or `pull_request_target` to a workflow that uses this runner. Settings: approval required for all outside collaborators, and the label is used by this workflow only.
 - Oracle may take back a machine whose processor, network and memory use all stay under 20% for 7 days. If the machine disappears, build a new one with the same steps.
 - First measurement on the new machine: run the workflow with `compare_with: main` on a copy of `main`. The spread it shows is the noise of this machine.
+
+## Tripwires (2026-11-25)
+
+- Confirmation: `load-test.yml` starts only on a push to `main` or by hand, has no concurrency group, and is the only workflow that uses `hotline-load`.
+- Revisit if Oracle takes the machine back more than once, runs wait in the queue for close to 24 hours, or the spread between two runs of the same build hides the changes we want to see.
