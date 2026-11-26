@@ -132,86 +132,56 @@ Feature: Multipart request bodies
       Then the record has no request results
 
   Rule: Under content full, the kept copy hides the file names the record hides
-    The copy of an upload body is kept byte for byte, apart from each part's
-    file name, which reads REDACTED unless the spec marks the file
-    x-hotline-redact false. The vendor still gets the bytes as sent, and
-    hotline.request.body.hash is still theirs. A copy that was changed is
-    flagged and has a hash of its own, which verify checks it against
-    (Peter, 2026-11-26, Q1 to Q3). Each ~ in a body is a carriage return and
-    a line feed.
+    The copy keeps each part's content as sent, with each file name
+    REDACTED unless the spec marks the file x-hotline-redact false. The
+    parts are written again, so their headers are sorted and the text before
+    the first part and after the last is left out. The vendor still gets the bytes as
+    sent, and hotline.request.body.hash is still theirs. The copy has a hash
+    of its own, which verify checks it against (Peter, 2026-11-26, Q1 to Q3,
+    and Go's reader and writer chosen for their far smaller code). Each ~ in
+    a body is a carriage return and a line feed.
 
     Scenario: The copy hides the file name, and the vendor gets the bytes as sent
       Given the OpenAI audio spec from specs, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe&language=en"
       Then the vendor got the upload byte for byte
-      And the line's request body is the upload with the file name REDACTED
+      And the line's request body holds the upload's parts, with the file name REDACTED
       And the line has hotline.content.request.body.redacted true
       And no line holds "meeting-with-jane"
       And the record lists the file part file: 4096 bytes of audio/mpeg named REDACTED
 
-    Scenario: An encoded file name is hidden too
-      Given the OpenAI audio spec from specs, with content full and a file exporter
-      When the app posts to OpenAI's /v1/audio/transcriptions the body "--b~Content-Disposition: form-data; name=file; filename*=UTF-8''jane%20memo.mp3~Content-Type: audio/mpeg~~abc~--b~Content-Disposition: form-data; name=model~~whisper-1~--b--" as "multipart/form-data; boundary=b"
-      Then the line's request body holds "filename*=UTF-8''REDACTED"
-      And no line holds "jane"
-
     Scenario Outline: A file name written in any way RFC 2231 and RFC 7578 allow is hidden
-      A header folded onto a second line is too unsure to hide in place, so
-      the copy stops before its part.
       Given the OpenAI audio spec from specs, with content full and a file exporter
       When the app posts to OpenAI's /v1/audio/transcriptions the body "--b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: <disposition>~~abc~--b--" as "multipart/form-data; boundary=b"
-      Then no line holds "janedoe"
-      And no line holds "doe.mp3"
+      Then the line's request body is "--b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; filename=REDACTED; name=file~~abc~--b--~"
+      And no line holds "jane"
 
       Examples:
         | disposition                                                        |
         | form-data; name=file; filename="janedoe.mp3"                       |
         | form-data; name=file; FILENAME=janedoe.mp3                         |
         | form-data; name=file; filename="jane\"doe.mp3"                     |
+        | form-data; name=file; filename*=UTF-8''jane%20doe.mp3              |
         | form-data; name=file; filename*0="jane"; filename*1="doe.mp3"      |
         | form-data; name=file; filename*0*=UTF-8''jane; filename*1*=doe.mp3 |
         | form-data; name=file;~ filename=janedoe.mp3                        |
-
-    Scenario: A part whose headers end in bare line feeds stops the copy
-      Go's multipart reader, which many vendors use, ends headers at a line
-      feed alone and so finds a part the proxy does not; the fuzzer found
-      it. The copy stops before such a part.
-      Given the OpenAI audio spec from specs, with content full and a file exporter
-      When the app posts to OpenAI's /v1/audio/transcriptions the body "--b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; name=prompt\n\n--b~Content-Disposition: form-data; name=file; filename=janedoe.mp3~~abc~--b--" as "multipart/form-data; boundary=b"
-      Then the line's request body is "--b~Content-Disposition: form-data; name=model~~whisper-1"
-      And no line holds "janedoe"
-
-    Scenario Outline: The copy keeps what can be read, and hides each file name in it
-      An empty copy means no request body is kept.
-      Given the OpenAI audio spec from specs, with content full and a file exporter
-      When the app posts to OpenAI's /v1/audio/transcriptions the body "<body>" as "<type>"
-      Then the line's request body is "<copy>"
-      And no line holds "jane"
-
-      Examples:
-        | type                            | body                                                                                                            | copy                                                                                                                 |
-        | multipart/form-data             | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                                     |                                                                                                                      |
-        | multipart/form-data; boundary=b | no boundary comes, jane.mp3                                                                                     |                                                                                                                      |
-        | multipart/form-data; boundary=b | --b x~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                                   |                                                                                                                      |
-        | multipart/form-data; boundary=b | --b~Content-Disposition: attachment; name=file; filename=jane.mp3~~abc~--b--                                    |                                                                                                                      |
-        | multipart/form-data; boundary=b | a preamble~--b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                          | a preamble~--b~Content-Disposition: form-data; name=file; filename="REDACTED"~~abc~--b--                             |
-        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc                                           | --b~Content-Disposition: form-data; name=file; filename="REDACTED"~~abc                                              |
-        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename= "jane.mp3"~~abc~--b--                                  | --b~Content-Disposition: form-data; name=file; filename= "REDACTED"~~abc~--b--                                       |
-        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3 ; size=3~~abc~--b--                            | --b~Content-Disposition: form-data; name=file; filename="REDACTED" ; size=3~~abc~--b--                               |
-        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~Content-Disposition: form-data; filename="jane~~abc~--b-- | --b~Content-Disposition: form-data; name=file; filename="REDACTED"~Content-Disposition: form-data; filename="REDACTED"~~abc~--b-- |
+        | form-data; name=file; filename= "janedoe.mp3"                      |
+        | form-data; name=file; filename*=ISO-8859-2''jane.mp3               |
+        | form-data; name=file; filename*=UTF-8''jane%ZZ.mp3                 |
+        | form-data; name=file; filename*1="jane.mp3"                        |
 
     Scenario: A spec that shows the file name keeps it in the copy
       Given the OpenAI audio spec from specs, with the file property marked x-hotline-redact false, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe"
-      Then the line's request body is the upload as sent
+      Then the line's request body holds the upload's parts, with the file name as sent
       And the line has no hotline.content.request.body.redacted
 
     Scenario: With no spec every file name is hidden
       Given OpenAI with no spec, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe"
-      Then the line's request body is the upload with the file name REDACTED
+      Then the line's request body holds the upload's parts, with the file name REDACTED
 
-    Scenario: Verify checks a hidden copy against its own hash
+    Scenario: Verify checks the copy against its own hash
       Given the OpenAI audio spec from specs, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe"
       And hotline-proxy is stopped
@@ -219,7 +189,7 @@ Feature: Multipart request bodies
       Then it exits with 0
       And it prints that 2 kept bodies match their hash
 
-    Scenario: Verify finds a hidden copy changed after it was saved
+    Scenario: Verify finds a copy changed after it was saved
       Given the OpenAI audio spec from specs, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe"
       And hotline-proxy is stopped
@@ -238,13 +208,35 @@ Feature: Multipart request bodies
       And the line has hotline.content.request.body.truncated true
       And it prints that 2 kept bodies match their hash
 
-    Scenario: A broken body's copy stops before the part it can't read
+    Scenario Outline: A part that can't be read ends the copy, which is flagged truncated
+      An empty copy means no request body is kept.
       Given the OpenAI audio spec from specs, with content full and a file exporter
-      When the app posts to OpenAI's /v1/audio/transcriptions the body "--b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; name=file; filename=jane.mp3~Content-Type audio/mpeg" as "multipart/form-data; boundary=b"
-      Then the line's request body is "--b~Content-Disposition: form-data; name=model~~whisper-1"
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "<body>" as "<type>"
+      Then the line's request body is "<copy>"
       And the line has hotline.content.request.body.truncated true
-      And the line has no hotline.content.request.body.redacted
       And no line holds "jane"
+
+      Examples:
+        | type                            | body                                                                                                                                 | copy                                                                                     |
+        | multipart/form-data             | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                                                          |                                                                                          |
+        | multipart/form-data; boundary=b | no boundary comes, jane.mp3                                                                                                          |                                                                                          |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; name=file; filename=jane.mp3~Content-Type audio/mpeg | --b~Content-Disposition: form-data; name=model~~whisper-1                                |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; name="file; filename=jane.mp3~~abc~--b-- | --b~Content-Disposition: form-data; name=model~~whisper-1                                |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc                                                                | --b~Content-Disposition: form-data; filename=REDACTED; name=file~~abc                    |
+        | multipart/form-data; boundary=b | --b--old~--b~Content-Disposition: form-data; name=model~~whisper-1~--b~Content-Disposition: form-data; name=file; filename=jane.mp3 | --b~Content-Disposition: form-data; name=model~~whisper-1                                |
+
+    Scenario: A body whose lines end in line feeds alone is read whole
+      Go's multipart reader, which many vendors use, reads such a body.
+      Given the OpenAI audio spec from specs, with content full and a file exporter
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "--b\nContent-Disposition: form-data; name=file; filename=jane.mp3\n\nabc\n--b--\n" as "multipart/form-data; boundary=b"
+      Then the line's request body is "--b~Content-Disposition: form-data; filename=REDACTED; name=file~~abc~--b--~"
+      And the line has no hotline.content.request.body.truncated
+
+    Scenario: The text around the parts is left out of the copy
+      Given the OpenAI audio spec from specs, with content full and a file exporter
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "a preamble~--b~Content-Disposition: form-data; name=model~~whisper-1~--b--~an epilogue" as "multipart/form-data; boundary=b"
+      Then the line's request body is "--b~Content-Disposition: form-data; name=model~~whisper-1~--b--~"
+      And the line has no hotline.content.request.body.truncated
 
   Rule: Stripe's file upload is checked from Stripe's whole spec
 

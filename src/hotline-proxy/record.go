@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"mime"
 	"net"
@@ -238,8 +239,9 @@ func (c *call) withBodies(full []attribute.KeyValue, request savedCopy) []attrib
 
 // savedCopy is the copy of a body content: full keeps. cut says it holds
 // less than the body that passed, and redacted that file names in it were
-// hidden. changed says it is not the bytes that passed, which a copy cut
-// at maxBodySize still is, so it has a hash of its own.
+// hidden. changed says it is not the bytes that passed, as an upload's copy
+// written again by Go's multipart writer is not, so it has a hash of its
+// own; a copy only cut at maxBodySize is still the bytes that passed.
 type savedCopy struct {
 	data                   []byte
 	cut, redacted, changed bool
@@ -259,7 +261,7 @@ func (c *call) keptRequest() savedCopy {
 		api = c.api.Spec
 	}
 	hidden, redacted, shortened := hideFileNames(data, contentType, api.FileNameShown(c.specRoute(), contentType))
-	return savedCopy{data: hidden, cut: cut || shortened, redacted: redacted, changed: redacted || shortened}
+	return savedCopy{data: hidden, cut: cut || shortened, redacted: redacted, changed: !bytes.Equal(hidden, data)}
 }
 
 // copyHash is the hash of a copy of the request body that is no longer the

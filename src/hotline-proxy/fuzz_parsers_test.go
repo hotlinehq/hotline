@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"io"
 	"mime/multipart"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,12 +239,17 @@ func FuzzFormParts(f *testing.F) {
 	})
 }
 
+// fileNameValue finds each value given to a parameter whose name holds
+// filename, as a careless reader would.
+var fileNameValue = regexp.MustCompile(`filename[^=;]*=\s*"?([^";]*)`)
+
 // FuzzHideFileNames checks that the copy content: full keeps of an upload
 // holds no file name but REDACTED, read as Go's multipart reader, which many
-// vendors use, reads it.
+// vendors use, reads it, and in the words of each part's header.
 func FuzzHideFileNames(f *testing.F) {
 	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=file; filename=\"jane.mp3\"\r\n\r\nabc\r\n--b--"))
 	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=file; filename*0*=UTF-8''ja; filename*1*=ne\r\n\r\nabc\r\n--b--"))
+	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=file; filename*=ISO-8859-2''jane\r\n\r\nabc\r\n--b--"))
 	f.Add([]byte("x\r\n--b \r\nContent-Disposition: form-data; name=a\r\n\r\n\r\n--b\r\nContent-Disposition: form-data; name=file;\r\n filename=jane\r\n\r\n--b--"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		start := time.Now()
@@ -258,6 +265,14 @@ func FuzzHideFileNames(f *testing.F) {
 			}
 			if name := part.FileName(); name != "" && name != redactedName {
 				t.Fatalf("the copy %q holds the file name %q", hidden, name)
+			}
+			// A file name Go can't decode reads as none, so the header's
+			// own words are checked too.
+			words := strings.ToLower(strings.Join(part.Header.Values("Content-Disposition"), ";"))
+			for _, value := range fileNameValue.FindAllStringSubmatch(words, -1) {
+				if value[1] != "redacted" {
+					t.Fatalf("the copy %q holds a file name in %q", hidden, words)
+				}
 			}
 		}
 	})

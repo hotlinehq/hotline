@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -202,16 +201,26 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the line's request body is the upload (with the file name REDACTED|as sent)$`, func(how string) error {
-		want := u.sent
-		if how != "as sent" {
-			hidden := regexp.MustCompile(`filename="[^"]*"`).ReplaceAll(u.sent, []byte(`filename="REDACTED"`))
-			if bytes.Equal(hidden, u.sent) {
-				return failf("the upload holds no file name to hide")
-			}
-			want = hidden
+	sc.Step(`^the line's request body holds the upload's parts, with the file name (REDACTED|as sent)$`, func(how string) error {
+		attrs, err := w.lineAttrs()
+		if err != nil {
+			return err
 		}
-		return w.lineBody("hotline.content.request.body", string(want))
+		kept, err := base64.StdEncoding.DecodeString(sprint(attrs["hotline.content.request.body"]))
+		if err != nil {
+			return failf("the line's request body is not base64")
+		}
+		boundary, _, _ := bytes.Cut(bytes.TrimPrefix(u.sent, []byte("--")), []byte("\r\n"))
+		want, got := partsOf(u.sent, string(boundary)), partsOf(kept, string(boundary))
+		for i := range want {
+			if how == "REDACTED" && want[i].fileName != "" {
+				want[i].fileName = "REDACTED"
+			}
+		}
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			return failf("the copy's parts are %v, want %v", got, want)
+		}
+		return nil
 	})
 	sc.Step(`^the line's request body is "(.*)"$`, func(written string) error {
 		if written == "" {
@@ -286,6 +295,27 @@ func (w *world) upload(u *upload, vendor, path string, body *multipartBody) erro
 		target, login = "https://files.stripe.com"+path, stripeLogin
 	}
 	return w.post(target, body.w.FormDataContentType(), string(u.sent), login)
+}
+
+// sentPart is a part of a multipart body as Go's reader reads it.
+type sentPart struct {
+	name, fileName string
+	content        []byte
+}
+
+// partsOf reads a multipart body's parts with Go's reader, as far as it
+// can.
+func partsOf(body []byte, boundary string) []sentPart {
+	var parts []sentPart
+	r := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := r.NextRawPart()
+		if err != nil {
+			return parts
+		}
+		content, _ := io.ReadAll(part)
+		parts = append(parts, sentPart{name: part.FormName(), fileName: part.FileName(), content: content})
+	}
 }
 
 // keepInFull is the integration's lines for content full, cut at limit
