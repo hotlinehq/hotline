@@ -213,7 +213,17 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return w.lineBody("hotline.content.request.body", string(want))
 	})
-	sc.Step(`^the line's request body is "([^"]*)"$`, func(written string) error {
+	sc.Step(`^the line's request body is "(.*)"$`, func(written string) error {
+		if written == "" {
+			attrs, err := w.lineAttrs()
+			if err != nil {
+				return err
+			}
+			if body, kept := attrs["hotline.content.request.body"]; kept {
+				return failf("the line keeps the request body %v, want none", body)
+			}
+			return nil
+		}
 		return w.lineBody("hotline.content.request.body", strings.ReplaceAll(written, "~", "\r\n"))
 	})
 	sc.Step(`^no line holds "([^"]*)"$`, func(text string) error {

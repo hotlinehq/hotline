@@ -181,6 +181,25 @@ Feature: Multipart request bodies
       Then the line's request body is "--b~Content-Disposition: form-data; name=model~~whisper-1"
       And no line holds "janedoe"
 
+    Scenario Outline: The copy keeps what can be read, and hides each file name in it
+      An empty copy means no request body is kept.
+      Given the OpenAI audio spec from specs, with content full and a file exporter
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "<body>" as "<type>"
+      Then the line's request body is "<copy>"
+      And no line holds "jane"
+
+      Examples:
+        | type                            | body                                                                                                            | copy                                                                                                                 |
+        | multipart/form-data             | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                                     |                                                                                                                      |
+        | multipart/form-data; boundary=b | no boundary comes, jane.mp3                                                                                     |                                                                                                                      |
+        | multipart/form-data; boundary=b | --b x~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                                   |                                                                                                                      |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: attachment; name=file; filename=jane.mp3~~abc~--b--                                    |                                                                                                                      |
+        | multipart/form-data; boundary=b | a preamble~--b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc~--b--                          | a preamble~--b~Content-Disposition: form-data; name=file; filename="REDACTED"~~abc~--b--                             |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~~abc                                           | --b~Content-Disposition: form-data; name=file; filename="REDACTED"~~abc                                              |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename= "jane.mp3"~~abc~--b--                                  | --b~Content-Disposition: form-data; name=file; filename= "REDACTED"~~abc~--b--                                       |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3 ; size=3~~abc~--b--                            | --b~Content-Disposition: form-data; name=file; filename="REDACTED" ; size=3~~abc~--b--                               |
+        | multipart/form-data; boundary=b | --b~Content-Disposition: form-data; name=file; filename=jane.mp3~Content-Disposition: form-data; filename="jane~~abc~--b-- | --b~Content-Disposition: form-data; name=file; filename="REDACTED"~Content-Disposition: form-data; filename="REDACTED"~~abc~--b-- |
+
     Scenario: A spec that shows the file name keeps it in the copy
       Given the OpenAI audio spec from specs, with the file property marked x-hotline-redact false, with content full and a file exporter
       When the app uploads 4 KiB of audio/mpeg named "meeting-with-jane.mp3" to OpenAI's /v1/audio/transcriptions with the text parts "model=gpt-4o-transcribe"

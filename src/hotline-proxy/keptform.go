@@ -107,21 +107,17 @@ func (f *formCopy) hide(from, to int) bool {
 		return false
 	}
 	_, params, ok := readPartHeaders(block)
-	if !ok {
-		return false
-	}
-	if params["filename"] == "" || f.shown(params["name"]) {
-		return true
+	if !ok || f.shown(params["name"]) {
+		return ok
 	}
 	var edits []edit
+	folded := false
 	for start := 0; start < len(block); {
 		end := start + bytes.Index(block[start:], []byte("\r\n"))
 		line := block[start:end]
-		if line[0] == ' ' || line[0] == '\t' {
-			// A header folded onto a second line: rare, and too unsure
-			// to hide in place.
-			return false
-		}
+		// A header folded onto a second line is rare, and too unsure to
+		// hide in place.
+		folded = folded || line[0] == ' ' || line[0] == '\t'
 		header, _, _ := strings.Cut(string(line), ":")
 		if strings.EqualFold(strings.TrimSpace(header), "Content-Disposition") {
 			edits = append(edits, fileNameEdits(line, from+start)...)
@@ -137,11 +133,12 @@ func (f *formCopy) hide(from, to int) bool {
 		last = e.to
 	}
 	after = append(after, f.kept[last:to]...)
-	if _, params, ok := readPartHeaders(after); !ok || params["filename"] != redactedName {
-		return false
+	_, params, ok = readPartHeaders(after)
+	sure := ok && !folded && (params["filename"] == "" || params["filename"] == redactedName)
+	if sure {
+		f.edits = append(f.edits, edits...)
 	}
-	f.edits = append(f.edits, edits...)
-	return true
+	return sure
 }
 
 // redactedName is what the copy says in place of a file name.
@@ -230,10 +227,8 @@ func hiddenValue(attribute string) (with string, ok bool) {
 func (f *formCopy) write(end int) []byte {
 	hidden := make([]byte, 0, end)
 	last := 0
+	// Every edit is in a part the copy keeps, before end.
 	for _, e := range f.edits {
-		if e.to > end {
-			break
-		}
 		hidden = append(append(hidden, f.kept[last:e.from]...), e.with...)
 		last = e.to
 	}
