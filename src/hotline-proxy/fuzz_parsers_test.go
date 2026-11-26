@@ -236,3 +236,29 @@ func FuzzFormParts(f *testing.F) {
 		}
 	})
 }
+
+// FuzzHideFileNames checks that the copy content: full keeps of an upload
+// holds no file name but REDACTED, read as Go's multipart reader, which many
+// vendors use, reads it.
+func FuzzHideFileNames(f *testing.F) {
+	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=file; filename=\"jane.mp3\"\r\n\r\nabc\r\n--b--"))
+	f.Add([]byte("--b\r\nContent-Disposition: form-data; name=file; filename*0*=UTF-8''ja; filename*1*=ne\r\n\r\nabc\r\n--b--"))
+	f.Add([]byte("x\r\n--b \r\nContent-Disposition: form-data; name=a\r\n\r\n\r\n--b\r\nContent-Disposition: form-data; name=file;\r\n filename=jane\r\n\r\n--b--"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		start := time.Now()
+		hidden, _, _ := hideFileNames(data, "multipart/form-data; boundary=b", func(string) bool { return false })
+		if took := time.Since(start); took > parseWait {
+			t.Fatalf("hiding the file names took %v", took)
+		}
+		r := multipart.NewReader(bytes.NewReader(hidden), "b")
+		for {
+			part, err := r.NextPart()
+			if err != nil {
+				return
+			}
+			if name := part.FileName(); name != "" && name != redactedName {
+				t.Fatalf("the copy %q holds the file name %q", hidden, name)
+			}
+		}
+	})
+}

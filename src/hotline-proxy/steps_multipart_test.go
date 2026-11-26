@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -49,22 +50,28 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 			_, _ = rw.Write([]byte(body))
 		})
 	}
-	sc.Step(`^the OpenAI audio spec from specs(, with the file property marked x-hotline-redact false|, with content full and a file exporter)?$`, func(with string) error {
+	sc.Step(`^the OpenAI audio spec from specs(, with the file property marked x-hotline-redact false)?(, with content full(?: up to (\d+) bytes)? and a file exporter)?$`, func(marked, full, limit string) error {
 		path, extra := openAIAudioSpec, ""
-		switch with {
-		case ", with the file property marked x-hotline-redact false":
-			marked, err := markFileShown(w.dir)
+		if marked != "" {
+			shown, err := markFileShown(w.dir)
 			if err != nil {
 				return err
 			}
-			path = marked
-		case ", with content full and a file exporter":
-			extra = "    content: full\n"
-			w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+			path = shown
+		}
+		if full != "" {
+			extra = w.keepInFull(limit)
 		}
 		if err := w.useRepositorySpec("api.openai.com", path, http.StatusOK, "application/json", `{"text":"Hello."}`, extra); err != nil {
 			return err
 		}
+		answer("api.openai.com", "application/json", `{"text":"Hello."}`)
+		return nil
+	})
+	sc.Step(`^OpenAI with no spec, with content full and a file exporter$`, func() error {
+		// The integration's only api is another vendor's, so OpenAI's
+		// calls pass with no spec.
+		w.addIntegration(integration("talon-shop-a", w.talonAPI("")) + w.keepInFull(""))
 		answer("api.openai.com", "application/json", `{"text":"Hello."}`)
 		return nil
 	})
@@ -131,8 +138,9 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		mixed := "multipart/mixed; boundary=" + body.w.Boundary()
 		return w.post("https://api.openai.com"+path, mixed, string(u.sent), openAILogin)
 	})
-	sc.Step(`^the app posts to OpenAI's (/\S+) the body "([^"]*)" as "([^"]*)"$`, func(path, written, contentType string) error {
-		body := strings.ReplaceAll(written, "~", "\r\n")
+	sc.Step(`^the app posts to OpenAI's (/\S+) the body "(.*)" as "([^"]*)"$`, func(path, written, contentType string) error {
+		// A \n written in the body is a line feed alone.
+		body := strings.ReplaceAll(strings.ReplaceAll(written, "~", "\r\n"), `\n`, "\n")
 		u.sent = []byte(body)
 		return w.post("https://api.openai.com"+path, contentType, body, openAILogin)
 	})
@@ -194,6 +202,57 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^the line's request body is the upload (with the file name REDACTED|as sent)$`, func(how string) error {
+		want := u.sent
+		if how != "as sent" {
+			hidden := regexp.MustCompile(`filename="[^"]*"`).ReplaceAll(u.sent, []byte(`filename="REDACTED"`))
+			if bytes.Equal(hidden, u.sent) {
+				return failf("the upload holds no file name to hide")
+			}
+			want = hidden
+		}
+		return w.lineBody("hotline.content.request.body", string(want))
+	})
+	sc.Step(`^the line's request body is "([^"]*)"$`, func(written string) error {
+		return w.lineBody("hotline.content.request.body", strings.ReplaceAll(written, "~", "\r\n"))
+	})
+	sc.Step(`^no line holds "([^"]*)"$`, func(text string) error {
+		lines, err := w.allFileLines(0)
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			attrs, _ := line["attributes"].(map[string]any)
+			for key, value := range attrs {
+				written := sprint(value)
+				if strings.HasSuffix(key, ".body") {
+					decoded, _ := base64.StdEncoding.DecodeString(written)
+					written = string(decoded)
+				}
+				if strings.Contains(written, text) {
+					return failf("the line's %s holds %q", key, text)
+				}
+			}
+		}
+		return nil
+	})
+	sc.Step(`^a byte of the line's request body is changed$`, func() error {
+		path := filepath.Join(w.files[0].path, "calls.jsonl")
+		data, err := os.ReadFile(path) //nolint:gosec // the scenario's own folder
+		if err != nil {
+			return err
+		}
+		key := []byte(`"hotline.content.request.body":"`)
+		at := bytes.Index(data, key)
+		if at < 0 {
+			return failf("calls.jsonl keeps no request body")
+		}
+		// The first base64 letter turns into another, so the body decodes
+		// to other bytes.
+		at += len(key)
+		data[at] = map[bool]byte{true: 'B', false: 'A'}[data[at] == 'A']
+		return os.WriteFile(path, data, 0o600) //nolint:gosec // the scenario's own folder
+	})
 	sc.Step(`^the line's request body holds "([^"]*)"$`, func(text string) error {
 		attrs, err := w.lineAttrs()
 		if err != nil {
@@ -217,6 +276,17 @@ func (w *world) upload(u *upload, vendor, path string, body *multipartBody) erro
 		target, login = "https://files.stripe.com"+path, stripeLogin
 	}
 	return w.post(target, body.w.FormDataContentType(), string(u.sent), login)
+}
+
+// keepInFull is the integration's lines for content full, cut at limit
+// bytes when one is given, with a file exporter writing to calls.
+func (w *world) keepInFull(limit string) string {
+	w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+	extra := "    content: full\n"
+	if limit != "" {
+		extra += "    maxBodySize: " + limit + "\n"
+	}
+	return extra
 }
 
 // markFileShown copies the OpenAI audio spec into dir with its audio file

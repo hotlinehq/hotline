@@ -358,14 +358,20 @@ func savedBodies() []savedBody {
 }
 
 // checkKeptBody checks a body content: full kept in the line against the
-// record's hash of that body, unless it was cut short.
+// record's hash of that body, unless it was cut short. A copy that is not
+// the bytes that passed, as file names were hidden in it, has a hash of its
+// own, which it is checked against instead, cut short or not (Peter,
+// 2026-11-26).
 func (v *verifier) checkKeptBody(r *lineRecord, body savedBody, at finding) {
 	side := body.side
 	saved, found := r.attrs["hotline.content."+side+".body"].(string)
 	if !found {
 		return
 	}
-	if cut, _ := r.attrs["hotline.content."+side+".body.truncated"].(bool); cut {
+	hashSide, hashAttribute := side, body.hashAttribute
+	if _, own := r.attrs["hotline.content."+side+".body.hash"]; own {
+		hashSide, hashAttribute = side+copySide, "hotline.content."+side+".body.hash"
+	} else if cut, _ := r.attrs["hotline.content."+side+".body.truncated"].(bool); cut {
 		v.cut++
 		note := at
 		note.Code, note.Message = "body_not_checked", "the "+side+" body kept with the record with span id "+safe(r.spanID)+" was cut short and could not be checked"
@@ -373,7 +379,7 @@ func (v *verifier) checkKeptBody(r *lineRecord, body savedBody, at finding) {
 		return
 	}
 	decoded, err := base64.StdEncoding.DecodeString(saved)
-	if err == nil && bodyHashOf(side, r.traceID, r.spanID, decoded) == r.text(body.hashAttribute) {
+	if err == nil && bodyHashOf(hashSide, r.traceID, r.spanID, decoded) == r.text(hashAttribute) {
 		v.matched++
 		return
 	}

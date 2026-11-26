@@ -213,12 +213,10 @@ func (r *partReader) headers(p []byte) []byte {
 	return p[end+4-before:]
 }
 
-// start begins a part from its headers. A part must say it is form data
-// and give its name (RFC 7578).
+// start begins a part from its headers.
 func (r *partReader) start(block []byte) {
-	header, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(append(block, '\r', '\n')))).ReadMIMEHeader()
-	disposition, params, dispositionErr := mime.ParseMediaType(header.Get("Content-Disposition"))
-	if err != nil || dispositionErr != nil || disposition != "form-data" || params["name"] == "" || len(r.text)+len(r.files) == maxParts {
+	header, params, ok := readPartHeaders(block)
+	if !ok || len(r.text)+len(r.files) == maxParts {
 		r.state = broken
 		return
 	}
@@ -233,6 +231,20 @@ func (r *partReader) start(block []byte) {
 	r.current = &(*list)[len(*list)-1]
 	r.state = inContent
 	r.expectDelimiterNext()
+}
+
+// readPartHeaders reads a part's headers, block, each line with its line
+// break, and the parameters of its Content-Disposition. A part must say it
+// is form data and give its name (RFC 7578); ok is false when it does not,
+// or the headers can't be read. The check and the copy content: full keeps
+// both read the headers here, so they find the same parts.
+func readPartHeaders(block []byte) (header textproto.MIMEHeader, params map[string]string, ok bool) {
+	header, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(append(block[:len(block):len(block)], '\r', '\n')))).ReadMIMEHeader()
+	disposition, params, dispositionErr := mime.ParseMediaType(header.Get("Content-Disposition"))
+	if err != nil || dispositionErr != nil || disposition != "form-data" || params["name"] == "" {
+		return nil, nil, false
+	}
+	return header, params, true
 }
 
 // expectDelimiterNext reads on as if the line break that starts a delimiter

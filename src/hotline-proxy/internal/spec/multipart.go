@@ -97,15 +97,28 @@ func (s *Spec) RecordFiles(found Route, contentType string, files []FormPart) []
 	if rules == nil || len(files) == 0 {
 		return nil
 	}
+	shown := s.FileNameShown(found, contentType)
 	recorded := make([]RecordedFile, len(files))
 	for i, f := range files {
 		name := redacted
-		if rules.files[propertyOf(f.Name)].showName {
+		if shown(f.Name) {
 			name = f.FileName
 		}
 		recorded[i] = RecordedFile{Name: f.Name, FileName: name, ContentType: f.ContentType, Size: f.Size}
 	}
 	return recorded
+}
+
+// FileNameShown says, by a part's name, whether the file name it gives may
+// be shown, in the record and in the copy content: full keeps: only when the
+// spec marks its file property x-hotline-redact false (Peter, 2026-11-24,
+// Q4, and 2026-11-26). With no spec, or no multipart content on the route,
+// no file name is shown. s may be nil, for a call with no spec.
+func (s *Spec) FileNameShown(found Route, contentType string) func(partName string) bool {
+	rules := found.partRules(contentType)
+	return func(partName string) bool {
+		return rules != nil && rules.files[propertyOf(partName)].showName
+	}
 }
 
 // partRules are the rules of the route's multipart/form-data content, for
