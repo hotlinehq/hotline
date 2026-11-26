@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       compare_with:
-        description: 'Branch or tag to measure against in turn (for example main). Empty: just measure the picked branch.'
+        description: 'Full commit id (40 characters) to measure against in turn, for example the commit main is on now. Empty: just measure the picked branch.'
         required: false
         default: ''
         type: string
@@ -47,6 +47,22 @@ jobs:
     runs-on: [self-hosted, linux, arm64, hotline-load]
     timeout-minutes: 90
     steps:
+      # A run can wait hours in the queue for the one load machine, and a
+      # branch name would be read only when the job starts, after the branch
+      # may have moved: run 97 compared a fix with itself that way. So only a
+      # commit id is taken, fixed when the run is started (Peter, 2026-11-26).
+      - name: check the commit to compare with
+        if: ${{ inputs.compare_with != '' }}
+        shell: bash
+        env:
+          COMPARE_WITH: ${{ inputs.compare_with }}
+        run: |
+          if ! [[ "$COMPARE_WITH" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "compare_with must be a full commit id (40 characters), not a branch or tag name: got '$COMPARE_WITH'."
+            echo "A name is read only when the job starts, so it can move while the run waits. Find the id with: git rev-parse origin/main"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
@@ -101,10 +117,24 @@ jobs:
           ref: ${{ inputs.compare_with }}
           path: base
 
+      # Both sides the same proxy code would measure only noise, as run 97
+      # did. The tree id of src/hotline-proxy says so whatever else differs.
+      - name: refuse to compare a build with itself
+        if: ${{ inputs.compare_with != '' }}
+        run: |
+          measured=$(git rev-parse HEAD:src/hotline-proxy)
+          compared=$(git -C base rev-parse HEAD:src/hotline-proxy)
+          if [ "$measured" = "$compared" ]; then
+            echo "both sides have the same src/hotline-proxy (commits ${GITHUB_SHA} and $(git -C base rev-parse HEAD)); nothing to compare."
+            exit 1
+          fi
+
       - name: run the load test against the other build in turn
         if: ${{ inputs.compare_with != '' }}
         env:
-          BASE_LABEL: ${{ inputs.compare_with }}
+          BASE_LABEL: base
+          BASE_COMMIT: ${{ inputs.compare_with }}
+          CAND_COMMIT: ${{ github.sha }}
           K6_PROMETHEUS_RW_SERVER_URL: ${{ secrets.K6_PROMETHEUS_RW_SERVER_URL }}
           K6_PROMETHEUS_RW_USERNAME: ${{ secrets.K6_PROMETHEUS_RW_USERNAME }}
           K6_PROMETHEUS_RW_PASSWORD: ${{ secrets.K6_PROMETHEUS_RW_PASSWORD }}
@@ -120,11 +150,14 @@ jobs:
       # What the numbers were measured on, next to them.
       - name: note the commit and the computer
         if: always()
+        env:
+          COMPARE_WITH: ${{ inputs.compare_with }}
         run: |
           mkdir -p load/results
           {
             echo "commit: ${GITHUB_SHA}"
             echo "ref: ${GITHUB_REF}"
+            if [ -n "$COMPARE_WITH" ]; then echo "compare with: ${COMPARE_WITH}"; fi
             echo "run: ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}"
             echo "processor cores: $(nproc)"
             echo "processor: $(lscpu | grep -m1 'Model name' | sed 's/.*: *//')"

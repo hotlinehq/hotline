@@ -92,6 +92,9 @@ Feature: The code still follows the decision log
       Then the workflow load-test.yml starts only on a push to main or by hand
       And the workflow load-test.yml has no concurrency group
       And only the workflow load-test.yml names the runner "hotline-load"
+      And the file .github/workflows/load-test.yml holds "=~ ^[0-9a-f]{40}$ ]]"
+      And the file .github/workflows/load-test.yml holds "HEAD:src/hotline-proxy"
+      And the file Makefile holds "small-json 20000 $(SSM_SPEC)"
 
     Scenario: floci-example. Floci is pinned and its workflow starts only on main or by hand
       Then the file examples/aws-shop/floci/up.sh matches "floci/floci:\d+\.\d+\.\d+"
