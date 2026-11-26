@@ -1298,15 +1298,7 @@ func checkSigned(r receivedRecord) error {
 	if err != nil {
 		return err
 	}
-	key, _ := certificate.PublicKey.(ed25519.PublicKey)
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.signature"]), "ed25519:"))
-	if err != nil {
-		return err
-	}
-	if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, digest[:], signature) {
-		return failf("the hotline.batch.signature does not check out with its key")
-	}
-	return nil
+	return checkSignature(certificate, sprint(r.attrs["hotline.batch.signature"]), digest[:])
 }
 
 // certificateOf is the certificate a batch record carries, read from the

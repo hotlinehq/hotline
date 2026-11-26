@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -49,6 +50,9 @@ type VerifyOptions struct {
 	Body, Span, Side string
 	// JSON prints one JSON object in place of plain lines.
 	JSON bool
+	// RootAuthorities are files of root authority certificates, in PEM,
+	// trusted beside the computer's own (Peter, 2026-11-26).
+	RootAuthorities []string
 }
 
 // Verify checks the records a file exporter wrote, with nothing but the
@@ -58,7 +62,10 @@ type VerifyOptions struct {
 // problem, 2 when it could not read its input.
 func Verify(out io.Writer, o VerifyOptions) int {
 	v := &verifier{o: o}
-	err := v.read()
+	err := v.trust()
+	if err == nil {
+		err = v.read()
+	}
 	if err == nil {
 		v.check()
 	}
@@ -79,7 +86,10 @@ func Verify(out io.Writer, o VerifyOptions) int {
 }
 
 type verifier struct {
-	o       VerifyOptions
+	o VerifyOptions
+	// roots are the root authorities trusted: the computer's own and those
+	// the person gave.
+	roots   *x509.CertPool
 	records []*lineRecord
 	batches []*lineBatch
 	// exporter is the exporter this copy is from: the one most of its
@@ -147,6 +157,9 @@ type lineBatch struct {
 	id    string
 	// records are the records found that name the batch, by their index.
 	records map[int64]*lineRecord
+	// signing is how the batch was signed, selfSigned or rootAuthority, and
+	// root names the root authority its authorities lead to.
+	signing, root string
 }
 
 func (b *lineBatch) text(name string) string {
@@ -166,17 +179,72 @@ func (b *lineBatch) number(name string) (int64, bool) {
 // verifiedRun is one run of one integration's chain: its batches in
 // sequence order.
 type verifiedRun struct {
-	Integration   string   `json:"integration"`
-	Instance      string   `json:"instance"`
-	Run           *string  `json:"run"`
-	FirstSequence int64    `json:"first_sequence"`
-	LastSequence  int64    `json:"last_sequence"`
-	Batches       int      `json:"batches"`
-	Records       int      `json:"records"`
-	CleanStop     bool     `json:"clean_stop"`
-	StoppedAt     *string  `json:"stopped_at"`
-	Notes         []string `json:"notes"`
-	batches       []*lineBatch
+	Integration   string  `json:"integration"`
+	Instance      string  `json:"instance"`
+	Run           *string `json:"run"`
+	FirstSequence int64   `json:"first_sequence"`
+	LastSequence  int64   `json:"last_sequence"`
+	Batches       int     `json:"batches"`
+	Records       int     `json:"records"`
+	CleanStop     bool    `json:"clean_stop"`
+	StoppedAt     *string `json:"stopped_at"`
+	// BatchSigning is how the run's batches were signed: self_signed,
+	// root_authority, or both when a reload changed it, and
+	// RootAuthorities names the roots they lead to (Peter, 2026-11-26).
+	BatchSigning    string   `json:"batch_signing"`
+	RootAuthorities []string `json:"root_authorities"`
+	Notes           []string `json:"notes"`
+	batches         []*lineBatch
+}
+
+// How a batch was signed, as the report says it.
+const (
+	selfSigned    = "self_signed"
+	rootAuthority = "root_authority"
+	bothSignings  = "both"
+)
+
+// signingOf is how batches were signed, said once for all of them, and the
+// root authorities they lead to, sorted. It is empty when no batch's
+// signing checked out.
+func signingOf(batches []*lineBatch) (string, []string) {
+	kinds, roots := map[string]bool{}, []string{}
+	for _, b := range batches {
+		if b.signing == "" {
+			continue
+		}
+		kinds[b.signing] = true
+		if b.root != "" && !slices.Contains(roots, b.root) {
+			roots = append(roots, b.root)
+		}
+	}
+	slices.Sort(roots)
+	switch {
+	case kinds[selfSigned] && kinds[rootAuthority]:
+		return bothSignings, roots
+	case kinds[rootAuthority]:
+		return rootAuthority, roots
+	case kinds[selfSigned]:
+		return selfSigned, roots
+	}
+	return "", roots
+}
+
+// trust reads the root authorities the person gave, beside the computer's
+// own.
+func (v *verifier) trust() error {
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	for _, path := range v.o.RootAuthorities {
+		data, err := os.ReadFile(filepath.Clean(path))
+		if err != nil || !roots.AppendCertsFromPEM(data) {
+			return fmt.Errorf("%w: the root authority %s cannot be read as PEM certificates", errUnreadable, path)
+		}
+	}
+	v.roots = roots
+	return nil
 }
 
 // read reads every file of the folder, the rotated ones first, oldest
@@ -485,21 +553,26 @@ func (v *verifier) checkBatch(b *lineBatch) {
 	}
 }
 
-// checkCertificate checks the batch record's certificate: that it is for
-// an Ed25519 key and signed by that key itself, that the batch record's
-// signature checks out with its key, that it names the service the batch
-// record does, and that the batch was closed within the key's hour
-// (Peter, 2026-11-26).
+// checkCertificate checks the batch record's certificate: that it can be
+// read, that the batch record's signature checks out with its key, that it
+// is not an authority itself, that it names the service the batch record
+// does, and that the batch was closed within the key's hour (Peter,
+// 2026-11-26). A certificate signed by its own key is self-signed; any
+// other must lead, through the batch's authorities, to a trusted root
+// authority (Peter, 2026-11-26).
 func (v *verifier) checkCertificate(b *lineBatch, name string) {
-	certificate, err := ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs)))
+	signed, err := ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs)))
+	certificate := signed.Certificate
 	service, _ := b.read.Resource["service.name"].(string)
 	switch {
 	case errors.Is(err, vault.ErrNotACertificate):
 		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " cannot be read"}, b)
-	case errors.Is(err, vault.ErrNotSelfSigned):
-		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " is not signed by its own key"}, b)
+	case len(signed.Authorities) == 0 && !vault.SelfSigned(certificate):
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " is not signed by its own key, and the batch record names no authority that signed it"}, b)
 	case err != nil:
 		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
+	case certificate.IsCA:
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " is a certificate authority, which a batch's own certificate never is"}, b)
 	case certificate.Subject.CommonName != service:
 		v.problem(finding{Code: "batch_certificate_invalid",
 			Message: fmt.Sprintf("the certificate of %s names the service %s, and the batch record %s", name, safe(certificate.Subject.CommonName), safe(service))}, b)
@@ -507,7 +580,54 @@ func (v *verifier) checkCertificate(b *lineBatch, name string) {
 		v.problem(finding{Code: "batch_outside_certificate",
 			Message: fmt.Sprintf("%s was closed outside its certificate's hour, at %s, and the certificate is valid from %s to %s", name,
 				b.at.UTC().Format(time.RFC3339), certificate.NotBefore.UTC().Format(time.RFC3339), certificate.NotAfter.UTC().Format(time.RFC3339))}, b)
+	case len(signed.Authorities) == 0:
+		b.signing = selfSigned
+	default:
+		v.checkAuthorities(b, name, signed)
 	}
+}
+
+// checkAuthorities checks that each certificate of a batch is signed by
+// the authority after it, then that the last one leads to a trusted root
+// authority, each valid when the batch was closed. Each link is checked
+// first, as Go's own check says the same for a broken link and an unknown
+// root.
+func (v *verifier) checkAuthorities(b *lineBatch, name string, signed ledger.SignedBy) {
+	chain := append([]*x509.Certificate{signed.Certificate}, signed.Authorities...)
+	intermediates := x509.NewCertPool()
+	for i, authority := range signed.Authorities {
+		if chain[i].CheckSignatureFrom(authority) != nil {
+			v.problem(finding{Code: "batch_authority_unlinked",
+				Message: fmt.Sprintf("the authorities of %s do not link up: certificate %d is not signed by the authority after it, %s", name, i+1, safe(authority.Subject.CommonName))}, b)
+			return
+		}
+		if !authority.IsCA {
+			v.problem(finding{Code: "batch_authority_unlinked",
+				Message: fmt.Sprintf("the authorities of %s do not link up: %s is not a certificate authority", name, safe(authority.Subject.CommonName))}, b)
+			return
+		}
+		intermediates.AddCert(authority)
+	}
+	for _, authority := range signed.Authorities {
+		if b.at.Before(authority.NotBefore) || b.at.After(authority.NotAfter) {
+			v.problem(finding{Code: "batch_outside_authority",
+				Message: fmt.Sprintf("%s was closed at %s, outside the time its authority %s is valid, from %s to %s", name, b.at.UTC().Format(time.RFC3339),
+					safe(authority.Subject.CommonName), authority.NotBefore.UTC().Format(time.RFC3339), authority.NotAfter.UTC().Format(time.RFC3339))}, b)
+			return
+		}
+	}
+	chains, err := signed.Certificate.Verify(x509.VerifyOptions{
+		Roots: v.roots, Intermediates: intermediates, CurrentTime: b.at, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	if err != nil {
+		top := chain[len(chain)-1]
+		v.problem(finding{Code: "batch_authority_untrusted",
+			Message: fmt.Sprintf("the authorities of %s lead to %s, which is not a trusted root authority: give its root with --root-authority", name, safe(top.Issuer.CommonName))}, b)
+		return
+	}
+	b.signing = rootAuthority
+	verified := chains[0]
+	b.root = verified[len(verified)-1].Subject.CommonName
 }
 
 // copyExporter is the exporter this copy is from: the one most of its
@@ -615,11 +735,13 @@ func (v *verifier) checkChains() {
 			run.Notes = append(run.Notes, "no_last_batch")
 			v.notes = append(v.notes, v.about(finding{Code: "no_last_batch", Message: "the run has no last batch: it crashed, or its end is missing"}, last))
 		}
-		// Every key is certified by the proxy itself for now, so nothing
-		// outside the folder vouches for it (Peter, 2026-11-26).
-		run.Notes = append(run.Notes, "key_self_certified")
-		v.notes = append(v.notes, v.about(finding{Code: "key_self_certified",
-			Message: "the run's batches are signed with keys whose certificates the proxy signed itself: nothing outside the folder vouches for them"}, last))
+		run.BatchSigning, run.RootAuthorities = signingOf(run.batches)
+		// A self-signed key is vouched for by nothing outside the folder.
+		if run.BatchSigning == selfSigned || run.BatchSigning == bothSignings {
+			run.Notes = append(run.Notes, "key_self_certified")
+			v.notes = append(v.notes, v.about(finding{Code: "key_self_certified",
+				Message: "the run's batches are signed with keys whose certificates the proxy signed itself: nothing outside the folder vouches for them"}, last))
+		}
 		v.runs = append(v.runs, run)
 	}
 }
@@ -659,6 +781,13 @@ func (v *verifier) printText(out io.Writer) {
 		}
 		w.printf("%s's %d records and their traces in %d batches check out (%s, sequence %d to %d); %s",
 			safe(run.Integration), run.Records, run.Batches, instance, run.FirstSequence, run.LastSequence, ending)
+		if len(run.RootAuthorities) > 0 {
+			roots := make([]string, len(run.RootAuthorities))
+			for i, r := range run.RootAuthorities {
+				roots[i] = safe(r)
+			}
+			w.printf("%s's batches lead to the root authority %s", safe(run.Integration), strings.Join(roots, ", "))
+		}
 	}
 	if v.exporter != "" {
 		w.printf("the folder is the copy of the exporter %s", safe(v.exporter))
@@ -716,13 +845,15 @@ func (v *verifier) printJSON(out io.Writer, code int) {
 		Format  string `json:"format"`
 		OK      bool   `json:"ok"`
 		Summary struct {
-			Exporter     string `json:"exporter,omitempty"`
-			Records      int    `json:"records"`
-			Batches      int    `json:"batches"`
-			Runs         int    `json:"runs"`
-			Problems     int    `json:"problems"`
-			KeptBodies   int    `json:"kept_bodies_matched"`
-			BodiesCutOff int    `json:"kept_bodies_cut_short"`
+			Exporter        string   `json:"exporter,omitempty"`
+			Records         int      `json:"records"`
+			Batches         int      `json:"batches"`
+			Runs            int      `json:"runs"`
+			Problems        int      `json:"problems"`
+			KeptBodies      int      `json:"kept_bodies_matched"`
+			BodiesCutOff    int      `json:"kept_bodies_cut_short"`
+			BatchSigning    string   `json:"batch_signing"`
+			RootAuthorities []string `json:"root_authorities"`
 		} `json:"summary"`
 		Runs     []*verifiedRun `json:"runs"`
 		Problems []finding      `json:"problems"`
@@ -733,6 +864,7 @@ func (v *verifier) printJSON(out io.Writer, code int) {
 	report.Summary.Records, report.Summary.Batches, report.Summary.Runs = len(v.records), len(v.batches), len(v.runs)
 	report.Summary.Problems = len(problems)
 	report.Summary.KeptBodies, report.Summary.BodiesCutOff = v.matched, v.cut
+	report.Summary.BatchSigning, report.Summary.RootAuthorities = signingOf(v.batches)
 	data, _ := json.Marshal(report) //nolint:errchkjson // plain strings, numbers and lists always encode
 	_, _ = out.Write(export.TerminalSafe(append(data, '\n')))
 }

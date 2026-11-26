@@ -242,5 +242,8 @@ func (p *Proxy) certificates() map[string]time.Time {
 			at[li.name+"."+li.signs] = li.signer.authority.get().Leaf.NotAfter
 		}
 	}
+	if signing := p.handler.cfg.Load().Ledger.Signing; signing.Authority != nil {
+		at["ledger.signing"] = signing.Authority.Certificate.Leaf.NotAfter
+	}
 	return at
 }

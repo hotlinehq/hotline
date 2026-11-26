@@ -27,6 +27,7 @@ import (
 	"hotline-proxy/internal/santhosh"
 	"hotline-proxy/internal/spec"
 	"hotline-proxy/internal/tracectx"
+	"hotline-proxy/internal/vault"
 )
 
 // ErrInvalid marks a config the proxy refuses.
@@ -148,6 +149,18 @@ type Ledger struct {
 	Every      time.Duration
 	MaxRecords int
 	Instance   string
+	Signing    Signing
+}
+
+// Signing is how batch records are signed (Peter, 2026-11-26): with an
+// hourly key of HourlyKeyType, Ed25519 unless set, whose certificate the
+// key signs itself, or Cert does when the config names one.
+type Signing struct {
+	HourlyKeyType string
+	// CertName is the name in certs of the authority, and Authority its
+	// certificates and key; both empty without one.
+	CertName  string
+	Authority *TLS
 }
 
 // Content says whether an integration's calls are kept in full, with every
@@ -302,6 +315,10 @@ type file struct {
 			MaxRecords *int    `yaml:"maxRecords"`
 		} `yaml:"batch"`
 		Instance *secret `yaml:"instance"`
+		Signing  struct {
+			HourlyKeyType *string `yaml:"hourlyKeyType"`
+			Cert          string  `yaml:"cert"`
+		} `yaml:"signing"`
 	} `yaml:"ledger"`
 	Records struct {
 		// Transform are the steps, each one kind of step by its name.
@@ -618,7 +635,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 		t = Trace{Format: tracectx.W3C}
 	}
 	c.notPassed = settle(notPassed, false, nil, t)
-	c.Ledger = l.ledger(f)
+	c.Ledger = l.ledger(f, c.Certs)
 	c.Files = l.read
 	c.Warnings = append(c.Warnings, l.warnings...)
 	if len(l.problems) > 0 {
@@ -631,7 +648,7 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 
 // ledger reads the ledger section: a batch every 10 seconds or at 65,536
 // records unless set (Peter, 2026-11-16).
-func (l *loader) ledger(f file) Ledger {
+func (l *loader) ledger(f file, certs map[string]*TLS) Ledger {
 	out := Ledger{
 		Every:      l.interval("ledger.batch", "every", f.Ledger.Batch.Every, 10*time.Second),
 		MaxRecords: 65_536,
@@ -645,6 +662,50 @@ func (l *loader) ledger(f file) Ledger {
 	if f.Ledger.Instance != nil {
 		out.Instance = l.secret("ledger: instance", *f.Ledger.Instance)
 	}
+	out.Signing = l.signing(f, certs)
+	return out
+}
+
+// signing reads ledger.signing: the type of the hourly keys, and the
+// authority in certs that signs their certificates, if any. The authority
+// must be one, and the certificates in its file must each be signed by the
+// next, so a batch's authorities link up.
+func (l *loader) signing(f file, certs map[string]*TLS) Signing {
+	written := f.Ledger.Signing
+	out := Signing{HourlyKeyType: vault.Ed25519, CertName: written.Cert}
+	if written.HourlyKeyType != nil {
+		out.HourlyKeyType = *written.HourlyKeyType
+		if !slices.Contains(vault.HourlyKeyTypes(), out.HourlyKeyType) {
+			l.problem("ledger.signing: hourlyKeyType %s is not one of %s", out.HourlyKeyType, strings.Join(vault.HourlyKeyTypes(), ", "))
+		}
+	}
+	if written.Cert == "" {
+		return out
+	}
+	t, known := certs[written.Cert]
+	switch {
+	case !known:
+		l.problem("ledger.signing names the cert %s, which is not in certs", written.Cert)
+		return out
+	case t == nil || t.Certificate == nil:
+		// The pair itself failed to load, which is already a problem.
+		return out
+	}
+	leaf := t.Certificate.Leaf
+	if !leaf.IsCA || leaf.KeyUsage != 0 && leaf.KeyUsage&x509.KeyUsageCertSign == 0 {
+		l.problem("ledger.signing: cert %s is not a certificate authority, so it cannot sign the hourly keys", written.Cert)
+		return out
+	}
+	chain := t.Certificate.Certificate
+	for i := 0; i+1 < len(chain); i++ {
+		below, errBelow := x509.ParseCertificate(chain[i])
+		above, errAbove := x509.ParseCertificate(chain[i+1])
+		if errBelow != nil || errAbove != nil || below.CheckSignatureFrom(above) != nil {
+			l.problem("ledger.signing: in cert %s, certificate %d is not signed by certificate %d after it, so the authorities do not link up", written.Cert, i+1, i+2)
+			return out
+		}
+	}
+	out.Authority = t
 	return out
 }
 

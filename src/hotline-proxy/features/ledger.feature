@@ -332,6 +332,24 @@ Feature: Records a third party can trust
       Then the batch record's hotline.batch.certificate is an X.509 certificate for an Ed25519 key, signed by that key
       And the batch record's certificate names the service hotline-proxy
       And it is valid from the proxy's start for one hour
+      And the batch record's certificate is not a certificate authority
+      And the batch record has no hotline.batch.authorities
+
+    Scenario Outline: The config can choose an ML-DSA key instead
+      ML-DSA is a signature that stays safe against a future quantum
+      computer. Ed25519 stays the default (Peter, 2026-11-26).
+      Given the config sets ledger signing hourlyKeyType <type>
+      When the app sends GET /orders
+      And 10 seconds pass
+      Then the batch record's hotline.batch.certificate is for an <key> key, signed by that key
+      And the batch record's hotline.batch.signature starts with <type>:
+      And hotline.batch.signature checks out with the key of hotline.batch.certificate
+
+      Examples:
+        | type      | key       |
+        | ml-dsa-44 | ML-DSA-44 |
+        | ml-dsa-65 | ML-DSA-65 |
+        | ml-dsa-87 | ML-DSA-87 |
 
     Scenario: The certificate names the service the labels give
       Given the records transform labels service.name shop-proxy
@@ -347,6 +365,84 @@ Feature: Records a third party can trust
       And 10 seconds pass
       Then the batches after it have a new hotline.batch.certificate
       And the chain goes on unbroken across the change
+
+  Rule: A certificate authority from certs can vouch for the hourly keys
+
+    A certificate authority is a key whose job is to vouch for other keys
+    by signing their certificates. With ledger.signing.cert, the authority
+    the config names in certs signs each hourly key's certificate. The
+    proxy still makes the keys itself, in memory (Peter, 2026-11-26).
+
+    Scenario Outline: The authority signs the hourly key's certificate
+      Given <authority>
+      And the config signs the hourly keys with the cert batches
+      When the app sends GET /orders
+      And 10 seconds pass
+      Then the batch record's certificate is signed by the batches authority
+      And the batch record's certificate names the service hotline-proxy
+      And it is valid from the proxy's start for one hour
+      And the batch record's certificate is not a certificate authority
+      And hotline.batch.authorities holds the batches authority's certificate<more>
+      And hotline.batch.signature checks out with the key of hotline.batch.certificate
+
+      Examples:
+        | authority                                                                | more             |
+        | an Ed25519 certificate authority named batches in certs                  |                  |
+        | an Ed25519 certificate authority named batches in certs, below a root authority | , then the root's |
+
+    Scenario Outline: A cert that cannot vouch for the keys stops the proxy
+      Given <cert>
+      And the config signs the hourly keys with the cert <name>
+      When the proxy loads the config
+      Then the config is refused with a message naming "ledger.signing" and "<message>"
+
+      Examples:
+        | cert                                                                                | name    | message                          |
+        | a certificate named batches in certs that is not a certificate authority            | batches | is not a certificate authority   |
+        | a certificate authority named batches in certs, followed by a root that did not sign it | batches | the authorities do not link up   |
+        | an Ed25519 certificate authority named batches in certs                             | nowhere | which is not in certs            |
+
+    Scenario: A key type the proxy does not make stops the proxy
+      Given the config sets ledger signing hourlyKeyType rsa
+      When the proxy loads the config
+      Then the config is refused with a message naming "hourlyKeyType rsa" and "ed25519, ml-dsa-44, ml-dsa-65, ml-dsa-87"
+
+    Scenario: A new authority at a reload vouches for a new key at once
+      So no batch is signed under an authority after it was replaced.
+      Given an Ed25519 certificate authority named batches in certs
+      And the config signs the hourly keys with the cert batches
+      When the app sends GET /orders
+      And 10 seconds pass
+      And the batches cert is replaced with another certificate authority and the config reloaded
+      And the app sends GET /orders
+      And 10 seconds pass
+      Then the next batch's certificate is new and signed by the new authority
+
+    Scenario: A reload with a cert that is not an authority keeps the old one
+      Given an Ed25519 certificate authority named batches in certs
+      And the config signs the hourly keys with the cert batches
+      When the app sends GET /orders
+      And 10 seconds pass
+      And the batches cert is replaced with a certificate that is not a certificate authority and the config reloaded
+      And the app sends GET /orders
+      And 10 seconds pass
+      Then the next batch's certificate is the same, signed by the first authority
+      And the proxy logs a warning that the reload failed, naming ledger.signing
+
+    Scenario: An authority that expires keeps signing, with a warning
+      As Envoy and HAProxy keep an expired certificate, the proxy keeps
+      signing, so no call goes unrecorded; verify refuses those batches
+      (Peter, 2026-11-26).
+      Given a fake OTLP receiver for the proxy's own telemetry
+      And a certificate authority named batches in certs that expires in half an hour
+      And the config signs the hourly keys with the cert batches
+      When the app sends GET /orders
+      And 10 seconds pass
+      And an hour passes on the proxy's clock
+      And the app sends GET /orders
+      And 10 seconds pass
+      Then the proxy logged a warning with "the ledger's signing authority has expired" and "cert=batches"
+      And hotline.certificate.not_after is the batches authority's expiry for hotline.certificate.use ledger.signing
 
   Rule: A run has a name, and a clean stop is marked
 

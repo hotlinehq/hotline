@@ -351,6 +351,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	var result verified
 	// changedSpan is the span id of the record a step changed.
 	var changedSpan string
+	signingSteps(sc, w, &result)
 	sc.Step(`^a file exporter writing to the folder calls$`, func() error {
 		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
 		if len(w.integrations) == 0 {
@@ -1044,6 +1045,8 @@ func (w *world) verifyOptions(command string) (proxy.VerifyOptions, error) {
 			}
 		case "--side":
 			o.Side, i = next, i+1
+		case "--root-authority":
+			o.RootAuthorities, i = append(o.RootAuthorities, filepath.Join(w.dir, next)), i+1
 		}
 	}
 	return o, nil

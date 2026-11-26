@@ -51,6 +51,9 @@ type Exporters struct {
 	// batches hold the ledger's batch records waiting for each
 	// exporter that takes records, the OTLP ones first, then the files.
 	batches []*batchLine
+	// signing counts the batches being signed, so a shutdown waits for
+	// them.
+	signing sync.WaitGroup
 	// resource is the resource every exporter sends, the same for all of
 	// them, as every record's hash covers it.
 	resource []attribute.KeyValue
@@ -437,7 +440,17 @@ func Level(attrs []attribute.KeyValue) log.Severity {
 // Shutdown sends what is still queued, within the time ctx allows.
 func (s *Exporters) Shutdown(ctx context.Context) error {
 	var errs []error
-	// The batch records go after the records they cover.
+	// Batch records still being signed are waited for, within the time
+	// allowed, then the batch records go after the records they cover.
+	signed := make(chan struct{})
+	go func() {
+		s.signing.Wait()
+		close(signed)
+	}()
+	select {
+	case <-signed:
+	case <-ctx.Done():
+	}
 	for _, b := range s.batches {
 		errs = append(errs, b.shutdown(ctx))
 	}

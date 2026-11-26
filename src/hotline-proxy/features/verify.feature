@@ -340,6 +340,111 @@ Feature: Checking records with hotline-proxy verify
         | record is signed again with a certificate naming the service another-proxy | the certificate of batch 0 names the service another-proxy, and the batch record hotline-proxy |
         | record is signed again with a certificate whose hour ended before it      | batch 0 was closed outside its certificate's hour                                         |
 
+  Rule: A batch signed under an authority must lead to a root authority you trust
+
+    A root authority is the top authority, which the person checking
+    chooses to trust. verify trusts the computer's public root authorities
+    and the ones given with --root-authority (Peter, 2026-11-26). It reports
+    no levels: a batch is self-signed, or leads to a root you trust. A team
+    that runs its own authority checks that the batches are theirs by giving
+    their root.
+
+    Scenario: Batches from the proxy's own keys are self-signed
+      Given the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --format json
+      Then it exits with 0
+      And the run's and the summary's batch_signing is self_signed
+      And the run or batch has the note key_self_certified
+
+    Scenario Outline: Batches under an authority lead to the root given
+      Given <authority>
+      And the config signs the hourly keys with the cert batches
+      And the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --root-authority root.pem --format json
+      Then it exits with 0
+      And the run's and the summary's batch_signing is root_authority and root_authorities names "<root>"
+      And the report has no note key_self_certified
+
+      Examples:
+        | authority                                                                       | root                         |
+        | an Ed25519 certificate authority named batches in certs                         | hotline test batch authority |
+        | an ECDSA P-256 certificate authority named batches in certs                     | hotline test batch authority |
+        | an RSA 2048 certificate authority named batches in certs                        | hotline test batch authority |
+        | an ML-DSA-65 certificate authority named batches in certs                       | hotline test batch authority |
+        | an Ed25519 certificate authority named batches in certs, below a root authority | hotline test root authority  |
+
+    Scenario: Without its root, an authority is not trusted
+      Given an Ed25519 certificate authority named batches in certs
+      And the config signs the hourly keys with the cert batches
+      And the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --format json
+      Then it exits with 1
+      And the problems hold one with code batch_authority_untrusted naming "give its root with --root-authority"
+
+    Scenario: A root authority file that cannot be read stops verify
+      Given the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --root-authority missing.pem
+      Then it exits with 2
+
+    Scenario: A batch closed after its authority expired is refused
+      Given a certificate authority named batches in certs that expires in half an hour
+      And the config signs the hourly keys with the cert batches
+      And the app sends GET /orders
+      And 10 seconds pass
+      And an hour passes on the proxy's clock
+      And the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --root-authority root.pem --format json
+      Then it exits with 1
+      And the problems hold one with code batch_outside_authority naming "outside the time its authority hotline test batch authority is valid"
+
+    Scenario: A run that gets an authority at a reload is both
+      Given the app sends GET /orders
+      And 10 seconds pass
+      And an Ed25519 certificate authority named batches in certs
+      And the signing config is set to the cert batches and reloaded
+      And the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --root-authority root.pem --format json
+      Then it exits with 0
+      And the run's and the summary's batch_signing is both and root_authorities names "hotline test batch authority"
+
+    Scenario Outline: A batch certificate made by hand that does not check out
+      Given the folder calls from a stopped proxy
+      When the first batch record is signed again by a key whose certificate <made>
+      And I run hotline-proxy verify calls --format json
+      Then it exits with 1
+      And the problems hold one with code <code> naming "<message>"
+
+      Examples:
+        | made                                                                          | code                     | message                           |
+        | claims to be a certificate authority                                          | batch_certificate_invalid | is a certificate authority       |
+        | an authority signed, with the authorities swapped for another authority's      | batch_authority_unlinked | do not link up                    |
+
+  Rule: verify checks every signature algorithm a batch record names
+
+    The proxy's own keys are Ed25519 or ML-DSA; another signer may use ECDSA
+    or RSA. These records are made by hand, as such a signer would write
+    them (Peter, 2026-11-26).
+
+    Scenario Outline: A signature of each algorithm checks out, and a changed one does not
+      Given the folder calls from a stopped proxy
+      When the first batch record is signed again by a <algorithm> key, its certificate signed by itself
+      And I run hotline-proxy verify calls --format json
+      Then it exits with 0
+      When one byte of the first batch record's signature is changed
+      And I run hotline-proxy verify calls --format json
+      Then it exits with 1
+      And ok is false and the problems hold one with code batch_signature_invalid, the batch, and the file and line where it was found
+
+      Examples:
+        | algorithm        |
+        | ed25519          |
+        | ecdsa-sha256     |
+        | rsa-pss-sha256   |
+        | rsa-pkcs1-sha256 |
+        | ml-dsa-44        |
+        | ml-dsa-65        |
+        | ml-dsa-87        |
+
   Rule: Bodies are checked against a record
 
     Scenario: A body the customer kept matches its record
