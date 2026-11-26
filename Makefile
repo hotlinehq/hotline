@@ -116,13 +116,21 @@ $(K6): load/k6ws/k6ws.go load/k6ws/go.mod load/go.mod $(wildcard load/live/*.go)
 # branch, three times over; nothing is averaged. The table at the end sets
 # every repeat side by side and gives the range of change. Each line of
 # LOAD_RUNS is a shape, a rate and the spec its calls are checked against.
+# The three small-json lines from 5000 a second push the proxy past what it
+# can handle, where some changes show and nowhere else (Peter, 2026-11-26).
+# compare.txt opens with the two commits measured: CAND_COMMIT is this
+# checkout (with -dirty when it has uncommitted changes), BASE_COMMIT the
+# other build, which the workflow names.
 BASE_LABEL ?= main
 CAND_LABEL ?= branch
+BASE_COMMIT ?= not given
+CAND_COMMIT ?= $(shell git describe --always --dirty --abbrev=40)
 SSM_SPEC = specs/aws/ssm/2014-11-06.openapi.yaml
 S3_SPEC = specs/aws/s3/2006-03-01.openapi.yaml
 OPENAI_AUDIO_SPEC = specs/openai/audio/2026-11-24.openapi.yaml
 LOAD_RUNS = "small-json 1000 $(SSM_SPEC)" "medium-json 400 $(SSM_SPEC)" "large-json 200 $(SSM_SPEC)" \
-	"large-json 500 $(SSM_SPEC)" "huge-json 50 $(SSM_SPEC)" "xml 500 $(S3_SPEC)"
+	"large-json 500 $(SSM_SPEC)" "huge-json 50 $(SSM_SPEC)" "xml 500 $(S3_SPEC)" \
+	"small-json 5000 $(SSM_SPEC)" "small-json 10000 $(SSM_SPEC)" "small-json 20000 $(SSM_SPEC)"
 .PHONY: load-compare
 load-compare:
 	test -n "$(BASE_PROXY)" || { echo "set BASE_PROXY to the built hotline-proxy of the build to compare with"; exit 1; }
@@ -136,7 +144,12 @@ load-compare:
 			load/out/load -proxy load/out/hotline-proxy -label $(CAND_LABEL) -spec $$3 -shape $$1 -rate $$2 -repeats 1 || exit 1; \
 		done; \
 	done
-	go run ./load/cmd/compare load/results | tee load/results/compare.txt
+	# Written to the file first, so a failed comparison fails make, not
+	# only the pipe's last command.
+	{ echo "measured ($(CAND_LABEL)): $(CAND_COMMIT)"; \
+	  echo "compared with ($(BASE_LABEL)): $(BASE_COMMIT)"; echo; \
+	  go run ./load/cmd/compare load/results; } > load/results/compare.txt; \
+	status=$$?; cat load/results/compare.txt; exit $$status
 
 clean-cache:
 	go clean -testcache

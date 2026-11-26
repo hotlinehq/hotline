@@ -33,11 +33,11 @@ A multipart upload, `multipart`, is an OpenAI transcription: a 300 KiB audio fil
 
 ## Judging a fix against main
 
-`make load-compare BASE_PROXY=<the built hotline-proxy of main>` runs one repeat of main and one of this checkout, taking turns, three times over for each of six lines (small 1000 a second, 30 KB at 400, 115 KB at 200 and 500, 500 KB at 50, XML at 500). Nothing is averaged. The table at the end (also in `load/results/compare.txt`) lists every repeat and gives the range of change of the branch against main: from its best repeat to its worst. If even the worst repeat is below main, the fix is real, not noise.
+`make load-compare BASE_PROXY=<the built hotline-proxy of main>` runs one repeat of main and one of this checkout, taking turns, three times over for each of nine lines (small 1000 a second, 30 KB at 400, 115 KB at 200 and 500, 500 KB at 50, XML at 500, and small at 5000, 10000 and 20000, past what the proxy can handle). `compare.txt` opens with the two commits measured; give the other one as `BASE_COMMIT=<commit id>`. The spread between one build's three repeats is the noise of the computer. Nothing is averaged. The table at the end (also in `load/results/compare.txt`) lists every repeat and gives the range of change of the branch against main: from its best repeat to its worst. If even the worst repeat is below main, the fix is real, not noise.
 
 Other lines can be given instead, for example only the uploads: `make load-compare BASE_PROXY=... LOAD_RUNS='"multipart 100 $(OPENAI_AUDIO_SPEC)" "multipart-long-prompt 50 $(OPENAI_AUDIO_SPEC)"'`.
 
-In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `compare_with` (for example `main`).
+In CI: Actions tab, "load test", Run workflow, pick the branch and fill in `compare_with` with a full commit id, for example the one `git rev-parse origin/main` prints. A branch name is refused: the run may wait hours for the load machine, and the branch could move meanwhile. A run whose two sides have the same proxy code stops before measuring.
 
 ## Keeping the proxy off the other programs' cores
 
