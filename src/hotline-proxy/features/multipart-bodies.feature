@@ -45,6 +45,14 @@ Feature: Multipart request bodies
       When the app posts to OpenAI's /v1/audio/transcriptions only the text parts "model=gpt-4o-transcribe"
       Then the request results are body $.file required
 
+    Scenario: An empty part whose boundary comes right after its headers is read as empty
+      Go's multipart reader, which many vendors use, reads the part as empty,
+      so the check must too. Each ~ in the body is a carriage return and a
+      line feed.
+      Given the OpenAI audio spec from specs
+      When the app posts to OpenAI's /v1/audio/transcriptions the body "--b~Content-Disposition: form-data; name=prompt~~--b~Content-Disposition: form-data; name=model~~whisper-1~--b--" as "multipart/form-data; boundary=b"
+      Then the request results are body $.file required
+
   Rule: A part the spec says is JSON is checked as JSON
     A property whose encoding lists a JSON type, or an object or a list of
     objects with no encoding, is sent as JSON, as OpenAPI 3.2 says (Peter,

@@ -45,9 +45,6 @@ if [[ -n "${GRAFANA_OTLP_ENDPOINT:-}" && -n "${GRAFANA_OTLP_AUTHORIZATION:-}" ]]
       print "      endpoint: " ENVIRON["GRAFANA_OTLP_ENDPOINT"]
       print "      headers:"
       print "        Authorization: { env: GRAFANA_OTLP_AUTHORIZATION }"
-      print "      resource:"
-      print "        service.name: hotline-proxy"
-      print "        deployment.environment.name: floci-example"
       next
     }
     { print }

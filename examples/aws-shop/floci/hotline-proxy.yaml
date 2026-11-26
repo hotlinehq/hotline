@@ -23,6 +23,12 @@ exporters:
       path: ./out/calls          # calls.jsonl: one line per call, with bodies and headers
       compression: none          # keep the file plain, so it opens as is as an artifact
 
+records:
+  transform:
+    - labels:                    # on the records of every exporter
+        service.name: hotline-proxy
+        deployment.environment.name: floci-example
+
 apis:
   aws-sqs-invoices:                # the invoices queue: the order-paid topic puts jobs on it, the worker takes them
     hosts: [sqs.eu-west-1.amazonaws.com]
