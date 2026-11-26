@@ -125,6 +125,9 @@ func needRestart(old, cfg *config.Config) []string {
 	if !reflect.DeepEqual(old.Exporters, cfg.Exporters) || !reflect.DeepEqual(old.FileExporters, cfg.FileExporters) || !reflect.DeepEqual(old.Console, cfg.Console) {
 		changed = append(changed, "exporters")
 	}
+	if !reflect.DeepEqual(old.Records, cfg.Records) {
+		changed = append(changed, "records")
+	}
 	if !reflect.DeepEqual(old.Telemetry, cfg.Telemetry) {
 		changed = append(changed, "telemetry")
 	}

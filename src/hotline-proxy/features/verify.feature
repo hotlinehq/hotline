@@ -179,6 +179,65 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 0
       And it prints that the run has no last batch: it crashed, or its end is missing
 
+  Rule: Every field the proxy writes is covered
+
+    A record's hash covers every field of its line, not only its
+    attributes: its time and observed time, its level, its event, its trace
+    flags, its body and its resource (Peter, 2026-11-25). A batch record's
+    signature covers the same fields of its own line.
+
+    Scenario Outline: A change to any field of a record shows
+      Given the folder calls from a stopped proxy, with 3 calls
+      When the <field> of the second record's line is changed
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the record with that span id does not match its hotline.record.hash
+
+      Examples:
+        | field                |
+        | time                 |
+        | observed_time        |
+        | severity             |
+        | event                |
+        | trace_id             |
+        | span_id              |
+        | flags                |
+        | body                 |
+        | resource's service.name |
+
+    Scenario: A change to a span's flags shows
+      Given the folder calls from a stopped proxy, with 3 calls
+      When the flags of the first span in the second line's spans are changed
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the trace of the record with that span id does not match its hotline.trace.hash
+
+    Scenario Outline: A change to any field of a batch record shows
+      Given the folder calls from a stopped proxy
+      When the <field> of the first batch record's line is changed
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the signature of batch 0 does not check out with its key
+
+      Examples:
+        | field                |
+        | time                 |
+        | observed_time        |
+        | severity             |
+        | resource's service.name |
+
+  Rule: Only folders written in this format are read
+
+    Scenario: A folder written by an older edge build is refused
+      The hashes changed with hotline.record.v2 and hotline.batch.v2, and
+      only edge builds wrote the old ones, so no old format is kept
+      (Peter, 2026-11-25).
+      Given the folder calls from a stopped proxy
+      When the first batch record's hotline.batch.format is changed to hotline.batch.v1
+      And I run hotline-proxy verify calls
+      Then it exits with 2
+      And it prints that the folder was written by an older edge build, which this verify cannot check
+
   Rule: Dropped records are explained, not counted as changes
 
     Scenario: A dropped record listed by the exporter
@@ -194,11 +253,59 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 1
       And it prints that batch 0 cannot be proven from this copy: 1,025 records were dropped by this exporter
 
-    Scenario: Batch records lost while the collector was away
-      Given a batch record in calls with hotline.batch.lost_batches 2
-      When I run hotline-proxy verify calls
+    Scenario Outline: A drop record that is not the proxy's own is refused
+      A drop record is signed by the key of its batch, so a record deleted
+      with a made-up drop record in its place still shows.
+      Given the folder calls from a stopped proxy, with 3 calls
+      When the second record is deleted and a drop record for it is added, <signed>
+      And I run hotline-proxy verify calls
       Then it exits with 1
-      And it prints that 2 batches before it were lost by this exporter, and their records cannot be proven
+      And it prints that the drop record of batch 0 does not check out with the batch's key
+
+      Examples:
+        | signed                               |
+        | signed with another key              |
+        | with the signature of another record |
+
+    Scenario Outline: A drop record from another exporter's copy is refused
+      Each copy is one exporter's, and its drop records name that exporter,
+      so a real drop record taken from another copy shows (Peter,
+      2026-11-25, from the decomplect review).
+      Given two file exporters, <which> of them dropped one record of batch 0
+      When the second folder's drop record is added to the first folder
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that <message>
+
+      Examples:
+        | which                | message                                                 |
+        | both                 | batch 0 has more than one drop record in this copy      |
+        | only the second      | the drop record of batch 0 lists index 2, which this copy holds |
+
+    Scenario: A drop record swapped for another exporter's shows
+      Both copies dropped the same records, so the other copy's drop
+      record lists no record this copy holds; it still names another
+      exporter than the copy's other drop records.
+      Given two file exporters both dropped one record of batch 0 and one of batch 1
+      When the first folder's drop record of batch 1 is swapped for the second folder's
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the drop record of batch 1 is from another exporter than this copy's other drop records
+
+    Scenario Outline: A change to any field of a drop record shows
+      Given the file exporter's queue was full for one record of batch 0
+      When the <field> of the drop record's line is changed
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that the drop record of batch 0 does not check out with the batch's key
+
+      Examples:
+        | field                   |
+        | time                    |
+        | observed_time           |
+        | severity                |
+        | resource's service.name |
+        | hotline.exporter        |
 
   Rule: Bodies are checked against a record
 

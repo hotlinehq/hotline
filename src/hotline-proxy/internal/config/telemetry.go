@@ -74,6 +74,10 @@ func (l *loader) telemetry(f *telemetryFile, now time.Time) *Telemetry {
 		Delta:          f.OTLP.Temporality == "delta",
 		Disable:        f.Disable,
 	}
+	if len(f.OTLP.Resource) > 0 {
+		t.Exporter.Resource = map[string]string{}
+		l.labels("exporter "+f.OTLP.Endpoint+": resource", f.OTLP.Resource, t.Exporter.Resource)
+	}
 	switch f.OTLP.Temporality {
 	case "", "cumulative", "delta":
 	default:

@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/trace"
 
 	"hotline-proxy/internal/export"
@@ -20,8 +21,9 @@ var _ = Describe("Reading back a call's line", func() {
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID: trace.TraceID{1, 2, 3}, SpanID: trace.SpanID{4, 5, 6}, TraceFlags: trace.FlagsSampled,
 	})
+	link := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{9}, SpanID: trace.SpanID{8}, TraceFlags: trace.FlagsSampled})
 	call := export.Call{
-		Trace: sc, At: at,
+		Trace: sc, At: at, Observed: at.Add(time.Second), Severity: log.SeverityInfo, Body: "a note",
 		Attrs: []attribute.KeyValue{
 			attribute.String("hotline.integration.id", "checkout"),
 			attribute.String("hotline.content.hash", "sha256:00"),
@@ -30,7 +32,7 @@ var _ = Describe("Reading back a call's line", func() {
 		Content: []attribute.KeyValue{attribute.String("hotline.content.request.body", "e30=")},
 		Spans: []export.Span{{
 			ID: trace.SpanID{7}, Parent: sc.SpanID(), Name: "vendor call", Kind: trace.SpanKindClient,
-			Start: at, End: at.Add(time.Millisecond), Status: export.StatusError,
+			Start: at, End: at.Add(time.Millisecond), Status: export.StatusError, Links: []trace.SpanContext{link},
 		}},
 	}
 
@@ -38,6 +40,11 @@ var _ = Describe("Reading back a call's line", func() {
 		line, err := export.ReadLine(export.LineOf(call))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(line.Time).To(BeTemporally("==", at))
+		Expect(line.Observed).To(BeTemporally("==", at.Add(time.Second)))
+		Expect(line.Flags).To(Equal(uint32(trace.FlagsSampled)))
+		Expect(line.Severity).To(Equal("INFO"))
+		Expect(line.Body).To(Equal("a note"))
+		Expect(line.Resource).To(HaveKeyWithValue("service.name", "hotline-proxy"))
 		Expect(line.Event).To(Equal(export.CallEvent))
 		Expect(line.TraceID).To(Equal(sc.TraceID().String()))
 		Expect(line.SpanID).To(Equal(sc.SpanID().String()))
@@ -49,6 +56,10 @@ var _ = Describe("Reading back a call's line", func() {
 		}))
 		Expect(span.Start).To(BeTemporally("==", at))
 		Expect(span.End).To(BeTemporally("==", at.Add(time.Millisecond)))
+		// The flags say, as OTLP's do, that the span's parent is in this
+		// program, not another one.
+		Expect(span.Flags).To(Equal(uint32(0x101)))
+		Expect(span.Links).To(Equal([]export.LineLink{{TraceID: link.TraceID().String(), SpanID: link.SpanID().String(), Flags: 0x101}}))
 	})
 
 	It("adds nothing the record's hash covers beyond the record's own attributes", func() {

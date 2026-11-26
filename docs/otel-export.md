@@ -18,7 +18,7 @@ Exporters get no metrics. The control plane works out counts and latencies from 
 | Protocol | OTLP over HTTP as protobuf, to `/v1/logs` and `/v1/traces`. No gRPC since 2026-11-08. Over TLS, HTTP/2 when the collector offers it; to a plain endpoint, HTTP/1.1, or HTTP/2 with `h2c: true`. The proxy writes records and spans as OTLP itself. Detail: [proxy-otlp-protocols.md](proxy-otlp-protocols.md). |
 | Connection to the collector | Plain, or TLS with an `https://` endpoint, with `tls.ca` and a client certificate if needed. Login headers from `headers`. |
 | Compression | gzip, unless `compression: none`; records and spans at gzip's fastest level. |
-| Exporters | Every entry under `exporters` gets the same records and spans, each with its own resource labels. Each has its own queue, so one that is down never holds up the others or the calls. |
+| Exporters | Every entry under `exporters` gets the same records and spans, with the same resource labels. Each has its own queue, so one that is down never holds up the others or the calls. |
 | How often | Records every 15 seconds (`logInterval`) and spans every 15 seconds (`traceInterval`), each set per exporter. Both also go sooner once 512 are waiting. `metricInterval` and `temporality` under an exporter are ignored, with no warning (Peter, 2026-11-21). |
 | Time limit per send | 10 seconds, retries included. Fixed in the program. A busy collector is tried again after about a second at first, then at most every 5 seconds. A send the collector refuses loses its records, counted in a warning line like a full queue. |
 | Records per send | At most 512. |
@@ -43,7 +43,10 @@ exporters:
       endpoint: https://otel.example.com:4318
       headers:
         Authorization: { file: /etc/hotline/otlp/token }
-      resource:                                   # labels for this exporter only
+
+records:
+  transform:
+    - labels:                                     # labels every exporter sends
         service.name: invoices-proxy
         service.instance.id: { env: POD_NAME }
         deployment.environment.name: { env: HOTLINE_ENV }
@@ -59,12 +62,13 @@ A resource is the set of labels that describe the sender. Both signals carry the
 | `service.version` | the program's version |
 | `service.instance.id` | a random ID (a version 4 UUID) made at each start |
 
-Each exporter may add labels, or change these, with its own `resource` section, to say where the proxy runs (Peter, 2026-10-30):
+A `labels` step under `records.transform` may add labels, or change these, to say where the proxy runs (Peter, 2026-10-30; moved from each exporter to the records section 2026-11-25). The steps of `records.transform` run on every record, in order, before its hash; `labels` is the only kind of step for now:
 
 - A value is written out, or read from `{ env: NAME }` or `{ file: path }`, like a login header. A variable that is not set, or a file that cannot be read, refuses the config.
 - `service.name` and `service.instance.id` may be changed, for example to the pod's name. `service.version` is always the proxy's own; setting it refuses the config.
 - A name may hold only letters, digits, dots and underscores. The OpenTelemetry standard names are best, such as `deployment.environment.name`, `service.namespace` or `cloud.region`.
-- The labels go only to that exporter. One without a `resource` section gets the defaults above.
+- Every exporter sends the same labels, the file exporter too, and every record's hash covers them ([proxy-ledger.md](proxy-ledger.md)). A `resource` under an exporter refuses the config.
+- When two steps set the same name, the later one wins. The labels change only on a restart, like the exporters.
 
 Grafana Cloud turns the dots into underscores, so `deployment.environment.name` shows as `deployment_environment_name`.
 

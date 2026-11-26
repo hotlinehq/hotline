@@ -19,9 +19,11 @@ Feature: Records a third party can trust
 
   Rule: Every record carries a hash, and no key is needed to check it
 
-    The hash covers the same bytes the HMAC signed before: the word
-    hotline.record.v1, then every attribute but the hash itself, in name
-    order, then the timestamp, trace id, span id and flags.
+    The hash covers every field the proxy sends on the record (Peter,
+    2026-11-25): the word hotline.record.v2, then every attribute but the
+    hash itself, in name order, then the time, the observed time, the trace
+    id, the span id, the trace flags, the level as a number and as text, the
+    event name, the body and the resource.
 
     Scenario: A full record carries a hash and no signature
       Given the vendor answers 201 with "X-Request-Id: r1"
@@ -48,6 +50,12 @@ Feature: Records a third party can trust
         | url.full is changed                  |
         | the trace_id is changed              |
         | the timestamp is changed             |
+        | the observed time is changed         |
+        | the level is changed                 |
+        | the event name is changed            |
+        | the flags are changed                |
+        | a body is added                      |
+        | a resource label is changed          |
         | hotline.request.body.hash is changed |
         | hotline.trace.hash is changed        |
         | hotline.batch.index is changed       |
@@ -152,9 +160,10 @@ Feature: Records a third party can trust
 
     The batch's tree is built as in Certificate Transparency (RFC 6962): a
     record's leaf is SHA-256 of 0x00 and its hash, an inner node is SHA-256
-    of 0x01, the left and the right. The signature covers the word
-    hotline.batch.v1 and every batch attribute but the signature and the
-    exporter's own dropped list.
+    of 0x01, the left and the right. The signature covers the batch record
+    as a record's hash covers a record, with the word hotline.batch.v2: every
+    attribute but the signature, then its time, observed time, level, event
+    name and resource.
 
     Scenario: Each record names its batch and its place in it
       When the app sends GET /orders 3 times
@@ -165,7 +174,7 @@ Feature: Records a third party can trust
       When the app sends GET /orders 3 times
       And 10 seconds pass
       Then the exporter got a log record with event.name hotline.ledger.batch
-      And it has hotline.batch.format hotline.batch.v1, hotline.batch.records 3 and hotline.batch.root
+      And it has hotline.batch.format hotline.batch.v2, hotline.batch.records 3 and hotline.batch.root
       And the root rebuilds from the 3 records' hashes
       And hotline.batch.signature checks out with hotline.batch.key
 
@@ -361,23 +370,30 @@ Feature: Records a third party can trust
       And hotline-proxy is killed
       Then no batch record has hotline.batch.last
 
-  Rule: Each exporter lists the records it dropped, so its copy still rebuilds
+  Rule: An exporter that dropped records says so in a signed drop record
 
-    Scenario: A record dropped by one exporter is listed only in that exporter's batch
+    The batch record is the same for every exporter. An exporter that
+    dropped records of a batch sends one more record after it,
+    hotline.ledger.dropped, with the batch's id and the index and hash of
+    each record it dropped, signed with the batch's key (Peter, 2026-11-25).
+    Its copy then still rebuilds the batch's root.
+
+    Scenario: A record dropped by one exporter is listed only in that exporter's drop record
       Given an OTLP exporter and a file exporter
       And the file exporter's queue is full for one record
       When the app sends GET /orders 3 times
       And 10 seconds pass
-      Then the file got 2 records and a batch record whose hotline.batch.dropped lists the index and hash of the third
+      Then the file got 2 records, the batch record and a drop record whose hotline.batch.dropped lists the index and hash of the third
+      And the drop record's hotline.dropped.signature checks out with the batch's hotline.batch.key
       And the root rebuilds from the 2 records and the dropped hash
-      And the OTLP exporter's batch record has no hotline.batch.dropped
-      And both batch records have the same hotline.batch.signature
+      And the OTLP exporter got no drop record
+      And both exporters got the same batch record
 
     Scenario: Above 1,024 dropped records only the count is sent
       Given the file exporter's queue is full for 1,025 records
       When the app sends GET /orders 1,025 times
       And 10 seconds pass
-      Then the file's batch record has hotline.batch.dropped_count 1025 and no hotline.batch.dropped
+      Then the file's drop record has hotline.batch.dropped_count 1025 and no hotline.batch.dropped
       And that batch cannot be rebuilt from the file's copy
 
     Scenario: A batch record waits for room and is not dropped
@@ -387,10 +403,12 @@ Feature: Records a third party can trust
       And the queue has room again
       Then the file got the batch record
 
-    Scenario: At most 64 batch records wait; the next one says how many were lost
+    Scenario: At most 64 batch records wait; the oldest are let go
+      The chain shows the batches that are missing, so the batch records
+      say nothing more about them (Peter, 2026-11-25).
       Given the OTLP exporter's collector is down
       When the app sends GET /orders in each of 66 batch windows
       And the collector is back
       Then the collector got the newest 64 waiting batch records
-      And the first one it got has hotline.batch.lost_batches 2
+      And none of them has hotline.batch.lost_batches
       And the proxy's memory stayed bounded

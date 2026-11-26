@@ -6,6 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"hotline-proxy/internal/ledger"
 )
 
 // Span is one step of a call, with its own start and end.
@@ -55,6 +57,50 @@ func FailedIf(failed bool) Status {
 		return StatusError
 	}
 	return StatusUnset
+}
+
+// The span flags of OTLP besides the W3C trace flags: that the span says
+// whether its parent is remote, and that it is.
+const (
+	flagHasIsRemote = 0x100
+	flagIsRemote    = 0x200
+)
+
+// flags are the span's flags as OTLP sends them, in the trace sc: the
+// trace's flags, and whether its parent is in another program. Only the
+// call span's parent, the app's span, ran in another program, so only it
+// is remote (Peter, 2026-11-08).
+func (s Span) flags(sc trace.SpanContext) uint32 {
+	flags := uint32(sc.TraceFlags()) | flagHasIsRemote
+	if s.Parent.IsValid() && s.ID == sc.SpanID() {
+		flags |= flagIsRemote
+	}
+	return flags
+}
+
+// linkFlags are a link's flags as OTLP sends them: the linked trace's
+// flags, and that it says nothing on whether it is remote.
+func linkFlags(link trace.SpanContext) uint32 {
+	return uint32(link.TraceFlags()) | flagHasIsRemote
+}
+
+// LedgerSpans are a call's spans, in the trace sc, as the trace's hash
+// covers them: every field the proxy sends, with the kind and status as
+// the file exporter writes them.
+func LedgerSpans(sc trace.SpanContext, spans []Span) []ledger.Span {
+	out := make([]ledger.Span, len(spans))
+	for i, s := range spans {
+		var links []ledger.Link
+		for _, link := range s.Links {
+			links = append(links, ledger.Link{TraceID: link.TraceID().String(), SpanID: link.SpanID().String(), Flags: linkFlags(link)})
+		}
+		// An invalid parent is the zero id: no span.
+		out[i] = ledger.Span{
+			ID: ledger.SpanID(s.ID), Parent: ledger.SpanID(s.Parent), Name: s.Name, Kind: s.Kind.String(),
+			Start: s.Start, End: s.End, Status: s.Status.String(), Flags: s.flags(sc), Links: links, Attrs: s.Attrs,
+		}
+	}
+	return out
 }
 
 // trace queues the spans of one call, in the trace sc names, for every

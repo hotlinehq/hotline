@@ -423,15 +423,27 @@ func (w *world) brokenConfig(problem string) error {
 	case "an exporter's compression is neither gzip nor none":
 		w.rawConfig = start + exporters + "      compression: zstd\n"
 		w.problem = "compression must be gzip or none"
-	case "an exporter's resource sets service.version":
-		w.rawConfig = start + exporters + "      resource:\n        service.version: \"9\"\n"
+	case "an exporter sets a resource":
+		w.rawConfig = start + exporters + "      resource:\n        deployment.environment.name: staging\n"
+		w.problem = "resource is no longer set per exporter: use records.transform labels"
+	case "a records labels step sets service.version":
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - labels:\n        service.version: \"9\"\n"
+		w.problem = "records.transform labels: service.version is the proxy's own and cannot be set"
+	case `a records labels step has the name "my label"`:
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - labels:\n        my label: x\n"
+		w.problem = `records.transform labels: the name "my label" may only hold letters, digits, dots and underscores`
+	case "a records labels environment variable is not set":
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - labels:\n        deployment.environment.name: { env: HOTLINE_ENV }\n"
+		w.problem = "records.transform labels deployment.environment.name: the environment variable HOTLINE_ENV is not set"
+	case "a records transform step is not labels":
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - rename: { a: b }\n"
+		w.problem = "records.transform: each step is labels"
+	case "a records labels step is not a map":
+		w.rawConfig = start + exporters + "records:\n  transform:\n    - labels: [a]\n"
+		w.problem = "records.transform labels: "
+	case "the telemetry section's resource sets service.version":
+		w.rawConfig = start + exporters + ownTelemetry + "    resource:\n      service.version: \"9\"\n"
 		w.problem = "resource: service.version is the proxy's own and cannot be set"
-	case `an exporter's resource has the name "my label"`:
-		w.rawConfig = start + exporters + "      resource:\n        my label: x\n"
-		w.problem = `resource: the name "my label" may only hold letters, digits, dots and underscores`
-	case "an exporter's resource environment variable is not set":
-		w.rawConfig = start + exporters + "      resource:\n        deployment.environment.name: { env: HOTLINE_ENV }\n"
-		w.problem = "resource deployment.environment.name: the environment variable HOTLINE_ENV is not set"
 	case "the telemetry section's metricInterval is zero":
 		w.rawConfig = start + exporters + ownTelemetry + "    metricInterval: 0s\n"
 		w.problem = "metricInterval \"0s\" must be a duration above zero"

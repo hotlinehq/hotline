@@ -89,6 +89,7 @@ Feature: Reloading the config without a restart
       | the admin port moves to another port     | admin                |
       | the admin section is removed             | admin                |
       | there is one more exporter               | exporters            |
+      | the records labels change                | records              |
       | the tls part is added                    | listener proxy       |
       | the connect part is added                | listener proxy       |
       | the transparent listener is added        | listener transparent |

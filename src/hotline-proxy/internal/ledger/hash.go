@@ -31,12 +31,16 @@ const hashPrefix = "sha256:"
 // The formats, each the first piece of what it covers, so bytes of one kind
 // can never pass for another.
 const (
-	recordFormat  = "hotline.record.v1"
-	traceFormat   = "hotline.trace.v1"
+	recordFormat  = "hotline.record.v2"
+	traceFormat   = "hotline.trace.v2"
 	bodyFormat    = "hotline.body.v1"
 	contentFormat = "hotline.content.v1"
-	// BatchFormat is the format of a batch record.
-	BatchFormat = "hotline.batch.v1"
+	// BatchFormat is the format of a batch record's signature.
+	BatchFormat = "hotline.batch.v2"
+	// DroppedFormat is the format of a drop record's signature: the record
+	// an exporter sends after a batch record when it dropped records of
+	// that batch.
+	DroppedFormat = "hotline.dropped.v1"
 )
 
 // writer feeds bytes into a SHA-256, through a small buffer, so a hash makes
@@ -255,20 +259,32 @@ func Parse(text string) ([sha256.Size]byte, error) {
 	return out, nil
 }
 
-// Record is a record as its hash covers it: its attributes, without the
-// hash itself, and its time, trace id and span id. Times are to the
-// microsecond, as the file exporter writes them.
+// Record is a record as its hash covers it: every field the proxy sends
+// on it (Peter, 2026-11-25). Attrs are its attributes, without the hash
+// itself. Times are to the microsecond, as the proxy sends them. A batch
+// or drop record has no trace, flags or body: they are empty.
 type Record struct {
-	Attrs   []attribute.KeyValue
-	At      time.Time
-	TraceID string
-	SpanID  string
+	Attrs []attribute.KeyValue
+	// At is the record's time, and Observed when it was written.
+	At, Observed time.Time
+	// TraceID and SpanID are hex, as the file exporter writes them, and
+	// Flags the trace's flags.
+	TraceID, SpanID string
+	Flags           uint32
+	// SeverityNumber and SeverityText are the record's level, as OTLP
+	// numbers and names it.
+	SeverityNumber int
+	SeverityText   string
+	Event, Body    string
+	// Resource is the resource the record is sent with, the same for
+	// every exporter.
+	Resource []attribute.KeyValue
 }
 
-// RecordHash is the hash of a record: the word hotline.record.v1, every
-// attribute sorted by name, then the time in microseconds since 1970, the
-// trace id and the span id as hex. It is the one-off form, for verify; the
-// proxy reuses writers through a Hasher.
+// RecordHash is the hash of a record: the word hotline.record.v2, every
+// attribute sorted by name, then the record's other fields, in the order
+// fields writes them. It is the one-off form, for verify; the proxy reuses
+// writers through a Hasher.
 func RecordHash(r Record) [sha256.Size]byte { return (&Hasher{}).Record(r) }
 
 // Record is RecordHash, with a reused writer.
@@ -276,10 +292,25 @@ func (h *Hasher) Record(r Record) [sha256.Size]byte {
 	w := h.writer()
 	w.piece(recordFormat)
 	w.entries(r.Attrs)
+	w.fields(r)
+	return h.sum(w)
+}
+
+// fields writes a record's fields besides its attributes, each as an entry
+// with OTLP's name for it: the time and observed time in microseconds
+// since 1970, the trace id, span id, flags, level number and text, event
+// name, body, and the resource as one map, sorted by name.
+func (w *writer) fields(r Record) {
 	w.entry(attribute.Int64("log.record.timestamp", r.At.UnixMicro()))
+	w.entry(attribute.Int64("log.record.observed_time", r.Observed.UnixMicro()))
 	w.entry(attribute.String("log.record.trace_id", r.TraceID))
 	w.entry(attribute.String("log.record.span_id", r.SpanID))
-	return h.sum(w)
+	w.entry(attribute.Int64("log.record.flags", int64(r.Flags)))
+	w.entry(attribute.Int("log.record.severity_number", r.SeverityNumber))
+	w.entry(attribute.String("log.record.severity_text", r.SeverityText))
+	w.entry(attribute.String("log.record.event_name", r.Event))
+	w.entry(attribute.String("log.record.body", r.Body))
+	w.entry(attribute.KeyValue{Key: "log.record.resource", Value: attribute.MapValue(r.Resource...)})
 }
 
 // RecordCovers says whether a record's hash covers the attribute named name
@@ -329,15 +360,27 @@ type Span struct {
 	Name, Kind string
 	Start, End time.Time
 	Status     string
-	Attrs      []attribute.KeyValue
+	// Flags are the span's flags as OTLP sends them: the trace's flags,
+	// and whether its parent is in another program.
+	Flags uint32
+	Links []Link
+	Attrs []attribute.KeyValue
 }
 
-// TraceHash is the hash of a call's trace: the word hotline.trace.v1, the
+// Link is a span of another trace that a span follows from, as the hash
+// covers it: its ids in hex, and its flags as OTLP sends them.
+type Link struct {
+	TraceID, SpanID string
+	Flags           uint32
+}
+
+// TraceHash is the hash of a call's trace: the word hotline.trace.v2, the
 // trace id, then each span in start order, a tie going by span id: its span
 // id, parent span id (empty for none), name, kind, start and end in
-// microseconds, status and number of attributes, then its attributes sorted
-// by name. It is the one-off form, for verify; the proxy reuses writers
-// through a Hasher.
+// microseconds, status, flags, number of links, then each link's trace id,
+// span id and flags, then its number of attributes and its attributes
+// sorted by name. It is the one-off form, for verify; the proxy reuses
+// writers through a Hasher.
 func TraceHash(traceID string, spans []Span) [sha256.Size]byte {
 	return (&Hasher{}).Trace(traceID, spans)
 }
@@ -364,6 +407,13 @@ func (h *Hasher) Trace(traceID string, spans []Span) [sha256.Size]byte {
 		w.entry(attribute.Int64("span.start_time", s.Start.UnixMicro()))
 		w.entry(attribute.Int64("span.end_time", s.End.UnixMicro()))
 		w.entry(attribute.String("span.status", s.Status))
+		w.entry(attribute.Int64("span.flags", int64(s.Flags)))
+		w.entry(attribute.Int("span.link_count", len(s.Links)))
+		for _, link := range s.Links {
+			w.entry(attribute.String("link.trace_id", link.TraceID))
+			w.entry(attribute.String("link.span_id", link.SpanID))
+			w.entry(attribute.Int64("link.flags", int64(link.Flags)))
+		}
 		w.entry(attribute.Int("span.attribute_count", len(s.Attrs)))
 		w.entries(s.Attrs)
 	}

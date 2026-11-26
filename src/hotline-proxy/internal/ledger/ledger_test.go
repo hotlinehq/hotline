@@ -1,6 +1,8 @@
 package ledger_test
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,42 +68,113 @@ var _ = Describe("Reading a hash back", func() {
 })
 
 var _ = Describe("Checking a batch's signature", func() {
-	var signed []attribute.KeyValue
+	var signed ledger.Record
 
 	BeforeEach(func() {
 		key := ledger.NewKey()
-		attrs := []attribute.KeyValue{
-			attribute.String("hotline.batch.root", "sha256:00"),
-			attribute.String("hotline.batch.key", key.Public),
+		signed = ledger.Record{
+			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.root", "sha256:00")},
+			At:    time.UnixMicro(1_700_000_000_000_000), Observed: time.UnixMicro(1_700_000_000_000_000),
+			SeverityNumber: 9, SeverityText: "INFO", Event: "hotline.ledger.batch",
+			Resource: []attribute.KeyValue{attribute.String("service.name", "hotline-proxy")},
 		}
-		signed = append(attrs, key.Sign(attrs))
+		signed.Attrs = key.Sign(ledger.BatchFormat, signed)
 	})
 
 	// with is the signed batch with one attribute set to another text.
-	with := func(name, text string) []attribute.KeyValue {
-		out := make([]attribute.KeyValue, 0, len(signed))
-		for _, kv := range signed {
+	with := func(name, text string) ledger.Record {
+		out := signed
+		out.Attrs = make([]attribute.KeyValue, 0, len(signed.Attrs))
+		for _, kv := range signed.Attrs {
 			if string(kv.Key) == name {
 				kv = attribute.String(name, text)
 			}
-			out = append(out, kv)
+			out.Attrs = append(out.Attrs, kv)
 		}
 		return out
 	}
 
-	It("checks out as signed", func() {
-		Expect(ledger.CheckSignature(signed)).To(BeTrue())
+	It("checks out as signed, with the key it names", func() {
+		Expect(ledger.CheckSignature(ledger.BatchFormat, signed)).To(BeTrue())
+		Expect(signed.Attrs).To(ContainElement(HaveField("Key", attribute.Key("hotline.batch.key"))))
+	})
+
+	It("does not check out as a drop record", func() {
+		Expect(ledger.CheckSignature(ledger.DroppedFormat, signed)).To(BeFalse())
 	})
 
 	DescribeTable("fails",
 		func(name, text string) {
-			Expect(ledger.CheckSignature(with(name, text))).To(BeFalse())
+			Expect(ledger.CheckSignature(ledger.BatchFormat, with(name, text))).To(BeFalse())
 		},
 		Entry("with a key that does not say ed25519", "hotline.batch.key", "rsa:AAAA"),
 		Entry("with a key of the wrong length", "hotline.batch.key", "ed25519:AAAA"),
 		Entry("with a signature that is not base64", "hotline.batch.signature", "ed25519:!!"),
 		Entry("with a changed root", "hotline.batch.root", "sha256:01"),
 	)
+
+	DescribeTable("fails when a field besides the attributes changes",
+		func(change func(*ledger.Record)) {
+			changed := signed
+			change(&changed)
+			Expect(ledger.CheckSignature(ledger.BatchFormat, changed)).To(BeFalse())
+		},
+		Entry("the time", func(r *ledger.Record) { r.At = r.At.Add(time.Microsecond) }),
+		Entry("the observed time", func(r *ledger.Record) { r.Observed = r.Observed.Add(time.Microsecond) }),
+		Entry("the level", func(r *ledger.Record) { r.SeverityNumber = 13 }),
+		Entry("the level's text", func(r *ledger.Record) { r.SeverityText = "WARN" }),
+		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.ledger.dropped" }),
+		Entry("the resource", func(r *ledger.Record) { r.Resource = nil }),
+	)
+
+	It("never prints its private part", func() {
+		key := ledger.NewKey()
+		for _, text := range []string{fmt.Sprint(key), fmt.Sprintf("%v %+v %#v %s", key, key, key, key)} {
+			Expect(text).NotTo(ContainSubstring(strings.TrimPrefix(key.Public, "ed25519:")))
+			Expect(text).To(ContainSubstring("redacted"))
+		}
+	})
+})
+
+var _ = Describe("Hashing a record", func() {
+	base := ledger.Record{
+		Attrs: []attribute.KeyValue{attribute.Int("http.response.status_code", 200)},
+		At:    time.UnixMicro(1_700_000_000_000_001), Observed: time.UnixMicro(1_700_000_000_000_002),
+		TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: 1,
+		SeverityNumber: 9, SeverityText: "INFO", Event: "hotline.request",
+		Resource: []attribute.KeyValue{attribute.String("service.name", "hotline-proxy")},
+	}
+
+	DescribeTable("changes when any one field changes",
+		func(change func(*ledger.Record)) {
+			changed := base
+			change(&changed)
+			Expect(ledger.RecordHash(changed)).NotTo(Equal(ledger.RecordHash(base)))
+		},
+		Entry("an attribute", func(r *ledger.Record) {
+			r.Attrs = []attribute.KeyValue{attribute.Int("http.response.status_code", 500)}
+		}),
+		Entry("the time", func(r *ledger.Record) { r.At = r.At.Add(time.Microsecond) }),
+		Entry("the observed time", func(r *ledger.Record) { r.Observed = r.Observed.Add(time.Microsecond) }),
+		Entry("the trace id", func(r *ledger.Record) { r.TraceID = "00000000000000000000000000000001" }),
+		Entry("the span id", func(r *ledger.Record) { r.SpanID = "0000000000000001" }),
+		Entry("the flags", func(r *ledger.Record) { r.Flags = 0 }),
+		Entry("the level", func(r *ledger.Record) { r.SeverityNumber = 17 }),
+		Entry("the level's text", func(r *ledger.Record) { r.SeverityText = "ERROR" }),
+		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.probe" }),
+		Entry("the body", func(r *ledger.Record) { r.Body = "a note" }),
+		Entry("a resource label", func(r *ledger.Record) {
+			r.Resource = []attribute.KeyValue{attribute.String("service.name", "another-proxy")}
+		}),
+	)
+
+	It("does not depend on the order of the resource's labels", func() {
+		a := base
+		a.Resource = []attribute.KeyValue{attribute.String("a", "1"), attribute.String("b", "2")}
+		b := base
+		b.Resource = []attribute.KeyValue{attribute.String("b", "2"), attribute.String("a", "1")}
+		Expect(ledger.RecordHash(a)).To(Equal(ledger.RecordHash(b)))
+	})
 })
 
 var _ = Describe("Batch ids", func() {
@@ -165,20 +238,26 @@ func spanID(text string) ledger.SpanID {
 }
 
 var _ = Describe("Hashing a trace", func() {
-	// The hash was taken when span ids were given as text; ids given as
-	// bytes must make the same one, or files written before fail verify.
-	It("makes the same hash as when span ids were text", func() {
-		at := time.UnixMicro(1_700_000_000_123_456)
-		root := spanID("00f067aa0ba902b7")
-		spans := []ledger.Span{
-			{ID: root, Name: "POST", Kind: "server", Start: at, End: at.Add(3 * time.Millisecond), Status: "Ok"},
-			{ID: spanID("a1b2c3d4e5f60718"), Parent: root, Name: "routing", Kind: "internal", Start: at, End: at.Add(time.Millisecond), Status: "Unset",
-				Attrs: []attribute.KeyValue{attribute.Bool("hotline.connection.reused", true)}},
-			{ID: spanID("0a1b2c3d4e5f6071"), Parent: root, Name: "vendor call", Kind: "client", Start: at, End: at.Add(2 * time.Millisecond), Status: "Error"},
-		}
-		Expect(ledger.Text(ledger.TraceHash("4bf92f3577b34da6a3ce929d0e0e4736", spans))).
-			To(Equal("sha256:01b2cb934226ffed4e8756705c6049959230c02fe4d3eac2523c3b6db049c3f5"))
-	})
+	at := time.UnixMicro(1_700_000_000_123_456)
+	root := ledger.SpanID{1}
+	probe := []ledger.Span{{
+		ID: root, Name: "probe", Kind: "client", Start: at, End: at.Add(time.Millisecond), Status: "unset", Flags: 0x101,
+		Links: []ledger.Link{{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Flags: 0x101}},
+	}}
+
+	DescribeTable("changes when a span's flags or links change",
+		func(change func(*ledger.Span)) {
+			changed := []ledger.Span{probe[0]}
+			changed[0].Links = slices.Clone(probe[0].Links)
+			change(&changed[0])
+			Expect(ledger.TraceHash("0102", changed)).NotTo(Equal(ledger.TraceHash("0102", probe)))
+		},
+		Entry("the span's flags", func(s *ledger.Span) { s.Flags = 0x301 }),
+		Entry("a link's trace id", func(s *ledger.Span) { s.Links[0].TraceID = "00000000000000000000000000000001" }),
+		Entry("a link's span id", func(s *ledger.Span) { s.Links[0].SpanID = "0000000000000001" }),
+		Entry("a link's flags", func(s *ledger.Span) { s.Links[0].Flags = 0x100 }),
+		Entry("a link taken away", func(s *ledger.Span) { s.Links = nil }),
+	)
 
 	It("reads a span id as the proxy writes it, and an empty one as no span", func() {
 		Expect(spanID("00f067aa0ba902b7")).To(Equal(ledger.SpanID{0x00, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7}))

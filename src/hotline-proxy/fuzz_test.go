@@ -329,7 +329,7 @@ func (w *world) recordTime(start time.Time) time.Duration {
 // it is and gzipped.
 func FuzzVerify(f *testing.F) {
 	f.Add([]byte(`{"time":"2026-11-18T07:00:00Z","event":"hotline.request","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","attributes":{"hotline.integration.id":"talon-shop-a","hotline.batch.index":0}}` + "\n"))
-	f.Add([]byte(`{"time":"2026-11-18T07:00:01Z","event":"hotline.ledger.batch","attributes":{"hotline.batch.format":"hotline.batch.v1","hotline.batch.id":"b1","hotline.batch.integration":"talon-shop-a","hotline.batch.key":"ed25519:AAAA","hotline.batch.signature":"ed25519:AAAA"}}` + "\n"))
+	f.Add([]byte(`{"time":"2026-11-18T07:00:01Z","event":"hotline.ledger.batch","attributes":{"hotline.batch.format":"hotline.batch.v2","hotline.batch.id":"b1","hotline.batch.integration":"talon-shop-a","hotline.batch.key":"ed25519:AAAA","hotline.batch.signature":"ed25519:AAAA"}}` + "\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		dir := t.TempDir()
 		var zipped bytes.Buffer
