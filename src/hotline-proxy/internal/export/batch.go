@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/log"
 
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 // waitingBatches is how many batch records wait for one exporter at
@@ -52,7 +53,7 @@ func signedRecord(b Batch, resource []attribute.KeyValue) ledger.Record {
 // each signed at once by that exporter with key, which is never kept. It
 // never blocks and is never refused for a full queue: it waits apart from
 // the records, after them.
-func (s *Exporters) Batch(b Batch, key ledger.Key) {
+func (s *Exporters) Batch(b Batch, key vault.Key) {
 	for _, line := range s.batches {
 		line.add(b, key)
 	}
@@ -154,7 +155,7 @@ func (l *batchLine) dropped(e LedgerEntry) {
 // batch are final now, as the ledger hands over a call's record and closes
 // its batch under the same lock, so the record is made and signed here,
 // once (Peter, 2026-11-26).
-func (l *batchLine) add(b Batch, key ledger.Key) {
+func (l *batchLine) add(b Batch, key vault.Key) {
 	l.mu.Lock()
 	d := l.drops[b.ID]
 	if d == nil {
@@ -168,7 +169,7 @@ func (l *batchLine) add(b Batch, key ledger.Key) {
 	// The exporter is named, so verify can tell one exporter's copy from
 	// another's.
 	mine.Attrs = append(slices.Clip(b.Attrs), attribute.String("hotline.exporter", l.name), d.list())
-	mine.Attrs = key.Sign(ledger.BatchFormat, signedRecord(mine, l.resource))
+	mine.Attrs = ledger.Sign(ledger.BatchFormat, signedRecord(mine, l.resource), key)
 	items := [][]byte{l.render(mine)}
 	delete(l.drops, b.ID)
 	if len(l.waiting) == waitingBatches {

@@ -11,6 +11,7 @@ import (
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 // keyLife is how long the proxy signs with one key before it makes the next
@@ -36,7 +37,7 @@ type book struct {
 
 	mu sync.Mutex
 	// vault makes the key each batch is signed with, a new one every hour.
-	vault  *ledger.Vault
+	vault  *vault.Vault
 	chains map[string]*chain
 	// closedChains are the chains a reload closed with a last batch. A record of
 	// a call that started before that reload goes on the same chain.
@@ -75,7 +76,7 @@ type openBatch struct {
 func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
 		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current,
-		vault: ledger.NewVault(keyLife, clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
+		vault: vault.New(exporters.ServiceName(), keyLife, clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
 		// A named instance keeps the random id next to it, so two runs of

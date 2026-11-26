@@ -178,7 +178,7 @@ Feature: Records a third party can trust
       Then the exporter got a log record with event.name hotline.ledger.batch
       And it has hotline.batch.format hotline.batch.v3, hotline.batch.records 3 and hotline.batch.root
       And the root rebuilds from the 3 records' hashes
-      And hotline.batch.signature checks out with hotline.batch.key
+      And hotline.batch.signature checks out with the key of hotline.batch.certificate
 
     Scenario: A batch closes early when it is full
       Given ledger batches hold at most 3 records
@@ -320,8 +320,24 @@ Feature: Records a third party can trust
       And hotline-proxy is stopped and started again
       And the app sends GET /orders
       And hotline-proxy is stopped
-      Then the two runs sign with different hotline.batch.key
+      Then the two runs sign with different hotline.batch.certificate
       And no file the proxy wrote holds a private key
+
+    Scenario: Each key comes with a certificate it signed itself, for its hour
+      A self-signed certificate vouches for nothing outside the folder yet,
+      but it gives the key a name and an hour, so a certificate from a
+      trusted source can take its place later (Peter, 2026-11-26).
+      When the app sends GET /orders
+      And 10 seconds pass
+      Then the batch record's hotline.batch.certificate is an X.509 certificate for an Ed25519 key, signed by that key
+      And the batch record's certificate names the service hotline-proxy
+      And it is valid from the proxy's start for one hour
+
+    Scenario: The certificate names the service the labels give
+      Given the records transform labels service.name shop-proxy
+      When the app sends GET /orders
+      And 10 seconds pass
+      Then the batch record's certificate names the service shop-proxy
 
     Scenario: The key changes every hour within a run
       When the app sends GET /orders
@@ -329,7 +345,7 @@ Feature: Records a third party can trust
       And an hour passes on the proxy's clock
       And the app sends GET /orders
       And 10 seconds pass
-      Then the batches after it have a new hotline.batch.key
+      Then the batches after it have a new hotline.batch.certificate
       And the chain goes on unbroken across the change
 
   Rule: A run has a name, and a clean stop is marked
@@ -387,8 +403,8 @@ Feature: Records a third party can trust
       And 10 seconds pass
       Then each exporter got one batch record, at level INFO, naming itself in hotline.exporter
       And both batch records have an empty hotline.batch.dropped_records
-      And both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.key
-      And each batch record's hotline.batch.signature checks out with its hotline.batch.key
+      And both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.certificate
+      And each batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate
 
     Scenario: A record dropped by one exporter is listed only in that exporter's batch record
       Given an OTLP exporter and a file exporter
@@ -396,7 +412,7 @@ Feature: Records a third party can trust
       When the app sends GET /orders 3 times
       And 10 seconds pass
       Then the file got 2 records and a batch record at level WARN whose hotline.batch.dropped_records lists the index and hash of the third
-      And the file's batch record's hotline.batch.signature checks out with its hotline.batch.key
+      And the file's batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate
       And the root rebuilds from the 2 records and the dropped hash
       And the OTLP exporter's batch record lists no dropped record
       And no exporter got a record with event.name hotline.ledger.dropped

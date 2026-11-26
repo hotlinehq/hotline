@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -391,7 +392,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return checkRoot(batches[0], records, nil)
 	})
-	sc.Step(`^hotline.batch.signature checks out with hotline.batch.key$`, func() error {
+	sc.Step(`^hotline.batch.signature checks out with the key of hotline.batch.certificate$`, func() error {
 		batches, err := w.waitBatches(1)
 		if err != nil {
 			return err
@@ -731,13 +732,59 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		w.settle()
 		return nil
 	})
-	sc.Step(`^the two runs sign with different hotline.batch.key$`, func() error {
+	sc.Step(`^the batch record's hotline.batch.certificate is an X.509 certificate for an Ed25519 key, signed by that key$`, func() error {
+		batches, err := w.waitBatches(1)
+		if err != nil {
+			return err
+		}
+		certificate, err := certificateOf(batches[0])
+		if err != nil {
+			return err
+		}
+		if _, ok := certificate.PublicKey.(ed25519.PublicKey); !ok {
+			return failf("the certificate's key is %T", certificate.PublicKey)
+		}
+		return certificate.CheckSignature(certificate.SignatureAlgorithm, certificate.RawTBSCertificate, certificate.Signature)
+	})
+	sc.Step(`^the batch record's certificate names the service (\S+)$`, func(name string) error {
+		batches, err := w.waitBatches(1)
+		if err != nil {
+			return err
+		}
+		certificate, err := certificateOf(batches[0])
+		if err != nil {
+			return err
+		}
+		if certificate.Subject.CommonName != name {
+			return failf("the certificate names %q", certificate.Subject.CommonName)
+		}
+		return nil
+	})
+	sc.Step(`^it is valid from the proxy's start for one hour$`, func() error {
+		batches, err := w.waitBatches(1)
+		if err != nil {
+			return err
+		}
+		certificate, err := certificateOf(batches[0])
+		if err != nil {
+			return err
+		}
+		// Certificate times are whole seconds: the start is cut down and
+		// the end cut down plus one second, so the hour is covered whole.
+		now := w.clock.Now()
+		life := certificate.NotAfter.Sub(certificate.NotBefore)
+		if life < time.Hour || life > time.Hour+2*time.Second || certificate.NotBefore.After(now) || now.Sub(certificate.NotBefore) > time.Minute {
+			return failf("the certificate is valid from %v to %v, and it is %v now", certificate.NotBefore, certificate.NotAfter, now)
+		}
+		return nil
+	})
+	sc.Step(`^the two runs sign with different hotline.batch.certificate$`, func() error {
 		runs, err := w.runBatches(2)
 		if err != nil {
 			return err
 		}
-		if runs[0][0].attrs["hotline.batch.key"] == runs[1][0].attrs["hotline.batch.key"] {
-			return failf("both runs sign with %v", runs[0][0].attrs["hotline.batch.key"])
+		if runs[0][0].attrs["hotline.batch.certificate"] == runs[1][0].attrs["hotline.batch.certificate"] {
+			return failf("both runs sign with %v", runs[0][0].attrs["hotline.batch.certificate"])
 		}
 		return nil
 	})
@@ -756,12 +803,12 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 			return nil
 		})
 	})
-	sc.Step(`^the batches after it have a new hotline.batch.key$`, func() error {
+	sc.Step(`^the batches after it have a new hotline.batch.certificate$`, func() error {
 		batches, err := w.waitBatches(2)
 		if err != nil {
 			return err
 		}
-		if batches[0].attrs["hotline.batch.key"] == batches[1].attrs["hotline.batch.key"] {
+		if batches[0].attrs["hotline.batch.certificate"] == batches[1].attrs["hotline.batch.certificate"] {
 			return failf("the key did not change")
 		}
 		return nil
@@ -1247,10 +1294,11 @@ func checkRoot(batch receivedRecord, records []receivedRecord, dropped map[int64
 // covers it, signed with Ed25519.
 func checkSigned(r receivedRecord) error {
 	digest := signedDigest(r)
-	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.key"]), "ed25519:"))
+	certificate, err := certificateOf(r)
 	if err != nil {
 		return err
 	}
+	key, _ := certificate.PublicKey.(ed25519.PublicKey)
 	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.signature"]), "ed25519:"))
 	if err != nil {
 		return err
@@ -1259,6 +1307,16 @@ func checkSigned(r receivedRecord) error {
 		return failf("the hotline.batch.signature does not check out with its key")
 	}
 	return nil
+}
+
+// certificateOf is the certificate a batch record carries, read from the
+// base64 of its DER bytes.
+func certificateOf(r receivedRecord) (*x509.Certificate, error) {
+	der, err := base64.StdEncoding.DecodeString(sprint(r.attrs["hotline.batch.certificate"]))
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(der)
 }
 
 // signedDigest is what a batch record's signature covers: every attribute

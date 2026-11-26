@@ -25,6 +25,7 @@ import (
 
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 // The exit codes of verify, in both formats.
@@ -415,9 +416,7 @@ func (v *verifier) about(f finding, b *lineBatch) finding {
 
 func (v *verifier) checkBatch(b *lineBatch) {
 	name := "batch " + b.sequenceText()
-	if !ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs))) {
-		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
-	}
+	v.checkCertificate(b, name)
 	// A copy is one exporter's, and each exporter signs its own batch
 	// records, so a batch record that names another exporter is another
 	// copy's (Peter, 2026-11-26).
@@ -477,6 +476,31 @@ func (v *verifier) checkBatch(b *lineBatch) {
 	}
 	if ledger.Text(ledger.Root(leaves)) != b.text("hotline.batch.root") {
 		v.problem(finding{Code: "batch_root_mismatch", Message: name + " of that run does not rebuild its root from its records"}, b)
+	}
+}
+
+// checkCertificate checks the batch record's certificate: that it is for
+// an Ed25519 key and signed by that key itself, that the batch record's
+// signature checks out with its key, that it names the service the batch
+// record does, and that the batch was closed within the key's hour
+// (Peter, 2026-11-26).
+func (v *verifier) checkCertificate(b *lineBatch, name string) {
+	certificate, err := ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs)))
+	service, _ := b.read.Resource["service.name"].(string)
+	switch {
+	case errors.Is(err, vault.ErrNotACertificate):
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " cannot be read"}, b)
+	case errors.Is(err, vault.ErrNotSelfSigned):
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " is not signed by its own key"}, b)
+	case err != nil:
+		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
+	case certificate.Subject.CommonName != service:
+		v.problem(finding{Code: "batch_certificate_invalid",
+			Message: fmt.Sprintf("the certificate of %s names the service %s, and the batch record %s", name, safe(certificate.Subject.CommonName), safe(service))}, b)
+	case b.at.Before(certificate.NotBefore) || b.at.After(certificate.NotAfter):
+		v.problem(finding{Code: "batch_outside_certificate",
+			Message: fmt.Sprintf("%s was closed outside its certificate's hour, at %s, and the certificate is valid from %s to %s", name,
+				b.at.UTC().Format(time.RFC3339), certificate.NotBefore.UTC().Format(time.RFC3339), certificate.NotAfter.UTC().Format(time.RFC3339))}, b)
 	}
 }
 
@@ -585,6 +609,11 @@ func (v *verifier) checkChains() {
 			run.Notes = append(run.Notes, "no_last_batch")
 			v.notes = append(v.notes, v.about(finding{Code: "no_last_batch", Message: "the run has no last batch: it crashed, or its end is missing"}, last))
 		}
+		// Every key is certified by the proxy itself for now, so nothing
+		// outside the folder vouches for it (Peter, 2026-11-26).
+		run.Notes = append(run.Notes, "key_self_certified")
+		v.notes = append(v.notes, v.about(finding{Code: "key_self_certified",
+			Message: "the run's batches are signed with keys whose certificates the proxy signed itself: nothing outside the folder vouches for them"}, last))
 		v.runs = append(v.runs, run)
 	}
 }

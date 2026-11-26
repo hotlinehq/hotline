@@ -1,6 +1,6 @@
 # The evidence ledger
 
-*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Each exporter signs its own batch record: decided and built 2026-11-26 (decisions 21 to 23). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
+*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Each exporter signs its own batch record, with a self-signed certificate for the key: decided and built 2026-11-26 (decisions 21 to 25). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
 
 Every record, minimal or full, carries a hash of everything it holds. Every 10 seconds the proxy puts the hashes of each integration's records into a tree, and each exporter signs the tree's top, with a key the proxy made itself, in its own batch record. Each batch points to the one before, so a missing batch shows. Anyone can check the records with `hotline-proxy verify`, with no secret, no config and no network.
 
@@ -77,9 +77,12 @@ A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger
 | `hotline.exporter` | The exporter that sent this batch record: its endpoint, or a file exporter's path. |
 | `hotline.batch.dropped_records` | The index and hash of each record of the batch this exporter dropped because its queue was full, up to 1,024. An empty list when it dropped none. |
 | `hotline.batch.dropped_count` | In place of the list, when it dropped more than 1,024. That copy cannot rebuild the root. |
-| `hotline.batch.key`, `hotline.batch.signature` | `ed25519:` and the base64 of the public key, and of the signature. |
+| `hotline.batch.certificate` | The certificate of the key that signed the batch record: base64 of its DER bytes (the standard binary form of a certificate). |
+| `hotline.batch.signature` | `ed25519:` and the base64 of the signature. |
 
 The level is `INFO`, or `WARN` when the exporter dropped records of the batch.
+
+The certificate is an X.509 certificate for the hourly Ed25519 key, made by the vault and signed by that key itself (Peter, 2026-11-26). Its name (common name) is the service, `service.name` from the resource, not the pod; the batch record names its pod as the instance. It is valid from when the key was made for one hour, the start cut down to a whole second and the end cut down plus one second. A self-signed certificate vouches for nothing outside the folder; it gives the key a name and an hour, so a certificate from a trusted source can take its place later.
 
 The tree is the one from Certificate Transparency (RFC 6962): a leaf is SHA-256 of `0x00` and the record's hash, an inner node SHA-256 of `0x01`, left and right, and the split is the largest power of two below the count.
 
@@ -117,12 +120,12 @@ It reads only the formats of this build: a folder written by an older edge build
 
 It exits with 0 when everything checks out, 1 when it found a problem, and 2 when it could not read its input. With `--format json` it prints one object, `format: hotline.verify.v1`, with `ok`, `summary` (with `exporter`, whose copy the folder is), `runs`, `problems` and `notes`, each with a fixed `code` and a plain `message`.
 
-- Problems: `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `batch_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
-- Notes, which leave the exit code at 0: `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
+- Problems: `batch_certificate_invalid` (a certificate that cannot be read, is not signed by its own key, or names another service than the batch record), `batch_outside_certificate` (a batch closed outside its certificate's hour), `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `batch_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
+- Notes, which leave the exit code at 0: `key_self_certified` (on every run: nothing outside the folder vouches for the key), `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
 
 ## Limits
 
 - Without the control plane, the batches do not stop a deliberate forger: whoever holds the records can make a new key and sign new batches. The minute entry, the witness and the time stamp, which come with the control plane, anchor the key.
 - A record an exporter loses after taking it, when a send or a write fails for good, is not in that exporter's dropped list, since the batch record has gone out already. That copy of the batch cannot rebuild its root.
-- The key is the proxy's own and nothing outside the folder vouches for it, so a folder that names one exporter throughout is only as strong as the key. A certificate for each hourly key, from a trusted source, is its own later topic.
+- The key's certificate is signed by the key itself, so nothing outside the folder vouches for it, and a folder that names one exporter throughout is only as strong as the key. A certificate from a trusted source is the next step.
 - The build hash waits for secure hardware: a proxy can only report its own.

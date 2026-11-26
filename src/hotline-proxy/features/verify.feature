@@ -318,6 +318,28 @@ Feature: Checking records with hotline-proxy verify
         | hotline.exporter              |
         | hotline.batch.dropped_records |
 
+  Rule: Each batch's certificate is checked, and said to be the proxy's own
+
+    A batch record carries the certificate of the key that signed it, made
+    by the vault and signed by that key itself (Peter, 2026-11-26). It
+    names the service and the key's hour. Nothing outside the folder vouches
+    for it yet, so verify says so in a note.
+
+    Scenario Outline: A batch certificate that does not check out
+      Given the folder calls from a stopped proxy
+      When the first batch record's <change>
+      And I run hotline-proxy verify calls
+      Then it exits with 1
+      And it prints that <message>
+
+      Examples:
+        | change                                                                    | message                                                                                   |
+        | certificate is cut short                                                  | the certificate of batch 0 cannot be read                                                 |
+        | certificate is signed by another key                                      | the certificate of batch 0 is not signed by its own key                                   |
+        | certificate is swapped for one of another key                             | the signature of batch 0 does not check out with its key                                  |
+        | record is signed again with a certificate naming the service another-proxy | the certificate of batch 0 names the service another-proxy, and the batch record hotline-proxy |
+        | record is signed again with a certificate whose hour ended before it      | batch 0 was closed outside its certificate's hour                                         |
+
   Rule: Bodies are checked against a record
 
     Scenario: A body the customer kept matches its record
@@ -448,6 +470,7 @@ Feature: Checking records with hotline-proxy verify
       Examples:
         | situation                                       | note             |
         | the folder calls from a proxy that was killed   | no_last_batch    |
+        | the folder calls from a stopped proxy           | key_self_certified |
         | the file exporter dropped one record of batch 0 | records_dropped  |
         | a kept body was cut short by maxBodySize        | body_not_checked |
 

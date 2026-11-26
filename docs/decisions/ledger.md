@@ -34,8 +34,12 @@ From the ADR check: the record hash left out some fields the proxy sends, such a
 
 21. Every exporter sends its own signed record for every batch, also when it dropped nothing, so `verify` can tell whose copy a folder is (Q1, over a flag naming the exporter).
 22. One record per batch per exporter: the ledger builds the batch and signs nothing; each exporter adds `hotline.exporter` and `hotline.batch.dropped_records` (empty when none) or `hotline.batch.dropped_count`, and signs the whole batch record, `hotline.batch.v3`, at `WARN` when it dropped records. The drop record and `hotline.ledger.dropped` are gone (Q2). `verify` takes the exporter most batch records name as the copy's, refuses others as `batch_record_foreign`, and says whose copy it is (`summary.exporter`).
-23. The vault, the proxy's in-memory place for the key, makes a new key at start and every hour. The ledger asks it once per batch and hands the key to every exporter beside the batch; exporters never ask it, so a batch is never split across two keys (Q3).
+23. The vault, the proxy's in-memory place for the key, makes a new key at start and every hour. The ledger asks it once per batch and hands the key to every exporter beside the batch; exporters never ask it, so a batch is never split across two keys (Q3). It lives in its own package, `internal/vault`, which knows nothing of the ledger; how a signature is written into a batch record stays in the ledger (Peter, 2026-11-26).
 
+24. Each hourly key comes with an X.509 certificate the vault makes and the key signs itself, valid for the key's hour, carried as `hotline.batch.certificate` in place of `hotline.batch.key` (Q4: in the same pull request, since `hotline.batch.v3` was not released). A certificate from a trusted source is the next step.
+25. The certificate names the service (`service.name`), not the pod (Q5). `verify` refuses one that cannot be read, is not signed by its own key or names another service (`batch_certificate_invalid`), and a batch closed outside its hour (`batch_outside_certificate`); every run gets the note `key_self_certified`.
+
+- Revisit if the trusted source to come issues a certificate per pod rather than per service (Q5).
 - Revisit if a remote vault such as OpenBao is put behind the vault: the ledger would then ask it to sign, rather than take the key, and the `certs` keys move under the vault too, as OpenBao would host them (Peter, 2026-11-26: a next step). A certificate for each hourly key from a trusted source is its own later topic.
 
 ## Tripwires (2026-11-25)

@@ -46,6 +46,10 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^the records transform labels service.name shop-proxy$`, func() error {
+		w.topExtra += "records:\n  transform:\n    - labels:\n        service.name: shop-proxy\n"
+		return nil
+	})
 	sc.Step(`^two OTLP exporters and a file exporter$`, func() error {
 		w.receivers = append(w.receivers, newReceiver())
 		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})

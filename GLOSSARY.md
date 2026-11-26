@@ -289,6 +289,10 @@ _Avoid_: block, bundle, chunk
 The record that closes a batch, `hotline.ledger.batch`. Each exporter sends its own: the batch, plus the exporter's name and the records it dropped, signed by that exporter. It is not a record in the sense of one entry per call.
 _Avoid_: drop record (the separate record it replaced), batch log
 
+**Batch certificate**:
+The certificate in each batch record for the hourly key that signs it, naming the service and the key's hour. Self-signed for now, so it vouches for nothing outside the folder.
+_Avoid_: cert, key certificate
+
 **Copy**:
 One exporter's records and batch records, as a file exporter's folder holds them. `verify` checks one copy, and says whose it is.
 _Avoid_: backup, replica, duplicate

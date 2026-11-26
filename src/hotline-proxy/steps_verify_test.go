@@ -5,11 +5,14 @@ import (
 	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,7 +86,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.key$`, func() error {
+	sc.Step(`^both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.certificate$`, func() error {
 		file, err := w.fileBatches()
 		if err != nil {
 			return err
@@ -92,14 +95,14 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		if len(file) == 0 || len(otlp) == 0 {
 			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
 		}
-		for _, name := range []string{"hotline.batch.id", "hotline.batch.root", "hotline.batch.key"} {
+		for _, name := range []string{"hotline.batch.id", "hotline.batch.root", "hotline.batch.certificate"} {
 			if err := has(otlp[0].attrs, name, file[0].attrs[name]); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	sc.Step(`^each batch record's hotline.batch.signature checks out with its hotline.batch.key$`, func() error {
+	sc.Step(`^each batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
 		file, err := w.fileBatches()
 		if err != nil {
 			return err
@@ -134,7 +137,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the file's batch record's hotline.batch.signature checks out with its hotline.batch.key$`, func() error {
+	sc.Step(`^the file's batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
 		batches, err := w.fileBatches()
 		if err != nil || len(batches) == 0 {
 			return failf("the file has no batch record: %v", err)
@@ -695,6 +698,35 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			return failf("the summary names the exporter %v", summary["exporter"])
 		}
 		return nil
+	})
+	sc.Step(`^the first batch record's (certificate is cut short|certificate is signed by another key|certificate is swapped for one of another key|record is signed again with a certificate naming the service another-proxy|record is signed again with a certificate whose hour ended before it)$`, func(change string) error {
+		return w.changeBatchLine(0, func(line map[string]any) {
+			attrs := line["attributes"].(map[string]any)
+			at, _ := time.Parse(time.RFC3339Nano, sprint(line["time"]))
+			name := "hotline-proxy"
+			switch change {
+			case "certificate is cut short":
+				attrs["hotline.batch.certificate"] = sprint(attrs["hotline.batch.certificate"])[:40]
+			case "certificate is signed by another key":
+				attrs["hotline.batch.certificate"], _ = testCertificate(name, at.Add(-time.Minute), at.Add(time.Hour), false)
+			case "certificate is swapped for one of another key":
+				attrs["hotline.batch.certificate"], _ = testCertificate(name, at.Add(-time.Minute), at.Add(time.Hour), true)
+			default:
+				from, to := at.Add(-time.Minute), at.Add(time.Hour)
+				if strings.HasSuffix(change, "ended before it") {
+					from, to = at.Add(-2*time.Hour), at.Add(-time.Hour)
+				} else {
+					name = "another-proxy"
+				}
+				var private ed25519.PrivateKey
+				attrs["hotline.batch.certificate"], private = testCertificate(name, from, to, true)
+				digest := signedDigest(lineAsReceived(line))
+				attrs["hotline.batch.signature"] = "ed25519:" + base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest[:]))
+			}
+		})
+	})
+	sc.Step(`^it prints that (the certificate of batch 0 cannot be read|the certificate of batch 0 is not signed by its own key|the certificate of batch 0 names the service another-proxy, and the batch record hotline-proxy|batch 0 was closed outside its certificate's hour)$`, func(message string) error {
+		return result.prints(message)
 	})
 	sc.Step(`^the flags of the first span in the second line's spans are changed$`, func() error {
 		return w.changeLine(2, func(line map[string]any) {
@@ -1313,6 +1345,21 @@ func (w *world) fakeDrop(ownKey bool) error {
 			batchAttrs["hotline.batch.signature"] = "ed25519:" + base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest[:]))
 		}
 	})
+}
+
+// testCertificate is a certificate for a new Ed25519 key, naming the
+// service name and valid from from to to, as base64 of its DER bytes, and
+// the key. Signed by that key itself, or by another key when self is
+// false.
+func testCertificate(name string, from, to time.Time, self bool) (string, ed25519.PrivateKey) {
+	public, private, _ := ed25519.GenerateKey(rand.Reader)
+	signer := private
+	if !self {
+		_, signer, _ = ed25519.GenerateKey(rand.Reader)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, NotBefore: from, NotAfter: to}
+	der, _ := x509.CreateCertificate(rand.Reader, template, template, public, signer)
+	return base64.StdEncoding.EncodeToString(der), private
 }
 
 // typed is a value read with its numbers kept as written, as the record's
