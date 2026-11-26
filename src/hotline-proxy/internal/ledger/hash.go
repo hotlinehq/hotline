@@ -35,12 +35,9 @@ const (
 	traceFormat   = "hotline.trace.v2"
 	bodyFormat    = "hotline.body.v1"
 	contentFormat = "hotline.content.v1"
-	// BatchFormat is the format of a batch record's signature.
-	BatchFormat = "hotline.batch.v2"
-	// DroppedFormat is the format of a drop record's signature: the record
-	// an exporter sends after a batch record when it dropped records of
-	// that batch.
-	DroppedFormat = "hotline.dropped.v1"
+	// BatchFormat is the format of a batch record's signature. Each
+	// exporter signs its own batch record (Peter, 2026-11-26).
+	BatchFormat = "hotline.batch.v3"
 )
 
 // writer feeds bytes into a SHA-256, through a small buffer, so a hash makes
@@ -262,7 +259,7 @@ func Parse(text string) ([sha256.Size]byte, error) {
 // Record is a record as its hash covers it: every field the proxy sends
 // on it (Peter, 2026-11-25). Attrs are its attributes, without the hash
 // itself. Times are to the microsecond, as the proxy sends them. A batch
-// or drop record has no trace, flags or body: they are empty.
+// record has no trace, flags or body: they are empty.
 type Record struct {
 	Attrs []attribute.KeyValue
 	// At is the record's time, and Observed when it was written.

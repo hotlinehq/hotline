@@ -133,7 +133,7 @@ There are two sizes of record:
 
 ### The ledger
 
-Every record, minimal or full, has `hotline.record.hash`, a SHA-256 hash of everything else it holds, and `hotline.batch.id` and `hotline.batch.index`, its place in a signed batch. Records with an HTTP exchange have `hotline.request.body.hash` and `hotline.response.body.hash`, and every record with a trace has `hotline.trace.hash`. Every 10 seconds each integration's batch leaves as a record of its own, `event.name = hotline.ledger.batch`, through every exporter. Detail: [proxy-ledger.md](proxy-ledger.md).
+Every record, minimal or full, has `hotline.record.hash`, a SHA-256 hash of everything else it holds, and `hotline.batch.id` and `hotline.batch.index`, its place in a signed batch. Records with an HTTP exchange have `hotline.request.body.hash` and `hotline.response.body.hash`, and every record with a trace has `hotline.trace.hash`. Every 10 seconds each integration's batch leaves as a record of its own, `event.name = hotline.ledger.batch`, through every exporter, each signing its own and naming itself in `hotline.exporter`. Detail: [proxy-ledger.md](proxy-ledger.md).
 
 ### Check results
 

@@ -51,29 +51,18 @@ func Root(leaves [][sha256.Size]byte) [sha256.Size]byte {
 
 // The attributes that hold a signature and the key that checks it.
 const (
-	batchSignature   = "hotline.batch.signature"
-	droppedSignature = "hotline.dropped.signature"
-	keyAttribute     = "hotline.batch.key"
+	batchSignature = "hotline.batch.signature"
+	keyAttribute   = "hotline.batch.key"
 )
 
-// signatureOf is the attribute that holds the signature of a record of
-// format.
-func signatureOf(format string) string {
-	if format == DroppedFormat {
-		return droppedSignature
-	}
-	return batchSignature
-}
-
-// signedDigest is what a batch or drop record's signature covers: SHA-256
-// of its format, every attribute but its own signature sorted by name,
-// then the record's other fields, as a record's hash covers them. Every
-// other attribute is signed, so nothing can be added to a signed record.
+// signedDigest is what a batch record's signature covers: SHA-256 of its
+// format, every attribute but its own signature sorted by name, then the
+// record's other fields, as a record's hash covers them. Every other
+// attribute is signed, so nothing can be added to a signed record.
 func signedDigest(format string, r Record) [sha256.Size]byte {
-	unsigned := signatureOf(format)
 	signed := make([]attribute.KeyValue, 0, len(r.Attrs))
 	for _, kv := range r.Attrs {
-		if string(kv.Key) != unsigned {
+		if string(kv.Key) != batchSignature {
 			signed = append(signed, kv)
 		}
 	}
@@ -104,25 +93,25 @@ func (Key) String() string { return "redacted" }
 // GoString hides the key when it is printed with %#v.
 func (Key) GoString() string { return "redacted" }
 
-// Sign signs a batch or drop record of format, and gives its attributes
-// with the key and the signature added: hotline.batch.key, then
-// hotline.batch.signature or hotline.dropped.signature.
+// Sign signs a batch record of format, and gives its attributes with the
+// key and the signature added: hotline.batch.key, then
+// hotline.batch.signature.
 func (k Key) Sign(format string, r Record) []attribute.KeyValue {
 	r.Attrs = append(slices.Clip(r.Attrs), attribute.String(keyAttribute, k.Public))
 	digest := signedDigest(format, r)
 	signature := ed25519.Sign(k.private, digest[:])
-	return append(r.Attrs, attribute.String(signatureOf(format), signaturePrefix+base64.StdEncoding.EncodeToString(signature)))
+	return append(r.Attrs, attribute.String(batchSignature, signaturePrefix+base64.StdEncoding.EncodeToString(signature)))
 }
 
-// CheckSignature says whether a batch or drop record of format checks out
-// with the key it names.
+// CheckSignature says whether a batch record of format checks out with the
+// key it names.
 func CheckSignature(format string, r Record) bool {
 	var key, signature string
 	for _, kv := range r.Attrs {
 		switch string(kv.Key) {
 		case keyAttribute:
 			key = kv.Value.AsString()
-		case signatureOf(format):
+		case batchSignature:
 			signature = kv.Value.AsString()
 		}
 	}

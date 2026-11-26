@@ -1,8 +1,8 @@
 # The evidence ledger
 
-*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
+*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Each exporter signs its own batch record: decided and built 2026-11-26 (decisions 21 to 23). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
 
-Every record, minimal or full, carries a hash of everything it holds. Every 10 seconds the proxy puts the hashes of each integration's records into a tree and signs the tree's top with a key it made itself. Each batch points to the one before, so a missing batch shows. Anyone can check the records with `hotline-proxy verify`, with no secret, no config and no network.
+Every record, minimal or full, carries a hash of everything it holds. Every 10 seconds the proxy puts the hashes of each integration's records into a tree, and each exporter signs the tree's top, with a key the proxy made itself, in its own batch record. Each batch points to the one before, so a missing batch shows. Anyone can check the records with `hotline-proxy verify`, with no secret, no config and no network.
 
 Some terms, in plain words:
 
@@ -60,11 +60,11 @@ A file exporter with `content: full` writes the real values beside the record, u
 
 ## What a batch record holds
 
-A batch leaves as one OTLP log record, `event.name = hotline.ledger.batch`, through every exporter, beside the call records. It is the same record for every exporter.
+A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger.batch`, after the batch's call records. The ledger builds the batch and signs nothing. It asks the vault (the proxy's in-memory place for the signing key) for the key once, and hands the batch and the key to every exporter. Each exporter adds its own name and the records of the batch it dropped, and signs its own batch record (Peter, 2026-11-26). So each copy holds one batch record per batch, and a copy mixed from two exporters shows. Batch records of the same batch differ between exporters only in `hotline.exporter`, the dropped records, the level and the signature.
 
 | Attribute | What it holds |
 |---|---|
-| `hotline.batch.format` | `hotline.batch.v2`. |
+| `hotline.batch.format` | `hotline.batch.v3`. |
 | `hotline.batch.id` | A UUID version 7, new for each batch. |
 | `hotline.batch.integration` | The integration the chain is for, or `not-passed`. |
 | `hotline.batch.instance` | The run's random `service.instance.id`, or the name `ledger.instance` sets. |
@@ -72,33 +72,26 @@ A batch leaves as one OTLP log record, `event.name = hotline.ledger.batch`, thro
 | `hotline.batch.sequence` | 0 for the first batch of the chain in this run, then 1, 2 and so on. |
 | `hotline.batch.previous` | The root of the batch before. Not on sequence 0. |
 | `hotline.batch.records`, `hotline.batch.root` | How many records, and the root of their tree. |
-| `hotline.batch.key`, `hotline.batch.signature` | `ed25519:` and the base64 of the public key, and of the signature. |
 | `hotline.batch.version`, `hotline.batch.config` | The proxy's version, and the hash of the config as loaded (`sha256:` and the hex). Secrets read from files or the environment are not part of it. |
 | `hotline.batch.last` | `true` on the last batch of a clean stop. |
+| `hotline.exporter` | The exporter that sent this batch record: its endpoint, or a file exporter's path. |
+| `hotline.batch.dropped_records` | The index and hash of each record of the batch this exporter dropped because its queue was full, up to 1,024. An empty list when it dropped none. |
+| `hotline.batch.dropped_count` | In place of the list, when it dropped more than 1,024. That copy cannot rebuild the root. |
+| `hotline.batch.key`, `hotline.batch.signature` | `ed25519:` and the base64 of the public key, and of the signature. |
+
+The level is `INFO`, or `WARN` when the exporter dropped records of the batch.
 
 The tree is the one from Certificate Transparency (RFC 6962): a leaf is SHA-256 of `0x00` and the record's hash, an inner node SHA-256 of `0x01`, left and right, and the split is the largest power of two below the count.
 
-The signature is Ed25519 over the SHA-256 of the word `hotline.batch.v2`, every attribute but the signature in name order, then the record's other fields as a record's hash covers them: its time, observed time, level, event name and resource (with an empty trace, flags and body).
+The signature is Ed25519 over the SHA-256 of the word `hotline.batch.v3`, every attribute but the signature in name order, then the record's other fields as a record's hash covers them: its time, observed time, level, event name and resource (with an empty trace, flags and body). An exporter signs when it queues the batch record, once its drops for the batch are final, and keeps no key: a retry sends the same bytes.
 
-## What a drop record holds
-
-An exporter whose queue was full drops records. So that its copy still rebuilds the batch's root, it sends one more record right after the batch record, `event.name = hotline.ledger.dropped`, at level `WARN` (Peter, 2026-11-25). An exporter that dropped nothing of the batch sends none.
-
-| Attribute | What it holds |
-|---|---|
-| `hotline.batch.id` | The batch the dropped records belong to. |
-| `hotline.exporter` | The exporter that dropped them: its endpoint, or a file exporter's path. |
-| `hotline.batch.dropped` | The index and hash of each record the exporter dropped from the batch, up to 1,024. |
-| `hotline.batch.dropped_count` | In place of the list, when it dropped more than 1,024. That copy cannot rebuild the root. |
-| `hotline.batch.key`, `hotline.dropped.signature` | The batch's own public key, and the signature. |
-
-The signature is made the same way as a batch's, with the word `hotline.dropped.v1`, and with the batch's key, which the ledger hands to the exporters beside the batch record and nobody keeps. `verify` takes a drop record only when it checks out with the key of its batch, so a record deleted and listed in a made-up drop record still shows. A folder is one exporter's copy, so `verify` also refuses a second drop record for a batch, drop records that name two exporters, and a drop record that lists a record the folder still holds: each is a drop record taken from another copy. It names the exporter of the drop records it used, so a reader can check that it is this folder's.
+`verify` takes the dropped records' hashes in place of the records, so a copy with drops still rebuilds the root. A record deleted and listed as dropped fails the signature. A folder is one exporter's copy, so `verify` works out the exporter most of its batch records name, says whose copy the folder is, and refuses a batch record that names another exporter or lists a record the folder still holds: each is a batch record taken from another copy.
 
 ## When batches close
 
 - One chain per integration in the config, and one, `not-passed`, for everything else. A dispute is about one integration, so it hands over its own chain only.
 - A batch closes every 10 seconds, or at 65,536 records. A window with no calls sends no batch.
-- The proxy makes a new key in memory at start, and again every hour. The key is never written anywhere.
+- The vault makes a new key in memory at start, and again every hour; the ledger asks it once for each batch it closes, so every exporter signs a batch with the same key. Exporters never ask the vault themselves, since a new key made between two of them would split a batch across two keys. The key is never written anywhere.
 - Each run starts each chain at sequence 0. On a clean stop the proxy sends a last batch for every chain, an empty one too, with `hotline.batch.last`. A chain with no last batch means a crash or a cut-off end.
 - A config reload changes `hotline.batch.config` from the next batch on. An integration added starts its chain at 0; one removed closes its chain with a last batch. A last batch sent empty names the config of the chain's batch before it, not the config in use at the time.
 - Every record in a batch is of the config the batch names: the config its call started with, even when a reload came before the record was made. The first record of another config closes the open batch and starts a new one. A record of a call that started before its integration was removed goes on that integration's chain, after its last batch.
@@ -120,15 +113,16 @@ hotline-proxy verify <folder> [--integration id] [--body file --span id --side r
 
 It reads a file exporter's folder (`calls.jsonl` and the rotated files, compressed or not) and checks each record's hash, each trace's hash from the spans kept in the line, the content hash and kept bodies, each batch's signature and root, and each run's chain. With `--body` it checks a body someone kept against the hash in the record with that span id.
 
-It reads only the formats of this build: a folder written by an older edge build, with `hotline.batch.v1`, is refused as unreadable, with a message that says so.
+It reads only the formats of this build: a folder written by an older edge build, with `hotline.batch.v1` or `hotline.batch.v2`, is refused as unreadable, with a message that says so.
 
-It exits with 0 when everything checks out, 1 when it found a problem, and 2 when it could not read its input. With `--format json` it prints one object, `format: hotline.verify.v1`, with `ok`, `summary`, `runs`, `problems` and `notes`, each with a fixed `code` and a plain `message`.
+It exits with 0 when everything checks out, 1 when it found a problem, and 2 when it could not read its input. With `--format json` it prints one object, `format: hotline.verify.v1`, with `ok`, `summary` (with `exporter`, whose copy the folder is), `runs`, `problems` and `notes`, each with a fixed `code` and a plain `message`.
 
-- Problems: `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `drop_signature_invalid`, `drop_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
+- Problems: `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `batch_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
 - Notes, which leave the exit code at 0: `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
 
 ## Limits
 
 - Without the control plane, the batches do not stop a deliberate forger: whoever holds the records can make a new key and sign new batches. The minute entry, the witness and the time stamp, which come with the control plane, anchor the key.
 - A record an exporter loses after taking it, when a send or a write fails for good, is not in that exporter's dropped list, since the batch record has gone out already. That copy of the batch cannot rebuild its root.
+- The key is the proxy's own and nothing outside the folder vouches for it, so a folder that names one exporter throughout is only as strong as the key. A certificate for each hourly key, from a trusted source, is its own later topic.
 - The build hash waits for secure hardware: a proxy can only report its own.

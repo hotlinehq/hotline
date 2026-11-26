@@ -99,8 +99,8 @@ var _ = Describe("Checking a batch's signature", func() {
 		Expect(signed.Attrs).To(ContainElement(HaveField("Key", attribute.Key("hotline.batch.key"))))
 	})
 
-	It("does not check out as a drop record", func() {
-		Expect(ledger.CheckSignature(ledger.DroppedFormat, signed)).To(BeFalse())
+	It("does not check out under another format word", func() {
+		Expect(ledger.CheckSignature("hotline.batch.v2", signed)).To(BeFalse())
 	})
 
 	DescribeTable("fails",
@@ -123,7 +123,7 @@ var _ = Describe("Checking a batch's signature", func() {
 		Entry("the observed time", func(r *ledger.Record) { r.Observed = r.Observed.Add(time.Microsecond) }),
 		Entry("the level", func(r *ledger.Record) { r.SeverityNumber = 13 }),
 		Entry("the level's text", func(r *ledger.Record) { r.SeverityText = "WARN" }),
-		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.ledger.dropped" }),
+		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.request" }),
 		Entry("the resource", func(r *ledger.Record) { r.Resource = nil }),
 	)
 
@@ -287,5 +287,16 @@ var _ = Describe("Hashing a trace", func() {
 		_ = h.Trace("0102", spans)
 		Expect(spans[0].Name).To(Equal("later"))
 		Expect(spans[1].Name).To(Equal("first"))
+	})
+})
+
+var _ = Describe("The vault", func() {
+	start := time.UnixMicro(1_700_000_000_000_000)
+
+	It("gives the same key until it is an hour old, then a new one", func() {
+		vault := ledger.NewVault(time.Hour, start)
+		first := vault.Key(start)
+		Expect(vault.Key(start.Add(59 * time.Minute)).Public).To(Equal(first.Public))
+		Expect(vault.Key(start.Add(time.Hour)).Public).NotTo(Equal(first.Public))
 	})
 })

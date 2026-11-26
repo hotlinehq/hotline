@@ -22,17 +22,14 @@ const waitingBatches = 64
 // before it is tried again.
 const batchRetry = time.Second
 
-// shownDropped is how many dropped records a drop record lists at most,
+// shownDropped is how many dropped records a batch record lists at most,
 // by index and hash; past it, only their count.
 const shownDropped = 1024
 
-// DroppedEvent is the event of a drop record: the record an exporter sends
-// after a batch record when it dropped records of that batch.
-const DroppedEvent = "hotline.ledger.dropped"
-
-// Batch is one record the ledger signs whole: a batch record, the same for
-// every exporter, or an exporter's drop record. At and Observed are cut to
-// whole microseconds, as the signature covers them.
+// Batch is a batch record. The ledger hands it over unsigned, with its id,
+// times and attributes; each exporter adds its own name and the records it
+// dropped, sets the event and the level, and signs it. At and Observed are
+// cut to whole microseconds, as the signature covers them.
 type Batch struct {
 	ID       string
 	Event    string
@@ -42,10 +39,8 @@ type Batch struct {
 	Attrs    []attribute.KeyValue
 }
 
-// SignedRecord is a batch or drop record as its signature covers it: every
-// field the exporters send, with the resource they send it with.
-func (s *Exporters) SignedRecord(b Batch) ledger.Record { return signedRecord(b, s.resource) }
-
+// signedRecord is a batch record as its signature covers it: every field
+// the exporter sends, with the resource it sends it with.
 func signedRecord(b Batch, resource []attribute.KeyValue) ledger.Record {
 	return ledger.Record{
 		Attrs: b.Attrs, At: b.At, Observed: b.Observed,
@@ -53,11 +48,10 @@ func signedRecord(b Batch, resource []attribute.KeyValue) ledger.Record {
 	}
 }
 
-// Batch queues a signed batch record for every exporter that keeps the
-// ledger. An exporter that dropped records of the batch also queues its
-// drop record, signed at once with key, which is never kept. It never
-// blocks and is never refused for a full queue: it waits apart from the
-// records, after them.
+// Batch queues a batch record for every exporter that keeps the ledger,
+// each signed at once by that exporter with key, which is never kept. It
+// never blocks and is never refused for a full queue: it waits apart from
+// the records, after them.
 func (s *Exporters) Batch(b Batch, key ledger.Key) {
 	for _, line := range s.batches {
 		line.add(b, key)
@@ -71,13 +65,14 @@ type batchDrops struct {
 	count int
 }
 
-// list is what the drop record says of the dropped records: each one's
-// index and hash, or only their count when there are too many to list.
+// list is what the batch record says of the dropped records: each one's
+// index and hash, or only their count when there are too many to list. An
+// exporter that dropped none lists none, so every batch record says.
 func (d *batchDrops) list() attribute.KeyValue {
 	if d.count > shownDropped {
 		return attribute.Int("hotline.batch.dropped_count", d.count)
 	}
-	return attribute.Slice("hotline.batch.dropped", d.shown...)
+	return attribute.Slice("hotline.batch.dropped_records", d.shown...)
 }
 
 // batchLine holds the batch records waiting for one exporter and sends
@@ -103,8 +98,7 @@ type batchLine struct {
 }
 
 // waitingBatch is one batch record waiting, numbered in the order it was
-// queued, and already written with the drop record that follows it, so a
-// retry sends the same bytes.
+// queued, and already written, so a retry sends the same bytes.
 type waitingBatch struct {
 	number uint64
 	items  [][]byte
@@ -119,7 +113,7 @@ type batchLineSetup struct {
 	before func(context.Context) error
 	send   func(context.Context, [][]byte) error
 	render func(Batch) []byte
-	// resource is what the exporter sends records with, which a drop
+	// resource is what the exporter sends records with, which a batch
 	// record's signature covers.
 	resource []attribute.KeyValue
 	// lost counts a batch record let go.
@@ -141,7 +135,7 @@ func lostBatch(stats sendStats, labels attribute.Set) func() {
 	return func() { stats.dropped.Add(context.Background(), 1, dropReason(labels, "queue_full")) }
 }
 
-// dropped notes a record the exporter dropped, for its batch's drop record.
+// dropped notes a record the exporter dropped, for its batch record.
 func (l *batchLine) dropped(e LedgerEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -156,22 +150,26 @@ func (l *batchLine) dropped(e LedgerEntry) {
 	}
 }
 
-// add queues a batch record. The exporter's drops for that batch are final
-// now, as the ledger hands over a call's record and closes its batch under
-// the same lock, so the drop record is made and signed here, once.
+// add queues this exporter's batch record. The exporter's drops for that
+// batch are final now, as the ledger hands over a call's record and closes
+// its batch under the same lock, so the record is made and signed here,
+// once (Peter, 2026-11-26).
 func (l *batchLine) add(b Batch, key ledger.Key) {
 	l.mu.Lock()
-	items := [][]byte{l.render(b)}
-	if d := l.drops[b.ID]; d != nil {
-		drop := Batch{
-			ID: b.ID, Event: DroppedEvent, Severity: log.SeverityWarn, At: b.At, Observed: b.Observed,
-			// The exporter is named, so verify can tell one exporter's
-			// copy from another's.
-			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.id", b.ID), attribute.String("hotline.exporter", l.name), d.list()},
-		}
-		drop.Attrs = key.Sign(ledger.DroppedFormat, signedRecord(drop, l.resource))
-		items = append(items, l.render(drop))
+	d := l.drops[b.ID]
+	if d == nil {
+		d = &batchDrops{}
 	}
+	mine := b
+	mine.Event, mine.Severity = BatchEvent, log.SeverityInfo
+	if d.count > 0 {
+		mine.Severity = log.SeverityWarn
+	}
+	// The exporter is named, so verify can tell one exporter's copy from
+	// another's.
+	mine.Attrs = append(slices.Clip(b.Attrs), attribute.String("hotline.exporter", l.name), d.list())
+	mine.Attrs = key.Sign(ledger.BatchFormat, signedRecord(mine, l.resource))
+	items := [][]byte{l.render(mine)}
 	delete(l.drops, b.ID)
 	if len(l.waiting) == waitingBatches {
 		clear(l.waiting[:1])

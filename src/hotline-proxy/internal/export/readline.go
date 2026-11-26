@@ -41,7 +41,7 @@ var (
 )
 
 // Line is one line of a file exporter's file, read back: a call, or a
-// ledger batch or drop record. Its attribute values are as JSON gives them,
+// ledger batch record. Its attribute values are as JSON gives them,
 // numbers kept as written. A field the line does not hold is empty.
 type Line struct {
 	Time     time.Time
@@ -106,7 +106,7 @@ func ReadLine(data []byte) (Line, error) {
 		Body: raw.Body, Resource: raw.Resource, Attributes: raw.Attributes,
 	}
 	// A field that cannot be read is read as nothing, which the record's
-	// hash does not match. A batch or drop record has no flags.
+	// hash does not match. A batch record has no flags.
 	flags, _ := strconv.ParseUint(raw.Flags, 16, 8)
 	line.Flags = uint32(flags)
 	line.Observed, _ = time.Parse(time.RFC3339Nano, raw.Observed)

@@ -207,7 +207,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 				return failf("the %s record came in the scope %q", r.eventName, r.scope)
 			}
 		}
-		return checkBatchSignature(batches[0])
+		return checkSigned(batches[0])
 	})
 	sc.Step(`^the hash no longer checks out$`, func() error {
 		if checkRecordHash(changed) == nil {
@@ -366,13 +366,13 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		_, err := w.waitBatches(1)
 		return err
 	})
-	sc.Step(`^it has hotline.batch.format hotline.batch.v2, hotline.batch.records (\d+) and hotline.batch.root$`, func(n int64) error {
+	sc.Step(`^it has hotline.batch.format hotline.batch.v3, hotline.batch.records (\d+) and hotline.batch.root$`, func(n int64) error {
 		batches, err := w.waitBatches(1)
 		if err != nil {
 			return err
 		}
 		b := batches[0].attrs
-		if err := has(b, "hotline.batch.format", "hotline.batch.v2"); err != nil {
+		if err := has(b, "hotline.batch.format", "hotline.batch.v3"); err != nil {
 			return err
 		}
 		if err := has(b, "hotline.batch.records", n); err != nil {
@@ -396,7 +396,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		return checkBatchSignature(batches[0])
+		return checkSigned(batches[0])
 	})
 	sc.Step(`^ledger batches hold at most (\d+) records$`, func(n int) error {
 		w.topExtra += fmt.Sprintf("ledger:\n  batch:\n    maxRecords: %d\n", n)
@@ -772,7 +772,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		for _, b := range batches {
-			if err := checkBatchSignature(b); err != nil {
+			if err := checkSigned(b); err != nil {
 				return err
 			}
 		}
@@ -1241,40 +1241,33 @@ func checkRoot(batch receivedRecord, records []receivedRecord, dropped map[int64
 	return nil
 }
 
-// checkBatchSignature checks a batch record's signature with the key it
-// names.
-func checkBatchSignature(r receivedRecord) error {
-	return checkSigned("hotline.batch.v2", "hotline.batch.signature", r)
-}
-
-// checkSigned checks a batch or drop record's signature with the key it
-// names: SHA-256 of the format word, every attribute but the signature in
-// name order, and every other field of the record as a record's hash
+// checkSigned checks a batch record's signature with the key it names:
+// SHA-256 of the word hotline.batch.v3, every attribute but the signature
+// in name order, and every other field of the record as a record's hash
 // covers it, signed with Ed25519.
-func checkSigned(format, signatureName string, r receivedRecord) error {
-	digest := signedDigest(format, r)
+func checkSigned(r receivedRecord) error {
+	digest := signedDigest(r)
 	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.key"]), "ed25519:"))
 	if err != nil {
 		return err
 	}
-	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs[signatureName]), "ed25519:"))
+	signature, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sprint(r.attrs["hotline.batch.signature"]), "ed25519:"))
 	if err != nil {
 		return err
 	}
 	if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, digest[:], signature) {
-		return failf("the %s does not check out with its key", signatureName)
+		return failf("the hotline.batch.signature does not check out with its key")
 	}
 	return nil
 }
 
-// signedDigest is what a batch or drop record's signature covers: every
-// attribute but its own signature.
-func signedDigest(format string, r receivedRecord) [sha256.Size]byte {
-	signature := map[string]string{"hotline.batch.v2": "hotline.batch.signature", "hotline.dropped.v1": "hotline.dropped.signature"}[format]
+// signedDigest is what a batch record's signature covers: every attribute
+// but its own signature.
+func signedDigest(r receivedRecord) [sha256.Size]byte {
 	var b hashBytes
-	b.piece([]byte(format))
+	b.piece([]byte("hotline.batch.v3"))
 	for _, name := range slices.Sorted(maps.Keys(r.attrs)) {
-		if name != signature {
+		if name != "hotline.batch.signature" {
 			b.entry(name, r.attrs[name])
 		}
 	}
