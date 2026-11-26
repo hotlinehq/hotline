@@ -26,6 +26,10 @@ type partReader struct {
 	state     partState
 	// matched is how many bytes of a delimiter the bytes so far end with.
 	matched int
+	// assumedLineBreak says the first two matched bytes, the line break
+	// that starts a delimiter, were not read but assumed: see
+	// expectDelimiterNext.
+	assumedLineBreak bool
 	// head is the line after a delimiter, or a part's headers, read so far.
 	head []byte
 	// textKeeper keeps the bytes of every text part, one after the other.
@@ -83,9 +87,7 @@ func newPartReader(contentType string, isFile func(name string) bool, limit int,
 		return r
 	}
 	r.delimiter = []byte("\r\n--" + boundary)
-	// The first delimiter may come at the very start, with no line break
-	// before it: read as if one came first.
-	r.matched = 2
+	r.expectDelimiterNext()
 	return r
 }
 
@@ -127,15 +129,20 @@ func (r *partReader) scan(p []byte) []byte {
 			r.matched += n
 			i += n
 			if r.matched == len(r.delimiter) {
-				r.matched = 0
+				r.matched, r.assumedLineBreak = 0, false
 				r.state = afterDelimiter
 				return p[i:]
 			}
 		case r.matched > 0:
-			// What matched so far was content after all; the byte that
-			// broke the match is looked at again.
-			r.content(r.delimiter[:r.matched])
-			r.matched = 0
+			// What matched so far was content after all, apart from an
+			// assumed line break; the byte that broke the match is looked
+			// at again.
+			from := 0
+			if r.assumedLineBreak {
+				from = 2
+			}
+			r.content(r.delimiter[from:r.matched])
+			r.matched, r.assumedLineBreak = 0, false
 		default:
 			r.content(p[i : i+1])
 			i++
@@ -225,6 +232,17 @@ func (r *partReader) start(block []byte) {
 	*list = append(*list, part)
 	r.current = &(*list)[len(*list)-1]
 	r.state = inContent
+	r.expectDelimiterNext()
+}
+
+// expectDelimiterNext reads on as if the line break that starts a delimiter
+// had just come. A delimiter may come at the very start of the body, with no
+// line break before it, or right after a part's headers, whose own last line
+// break then also starts it. Go's multipart reader reads such a part as
+// empty, and so does this one, so the check sees what a vendor written in Go
+// sees.
+func (r *partReader) expectDelimiterNext() {
+	r.matched, r.assumedLineBreak = 2, true
 }
 
 // hand gives the parts to the check; they never change after. A body that
