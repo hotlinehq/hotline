@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto/tls"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -147,9 +149,10 @@ func (c *call) record(end time.Time) finished {
 	attrs = append(attrs, attribute.String("hotline.response.body.hash", response))
 	var content []attribute.KeyValue
 	if c.integration.Content.Full {
-		content = c.content()
+		request := c.keptRequest()
+		content = c.content(request)
 		attrs = append(attrs, attribute.String("hotline.content.hash", ledger.Text(c.h.hashes.Content(content))))
-		content = c.withBodies(content)
+		content = c.withBodies(content, request)
 	}
 	return finished{cfg: c.cfg, chain: c.integration.Name, sc: c.trace, at: c.start, attrs: attrs, spans: spans, content: content}
 }
@@ -177,8 +180,10 @@ func (c *call) outcome(failed failure) callOutcome {
 // hash covers it (Peter, 2026-11-16). Each value that is secret, by the
 // spec or always (Authorization, Proxy-Authorization, Cookie,
 // Set-Cookie), is REDACTED, so no key is copied out of a file kept for
-// debugging (Peter, 2026-11-18). A body cut at maxBodySize is flagged.
-func (c *call) content() []attribute.KeyValue {
+// debugging (Peter, 2026-11-18). A body cut at maxBodySize is flagged, and
+// a request body whose file names were hidden is flagged and has the hash
+// of its copy (Peter, 2026-11-26).
+func (c *call) content(request savedCopy) []attribute.KeyValue {
 	var response http.Header
 	if c.resp != nil {
 		response = c.resp.Header
@@ -193,7 +198,7 @@ func (c *call) content() []attribute.KeyValue {
 		Header:          c.in.Header,
 		ResponseHeaders: response,
 	})
-	full := make([]attribute.KeyValue, 0, len(hidden.Header)+len(hidden.ResponseHeaders)+5)
+	full := make([]attribute.KeyValue, 0, len(hidden.Header)+len(hidden.ResponseHeaders)+7)
 	full = append(full, attribute.String("hotline.content.url.full", c.hiddenAddress(hidden)))
 	for name, values := range hidden.Header {
 		full = append(full, attribute.StringSlice("hotline.content.request.header."+strings.ToLower(name), values))
@@ -201,8 +206,14 @@ func (c *call) content() []attribute.KeyValue {
 	for name, values := range hidden.ResponseHeaders {
 		full = append(full, attribute.StringSlice("hotline.content.response.header."+strings.ToLower(name), values))
 	}
-	if _, cut := c.reqBody.savedBody(); cut {
+	if request.cut {
 		full = append(full, attribute.Bool("hotline.content.request.body.truncated", true))
+	}
+	if request.redacted {
+		full = append(full, attribute.Bool("hotline.content.request.body.redacted", true))
+	}
+	if request.changed {
+		full = append(full, attribute.String("hotline.content.request.body.hash", c.copyHash(request.data)))
 	}
 	if c.respBody != nil {
 		if _, cut := c.respBody.savedBody(); cut {
@@ -214,9 +225,9 @@ func (c *call) content() []attribute.KeyValue {
 
 // withBodies adds the kept part of each body, as bytes, which the file
 // writes as base64. Each has its own hash in the record already.
-func (c *call) withBodies(full []attribute.KeyValue) []attribute.KeyValue {
-	if body, _ := c.reqBody.savedBody(); len(body) > 0 {
-		full = append(full, attribute.ByteSlice("hotline.content.request.body", body))
+func (c *call) withBodies(full []attribute.KeyValue, request savedCopy) []attribute.KeyValue {
+	if len(request.data) > 0 {
+		full = append(full, attribute.ByteSlice("hotline.content.request.body", request.data))
 	}
 	if c.respBody != nil {
 		if body, _ := c.respBody.savedBody(); len(body) > 0 {
@@ -225,6 +236,46 @@ func (c *call) withBodies(full []attribute.KeyValue) []attribute.KeyValue {
 	}
 	return full
 }
+
+// savedCopy is the copy of a body content: full keeps. cut says it holds
+// less than the body that passed, and redacted that file names in it were
+// hidden. changed says it is not the bytes that passed, as an upload's copy
+// written again by Go's multipart writer is not, so it has a hash of its
+// own; a copy only cut at maxBodySize is still the bytes that passed.
+type savedCopy struct {
+	data                   []byte
+	cut, redacted, changed bool
+}
+
+// keptRequest is the copy of the request body content: full keeps: the
+// bytes as they passed, but in a multipart/form-data body each file name
+// the record hides is hidden too (Peter, 2026-11-26, Q1 to Q3).
+func (c *call) keptRequest() savedCopy {
+	data, cut := c.reqBody.savedBody()
+	contentType := c.in.Header.Get("Content-Type")
+	if mediaType, _, err := mime.ParseMediaType(contentType); err != nil || mediaType != "multipart/form-data" {
+		return savedCopy{data: data, cut: cut}
+	}
+	var api *spec.Spec
+	if c.api != nil {
+		api = c.api.Spec
+	}
+	hidden, redacted, shortened := hideFileNames(data, contentType, api.FileNameShown(c.specRoute(), contentType))
+	return savedCopy{data: hidden, cut: cut || shortened, redacted: redacted, changed: !bytes.Equal(hidden, data)}
+}
+
+// copyHash is the hash of a copy of the request body that is no longer the
+// bytes that passed, salted as the body's own hash is, so verify can check
+// the copy.
+func (c *call) copyHash(data []byte) string {
+	h := c.h.bodyHash("request"+copySide, c.trace)
+	_, _ = h.Write(data)
+	return h.Sum()
+}
+
+// copySide names the hash of a body's copy apart from the body's own, so
+// one never passes for the other: the side "request copy".
+const copySide = " copy"
 
 // hiddenAddress is the address as sent, with the path and query that
 // spec.Hide left, so its secrets are REDACTED.
