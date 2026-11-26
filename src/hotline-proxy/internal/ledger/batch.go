@@ -1,9 +1,9 @@
 package ledger
 
 import (
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,15 +13,15 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	"hotline-proxy/internal/vault"
 )
 
-// ErrNotAKey is a text that is not a public key as the ledger writes it.
-var ErrNotAKey = errors.New("ledger: not an ed25519 key")
+// ErrSignatureInvalid is a batch record whose signature does not check
+// out with its certificate's key.
+var ErrSignatureInvalid = errors.New("ledger: the signature does not check out with the certificate's key")
 
-const (
-	keyPrefix       = "ed25519:"
-	signaturePrefix = "ed25519:"
-)
+const signaturePrefix = "ed25519:"
 
 // Root is the root of a batch's tree, built as in Certificate Transparency
 // (RFC 6962): a record's leaf is SHA-256 of 0x00 and its hash, an inner
@@ -49,31 +49,21 @@ func Root(leaves [][sha256.Size]byte) [sha256.Size]byte {
 	return sha256.Sum256(b[:])
 }
 
-// The attributes that hold a signature and the key that checks it.
+// The attributes that hold a signature and the certificate whose key
+// checks it.
 const (
-	batchSignature   = "hotline.batch.signature"
-	droppedSignature = "hotline.dropped.signature"
-	keyAttribute     = "hotline.batch.key"
+	batchSignature       = "hotline.batch.signature"
+	certificateAttribute = "hotline.batch.certificate"
 )
 
-// signatureOf is the attribute that holds the signature of a record of
-// format.
-func signatureOf(format string) string {
-	if format == DroppedFormat {
-		return droppedSignature
-	}
-	return batchSignature
-}
-
-// signedDigest is what a batch or drop record's signature covers: SHA-256
-// of its format, every attribute but its own signature sorted by name,
-// then the record's other fields, as a record's hash covers them. Every
-// other attribute is signed, so nothing can be added to a signed record.
+// signedDigest is what a batch record's signature covers: SHA-256 of its
+// format, every attribute but its own signature sorted by name, then the
+// record's other fields, as a record's hash covers them. Every other
+// attribute is signed, so nothing can be added to a signed record.
 func signedDigest(format string, r Record) [sha256.Size]byte {
-	unsigned := signatureOf(format)
 	signed := make([]attribute.KeyValue, 0, len(r.Attrs))
 	for _, kv := range r.Attrs {
-		if string(kv.Key) != unsigned {
+		if string(kv.Key) != batchSignature {
 			signed = append(signed, kv)
 		}
 	}
@@ -84,66 +74,42 @@ func signedDigest(format string, r Record) [sha256.Size]byte {
 	return w.sum()
 }
 
-// Key is a signing key the proxy makes in memory and never writes down.
-// It prints as redacted, so a log line can never show it.
-type Key struct {
-	private ed25519.PrivateKey
-	// Public is the public key as the batch record holds it.
-	Public string
-}
-
-// NewKey makes a new key from the system's random source.
-func NewKey() Key {
-	public, private, _ := ed25519.GenerateKey(rand.Reader)
-	return Key{private: private, Public: keyPrefix + base64.StdEncoding.EncodeToString(public)}
-}
-
-// String hides the key when it is printed.
-func (Key) String() string { return "redacted" }
-
-// GoString hides the key when it is printed with %#v.
-func (Key) GoString() string { return "redacted" }
-
-// Sign signs a batch or drop record of format, and gives its attributes
-// with the key and the signature added: hotline.batch.key, then
-// hotline.batch.signature or hotline.dropped.signature.
-func (k Key) Sign(format string, r Record) []attribute.KeyValue {
-	r.Attrs = append(slices.Clip(r.Attrs), attribute.String(keyAttribute, k.Public))
+// Sign signs a batch record of format with key, and gives its attributes
+// with the certificate and the signature added: hotline.batch.certificate,
+// then hotline.batch.signature, "ed25519:" and the signature in base64.
+func Sign(format string, r Record, key vault.Key) []attribute.KeyValue {
+	r.Attrs = append(slices.Clip(r.Attrs), attribute.String(certificateAttribute, key.Certificate))
 	digest := signedDigest(format, r)
-	signature := ed25519.Sign(k.private, digest[:])
-	return append(r.Attrs, attribute.String(signatureOf(format), signaturePrefix+base64.StdEncoding.EncodeToString(signature)))
+	signature := key.Sign(digest[:])
+	return append(r.Attrs, attribute.String(batchSignature, signaturePrefix+base64.StdEncoding.EncodeToString(signature)))
 }
 
-// CheckSignature says whether a batch or drop record of format checks out
-// with the key it names.
-func CheckSignature(format string, r Record) bool {
-	var key, signature string
+// CheckSignature checks a batch record of format: its certificate, read
+// as vault.ParseCertificate reads it, and its signature with the
+// certificate's key. It gives the certificate, and an error that says
+// which check failed: vault.ErrNotACertificate, vault.ErrNotSelfSigned or
+// ErrSignatureInvalid.
+func CheckSignature(format string, r Record) (*x509.Certificate, error) {
+	var text, signature string
 	for _, kv := range r.Attrs {
 		switch string(kv.Key) {
-		case keyAttribute:
-			key = kv.Value.AsString()
-		case signatureOf(format):
+		case certificateAttribute:
+			text = kv.Value.AsString()
+		case batchSignature:
 			signature = kv.Value.AsString()
 		}
 	}
-	public, err := decode(key, keyPrefix)
-	if err != nil || len(public) != ed25519.PublicKeySize {
-		return false
-	}
-	sig, err := decode(signature, signaturePrefix)
+	certificate, err := vault.ParseCertificate(text)
 	if err != nil {
-		return false
+		return nil, err
 	}
+	body, found := strings.CutPrefix(signature, signaturePrefix)
+	sig, err := base64.StdEncoding.DecodeString(body)
 	digest := signedDigest(format, r)
-	return ed25519.Verify(public, digest[:], sig)
-}
-
-func decode(text, prefix string) ([]byte, error) {
-	body, found := strings.CutPrefix(text, prefix)
-	if !found {
-		return nil, ErrNotAKey
+	if !found || err != nil || !vault.Verify(certificate, digest[:], sig) {
+		return certificate, ErrSignatureInvalid
 	}
-	return base64.StdEncoding.DecodeString(body)
+	return certificate, nil
 }
 
 // NewBatchID is a UUID version 7: the time in milliseconds, then random

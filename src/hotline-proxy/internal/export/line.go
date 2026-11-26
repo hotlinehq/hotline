@@ -61,7 +61,7 @@ func appendLine(buf *bytes.Buffer, resource []attribute.KeyValue, c Call, withCo
 	w.put(jsontext.EndArray, jsontext.EndObject, jsontext.EndObject)
 }
 
-// appendBatchLine writes a ledger batch or drop record as a line of flat
+// appendBatchLine writes a ledger batch record as a line of flat
 // JSON: its times, level, event, resource and attributes, every field its
 // signature covers.
 func appendBatchLine(buf *bytes.Buffer, resource []attribute.KeyValue, b Batch) {

@@ -141,7 +141,9 @@ type receiver struct {
 	// taken counts every call record ever got, also those forget dropped.
 	taken   int
 	batches []receivedRecord
-	// drops are the ledger's drop records.
+	// drops are records with the event of the drop records the ledger
+	// sent before each exporter signed its own batch record, kept apart so
+	// a scenario can check that none comes any more.
 	drops []receivedRecord
 	// sessions are the WebSocket session records, kept apart from the
 	// calls' records, as the batches are.
@@ -579,7 +581,8 @@ func (r *receiver) ledger() []receivedRecord {
 	return append([]receivedRecord(nil), r.batches...)
 }
 
-// dropRecords are the ledger's drop records the receiver got.
+// dropRecords are the records with the old drop records' event the
+// receiver got.
 func (r *receiver) dropRecords() []receivedRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()

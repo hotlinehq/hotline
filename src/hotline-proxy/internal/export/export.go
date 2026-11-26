@@ -273,6 +273,16 @@ func (s *Exporters) closeFiles() {
 	}
 }
 
+// ServiceName is the service.name every exporter sends records with: the
+// proxy's own, or the one the config's labels give it. A batch key's
+// certificate names it.
+func (s *Exporters) ServiceName() string {
+	// The resource always holds service.name.
+	labels := attribute.NewSet(s.resource...)
+	name, _ := labels.Value(semconv.ServiceNameKey)
+	return name.AsString()
+}
+
 // describe is the resource the proxy's signals go with: its own labels,
 // with the config's labels on top. The config has refused service.version.
 func describe(service Service, labels map[string]string) *resource.Resource {

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log"
 
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 // keyLife is how long the proxy signs with one key before it makes the next
@@ -21,8 +21,9 @@ const keyLife = time.Hour
 // book is the proxy's evidence ledger (docs/proxy-ledger.md). Every record
 // carries its hash and its place in a batch. Each integration has its own
 // chain of batches: a batch closes every few seconds, or when it is full,
-// and its batch record holds the root of its records' tree, the root of
-// the batch before, and a signature with a key the proxy makes in memory.
+// and its batch record holds the root of its records' tree and the root of
+// the batch before. The ledger signs nothing: it hands each batch, with the
+// vault's key, to the exporters, and each signs its own batch record.
 type book struct {
 	clock     Clock
 	exporters *export.Exporters
@@ -34,9 +35,9 @@ type book struct {
 	// hashes makes the record and trace hashes, reusing its writers.
 	hashes ledger.Hasher
 
-	mu     sync.Mutex
-	key    ledger.Key
-	keyAt  time.Time
+	mu sync.Mutex
+	// vault makes the key each batch is signed with, a new one every hour.
+	vault  *vault.Vault
 	chains map[string]*chain
 	// closedChains are the chains a reload closed with a last batch. A record of
 	// a call that started before that reload goes on the same chain.
@@ -75,7 +76,7 @@ type openBatch struct {
 func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
 	b := &book{
 		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current,
-		key: ledger.NewKey(), keyAt: clock.Now(), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
+		vault: vault.New(exporters.ServiceName(), keyLife, clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
 		// A named instance keeps the random id next to it, so two runs of
@@ -153,16 +154,12 @@ func (b *book) record(ctx context.Context, f finished) string {
 	return hash
 }
 
-// tick closes every open batch, at the end of each window, and makes a new
-// key once the old one has signed for an hour.
+// tick closes every open batch, at the end of each window.
 func (b *book) tick() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	// A tick that fired as the proxy stopped does nothing.
 	if !b.stopped {
-		if now := b.clock.Now(); now.Sub(b.keyAt) >= keyLife {
-			b.key, b.keyAt = ledger.NewKey(), now
-		}
 		for _, ch := range b.chains {
 			if ch.open != nil {
 				b.close(ch, false)
@@ -205,8 +202,9 @@ func (b *book) stop() {
 	b.chains, b.closedChains = map[string]*chain{}, map[string]*chain{}
 }
 
-// close signs the chain's open batch and sends its batch record. Only a
-// last batch is sent with no records in it.
+// close hands the chain's open batch to the exporters, with the vault's
+// key, and each sends its own signed batch record. Only a last batch is
+// sent with no records in it.
 func (b *book) close(ch *chain, last bool) {
 	open := ch.open
 	ch.open = nil
@@ -237,10 +235,10 @@ func (b *book) close(ch *chain, last bool) {
 	if last {
 		attrs = append(attrs, attribute.Bool("hotline.batch.last", true))
 	}
-	batch := export.Batch{ID: open.id, Event: export.BatchEvent, Severity: log.SeverityInfo, At: now, Observed: now, Attrs: attrs}
-	// Sign adds hotline.batch.key, then the signature.
-	batch.Attrs = b.key.Sign(ledger.BatchFormat, b.exporters.SignedRecord(batch))
-	b.exporters.Batch(batch, b.key)
+	batch := export.Batch{ID: open.id, At: now, Observed: now, Attrs: attrs}
+	// The key is asked for once, so every exporter signs this batch with
+	// the same key.
+	b.exporters.Batch(batch, b.vault.Key(now))
 	ch.previous = root
 	ch.sequence++
 }

@@ -1,7 +1,6 @@
 package ledger_test
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 func TestLedger(t *testing.T) {
@@ -71,14 +71,14 @@ var _ = Describe("Checking a batch's signature", func() {
 	var signed ledger.Record
 
 	BeforeEach(func() {
-		key := ledger.NewKey()
+		key := vault.NewKey("hotline-proxy", time.UnixMicro(1_700_000_000_000_000), time.Hour)
 		signed = ledger.Record{
 			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.root", "sha256:00")},
 			At:    time.UnixMicro(1_700_000_000_000_000), Observed: time.UnixMicro(1_700_000_000_000_000),
 			SeverityNumber: 9, SeverityText: "INFO", Event: "hotline.ledger.batch",
 			Resource: []attribute.KeyValue{attribute.String("service.name", "hotline-proxy")},
 		}
-		signed.Attrs = key.Sign(ledger.BatchFormat, signed)
+		signed.Attrs = ledger.Sign(ledger.BatchFormat, signed, key)
 	})
 
 	// with is the signed batch with one attribute set to another text.
@@ -94,21 +94,25 @@ var _ = Describe("Checking a batch's signature", func() {
 		return out
 	}
 
-	It("checks out as signed, with the key it names", func() {
-		Expect(ledger.CheckSignature(ledger.BatchFormat, signed)).To(BeTrue())
-		Expect(signed.Attrs).To(ContainElement(HaveField("Key", attribute.Key("hotline.batch.key"))))
+	It("checks out as signed, with the certificate it carries", func() {
+		_, err := ledger.CheckSignature(ledger.BatchFormat, signed)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(signed.Attrs).To(ContainElement(HaveField("Key", attribute.Key("hotline.batch.certificate"))))
 	})
 
-	It("does not check out as a drop record", func() {
-		Expect(ledger.CheckSignature(ledger.DroppedFormat, signed)).To(BeFalse())
+	It("does not check out under another format word", func() {
+		_, err := ledger.CheckSignature("hotline.batch.v2", signed)
+		Expect(err).To(MatchError(ledger.ErrSignatureInvalid))
 	})
 
 	DescribeTable("fails",
 		func(name, text string) {
-			Expect(ledger.CheckSignature(ledger.BatchFormat, with(name, text))).To(BeFalse())
+			_, err := ledger.CheckSignature(ledger.BatchFormat, with(name, text))
+			Expect(err).To(HaveOccurred())
 		},
-		Entry("with a key that does not say ed25519", "hotline.batch.key", "rsa:AAAA"),
-		Entry("with a key of the wrong length", "hotline.batch.key", "ed25519:AAAA"),
+		Entry("with a certificate that is not base64", "hotline.batch.certificate", "!!"),
+		Entry("with a certificate cut short", "hotline.batch.certificate", "AAAA"),
+		Entry("with a signature that does not say ed25519", "hotline.batch.signature", "rsa:AAAA"),
 		Entry("with a signature that is not base64", "hotline.batch.signature", "ed25519:!!"),
 		Entry("with a changed root", "hotline.batch.root", "sha256:01"),
 	)
@@ -117,23 +121,16 @@ var _ = Describe("Checking a batch's signature", func() {
 		func(change func(*ledger.Record)) {
 			changed := signed
 			change(&changed)
-			Expect(ledger.CheckSignature(ledger.BatchFormat, changed)).To(BeFalse())
+			_, err := ledger.CheckSignature(ledger.BatchFormat, changed)
+			Expect(err).To(MatchError(ledger.ErrSignatureInvalid))
 		},
 		Entry("the time", func(r *ledger.Record) { r.At = r.At.Add(time.Microsecond) }),
 		Entry("the observed time", func(r *ledger.Record) { r.Observed = r.Observed.Add(time.Microsecond) }),
 		Entry("the level", func(r *ledger.Record) { r.SeverityNumber = 13 }),
 		Entry("the level's text", func(r *ledger.Record) { r.SeverityText = "WARN" }),
-		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.ledger.dropped" }),
+		Entry("the event", func(r *ledger.Record) { r.Event = "hotline.request" }),
 		Entry("the resource", func(r *ledger.Record) { r.Resource = nil }),
 	)
-
-	It("never prints its private part", func() {
-		key := ledger.NewKey()
-		for _, text := range []string{fmt.Sprint(key), fmt.Sprintf("%v %+v %#v %s", key, key, key, key)} {
-			Expect(text).NotTo(ContainSubstring(strings.TrimPrefix(key.Public, "ed25519:")))
-			Expect(text).To(ContainSubstring("redacted"))
-		}
-	})
 })
 
 var _ = Describe("Hashing a record", func() {

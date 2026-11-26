@@ -25,6 +25,7 @@ import (
 
 	"hotline-proxy/internal/export"
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/vault"
 )
 
 // The exit codes of verify, in both formats.
@@ -81,11 +82,10 @@ type verifier struct {
 	o       VerifyOptions
 	records []*lineRecord
 	batches []*lineBatch
-	// drops are the drop records, by the id of their batch, and dropsFrom
-	// the exporter the first one taken names.
-	drops     map[string][]*lineBatch
-	dropsFrom string
-	runs      []*verifiedRun
+	// exporter is the exporter this copy is from: the one most of its
+	// batch records name.
+	exporter string
+	runs     []*verifiedRun
 	// problems and notes are what the checks found; matched and cut count
 	// the kept bodies checked and those cut short.
 	problems []finding
@@ -138,7 +138,7 @@ func (r *lineRecord) text(name string) string {
 	return s
 }
 
-// lineBatch is a batch or drop record as one line holds it.
+// lineBatch is a batch record as one line holds it.
 type lineBatch struct {
 	place
 	read  export.Line
@@ -247,8 +247,8 @@ func (v *verifier) readLine(at place, data []byte) error {
 	case export.BatchEvent:
 		b := &lineBatch{place: at, read: line, at: line.Time, attrs: line.Attributes, records: map[int64]*lineRecord{}}
 		switch format := b.text("hotline.batch.format"); {
-		case format == oldBatchFormat:
-			return fmt.Errorf("%w: %s line %d: the folder was written by an older edge build (%s), which this verify cannot check", errUnreadable, at.file, at.line, oldBatchFormat)
+		case oldBatchFormat(format):
+			return fmt.Errorf("%w: %s line %d: the folder was written by an older edge build (%s), which this verify cannot check", errUnreadable, at.file, at.line, format)
 		case format != ledger.BatchFormat:
 			return fmt.Errorf("%w: %s line %d: %s is not a known format", errUnreadable, at.file, at.line, safe(format))
 		}
@@ -256,13 +256,6 @@ func (v *verifier) readLine(at place, data []byte) error {
 		if v.o.Integration == "" || b.text("hotline.batch.integration") == v.o.Integration {
 			v.batches = append(v.batches, b)
 		}
-	case export.DroppedEvent:
-		d := &lineBatch{place: at, read: line, at: line.Time, attrs: line.Attributes}
-		d.id = d.text("hotline.batch.id")
-		if v.drops == nil {
-			v.drops = map[string][]*lineBatch{}
-		}
-		v.drops[d.id] = append(v.drops[d.id], d)
 	case export.CallEvent, export.SessionEvent, export.MessageEvent, export.StreamEvent, export.StreamItemEvent, export.ProbeEvent:
 		r := &lineRecord{place: at, read: line, traceID: line.TraceID, spanID: line.SpanID, attrs: line.Attributes}
 		r.batchID = r.text("hotline.batch.id")
@@ -280,6 +273,8 @@ func (v *verifier) readLine(at place, data []byte) error {
 // check runs every check, in the order a reader takes them in: records,
 // batches, then chains.
 func (v *verifier) check() {
+	v.exporter = v.copyExporter()
+	v.batches = v.withoutSecondBatchRecords()
 	byID := map[string]*lineBatch{}
 	for _, b := range v.batches {
 		byID[b.id] = b
@@ -421,34 +416,16 @@ func (v *verifier) about(f finding, b *lineBatch) finding {
 
 func (v *verifier) checkBatch(b *lineBatch) {
 	name := "batch " + b.sequenceText()
-	if !ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs))) {
-		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
-	}
-	// The drop record of this copy, if its exporter dropped records of the
-	// batch: signed with the batch's own key, or it is not the proxy's.
-	// A copy is one exporter's, so it holds one drop record of a batch at
-	// most, and all its drop records name the same exporter.
-	drop := &lineBatch{attrs: map[string]any{}}
-	for _, d := range v.drops[b.id] {
-		exporter := d.text("hotline.exporter")
-		switch {
-		case d.text("hotline.batch.key") != b.text("hotline.batch.key") || !ledger.CheckSignature(ledger.DroppedFormat, recordOf(d.read, attributes(d.attrs))):
-			v.problem(finding{Code: "drop_signature_invalid", File: d.file, Line: d.line,
-				Message: "the drop record of " + name + " does not check out with the batch's key"}, b)
-			continue
-		case drop.id != "":
-			v.problem(finding{Code: "drop_record_foreign", File: d.file, Line: d.line,
-				Message: name + " has more than one drop record in this copy"}, b)
-			continue
-		case v.dropsFrom != "" && exporter != v.dropsFrom:
-			v.problem(finding{Code: "drop_record_foreign", File: d.file, Line: d.line,
-				Message: fmt.Sprintf("the drop record of %s is from the exporter %s, and this copy's other drop records from %s", name, safe(exporter), safe(v.dropsFrom))}, b)
-			continue
-		}
-		v.dropsFrom, drop = exporter, d
+	v.checkCertificate(b, name)
+	// A copy is one exporter's, and each exporter signs its own batch
+	// records, so a batch record that names another exporter is another
+	// copy's (Peter, 2026-11-26).
+	if exporter := b.text("hotline.exporter"); exporter != v.exporter {
+		v.problem(finding{Code: "batch_record_foreign",
+			Message: fmt.Sprintf("the batch record of %s is from the exporter %s, and this copy's other batch records from %s", name, safe(exporter), safe(v.exporter))}, b)
 	}
 	count, _ := b.number("hotline.batch.records")
-	if dropped, _ := drop.number("hotline.batch.dropped_count"); dropped > 0 {
+	if dropped, _ := b.number("hotline.batch.dropped_count"); dropped > 0 {
 		v.problem(finding{Code: "batch_unprovable", Message: fmt.Sprintf("%s cannot be proven from this copy: %s records were dropped by this exporter", name, thousands(dropped))}, b)
 		return
 	}
@@ -461,7 +438,7 @@ func (v *verifier) checkBatch(b *lineBatch) {
 		}
 		leaves[index], have[index] = parseHash(r.hash), true
 	}
-	listed, _ := drop.attrs["hotline.batch.dropped"].([]any)
+	listed, _ := b.attrs["hotline.batch.dropped_records"].([]any)
 	var droppedAt []int64
 	for _, item := range listed {
 		entry, _ := item.(map[string]any)
@@ -473,9 +450,9 @@ func (v *verifier) checkBatch(b *lineBatch) {
 			// An entry that names no place in the batch is left out.
 		case have[index]:
 			// The exporter dropped the record, so its copy cannot hold it:
-			// the drop record is another copy's.
-			v.problem(finding{Code: "drop_record_foreign", File: drop.file, Line: drop.line, Index: &index,
-				Message: fmt.Sprintf("the drop record of %s lists index %d, which this copy holds", name, index)}, b)
+			// the batch record is another copy's.
+			v.problem(finding{Code: "batch_record_foreign", Index: &index,
+				Message: fmt.Sprintf("the batch record of %s lists index %d, which this copy holds", name, index)}, b)
 		default:
 			leaves[index], have[index] = parseHash(hash), true
 			droppedAt = append(droppedAt, index)
@@ -495,11 +472,74 @@ func (v *verifier) checkBatch(b *lineBatch) {
 	if len(droppedAt) > 0 {
 		slices.Sort(droppedAt)
 		v.notes = append(v.notes, v.about(finding{Code: "records_dropped", Indexes: droppedAt,
-			Message: fmt.Sprintf("%s rebuilds from %d records and %d dropped hash, at index %s, dropped by the exporter %s", name, count-int64(len(droppedAt)), len(droppedAt), joinInts(droppedAt), safe(drop.text("hotline.exporter")))}, b))
+			Message: fmt.Sprintf("%s rebuilds from %d records and %d dropped hash, at index %s, dropped by the exporter %s", name, count-int64(len(droppedAt)), len(droppedAt), joinInts(droppedAt), safe(b.text("hotline.exporter")))}, b))
 	}
 	if ledger.Text(ledger.Root(leaves)) != b.text("hotline.batch.root") {
 		v.problem(finding{Code: "batch_root_mismatch", Message: name + " of that run does not rebuild its root from its records"}, b)
 	}
+}
+
+// checkCertificate checks the batch record's certificate: that it is for
+// an Ed25519 key and signed by that key itself, that the batch record's
+// signature checks out with its key, that it names the service the batch
+// record does, and that the batch was closed within the key's hour
+// (Peter, 2026-11-26).
+func (v *verifier) checkCertificate(b *lineBatch, name string) {
+	certificate, err := ledger.CheckSignature(ledger.BatchFormat, recordOf(b.read, attributes(b.attrs)))
+	service, _ := b.read.Resource["service.name"].(string)
+	switch {
+	case errors.Is(err, vault.ErrNotACertificate):
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " cannot be read"}, b)
+	case errors.Is(err, vault.ErrNotSelfSigned):
+		v.problem(finding{Code: "batch_certificate_invalid", Message: "the certificate of " + name + " is not signed by its own key"}, b)
+	case err != nil:
+		v.problem(finding{Code: "batch_signature_invalid", Message: "the signature of " + name + " does not check out with its key"}, b)
+	case certificate.Subject.CommonName != service:
+		v.problem(finding{Code: "batch_certificate_invalid",
+			Message: fmt.Sprintf("the certificate of %s names the service %s, and the batch record %s", name, safe(certificate.Subject.CommonName), safe(service))}, b)
+	case b.at.Before(certificate.NotBefore) || b.at.After(certificate.NotAfter):
+		v.problem(finding{Code: "batch_outside_certificate",
+			Message: fmt.Sprintf("%s was closed outside its certificate's hour, at %s, and the certificate is valid from %s to %s", name,
+				b.at.UTC().Format(time.RFC3339), certificate.NotBefore.UTC().Format(time.RFC3339), certificate.NotAfter.UTC().Format(time.RFC3339))}, b)
+	}
+}
+
+// copyExporter is the exporter this copy is from: the one most of its
+// batch records name, the first named when two are named as often.
+func (v *verifier) copyExporter() string {
+	named := map[string]int{}
+	most := ""
+	for _, b := range v.batches {
+		exporter := b.text("hotline.exporter")
+		named[exporter]++
+		if named[exporter] > named[most] {
+			most = exporter
+		}
+	}
+	return most
+}
+
+// withoutSecondBatchRecords are the batch records, less each one that
+// names another exporter for a batch the copy's own exporter has a batch
+// record of. A copy holds one batch record per batch, so that one is taken
+// from another copy, and is reported, not checked.
+func (v *verifier) withoutSecondBatchRecords() []*lineBatch {
+	own := map[string]bool{}
+	for _, b := range v.batches {
+		if b.text("hotline.exporter") == v.exporter {
+			own[b.id] = true
+		}
+	}
+	kept := v.batches[:0:0]
+	for _, b := range v.batches {
+		if exporter := b.text("hotline.exporter"); exporter != v.exporter && own[b.id] {
+			v.problem(finding{Code: "batch_record_foreign",
+				Message: fmt.Sprintf("batch %s has more than one batch record in this copy: one is from the exporter %s", b.sequenceText(), safe(exporter))}, b)
+			continue
+		}
+		kept = append(kept, b)
+	}
+	return kept
 }
 
 func parseHash(text string) [sha256.Size]byte {
@@ -569,6 +609,11 @@ func (v *verifier) checkChains() {
 			run.Notes = append(run.Notes, "no_last_batch")
 			v.notes = append(v.notes, v.about(finding{Code: "no_last_batch", Message: "the run has no last batch: it crashed, or its end is missing"}, last))
 		}
+		// Every key is certified by the proxy itself for now, so nothing
+		// outside the folder vouches for it (Peter, 2026-11-26).
+		run.Notes = append(run.Notes, "key_self_certified")
+		v.notes = append(v.notes, v.about(finding{Code: "key_self_certified",
+			Message: "the run's batches are signed with keys whose certificates the proxy signed itself: nothing outside the folder vouches for them"}, last))
 		v.runs = append(v.runs, run)
 	}
 }
@@ -608,6 +653,9 @@ func (v *verifier) printText(out io.Writer) {
 		}
 		w.printf("%s's %d records and their traces in %d batches check out (%s, sequence %d to %d); %s",
 			safe(run.Integration), run.Records, run.Batches, instance, run.FirstSequence, run.LastSequence, ending)
+	}
+	if v.exporter != "" {
+		w.printf("the folder is the copy of the exporter %s", safe(v.exporter))
 	}
 	if v.matched > 0 {
 		w.printf("%d kept bodies match their hash", v.matched)
@@ -662,18 +710,20 @@ func (v *verifier) printJSON(out io.Writer, code int) {
 		Format  string `json:"format"`
 		OK      bool   `json:"ok"`
 		Summary struct {
-			Records      int `json:"records"`
-			Batches      int `json:"batches"`
-			Runs         int `json:"runs"`
-			Problems     int `json:"problems"`
-			KeptBodies   int `json:"kept_bodies_matched"`
-			BodiesCutOff int `json:"kept_bodies_cut_short"`
+			Exporter     string `json:"exporter,omitempty"`
+			Records      int    `json:"records"`
+			Batches      int    `json:"batches"`
+			Runs         int    `json:"runs"`
+			Problems     int    `json:"problems"`
+			KeptBodies   int    `json:"kept_bodies_matched"`
+			BodiesCutOff int    `json:"kept_bodies_cut_short"`
 		} `json:"summary"`
 		Runs     []*verifiedRun `json:"runs"`
 		Problems []finding      `json:"problems"`
 		Notes    []finding      `json:"notes"`
 		Body     *bodyResult    `json:"body,omitempty"`
 	}{Format: "hotline.verify.v1", OK: code == verifyOK, Runs: runs, Problems: problems, Notes: notes, Body: v.body}
+	report.Summary.Exporter = v.exporter
 	report.Summary.Records, report.Summary.Batches, report.Summary.Runs = len(v.records), len(v.batches), len(v.runs)
 	report.Summary.Problems = len(problems)
 	report.Summary.KeptBodies, report.Summary.BodiesCutOff = v.matched, v.cut
@@ -714,9 +764,13 @@ func valueOf(v any) attribute.Value {
 	return attribute.MapValue(entries...)
 }
 
-// oldBatchFormat is the batch format of the edge builds before every field
-// was covered (Peter, 2026-11-25). Their folders are refused by name.
-const oldBatchFormat = "hotline.batch.v1"
+// oldBatchFormat says whether format is the batch format of an older edge
+// build: from before every field was covered (Peter, 2026-11-25), or before
+// each exporter signed its own batch records (Peter, 2026-11-26). Their
+// folders are refused by name.
+func oldBatchFormat(format string) bool {
+	return format == "hotline.batch.v1" || format == "hotline.batch.v2"
+}
 
 // recordOf is a line as its hash or signature covers it, with the
 // attributes the hash covers: every field the line holds.

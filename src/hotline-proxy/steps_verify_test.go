@@ -5,10 +5,14 @@ import (
 	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,105 +51,157 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the queue has room again$`, func() error { return nil })
-	sc.Step(`^the file got 2 records, the batch record and a drop record whose hotline.batch.dropped lists the index and hash of the third$`, func() error {
-		records, batches, err := w.fileLedger()
+	sc.Step(`^each exporter got one batch record, at level INFO, naming itself in hotline.exporter$`, func() error {
+		file, err := w.fileBatches()
 		if err != nil {
 			return err
 		}
-		drops, err := w.fileDrops()
+		// The stop that settles the run sends one more, empty, last batch.
+		otlp := w.receivers[0].ledger()
+		if len(file) == 0 || len(file) != len(otlp) {
+			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
+		}
+		for _, b := range []struct {
+			got  receivedRecord
+			name string
+		}{{file[0], w.files[0].path}, {otlp[0], w.receivers[0].endpoint}} {
+			if b.got.severityText != "INFO" {
+				return failf("the batch record of %s is at level %s", b.name, b.got.severityText)
+			}
+			if err := has(b.got.attrs, "hotline.exporter", b.name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^both batch records have an empty hotline.batch.dropped_records$`, func() error {
+		file, err := w.fileBatches()
 		if err != nil {
 			return err
 		}
-		if len(records) != 2 || len(batches) == 0 || len(drops) != 1 {
-			return failf("the file got %d records, %d batch records and %d drop records", len(records), len(batches), len(drops))
+		for _, b := range append(file, w.receivers[0].ledger()...) {
+			if got, ok := b.attrs["hotline.batch.dropped_records"].([]any); !ok || len(got) != 0 {
+				return failf("hotline.batch.dropped_records is %v", b.attrs["hotline.batch.dropped_records"])
+			}
 		}
-		if err := hasNo(batches[0], "hotline.batch.dropped", "hotline.batch.dropped_count"); err != nil {
+		return nil
+	})
+	sc.Step(`^both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.certificate$`, func() error {
+		file, err := w.fileBatches()
+		if err != nil {
 			return err
+		}
+		otlp := w.receivers[0].ledger()
+		if len(file) == 0 || len(otlp) == 0 {
+			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
+		}
+		for _, name := range []string{"hotline.batch.id", "hotline.batch.root", "hotline.batch.certificate"} {
+			if err := has(otlp[0].attrs, name, file[0].attrs[name]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^each batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
+		file, err := w.fileBatches()
+		if err != nil {
+			return err
+		}
+		for _, b := range append(file, w.receivers[0].ledger()...) {
+			if err := checkSigned(b); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the file got 2 records and a batch record at level WARN whose hotline.batch.dropped_records lists the index and hash of the third$`, func() error {
+		records, _, err := w.fileLedger()
+		if err != nil {
+			return err
+		}
+		batches, err := w.fileBatches()
+		if err != nil {
+			return err
+		}
+		if len(records) != 2 || len(batches) == 0 {
+			return failf("the file got %d records and %d batch records", len(records), len(batches))
+		}
+		if batches[0].severityText != "WARN" {
+			return failf("the batch record is at level %s", batches[0].severityText)
 		}
 		otlp := w.receivers[0].got()
 		third := otlp[len(otlp)-1].attrs
 		want := []any{map[string]any{"index": int64(2), "hash": third["hotline.record.hash"]}}
-		if got := drops[0].attrs["hotline.batch.dropped"]; fmt.Sprint(got) != fmt.Sprint(want) {
-			return failf("hotline.batch.dropped is %v, want %v", got, want)
+		if got := batches[0].attrs["hotline.batch.dropped_records"]; fmt.Sprint(got) != fmt.Sprint(want) {
+			return failf("hotline.batch.dropped_records is %v, want %v", got, want)
 		}
-		return has(drops[0].attrs, "hotline.batch.id", batches[0]["hotline.batch.id"])
+		return nil
 	})
-	sc.Step(`^the drop record's hotline.dropped.signature checks out with the batch's hotline.batch.key$`, func() error {
-		_, batches, err := w.fileLedger()
-		if err != nil {
-			return err
+	sc.Step(`^the file's batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
+		batches, err := w.fileBatches()
+		if err != nil || len(batches) == 0 {
+			return failf("the file has no batch record: %v", err)
 		}
-		drops, err := w.fileDrops()
-		if err != nil {
-			return err
-		}
-		if len(batches) == 0 || len(drops) == 0 {
-			return failf("the file got %d batch records and %d drop records", len(batches), len(drops))
-		}
-		if err := has(drops[0].attrs, "hotline.batch.key", batches[0]["hotline.batch.key"]); err != nil {
-			return err
-		}
-		return checkSigned("hotline.dropped.v1", "hotline.dropped.signature", drops[0])
+		return checkSigned(batches[0])
 	})
 	sc.Step(`^the root rebuilds from the 2 records and the dropped hash$`, func() error {
-		records, batches, err := w.fileLedger()
+		records, _, err := w.fileLedger()
 		if err != nil {
 			return err
 		}
-		drops, err := w.fileDrops()
-		if err != nil || len(drops) == 0 {
-			return failf("the file has no drop record: %v", err)
+		batches, err := w.fileBatches()
+		if err != nil || len(batches) == 0 {
+			return failf("the file has no batch record: %v", err)
 		}
 		leaves := make([]string, 3)
 		for _, r := range records {
 			index, _ := r["hotline.batch.index"].(json.Number).Int64()
 			leaves[index] = sprint(r["hotline.record.hash"])
 		}
-		dropped := drops[0].attrs["hotline.batch.dropped"].([]any)[0].(map[string]any)
+		dropped := batches[0].attrs["hotline.batch.dropped_records"].([]any)[0].(map[string]any)
 		leaves[2] = sprint(dropped["hash"])
-		if root := rootOf(leaves); root != batches[0]["hotline.batch.root"] {
-			return failf("the root rebuilds as %s, the batch has %v", root, batches[0]["hotline.batch.root"])
+		if root := rootOf(leaves); root != batches[0].attrs["hotline.batch.root"] {
+			return failf("the root rebuilds as %s, the batch has %v", root, batches[0].attrs["hotline.batch.root"])
 		}
 		return nil
 	})
-	sc.Step(`^the OTLP exporter got no drop record$`, func() error {
-		if len(w.receivers[0].ledger()) == 0 {
+	sc.Step(`^the OTLP exporter's batch record lists no dropped record$`, func() error {
+		otlp := w.receivers[0].ledger()
+		if len(otlp) == 0 {
 			return failf("the OTLP exporter got no batch record")
+		}
+		if got, ok := otlp[0].attrs["hotline.batch.dropped_records"].([]any); !ok || len(got) != 0 {
+			return failf("the OTLP exporter's batch record lists %v", otlp[0].attrs["hotline.batch.dropped_records"])
+		}
+		return nil
+	})
+	sc.Step(`^no exporter got a record with event.name hotline.ledger.dropped$`, func() error {
+		lines, err := w.folderLines()
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			if line["event"] == "hotline.ledger.dropped" {
+				return failf("the file got a drop record")
+			}
 		}
 		if drops := w.receivers[0].dropRecords(); len(drops) > 0 {
 			return failf("the OTLP exporter got %d drop records", len(drops))
 		}
 		return nil
 	})
-	sc.Step(`^both exporters got the same batch record$`, func() error {
-		lines, err := w.folderLines()
+	sc.Step(`^the file's batch record has hotline.batch.dropped_count 1025 and no hotline.batch.dropped_records$`, func() error {
+		batches, err := w.fileBatches()
 		if err != nil {
 			return err
 		}
-		otlp := w.receivers[0].ledger()
-		for _, line := range lines {
-			if line["event"] == "hotline.ledger.batch" {
-				file := lineAsReceived(line)
-				if len(otlp) == 0 || signedDigest("hotline.batch.v2", file) != signedDigest("hotline.batch.v2", otlp[0]) {
-					return failf("the two batch records differ:\n%v\n%v", file, otlp)
-				}
-				return has(otlp[0].attrs, "hotline.batch.signature", file.attrs["hotline.batch.signature"])
-			}
+		if len(batches) == 0 {
+			return failf("the file got no batch record")
 		}
-		return failf("the file got no batch record")
-	})
-	sc.Step(`^the file's drop record has hotline.batch.dropped_count 1025 and no hotline.batch.dropped$`, func() error {
-		drops, err := w.fileDrops()
-		if err != nil {
-			return err
+		if fmt.Sprint(batches[0].attrs["hotline.batch.dropped_count"]) != "1025" {
+			return failf("hotline.batch.dropped_count is %v", batches[0].attrs["hotline.batch.dropped_count"])
 		}
-		if len(drops) == 0 {
-			return failf("the file got no drop record")
-		}
-		if fmt.Sprint(drops[0].attrs["hotline.batch.dropped_count"]) != "1025" {
-			return failf("hotline.batch.dropped_count is %v", drops[0].attrs["hotline.batch.dropped_count"])
-		}
-		return hasNo(drops[0].attrs, "hotline.batch.dropped")
+		return hasNo(batches[0].attrs, "hotline.batch.dropped_records")
 	})
 	sc.Step(`^that batch cannot be rebuilt from the file's copy$`, func() error {
 		result := w.verify(proxy.VerifyOptions{Folder: w.files[0].path})
@@ -276,8 +332,6 @@ func (w *world) fileLedger() ([]map[string]any, []map[string]any, error) {
 		switch parsed["event"] {
 		case "hotline.ledger.batch":
 			batches = append(batches, attrs)
-		case "hotline.ledger.dropped":
-			// Drop records are read with fileDrops.
 		default:
 			records = append(records, attrs)
 		}
@@ -596,27 +650,20 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			changedSpan = sprint(line["span_id"])
 		})
 	})
-	sc.Step(`^the (time|observed_time|severity|resource's service.name|hotline.exporter) of the drop record's line is changed$`, func(field string) error {
-		lines, err := w.folderLines()
-		if err != nil {
+	sc.Step(`^two file exporters, (both|only the second) of them dropped one record of batch 0(, of batch 1 and of batch 2)?$`, func(which, more string) error {
+		return w.twoFilesDropping(which == "both", map[bool]int{false: 1, true: 3}[more != ""])
+	})
+	sc.Step(`^the first folder's record 2 of batch 0 is deleted and its batch record of batch 0 is swapped for the second folder's$`, func() error {
+		if err := w.changeLine(3, nil); err != nil {
 			return err
 		}
-		for _, line := range lines {
-			if line["event"] == "hotline.ledger.dropped" {
-				changeField(line, field)
-				return w.writeLines(lines)
-			}
-		}
-		return failf("the folder has no drop record")
+		return w.swapBatch0()
 	})
-	sc.Step(`^two file exporters, (both|only the second) of them dropped one record of batch 0$`, func(which string) error {
-		return w.twoFilesDropping(which == "both", 1)
+	sc.Step(`^the first folder's batch record is swapped for the second folder's$`, func() error {
+		return w.swapBatch0()
 	})
-	sc.Step(`^two file exporters both dropped one record of batch 0 and one of batch 1$`, func() error {
-		return w.twoFilesDropping(true, 2)
-	})
-	sc.Step(`^the first folder's drop record of batch 1 is swapped for the second folder's$`, func() error {
-		second, err := w.linesIn("calls2")
+	sc.Step(`^the second folder's batch record is added to the first folder$`, func() error {
+		theirs, err := w.batch0Of("calls2")
 		if err != nil {
 			return err
 		}
@@ -624,44 +671,62 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		// Batch 1's drop record is the second drop record in each folder.
-		drops := func(lines []map[string]any) []int {
-			var at []int
-			for i, line := range lines {
-				if line["event"] == "hotline.ledger.dropped" {
-					at = append(at, i)
+		return w.writeLines(append(lines, theirs))
+	})
+	sc.Step(`^it prints that the batch record of batch 0 is from the exporter calls2, and this copy's other batch records from calls$`, func() error {
+		return result.prints(fmt.Sprintf("the batch record of batch 0 is from the exporter %s, and this copy's other batch records from %s", w.files[1].path, w.files[0].path))
+	})
+	sc.Step(`^it prints that batch 0 has more than one batch record in this copy: one is from the exporter calls2$`, func() error {
+		return result.prints("batch 0 has more than one batch record in this copy: one is from the exporter " + w.files[1].path)
+	})
+	sc.Step(`^it prints that 1 problem was found$`, func() error {
+		return result.prints("1 problem found")
+	})
+	sc.Step(`^it prints that the batch record of batch 0 lists index 2, which this copy holds$`, func() error {
+		return result.prints("the batch record of batch 0 lists index 2, which this copy holds")
+	})
+	sc.Step(`^it prints that the folder is the copy of the exporter calls$`, func() error {
+		return result.prints("the folder is the copy of the exporter " + w.files[0].path)
+	})
+	sc.Step(`^its summary names the exporter calls$`, func() error {
+		report, err := result.json()
+		if err != nil {
+			return err
+		}
+		summary, _ := report["summary"].(map[string]any)
+		if summary["exporter"] != w.files[0].path {
+			return failf("the summary names the exporter %v", summary["exporter"])
+		}
+		return nil
+	})
+	sc.Step(`^the first batch record's (certificate is cut short|certificate is signed by another key|certificate is swapped for one of another key|record is signed again with a certificate naming the service another-proxy|record is signed again with a certificate whose hour ended before it)$`, func(change string) error {
+		return w.changeBatchLine(0, func(line map[string]any) {
+			attrs := line["attributes"].(map[string]any)
+			at, _ := time.Parse(time.RFC3339Nano, sprint(line["time"]))
+			name := "hotline-proxy"
+			switch change {
+			case "certificate is cut short":
+				attrs["hotline.batch.certificate"] = sprint(attrs["hotline.batch.certificate"])[:40]
+			case "certificate is signed by another key":
+				attrs["hotline.batch.certificate"], _ = testCertificate(name, at.Add(-time.Minute), at.Add(time.Hour), false)
+			case "certificate is swapped for one of another key":
+				attrs["hotline.batch.certificate"], _ = testCertificate(name, at.Add(-time.Minute), at.Add(time.Hour), true)
+			default:
+				from, to := at.Add(-time.Minute), at.Add(time.Hour)
+				if strings.HasSuffix(change, "ended before it") {
+					from, to = at.Add(-2*time.Hour), at.Add(-time.Hour)
+				} else {
+					name = "another-proxy"
 				}
+				var private ed25519.PrivateKey
+				attrs["hotline.batch.certificate"], private = testCertificate(name, from, to, true)
+				digest := signedDigest(lineAsReceived(line))
+				attrs["hotline.batch.signature"] = "ed25519:" + base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest[:]))
 			}
-			return at
-		}
-		mine, theirs := drops(lines), drops(second)
-		if len(mine) != 2 || len(theirs) != 2 {
-			return failf("the folders have %d and %d drop records", len(mine), len(theirs))
-		}
-		lines[mine[1]] = second[theirs[1]]
-		return w.writeLines(lines)
+		})
 	})
-	sc.Step(`^the second folder's drop record is added to the first folder$`, func() error {
-		second, err := w.linesIn("calls2")
-		if err != nil {
-			return err
-		}
-		lines, err := w.folderLines()
-		if err != nil {
-			return err
-		}
-		for _, line := range second {
-			if line["event"] == "hotline.ledger.dropped" {
-				return w.writeLines(append(lines, line))
-			}
-		}
-		return failf("the second folder has no drop record")
-	})
-	sc.Step(`^it prints that (batch 0 has more than one drop record in this copy|the drop record of batch 0 lists index 2, which this copy holds)$`, func(message string) error {
+	sc.Step(`^it prints that (the certificate of batch 0 cannot be read|the certificate of batch 0 is not signed by its own key|the certificate of batch 0 names the service another-proxy, and the batch record hotline-proxy|batch 0 was closed outside its certificate's hour)$`, func(message string) error {
 		return result.prints(message)
-	})
-	sc.Step(`^it prints that the drop record of batch 1 is from another exporter than this copy's other drop records$`, func() error {
-		return result.prints("the drop record of batch 1 is from the exporter")
 	})
 	sc.Step(`^the flags of the first span in the second line's spans are changed$`, func() error {
 		return w.changeLine(2, func(line map[string]any) {
@@ -671,20 +736,17 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			first["flags"] = json.Number(strconv.FormatInt(typed(first["flags"]).(int64)^1, 10))
 		})
 	})
-	sc.Step(`^the (time|observed_time|severity|resource's service.name) of the first batch record's line is changed$`, func(field string) error {
+	sc.Step(`^the (time|observed_time|severity|resource's service.name|hotline.exporter|hotline.batch.dropped_records) of the first batch record's line is changed$`, func(field string) error {
 		return w.changeBatchLine(0, func(line map[string]any) { changeField(line, field) })
 	})
-	sc.Step(`^the first batch record's hotline.batch.format is changed to hotline.batch.v1$`, func() error {
-		return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.format"] = "hotline.batch.v1" })
+	sc.Step(`^the first batch record's hotline.batch.format is changed to (hotline.batch.v\d)$`, func(format string) error {
+		return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.format"] = format })
 	})
-	sc.Step(`^it prints that the folder was written by an older edge build, which this verify cannot check$`, func() error {
-		return result.prints("was written by an older edge build (hotline.batch.v1), which this verify cannot check")
+	sc.Step(`^it prints that the folder was written by an older edge build \((hotline.batch.v\d)\), which this verify cannot check$`, func(format string) error {
+		return result.prints("was written by an older edge build (" + format + "), which this verify cannot check")
 	})
-	sc.Step(`^the second record is deleted and a drop record for it is added, (signed with another key|with the signature of another record)$`, func(how string) error {
-		return w.fakeDrop(how == "signed with another key")
-	})
-	sc.Step(`^it prints that the drop record of batch 0 does not check out with the batch's key$`, func() error {
-		return result.prints("the drop record of batch 0 does not check out with the batch's key")
+	sc.Step(`^the second record is deleted and listed in the batch record's hotline.batch.dropped_records, (with the signature left as it was|signed with a key of its own, keeping the batch's key)$`, func(how string) error {
+		return w.fakeDrop(how != "with the signature left as it was")
 	})
 	sc.Step(`^the vendor answered GET /orders with the json body (.+)$`, func(body string) error {
 		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
@@ -1206,6 +1268,8 @@ func changeField(line map[string]any, field string) {
 		line[field] = "00000000000000ab"
 	case "hotline.exporter":
 		line["attributes"].(map[string]any)[field] = "another-exporter"
+	case "hotline.batch.dropped_records":
+		line["attributes"].(map[string]any)[field] = []any{}
 	case "flags":
 		line[field] = map[bool]string{true: "00", false: "01"}[line[field] == "01"]
 	case "body":
@@ -1215,67 +1279,87 @@ func changeField(line map[string]any, field string) {
 	}
 }
 
-// fileDrops are the drop records of the file exporter's folder.
-func (w *world) fileDrops() ([]receivedRecord, error) {
+// fileBatches are the batch records of the file exporter's folder.
+func (w *world) fileBatches() ([]receivedRecord, error) {
 	w.settle()
 	lines, err := w.folderLines()
 	if err != nil {
 		return nil, err
 	}
-	var drops []receivedRecord
+	var batches []receivedRecord
 	for _, line := range lines {
-		if line["event"] == "hotline.ledger.dropped" {
-			drops = append(drops, lineAsReceived(line))
+		if line["event"] == "hotline.ledger.batch" {
+			batches = append(batches, lineAsReceived(line))
 		}
 	}
-	return drops, nil
+	return batches, nil
 }
 
-// fakeDrop deletes the second call line and adds a drop record for it, as
-// someone who wants the deletion to pass would: signed with a key of their
-// own, or with a signature copied from the batch record.
-func (w *world) fakeDrop(ownKey bool) error {
-	lines, err := w.folderLines()
+// batch0Of is the batch line with sequence 0 in a folder of the scenario's.
+func (w *world) batch0Of(folder string) (map[string]any, error) {
+	lines, err := w.linesIn(folder)
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range lines {
+		attrs, _ := line["attributes"].(map[string]any)
+		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == "0" {
+			return line, nil
+		}
+	}
+	return nil, failf("the folder %s has no batch 0", folder)
+}
+
+// swapBatch0 puts the second folder's batch line of batch 0 in place of the
+// first folder's.
+func (w *world) swapBatch0() error {
+	theirs, err := w.batch0Of("calls2")
 	if err != nil {
 		return err
 	}
-	var record, batch map[string]any
-	calls := 0
-	kept := lines[:0:0]
-	for _, line := range lines {
-		switch {
-		case line["event"] == "hotline.request":
-			if calls++; calls == 2 {
-				record = line
-				continue
-			}
-		case line["event"] == "hotline.ledger.batch" && batch == nil:
-			batch = line
-		}
-		kept = append(kept, line)
+	return w.changeBatchLine(0, func(line map[string]any) {
+		clear(line)
+		maps.Copy(line, theirs)
+	})
+}
+
+// fakeDrop deletes the second call line and lists it in the batch record's
+// hotline.batch.dropped_records, as someone who wants the deletion to pass
+// would: with the signature left as it was, or signed again with a key of
+// their own while the batch record still names the proxy's key.
+func (w *world) fakeDrop(ownKey bool) error {
+	var record map[string]any
+	if err := w.changeLine(2, func(line map[string]any) { record = line }); err != nil {
+		return err
 	}
-	if record == nil || batch == nil {
-		return failf("the folder has no second call line or no batch line")
+	if err := w.changeLine(2, nil); err != nil {
+		return err
 	}
 	attrs := record["attributes"].(map[string]any)
-	batchAttrs := batch["attributes"].(map[string]any)
-	drop := cloneLine(batch)
-	drop["event"], drop["severity"] = "hotline.ledger.dropped", "WARN"
-	dropAttrs := map[string]any{
-		"hotline.batch.id":      attrs["hotline.batch.id"],
-		"hotline.batch.dropped": []any{map[string]any{"index": attrs["hotline.batch.index"], "hash": attrs["hotline.record.hash"]}},
-		"hotline.batch.key":     batchAttrs["hotline.batch.key"],
+	return w.changeBatchLine(0, func(batch map[string]any) {
+		batchAttrs := batch["attributes"].(map[string]any)
+		batchAttrs["hotline.batch.dropped_records"] = []any{map[string]any{"index": attrs["hotline.batch.index"], "hash": attrs["hotline.record.hash"]}}
+		if ownKey {
+			_, private, _ := ed25519.GenerateKey(rand.Reader)
+			digest := signedDigest(lineAsReceived(batch))
+			batchAttrs["hotline.batch.signature"] = "ed25519:" + base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest[:]))
+		}
+	})
+}
+
+// testCertificate is a certificate for a new Ed25519 key, naming the
+// service name and valid from from to to, as base64 of its DER bytes, and
+// the key. Signed by that key itself, or by another key when self is
+// false.
+func testCertificate(name string, from, to time.Time, self bool) (string, ed25519.PrivateKey) {
+	public, private, _ := ed25519.GenerateKey(rand.Reader)
+	signer := private
+	if !self {
+		_, signer, _ = ed25519.GenerateKey(rand.Reader)
 	}
-	drop["attributes"] = dropAttrs
-	if ownKey {
-		public, private, _ := ed25519.GenerateKey(rand.Reader)
-		dropAttrs["hotline.batch.key"] = "ed25519:" + base64.StdEncoding.EncodeToString(public)
-		digest := signedDigest("hotline.dropped.v1", lineAsReceived(drop))
-		dropAttrs["hotline.dropped.signature"] = "ed25519:" + base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest[:]))
-	} else {
-		dropAttrs["hotline.dropped.signature"] = batchAttrs["hotline.batch.signature"]
-	}
-	return w.writeLines(append(kept, drop))
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, NotBefore: from, NotAfter: to}
+	der, _ := x509.CreateCertificate(rand.Reader, template, template, public, signer)
+	return base64.StdEncoding.EncodeToString(der), private
 }
 
 // typed is a value read with its numbers kept as written, as the record's

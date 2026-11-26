@@ -282,8 +282,24 @@ The proxy's way of making records provable: each record carries a hash (a short 
 _Avoid_: signatures (the old signed records, replaced), audit log; for the hash: digest, checksum, fingerprint (Hotline's later Witness service uses that word for a batch)
 
 **Batch**:
-One integration's record hashes from one time window, put in a tree whose top is signed by the proxy and which holds the top of the batch before, so a missing batch shows.
+One integration's record hashes from one time window, put in a tree whose top is signed by each exporter with the vault's key, and which holds the top of the batch before, so a missing batch shows.
 _Avoid_: block, bundle, chunk
+
+**Batch record**:
+The record that closes a batch, `hotline.ledger.batch`. Each exporter sends its own: the batch, plus the exporter's name and the records it dropped, signed by that exporter. It is not a record in the sense of one entry per call.
+_Avoid_: drop record (the separate record it replaced), batch log
+
+**Batch certificate**:
+The certificate in each batch record for the hourly key that signs it, naming the service and the key's hour. Self-signed for now, so it vouches for nothing outside the folder.
+_Avoid_: cert, key certificate
+
+**Copy**:
+One exporter's records and batch records, as a file exporter's folder holds them. `verify` checks one copy, and says whose it is.
+_Avoid_: backup, replica, duplicate
+
+**Vault**:
+The proxy's in-memory place for the key batches are signed with. It makes a new key at start and every hour, never writes it anywhere, and hands it to the ledger once for each batch. Unlike a remote vault such as OpenBao, which only signs, it hands the key out.
+_Avoid_: keyring, key store, key keeper
 
 **Chain**:
 The line of batches of one integration, each pointing to the one before.
