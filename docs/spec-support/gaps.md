@@ -9,7 +9,7 @@ How to read the marks:
 - **[inferred]**: follows from the code, but not run or tested.
 - **Matters**: how much the gap hurts recording and checking vendor traffic. **High** means real vendors hit it and a bad call can pass, or a good call is flagged. **Low** means rare, or only a note in the spec.
 
-One fact first: the schema checker on main is the santhosh JSON Schema library (Peter's fork), set to Draft 2020-12. Katydid lives only on the `katydid` branch. So the JSON Schema section below is short; the katydid gaps apply only if that branch is merged.
+One fact first: the schema checker on main is the santhosh JSON Schema library (Peter's fork), set to Draft 2020-12. Replacing it with katydid was abandoned for now (spec-checks 53, Peter, 2026-11-26). So the JSON Schema section below is short, and the katydid gaps are kept only in case that plan comes back.
 
 ## 1. Spec versions
 
@@ -71,7 +71,7 @@ Only the newest versions need support (Peter, 2026-11-21), so OpenAPI 3.0, Swagg
 | `xml` notes: namespaces are ignored and a DOCTYPE is refused. | Low | docs/spec-marks.md |
 | `example`, `examples`, `default`, `readOnly` and `writeOnly` are notes only; a `readOnly` field sent in a request is not flagged. | Low | [inferred] library default |
 
-If katydid replaces santhosh: `contains`, `prefixItems`, `propertyNames` and `unevaluated*` are silently ignored, and `uniqueItems`, `$defs` references and boolean schemas are refused. Detail: `katydid-sole-engine/draft2020-12-results.md` in the project files. That would turn several Low rows above into High.
+Only if the abandoned katydid plan comes back (spec-checks 53): `contains`, `prefixItems`, `propertyNames` and `unevaluated*` are silently ignored, and `uniqueItems`, `$defs` references and boolean schemas are refused. Detail: `katydid-sole-engine/draft2020-12-results.md` in the project files. That would turn several Low rows above into High.
 
 ## 7. AsyncAPI (inside `x-async-api`)
 
