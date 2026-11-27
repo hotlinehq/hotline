@@ -233,9 +233,10 @@ func signingOf(batches []*lineBatch) (string, []string) {
 // trust reads the root authorities the person gave, beside the computer's
 // own.
 func (v *verifier) trust() error {
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		roots = x509.NewCertPool()
+	// Without the computer's own, only the ones given are trusted.
+	roots := x509.NewCertPool()
+	if system, err := x509.SystemCertPool(); err == nil {
+		roots = system
 	}
 	for _, path := range v.o.RootAuthorities {
 		data, err := os.ReadFile(filepath.Clean(path))
@@ -591,19 +592,16 @@ func (v *verifier) checkCertificate(b *lineBatch, name string) {
 // the authority after it, then that the last one leads to a trusted root
 // authority, each valid when the batch was closed. Each link is checked
 // first, as Go's own check says the same for a broken link and an unknown
-// root.
+// root. Go's link check also refuses an authority whose certificate says
+// it is not one; an old version 1 certificate, which cannot say, passes
+// it as Go lets it pass.
 func (v *verifier) checkAuthorities(b *lineBatch, name string, signed ledger.SignedBy) {
 	chain := append([]*x509.Certificate{signed.Certificate}, signed.Authorities...)
 	intermediates := x509.NewCertPool()
 	for i, authority := range signed.Authorities {
 		if chain[i].CheckSignatureFrom(authority) != nil {
 			v.problem(finding{Code: "batch_authority_unlinked",
-				Message: fmt.Sprintf("the authorities of %s do not link up: certificate %d is not signed by the authority after it, %s", name, i+1, safe(authority.Subject.CommonName))}, b)
-			return
-		}
-		if !authority.IsCA {
-			v.problem(finding{Code: "batch_authority_unlinked",
-				Message: fmt.Sprintf("the authorities of %s do not link up: %s is not a certificate authority", name, safe(authority.Subject.CommonName))}, b)
+				Message: fmt.Sprintf("the authorities of %s do not link up: certificate %d is not signed by the authority after it, %s, or that one is not an authority", name, i+1, safe(authority.Subject.CommonName))}, b)
 			return
 		}
 		intermediates.AddCert(authority)

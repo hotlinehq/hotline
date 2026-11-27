@@ -129,7 +129,8 @@ type Signer struct {
 }
 
 // Sign signs every digest, in one go, so a signer that calls out to
-// another service later needs one call per batch.
+// another service later needs one call per batch. With an error, the
+// signatures are not to be used.
 func (s Signer) Sign(digests [][]byte) ([][]byte, error) { return s.sign(digests) }
 
 // String hides the key when it is printed.
@@ -181,16 +182,13 @@ func newSigner(service string, setup HourlyKeys, made time.Time, life time.Durat
 		Algorithm: key.algorithm, Certificate: base64.StdEncoding.EncodeToString(der), Authorities: authorities,
 		sign: func(digests [][]byte) ([][]byte, error) {
 			out := make([][]byte, len(digests))
+			errs := make([]error, len(digests))
+			// Each signing keeps its own error, in errs: two batches may
+			// be signed with this key at once.
 			for i, d := range digests {
-				// Each signing keeps its own error: two batches may be
-				// signed with this key at once.
-				signature, err := key.private.Sign(rand.Reader, d, key.options)
-				if err != nil {
-					return nil, err
-				}
-				out[i] = signature
+				out[i], errs[i] = key.private.Sign(rand.Reader, d, key.options)
 			}
-			return out, nil
+			return out, errors.Join(errs...)
 		},
 	}
 }

@@ -121,6 +121,17 @@ var _ = Describe("Checking a batch's signature", func() {
 		Entry("with a changed root", "hotline.batch.root", "sha256:01"),
 	)
 
+	DescribeTable("fails with authorities that cannot be read",
+		func(authorities attribute.KeyValue) {
+			r := signed
+			r.Attrs = append(slices.Clone(signed.Attrs), authorities)
+			_, err := ledger.CheckSignature(ledger.BatchFormat, r)
+			Expect(err).To(MatchError(vault.ErrNotACertificate))
+		},
+		Entry("not a list", attribute.String("hotline.batch.authorities", "AAAA")),
+		Entry("a list holding what is not a certificate", attribute.Slice("hotline.batch.authorities", attribute.StringValue("AAAA"))),
+	)
+
 	DescribeTable("fails when a field besides the attributes changes",
 		func(change func(*ledger.Record)) {
 			changed := signed

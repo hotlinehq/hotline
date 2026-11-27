@@ -215,23 +215,33 @@ func (l *batchLine) add(b Batch, signer vault.Signer) (uint64, [sha256.Size]byte
 // while it was signed stays gone.
 func (l *batchLine) signed(number uint64, algorithm string, signature []byte, err error) {
 	l.mu.Lock()
-	i := slices.IndexFunc(l.waiting, func(w waitingBatch) bool { return w.number == number })
-	switch {
-	case i < 0:
-	case err != nil:
-		l.waiting = slices.Delete(l.waiting, i, i+1)
-		l.lost()
-		l.logger.Warn("could not sign a batch record, it is let go", "endpoint", l.name, "error", err.Error())
-	default:
-		w := &l.waiting[i]
-		w.record.Attrs = ledger.WithSignature(w.record.Attrs, algorithm, signature)
-		w.items = [][]byte{l.render(w.record)}
+	// The record is looked for by its number, as it may have been let go
+	// as the oldest meanwhile.
+	for i := range l.waiting {
+		if l.waiting[i].number == number {
+			l.settle(i, algorithm, signature, err)
+			break
+		}
 	}
 	l.mu.Unlock()
 	select {
 	case l.kick <- struct{}{}:
 	default:
 	}
+}
+
+// settle puts the signature in waiting batch record i, or lets the record
+// go when it could not be signed. The caller holds the lock.
+func (l *batchLine) settle(i int, algorithm string, signature []byte, err error) {
+	if err != nil {
+		l.waiting = slices.Delete(l.waiting, i, i+1)
+		l.lost()
+		l.logger.Warn("could not sign a batch record, it is let go", "endpoint", l.name, "error", err.Error())
+		return
+	}
+	w := &l.waiting[i]
+	w.record.Attrs = ledger.WithSignature(w.record.Attrs, algorithm, signature)
+	w.items = [][]byte{l.render(w.record)}
 }
 
 func (l *batchLine) run() {

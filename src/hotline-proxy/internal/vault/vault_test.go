@@ -1,10 +1,14 @@
 package vault_test
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -123,5 +127,72 @@ var _ = Describe("Reading a batch certificate", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vault.Verify(certificate, "ecdsa-sha256", digest, signature)).To(BeTrue())
 		Expect(vault.Verify(certificate, "ed25519", digest, signature)).To(BeFalse())
+	})
+
+	It("checks an RSA signature only under an RSA algorithm's name", func() {
+		private, err := rsa.GenerateKey(rand.Reader, 2048)
+		Expect(err).NotTo(HaveOccurred())
+		template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+		der, err := x509.CreateCertificate(rand.Reader, template, template, &private.PublicKey, private)
+		Expect(err).NotTo(HaveOccurred())
+		certificate, err := vault.ParseCertificate(base64.StdEncoding.EncodeToString(der))
+		Expect(err).NotTo(HaveOccurred())
+		digest := make([]byte, 32)
+		signature, err := rsa.SignPKCS1v15(rand.Reader, private, crypto.SHA256, digest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vault.Verify(certificate, "rsa-pkcs1-sha256", digest, signature)).To(BeTrue())
+		Expect(vault.Verify(certificate, "ed25519", digest, signature)).To(BeFalse())
+	})
+
+	It("refuses a certificate for a key that cannot sign, such as an X25519 one", func() {
+		// Go makes no X25519 certificate, so an Ed25519 one has its key's
+		// name changed: both keys are 32 bytes written the same way.
+		public, private, _ := ed25519.GenerateKey(rand.Reader)
+		template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+		der, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+		Expect(err).NotTo(HaveOccurred())
+		ed25519Name, x25519Name := []byte{0x06, 0x03, 0x2b, 0x65, 0x70}, []byte{0x06, 0x03, 0x2b, 0x65, 0x6e}
+		key := bytes.Index(der, append(ed25519Name, 0x03, 0x21))
+		Expect(key).To(BeNumerically(">", 0))
+		copy(der[key:], x25519Name)
+		_, err = vault.ParseCertificate(base64.StdEncoding.EncodeToString(der))
+		Expect(err).To(MatchError(vault.ErrNotACertificate))
+	})
+
+	Context("under an authority it cannot use", func() {
+		now := time.UnixMicro(1_700_000_000_000_000)
+		authority := func(key any) *tls.Certificate {
+			public, private, _ := ed25519.GenerateKey(rand.Reader)
+			template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: now, NotAfter: now.Add(24 * time.Hour),
+				IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+			der, _ := x509.CreateCertificate(rand.Reader, template, template, public, private)
+			leaf, _ := x509.ParseCertificate(der)
+			if key == nil {
+				key = private
+			}
+			return &tls.Certificate{Certificate: [][]byte{der}, Leaf: leaf, PrivateKey: key}
+		}
+		sign := func(a *tls.Certificate) error {
+			keys := vault.HourlyKeys{Authority: a}
+			_, err := vault.New("hotline-proxy", time.Hour, keys, now).Signer(keys, now).Sign([][]byte{make([]byte, 32)})
+			return err
+		}
+
+		It("cannot sign when the authority's key cannot sign", func() {
+			Expect(sign(authority("not a key"))).To(MatchError(vault.ErrAuthorityCannotSign))
+		})
+
+		It("cannot sign when the authority's key is not its certificate's", func() {
+			_, other, _ := ed25519.GenerateKey(rand.Reader)
+			Expect(sign(authority(other))).To(HaveOccurred())
+		})
+
+		It("signs when the authority is whole, with the authority beside the certificate", func() {
+			a := authority(nil)
+			keys := vault.HourlyKeys{Authority: a}
+			signer := vault.New("hotline-proxy", time.Hour, keys, now).Signer(keys, now)
+			Expect(signer.Authorities).To(Equal([]string{base64.StdEncoding.EncodeToString(a.Certificate[0])}))
+			Expect(sign(a)).To(Succeed())
+		})
 	})
 })

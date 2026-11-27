@@ -263,6 +263,13 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 		w.useSigningAuthority(authority)
 		return nil
 	})
+	sc.Step(`^a cert named batches in certs whose files do not exist$`, func() error {
+		w.certEntries = "certs:\n  batches: { cert: ./batches/missing.pem, key: ./batches/missing-key.pem }\n"
+		return nil
+	})
+	sc.Step(`^it prints that checkout's batches lead to the root authority hotline test batch authority$`, func() error {
+		return result.prints("checkout's batches lead to the root authority hotline test batch authority")
+	})
 	sc.Step(`^the config signs the hourly keys with the cert (\S+)$`, func(name string) error {
 		w.signing += "    cert: " + name + "\n"
 		return nil
@@ -338,9 +345,13 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 	sc.Step(`^the first batch record is signed again by an? (\S+) key, its certificate signed by itself$`, func(algorithm string) error {
 		return w.resignBatch0(newTestKey(algorithm), nil, false, nil)
 	})
-	sc.Step(`^the first batch record is signed again by a key whose certificate (claims to be a certificate authority|an authority signed, with the authorities swapped for another authority's)$`, func(how string) error {
+	sc.Step(`^the first batch record is signed again by a key whose certificate (claims to be a certificate authority|an authority signed, with the authorities swapped for another authority's|a certificate that is not an authority signed, named as its authority)$`, func(how string) error {
 		if strings.HasPrefix(how, "claims") {
 			return w.resignBatch0(newTestKey("ed25519"), nil, true, nil)
+		}
+		if strings.HasPrefix(how, "a certificate that is not") {
+			plain := newSigningAuthority("Ed25519", "hotline test plain certificate", nil, time.Now().Add(24*time.Hour), false)
+			return w.resignBatch0(newTestKey("ed25519"), plain, false, nil)
 		}
 		signer := newSigningAuthority("Ed25519", "hotline test batch authority", nil, time.Now().Add(24*time.Hour), true)
 		stranger := newSigningAuthority("Ed25519", "hotline test stranger", nil, time.Now().Add(24*time.Hour), true)

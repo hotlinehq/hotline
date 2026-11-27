@@ -402,6 +402,12 @@ Feature: Records a third party can trust
         | a certificate authority named batches in certs, followed by a root that did not sign it | batches | the authorities do not link up   |
         | an Ed25519 certificate authority named batches in certs                             | nowhere | which is not in certs            |
 
+    Scenario: A signing cert whose files cannot be read stops the proxy
+      Given a cert named batches in certs whose files do not exist
+      And the config signs the hourly keys with the cert batches
+      When the proxy loads the config
+      Then the config is refused with a message naming "cert batches"
+
     Scenario: A key type the proxy does not make stops the proxy
       Given the config sets ledger signing hourlyKeyType rsa
       When the proxy loads the config

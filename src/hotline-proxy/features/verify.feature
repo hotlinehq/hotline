@@ -373,6 +373,14 @@ Feature: Checking records with hotline-proxy verify
         | an ML-DSA-65 certificate authority named batches in certs                       | hotline test batch authority |
         | an Ed25519 certificate authority named batches in certs, below a root authority | hotline test root authority  |
 
+    Scenario: The text output names the root a run's batches lead to
+      Given an Ed25519 certificate authority named batches in certs
+      And the config signs the hourly keys with the cert batches
+      And the folder calls from a stopped proxy
+      When I run hotline-proxy verify calls --root-authority root.pem
+      Then it exits with 0
+      And it prints that checkout's batches lead to the root authority hotline test batch authority
+
     Scenario: Without its root, an authority is not trusted
       Given an Ed25519 certificate authority named batches in certs
       And the config signs the hourly keys with the cert batches
@@ -418,6 +426,7 @@ Feature: Checking records with hotline-proxy verify
         | made                                                                          | code                     | message                           |
         | claims to be a certificate authority                                          | batch_certificate_invalid | is a certificate authority       |
         | an authority signed, with the authorities swapped for another authority's      | batch_authority_unlinked | do not link up                    |
+        | a certificate that is not an authority signed, named as its authority          | batch_authority_unlinked | do not link up                    |
 
   Rule: verify checks every signature algorithm a batch record names
 
