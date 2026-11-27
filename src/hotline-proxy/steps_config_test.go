@@ -444,6 +444,9 @@ func (w *world) brokenConfig(problem string) error {
 	case "the telemetry section's resource sets service.version":
 		w.rawConfig = start + exporters + ownTelemetry + "    resource:\n      service.version: \"9\"\n"
 		w.problem = "resource: service.version is the proxy's own and cannot be set"
+	case "the telemetry section sets queueFolder":
+		w.rawConfig = start + exporters + ownTelemetry + "    queueFolder: queue\n    queueDisk: 1GiB\n"
+		w.problem = "queueFolder and queueDisk are for record exporters only"
 	case "the telemetry section's metricInterval is zero":
 		w.rawConfig = start + exporters + ownTelemetry + "    metricInterval: 0s\n"
 		w.problem = "metricInterval \"0s\" must be a duration above zero"
@@ -456,6 +459,22 @@ func (w *world) brokenConfig(problem string) error {
 	case "the ledger's maxRecords is zero":
 		w.rawConfig = start + exporters + "ledger:\n  batch:\n    maxRecords: 0\n"
 		w.problem = "ledger.batch: maxRecords must be at least 1"
+	case "an exporter sets queueFolder without queueDisk":
+		w.rawConfig = start + exporters + "      queueFolder: queue\n"
+		w.problem = "queueFolder needs queueDisk"
+	case "an exporter sets queueDisk without queueFolder":
+		w.rawConfig = start + exporters + "      queueDisk: 1GiB\n"
+		w.problem = "queueDisk needs queueFolder"
+	case "an exporter's queueDisk is under 64MiB":
+		w.rawConfig = start + exporters + "      queueFolder: queue\n      queueDisk: 32MiB\n"
+		w.problem = "queueDisk must be at least 64MiB"
+	case "an exporter's queueFolder cannot be written to":
+		w.rawConfig = start + exporters + "      queueFolder: /proc/hotline-queue\n      queueDisk: 1GiB\n"
+		w.problem = "the queueFolder cannot be written to"
+	case "two exporters share one queueFolder":
+		w.rawConfig = start + exporters + "      queueFolder: queue\n      queueDisk: 1GiB\n" +
+			"  - otlp:\n      endpoint: http://localhost:4319\n      queueFolder: queue\n      queueDisk: 1GiB\n"
+		w.problem = "two exporters keep their queue in the folder queue"
 	case "an exporter's queueSize is zero":
 		w.rawConfig = start + exporters + "      queueSize: 0\n"
 		w.problem = "queueSize must be at least 1"
