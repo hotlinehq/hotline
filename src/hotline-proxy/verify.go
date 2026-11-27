@@ -181,7 +181,7 @@ func (b *lineBatch) number(name string) (int64, bool) {
 type verifiedRun struct {
 	Integration   string  `json:"integration"`
 	Instance      string  `json:"instance"`
-	Run           *string `json:"run"`
+	RunStarted    string  `json:"run_started"`
 	FirstSequence int64   `json:"first_sequence"`
 	LastSequence  int64   `json:"last_sequence"`
 	Batches       int     `json:"batches"`
@@ -675,18 +675,14 @@ func parseHash(text string) [sha256.Size]byte {
 // and run id, and checks each run's chain: every sequence from 0, each
 // batch naming the root of the one before, and a last batch at the end.
 func (v *verifier) checkChains() {
-	type key struct{ integration, instance, run string }
+	type key struct{ integration, instance, started string }
 	runs := map[key]*verifiedRun{}
 	var order []key
 	for _, b := range v.batches {
-		k := key{b.text("hotline.batch.integration"), b.text("hotline.batch.instance"), b.text("hotline.batch.run")}
+		k := key{b.text("hotline.batch.integration"), b.text("hotline.batch.instance"), b.text("hotline.batch.run_started")}
 		run := runs[k]
 		if run == nil {
-			run = &verifiedRun{Integration: k.integration, Instance: k.instance, Notes: []string{}}
-			if k.run != "" {
-				id := k.run
-				run.Run = &id
-			}
+			run = &verifiedRun{Integration: k.integration, Instance: k.instance, RunStarted: k.started, Notes: []string{}}
 			runs[k] = run
 			order = append(order, k)
 		}
@@ -773,10 +769,7 @@ func (v *verifier) printText(out io.Writer) {
 		if !run.CleanStop {
 			ending = "the run has no last batch: it crashed, or its end is missing"
 		}
-		instance := "instance " + safe(run.Instance)
-		if run.Run != nil {
-			instance += ", run " + safe(*run.Run)
-		}
+		instance := "instance " + safe(run.Instance) + ", started at " + safe(run.RunStarted)
 		w.printf("%s's %d records and their traces in %d batches check out (%s, sequence %d to %d); %s",
 			safe(run.Integration), run.Records, run.Batches, instance, run.FirstSequence, run.LastSequence, ending)
 		if len(run.RootAuthorities) > 0 {

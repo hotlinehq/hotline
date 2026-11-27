@@ -891,8 +891,8 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^it prints that the signature of that batch, named by its id, does not check out$`, func() error {
 		return result.prints("the signature of batch " + namedBatch + " does not check out")
 	})
-	sc.Step(`^it prints the instance checkout-0 with the run id proxy-test-1$`, func() error {
-		return result.prints("instance checkout-0, run proxy-test-1")
+	sc.Step(`^it prints the instance checkout-0 with the time its run started$`, func() error {
+		return result.prints("instance checkout-0, started at 20")
 	})
 	sc.Step(`^it prints that (the body cannot be read|no record has that span id)$`, func(what string) error {
 		if what == "the body cannot be read" {

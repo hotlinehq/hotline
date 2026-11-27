@@ -67,8 +67,8 @@ A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger
 | `hotline.batch.format` | `hotline.batch.v3`. |
 | `hotline.batch.id` | A UUID version 7, new for each batch. |
 | `hotline.batch.integration` | The integration the chain is for, or `not-passed`. |
-| `hotline.batch.instance` | The run's random `service.instance.id`, or the name `ledger.instance` sets. |
-| `hotline.batch.run` | The random run id, only when `ledger.instance` sets the name. |
+| `hotline.batch.instance` | The run's `service.instance.id`: the one the `records.transform` labels set, or a random id per run. |
+| `hotline.batch.run_started` | When this run of the proxy started, in UTC, to the microsecond, so two runs of the same instance are told apart. On every batch. |
 | `hotline.batch.sequence` | 0 for the first batch of the chain in this run, then 1, 2 and so on. |
 | `hotline.batch.previous` | The root of the batch before. Not on sequence 0. |
 | `hotline.batch.records`, `hotline.batch.root` | How many records, and the root of their tree. |
@@ -106,7 +106,6 @@ ledger:                       # optional; the values shown are the defaults
   batch:
     every: 10s
     maxRecords: 65536
-  instance: { env: POD_NAME } # optional; left out, the name is random per run
   signing:                     # optional; left out, Ed25519 keys that sign their own certificates
     hourlyKeyType: ed25519     # or ml-dsa-44, ml-dsa-65, ml-dsa-87
     cert: batch-authority      # optional; a name in certs, whose authority signs the hourly keys

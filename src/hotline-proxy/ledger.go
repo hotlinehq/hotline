@@ -29,10 +29,11 @@ type book struct {
 	clock     Clock
 	exporters *export.Exporters
 	instance  string
-	// runID, when the config names the instance, is this run's own random id.
-	runID   string
-	version string
-	config  func() *config.Config
+	// runStarted is when this run started, so two runs of the same
+	// instance are told apart (Peter, 2026-11-27).
+	runStarted string
+	version    string
+	config     func() *config.Config
 	// hashes makes the record and trace hashes, reusing its writers.
 	hashes ledger.Hasher
 
@@ -77,15 +78,10 @@ type openBatch struct {
 	leaves     [][sha256.Size]byte
 }
 
-func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config, logger *slog.Logger) *book {
+func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, version string, current func() *config.Config, logger *slog.Logger) *book {
 	b := &book{
-		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current, logger: logger,
+		clock: clock, exporters: exporters, instance: exporters.ServiceInstanceID(), runStarted: wholeMicros(clock.Now()).UTC().Format(time.RFC3339Nano), version: version, config: current, logger: logger,
 		vault: vault.New(exporters.ServiceName(), keyLife, hourlyKeys(cfg.Ledger.Signing), clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
-	}
-	if cfg.Ledger.Instance != "" {
-		// A named instance keeps the random id next to it, so two runs of
-		// the same name are told apart.
-		b.instance, b.runID = cfg.Ledger.Instance, instanceID
 	}
 	b.timer = clock.AfterFunc(b.every, b.tick)
 	return b
@@ -224,14 +220,12 @@ func (b *book) close(ch *chain, last bool) {
 		attribute.String("hotline.batch.id", open.id),
 		attribute.String("hotline.batch.integration", ch.name),
 		attribute.String("hotline.batch.instance", b.instance),
+		attribute.String("hotline.batch.run_started", b.runStarted),
 		attribute.Int64("hotline.batch.sequence", ch.sequence),
 		attribute.Int("hotline.batch.records", len(open.leaves)),
 		attribute.String("hotline.batch.root", root),
 		attribute.String("hotline.batch.version", b.version),
 		attribute.String("hotline.batch.config", open.config),
-	}
-	if b.runID != "" {
-		attrs = append(attrs, attribute.String("hotline.batch.run", b.runID))
 	}
 	if ch.previous != "" {
 		attrs = append(attrs, attribute.String("hotline.batch.previous", ch.previous))

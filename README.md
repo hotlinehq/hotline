@@ -135,7 +135,6 @@ ledger:                                 # the evidence ledger; the values shown 
   batch:
     every: 10s                          # a signed batch per integration this often
     maxRecords: 65536                   # or sooner, at this many records
-  instance: { env: POD_NAME }           # optional; left out, the name is random per run
   signing:                              # optional; left out, Ed25519 keys that sign their own certificates
     hourlyKeyType: ed25519              # or ml-dsa-44, ml-dsa-65, ml-dsa-87
     cert: batches                       # optional; a name in certs, whose authority signs the hourly keys
@@ -144,7 +143,7 @@ records:                                # how every record is built, before its 
   transform:                            # steps run on every record, in order
     - labels:                           # resource labels every exporter sends; a later step wins
         deployment.environment.name: prod
-        service.instance.id: { env: POD_NAME }
+        service.instance.id: { env: POD_NAME }   # also names the ledger's batches; left out, random per run
 
 exporters:                              # one or more; each gets the same records and spans
   - otlp:                               # plain HTTP

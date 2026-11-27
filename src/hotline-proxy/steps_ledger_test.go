@@ -825,7 +825,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return checkChain(batches)
 	})
-	sc.Step(`^no ledger instance in the config$`, func() error { return nil })
+	sc.Step(`^no service.instance.id label in the config$`, func() error { return nil })
 	sc.Step(`^the two runs' hotline.batch.instance are different$`, func() error {
 		runs, err := w.runBatches(2)
 		if err != nil {
@@ -850,21 +850,32 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the batches have no hotline.batch.run$`, func() error {
-		w.settle()
-		for _, b := range w.receivers[0].ledger() {
-			if err := hasNo(b.attrs, "hotline.batch.run"); err != nil {
-				return err
+	sc.Step(`^each batch's hotline.batch.run_started is when its run started$`, func() error {
+		runs, err := w.runBatches(2)
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			for _, b := range run {
+				started, err := time.Parse(time.RFC3339Nano, sprint(b.attrs["hotline.batch.run_started"]))
+				if err != nil {
+					return err
+				}
+				first, _ := time.Parse(time.RFC3339Nano, sprint(run[0].attrs["hotline.batch.run_started"]))
+				closed := time.Unix(0, int64(b.timestamp)) //nolint:gosec // a time in nanoseconds
+				if !started.Equal(first) || started.After(closed) || started.Location() != time.UTC {
+					return failf("the run started at %v, its first batch says %v, and the batch closed at %v", started, first, closed)
+				}
 			}
 		}
 		return nil
 	})
-	sc.Step(`^the config has ledger instance \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
+	sc.Step(`^the records transform labels service.instance.id \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
 		if w.env == nil {
 			w.env = map[string]string{}
 		}
 		w.env["POD_NAME"] = name
-		w.topExtra += "ledger:\n  instance: { env: POD_NAME }\n"
+		w.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
 		return nil
 	})
 	sc.Step(`^both runs' batches have hotline.batch.instance (\S+)$`, func(name string) error {
@@ -876,13 +887,13 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^their hotline.batch.run are different$`, func() error {
+	sc.Step(`^their hotline.batch.run_started are different$`, func() error {
 		runs, err := w.runBatches(2)
 		if err != nil {
 			return err
 		}
-		if runs[0][0].attrs["hotline.batch.run"] == nil || runs[0][0].attrs["hotline.batch.run"] == runs[1][0].attrs["hotline.batch.run"] {
-			return failf("the runs have the run ids %v and %v", runs[0][0].attrs["hotline.batch.run"], runs[1][0].attrs["hotline.batch.run"])
+		if runs[0][0].attrs["hotline.batch.run_started"] == nil || runs[0][0].attrs["hotline.batch.run_started"] == runs[1][0].attrs["hotline.batch.run_started"] {
+			return failf("the runs started at %v and %v", runs[0][0].attrs["hotline.batch.run_started"], runs[1][0].attrs["hotline.batch.run_started"])
 		}
 		return nil
 	})
@@ -1035,7 +1046,9 @@ func (w *world) runBatches(n int) ([][]receivedRecord, error) {
 	byRun := map[string][]receivedRecord{}
 	var order []string
 	for _, b := range w.receivers[0].ledger() {
-		run := sprint(b.resource["service.instance.id"])
+		// A named instance is the same in every run; the start time tells
+		// them apart.
+		run := sprint(b.attrs["hotline.batch.instance"]) + " " + sprint(b.attrs["hotline.batch.run_started"])
 		if _, seen := byRun[run]; !seen {
 			order = append(order, run)
 		}

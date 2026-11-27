@@ -81,12 +81,12 @@ Feature: Checking records with hotline-proxy verify
       Then it exits with 0
       And it prints that checkout's 3 records check out, and mentions no other integration
 
-    Scenario: A run with a named instance shows its run id
-      Given the config has ledger instance { env: POD_NAME } and POD_NAME is checkout-0
+    Scenario: A run with a named instance shows when it started
+      Given the records transform labels service.instance.id { env: POD_NAME } and POD_NAME is checkout-0
       And the folder calls from a stopped proxy, with 1 calls
       When I run hotline-proxy verify calls
       Then it exits with 0
-      And it prints the instance checkout-0 with the run id proxy-test-1
+      And it prints the instance checkout-0 with the time its run started
 
     Scenario: Each integration's chain is reported on its own
       Given the integrations checkout and refunds
@@ -517,7 +517,7 @@ Feature: Checking records with hotline-proxy verify
         "ok": false,
         "summary": { "records": 5, "batches": 2, "runs": 1, "problems": 1 },
         "runs": [
-          { "integration": "checkout", "instance": "5f0c2e1a-…", "run": null, "first_sequence": 0, "last_sequence": 1,
+          { "integration": "checkout", "instance": "5f0c2e1a-…", "run_started": "2026-11-13T17:41:50.123456Z", "first_sequence": 0, "last_sequence": 1,
             "records": 5, "clean_stop": true, "stopped_at": "2026-11-13T17:42:10Z" }
         ],
         "problems": [
