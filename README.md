@@ -52,6 +52,13 @@ make image
 
 3. Point your apps at it as their HTTP proxy, with the app's name as the user name, for example `HTTPS_PROXY=http://checkout:x@localhost:8080`.
 4. Records and traces go to the OTLP addresses in the config, for example a local OpenTelemetry Collector or Grafana Cloud.
+5. To check a file exporter's folder later, with no config, key or network:
+
+   ```
+   ./hotline-proxy verify calls --root-authority ./ca/batches-root.pem
+   ```
+
+   It checks every record's hash, each batch's signature and the chain of batches. `--root-authority` names a root authority to trust (the top authority, which you choose to trust), beside the computer's own; leave it out when the batches are self-signed. Details are in [docs/proxy-ledger.md](docs/proxy-ledger.md).
 
 Ctrl+C stops it after the calls in progress finish. `./hotline-proxy run --help` lists every flag; details are in [docs/proxy-program.md](docs/proxy-program.md). The proxy picks up changes to its config, specs, keys and certificates within 5 seconds, or at once on `kill -HUP` ([docs/proxy-config-reload.md](docs/proxy-config-reload.md)). Health checks for Kubernetes, `/livez` and `/readyz`, answer on the admin address ([docs/proxy-health-checks.md](docs/proxy-health-checks.md)).
 
@@ -68,7 +75,7 @@ admin:                                  # health checks (/livez, /readyz), on th
   address: tcp://127.0.0.1:8081
   # tls: { cert: internal }             # optional; plain HTTP without it
 
-certs:                                  # certificate pairs, named, used by the listeners
+certs:                                  # certificate pairs, named, used by the listeners and the ledger
   shop:     { cert: ./ca/shop.pem, key: ./ca/shop-key.pem }           # a certificate authority the proxy signs with
   internal: { cert: ./ca/internal.pem, key: ./ca/internal-key.pem }   # an ordinary certificate
   batches:  { cert: ./ca/batches.pem, key: ./ca/batches-key.pem }     # a certificate authority that vouches for the ledger's keys
