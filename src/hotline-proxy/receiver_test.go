@@ -158,6 +158,8 @@ type receiver struct {
 	probes []receivedRecord
 	// down refuses every log export, until it is back.
 	down bool
+	// busy answers every log and trace export with 503, until it is back.
+	busy bool
 	// refused counts the call records refused while down.
 	refused  int
 	points   []receivedPoint
@@ -226,6 +228,8 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if down {
 		// A collector that is down refuses every log export at once.
 		refuse = &answer{status: http.StatusBadRequest}
+	} else if r.busy && (logs || strings.HasSuffix(req.URL.Path, "/v1/traces")) {
+		refuse = &answer{status: http.StatusServiceUnavailable}
 	} else if logs && len(r.answers) > 0 {
 		refuse = &r.answers[0]
 		r.answers = r.answers[1:]
@@ -649,4 +653,10 @@ func (r *receiver) setDown(down bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.down = down
+}
+
+func (r *receiver) setBusy(busy bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.busy = busy
 }

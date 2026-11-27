@@ -20,8 +20,8 @@ const batchSize = 512
 // waits is kept (Peter, 2026-11-09), so a call never waits for a
 // exporter. The items wait in a ring: a list of fixed length that wraps
 // around and is reused, so the queue never grows.
-type queue[T any] struct {
-	export   func(context.Context, []T) error
+type queue struct {
+	export   func(context.Context, [][]byte) error
 	close    func(context.Context) error
 	endpoint string
 	// signalName names the signal in warnings: records or spans.
@@ -42,16 +42,18 @@ type queue[T any] struct {
 	held   int64
 	// eager sends every item as soon as it comes, not in batches.
 	eager bool
+	// disk, when set, takes what no longer fits in memory.
+	disk *overflow
 
 	mu sync.Mutex
 	// ring holds the waiting items: count of them, from first on, wrapping
 	// around the end.
-	ring  []T
+	ring  [][]byte
 	first int
 	count int
 	// batch is the sender's own copy of the items it sends, kept between
 	// sends, since sends come one at a time.
-	batch []T
+	batch [][]byte
 	// crowded counts items refused by a full queue, failed those lost in a
 	// send the exporter refused.
 	crowded drops
@@ -79,8 +81,15 @@ type queueSetup struct {
 	up      *atomic.Int64
 }
 
-func newQueue[T any](signalName string, export func(context.Context, []T) error, closeSender func(context.Context) error, s queueSetup) *queue[T] {
-	q := &queue[T]{
+func newQueue(signalName string, export func(context.Context, [][]byte) error, closeSender func(context.Context) error, s queueSetup) *queue {
+	q := buildQueue(signalName, export, closeSender, s)
+	go q.run()
+	return q
+}
+
+// buildQueue is a queue that has not started sending.
+func buildQueue(signalName string, export func(context.Context, [][]byte) error, closeSender func(context.Context) error, s queueSetup) *queue {
+	return &queue{
 		export:     export,
 		close:      closeSender,
 		endpoint:   s.endpoint,
@@ -94,28 +103,41 @@ func newQueue[T any](signalName string, export func(context.Context, []T) error,
 		dropped:    s.dropped,
 		labels:     s.labels,
 		up:         s.up,
-		ring:       make([]T, s.size),
+		ring:       make([][]byte, s.size),
 		full:       make(chan struct{}, 1),
 		stop:       make(chan struct{}),
 		stopped:    make(chan struct{}),
 	}
-	go q.run()
-	return q
+}
+
+// wake has the sender send now, not at its next interval.
+func (q *queue) wake() {
+	select {
+	case q.full <- struct{}{}:
+	default:
+	}
 }
 
 // add queues items without waiting: all of them, or none when they do not
 // all fit, so the spans of one call are never split. It says whether they
 // were queued.
-func (q *queue[T]) add(items ...T) bool {
+func (q *queue) add(items ...[]byte) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	weight := int64(0)
 	if q.memory > 0 {
 		for _, item := range items {
-			weight += weigh(item)
+			weight += int64(len(item))
 		}
 	}
-	if len(items) > len(q.ring)-q.count || q.memory > 0 && q.held+weight > q.memory {
+	fits := len(items) <= len(q.ring)-q.count && (q.memory == 0 || q.held+weight <= q.memory)
+	if q.disk != nil && q.disk.takes(fits) {
+		if q.disk.add(items) {
+			return true
+		}
+		fits = false
+	}
+	if !fits {
 		q.crowded.count += len(items)
 		q.crowded.groups++
 		q.dropped.Add(context.Background(), int64(len(items)), dropReason(q.labels, "queue_full"))
@@ -139,7 +161,7 @@ func (q *queue[T]) add(items ...T) bool {
 // sender's batch, and leaves them in the ring: they keep their places
 // until the collector has taken them, or refused them for good. The
 // caller holds sendMu, so nothing else takes items meanwhile.
-func (q *queue[T]) peek() []T {
+func (q *queue) peek() [][]byte {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	n := min(batchSize, q.count)
@@ -155,14 +177,14 @@ func (q *queue[T]) peek() []T {
 // remove lets go of the n oldest items, sent or refused for good, and
 // clears their places in the ring so what they point to can be freed.
 // The caller holds sendMu.
-func (q *queue[T]) remove(n int) {
+func (q *queue) remove(n int) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for n > 0 {
 		part := q.ring[q.first:min(q.first+n, len(q.ring))]
 		if q.memory > 0 {
 			for _, item := range part {
-				q.held -= weigh(item)
+				q.held -= int64(len(item))
 			}
 		}
 		clear(part)
@@ -175,7 +197,7 @@ func (q *queue[T]) remove(n int) {
 // run sends a batch every interval, or as soon as one fills. While the
 // collector is busy or cannot be reached, it tries again after a growing
 // wait instead, and the batch stays first in line.
-func (q *queue[T]) run() {
+func (q *queue) run() {
 	defer close(q.stopped)
 	ticker := time.NewTicker(q.interval)
 	defer ticker.Stop()
@@ -230,13 +252,16 @@ func busyErr(err error) bool {
 // it was too busy for, or could not be reached for, stays first in line,
 // and send returns the error so the caller can try again later
 // (Peter, 2026-11-27).
-func (q *queue[T]) send(ctx context.Context, all bool) error {
+func (q *queue) send(ctx context.Context, all bool) error {
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
 	defer q.warnDropped(all)
 	for {
 		batch := q.peek()
 		if len(batch) == 0 {
+			if q.disk != nil {
+				return q.sendDisk(ctx)
+			}
 			return nil
 		}
 		n := len(batch)
@@ -262,8 +287,46 @@ func (q *queue[T]) send(ctx context.Context, all bool) error {
 	}
 }
 
+// sendDisk sends what the disk queue holds, oldest first, until it is
+// empty. The sender's place on disk moves only once the collector took a
+// batch, or refused it for good; a busy collector leaves it, and the batch
+// is read again next time. The caller holds sendMu.
+func (q *queue) sendDisk(ctx context.Context) error {
+	for {
+		read, at, err := q.disk.read(batchSize)
+		if err != nil {
+			q.disk.warnIf(err)
+			return nil
+		}
+		if len(read) == 0 {
+			q.disk.taken(at)
+			return nil
+		}
+		q.batch = q.batch[:0]
+		for _, item := range read {
+			q.batch = append(q.batch, item.items...)
+		}
+		n := len(q.batch)
+		err = q.export(ctx, q.batch)
+		clear(q.batch)
+		if busyErr(err) {
+			q.up.Store(0)
+			return err
+		}
+		q.disk.taken(at)
+		measured(ctx, q.sent, q.dropped, n, q.labels, err, q.up)
+		if err != nil {
+			q.mu.Lock()
+			q.failed.count += n
+			q.lastErr = err
+			q.mu.Unlock()
+			return err
+		}
+	}
+}
+
 // waitingCount is how many items wait.
-func (q *queue[T]) waitingCount() int {
+func (q *queue) waitingCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.count
@@ -271,7 +334,7 @@ func (q *queue[T]) waitingCount() int {
 
 // dropWaiting lets go of every waiting item, counted as lost in a send,
 // when the stop time ran out before the collector took them.
-func (q *queue[T]) dropWaiting(err error) {
+func (q *queue) dropWaiting(err error) {
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
 	n := q.waitingCount()
@@ -307,12 +370,15 @@ func (d *drops) due(last bool) bool {
 
 // warnDropped writes how many items were lost, for each of the two
 // reasons.
-func (q *queue[T]) warnDropped(last bool) {
+func (q *queue) warnDropped(last bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.crowded.due(last) {
 		q.logger.Warn("export queue full, dropped the newest "+q.signalName, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
 		q.crowded.count, q.crowded.groups = 0, 0
+	}
+	if q.disk != nil {
+		q.disk.warnUnreadable(last)
 	}
 	if q.failed.due(last) {
 		q.logger.Warn("export failed, dropped the "+q.signalName+" it held", "endpoint", q.endpoint, "dropped", q.failed.count, "error", q.lastErr.Error())
@@ -321,30 +387,51 @@ func (q *queue[T]) warnDropped(last bool) {
 }
 
 // fill is how many items wait, and how many the queue holds at most.
-func (q *queue[T]) fill() (int, int) {
+func (q *queue) fill() (int, int) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.count, q.size
 }
 
 // ForceFlush sends everything queued.
-func (q *queue[T]) ForceFlush(ctx context.Context) error {
+func (q *queue) ForceFlush(ctx context.Context) error {
 	return q.send(ctx, true)
 }
 
 // Shutdown stops the queue, sends what is left and closes the sender.
 // A busy collector is tried again until the time ctx allows runs out;
 // what it still has not taken then is lost, counted and warned about.
-func (q *queue[T]) Shutdown(ctx context.Context) error {
+//
+// With a disk queue, half the stop time goes to sending; then the writer
+// writes what waits, and what is still in memory goes to disk before
+// everything there, so the next start sends it first (Peter, 2026-11-27).
+func (q *queue) Shutdown(ctx context.Context) error {
 	close(q.stop)
 	<-q.stopped
-	err := q.flushUntil(ctx)
-	return errors.Join(err, q.close(ctx))
+	if q.disk == nil {
+		err := q.flushUntil(ctx, true)
+		return errors.Join(err, q.close(ctx))
+	}
+	sending := ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		sending, cancel = context.WithDeadline(ctx, time.Now().Add(time.Until(deadline)/2))
+		defer cancel()
+	}
+	err := q.flushUntil(sending, false)
+	q.sendMu.Lock()
+	var front [][]byte
+	for batch := q.peek(); len(batch) > 0; batch = q.peek() {
+		front = append(front, batch...)
+		q.remove(len(batch))
+	}
+	q.sendMu.Unlock()
+	return errors.Join(err, q.disk.close(front), q.close(ctx))
 }
 
 // flushUntil sends everything queued, trying a busy collector again
 // until ctx ends. It returns only a send refused for good.
-func (q *queue[T]) flushUntil(ctx context.Context) error {
+func (q *queue) flushUntil(ctx context.Context, dropLeft bool) error {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 	for wait := time.Duration(0); ; {
@@ -357,7 +444,9 @@ func (q *queue[T]) flushUntil(ctx context.Context) error {
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
-			q.dropWaiting(err)
+			if dropLeft {
+				q.dropWaiting(err)
+			}
 			return nil
 		}
 	}
@@ -366,7 +455,9 @@ func (q *queue[T]) flushUntil(ctx context.Context) error {
 // newItemQueue is the queue of one kind of written items for one
 // exporter. A send writes the waiting items into one request, in a
 // buffer and a zipper the queue keeps, since its sends come one at a time.
-func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup) *queue[[]byte] {
+// With a disk folder, what does not fit in memory goes there; what an
+// earlier run left there is sent first.
+func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte, timeout time.Duration, s queueSetup, disk diskSetup) (*queue, error) {
 	var body []byte
 	z := t.newZipper()
 	send := func(ctx context.Context, items [][]byte) error {
@@ -374,12 +465,31 @@ func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte
 		return sendWithRetry(ctx, t, k, z, body, timeout)
 	}
 	// The exporter closes the transport once both queues are done.
-	return newQueue(signalName, send, func(context.Context) error { return nil }, s)
+	q := buildQueue(signalName, send, func(context.Context) error { return nil }, s)
+	if disk.folder != "" {
+		kind := kindRecord
+		if k == spans {
+			kind = kindSpans
+		}
+		o, err := newOverflow(disk.folder, disk.budget, overflowSetup{
+			kind: kind, logger: s.logger, name: s.endpoint, dropped: s.dropped, labels: s.labels, kick: q.wake,
+		})
+		if err != nil {
+			return nil, err
+		}
+		q.disk = o
+	}
+	go q.run()
+	if q.disk != nil && !q.disk.disk.empty() {
+		q.wake()
+	}
+	return q, nil
 }
 
-// weigh is the bytes an item holds: a written item's length, nothing for
-// any other kind.
-func weigh[T any](item T) int64 {
-	b, _ := any(item).([]byte)
-	return int64(len(b))
+// diskSetup is where an exporter's queue keeps what does not fit in
+// memory, and the budget its signals share; no folder for none.
+type diskSetup struct {
+	folder string
+	budget *diskBudget
 }
+

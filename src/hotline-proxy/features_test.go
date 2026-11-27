@@ -99,6 +99,7 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reser
 	headerSteps(sc, w)
 	recordSteps(sc, w)
 	exportSteps(sc, w)
+	diskQueueSteps(sc, w)
 	fileSteps(sc, w)
 	consoleSteps(sc, w)
 	ledgerSteps(sc, w)
