@@ -37,6 +37,8 @@ func OwnMetrics() []string {
 		"hotline.app_tls.failures",
 		"hotline.exporter.up",
 		"hotline.exporter.queue.size",
+		"hotline.exporter.queue.oldest.age",
+		"hotline.exporter.queue.disk.usage",
 		"hotline.exporter.sent",
 		"hotline.exporter.dropped",
 		"hotline.config.reload_failed",

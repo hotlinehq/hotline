@@ -42,8 +42,10 @@ type overflow struct {
 	// inUse is set from the first item that goes to disk until the
 	// sender has sent everything there.
 	inUse bool
-	// unreadable counts items lost on disk until the next warning.
+	// unreadable counts items lost on disk until the next warning, and
+	// started the times the disk started being used.
 	unreadable drops
+	started    drops
 
 	wake    chan struct{}
 	stop    chan struct{}
@@ -91,11 +93,12 @@ func (o *overflow) takes(fitsMemory bool) bool {
 // the disk queue's budget and in the memory waiting to be written.
 func (o *overflow) add(items [][]byte) bool {
 	var batch []spilled
+	now := time.Now()
 	if o.kind == kindSpans {
-		batch = []spilled{{kind: kindSpans, payload: joinSpans(items)}}
+		batch = []spilled{{kind: kindSpans, payload: joinSpans(items), queued: now}}
 	} else {
 		for _, item := range items {
-			batch = append(batch, spilled{kind: o.kind, payload: item})
+			batch = append(batch, spilled{kind: o.kind, payload: item, queued: now})
 		}
 	}
 	size := int64(0)
@@ -109,7 +112,7 @@ func (o *overflow) add(items [][]byte) bool {
 	}
 	o.spill = append(o.spill, batch...)
 	o.spillBytes += size
-	o.inUse = true
+	o.use()
 	select {
 	case o.wake <- struct{}{}:
 	default:
@@ -125,13 +128,22 @@ func (o *overflow) addBatch(item []byte) {
 	defer o.mu.Unlock()
 	size := frameSize(item)
 	o.disk.budget.used.Add(size)
-	o.spill = append(o.spill, spilled{kind: kindBatch, payload: item})
+	o.spill = append(o.spill, spilled{kind: kindBatch, payload: item, queued: time.Now()})
 	o.spillBytes += size
-	o.inUse = true
+	o.use()
 	select {
 	case o.wake <- struct{}{}:
 	default:
 	}
+}
+
+// use marks the disk in use, and counts each time it starts being used
+// for the next warning. The caller holds mu.
+func (o *overflow) use() {
+	if !o.inUse {
+		o.started.count++
+	}
+	o.inUse = true
 }
 
 // write writes what waits, and syncs at most every syncEvery while it
@@ -209,35 +221,38 @@ func (o *overflow) lost(n int) {
 	o.mu.Unlock()
 }
 
-// warnUnreadable writes how many items on disk could not be read, at most
+// warn writes how often the disk started being used, as the memory queue
+// was full, and how many items on disk could not be read: each at most
 // once a minute, and always on the last send.
-func (o *overflow) warnUnreadable(last bool) {
+func (o *overflow) warn(last bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if o.started.due(last) {
+		o.logger.Warn("the export queue was full, new items go to the disk queue until it is empty", "endpoint", o.name, "folder", o.disk.dir, "times", o.started.count)
+		o.started.count = 0
+	}
 	if o.unreadable.due(last) {
 		o.logger.Warn("the disk queue held items that could not be read, they were skipped", "endpoint", o.name, "folder", o.disk.dir, "dropped", o.unreadable.count)
 		o.unreadable.count = 0
 	}
 }
 
-// close stops the writer once it has written what waits, puts front
-// before everything on disk, and closes the files.
-func (o *overflow) close(front [][]byte) error {
+// close stops the writer once it has written what waits, puts front, the
+// items still in memory and when each was queued, before everything on
+// disk, and closes the files.
+func (o *overflow) close(front [][]byte, queued []time.Time) error {
 	close(o.stop)
 	<-o.stopped
 	var batch []spilled
-	if o.kind == kindSpans {
-		// The memory queue does not keep calls apart, so its spans go back
-		// one by one.
-		for _, item := range front {
-			batch = append(batch, spilled{kind: kindSpans, payload: joinSpans([][]byte{item})})
+	for i, item := range front {
+		if o.kind == kindSpans {
+			// The memory queue does not keep calls apart, so its spans go
+			// back one by one.
+			item = joinSpans([][]byte{item})
 		}
-	} else {
-		for _, item := range front {
-			batch = append(batch, spilled{kind: o.kind, payload: item})
-		}
+		batch = append(batch, spilled{kind: o.kind, payload: item, queued: queued[i]})
 	}
 	err := o.disk.writeFront(batch)
-	o.warnUnreadable(true)
+	o.warn(true)
 	return errors.Join(err, o.disk.close())
 }

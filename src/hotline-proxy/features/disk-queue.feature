@@ -23,6 +23,7 @@ Feature: The disk queue
     Then the collector gets records 1 to 11 in the order of the calls
     And every call's spans
     And the proxy logs no warning about dropped records
+    And the proxy warns that the export queue was full and new items go to the disk queue
     And no call was blocked or slowed
 
   Scenario: A clean stop writes what waits in memory to disk

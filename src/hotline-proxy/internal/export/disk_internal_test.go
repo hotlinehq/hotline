@@ -1,9 +1,11 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,8 +19,11 @@ import (
 // QueueFileSize is the most bytes one queue file holds.
 const QueueFileSize = queueFileSize
 
+// errBusy is what a busy collector said.
+var errBusy = errors.New("busy")
+
 // ErrTestBusy is a send the collector was too busy for.
-var ErrTestBusy error = busy{err: errors.New("busy")}
+var ErrTestBusy error = busy{err: errBusy}
 
 // TestDiskQueue is the queue files of one signal.
 type TestDiskQueue struct {
@@ -110,8 +115,32 @@ func texts(items []string) [][]byte {
 	return b
 }
 
-// TestDiskBackedQueue is a queue of records with a disk queue behind it.
-type TestDiskBackedQueue struct{ TestQueue }
+// TestDiskBackedQueue is a queue of records with a disk queue behind it,
+// and what it logged.
+type TestDiskBackedQueue struct {
+	TestQueue
+	logs *lockedBuffer
+}
+
+// lockedBuffer is a buffer the queue's writer and sender may log to at
+// once.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// Logs is what the queue logged so far.
+func (t TestDiskBackedQueue) Logs() string {
+	t.logs.mu.Lock()
+	defer t.logs.mu.Unlock()
+	return t.logs.buf.String()
+}
 
 // NewTestDiskBackedQueue holds size items in memory, the rest in dir up to
 // limit bytes, and sends with send only when flushed.
@@ -124,8 +153,9 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 		}
 		return send(ctx, read)
 	}
+	logs := &lockedBuffer{}
 	s := queueSetup{
-		size: size, interval: time.Hour, logger: slog.New(slog.DiscardHandler),
+		size: size, interval: time.Hour, logger: slog.New(slog.NewTextHandler(logs, nil)),
 		sent: counter, dropped: counter, up: &atomic.Int64{},
 	}
 	q := buildQueue("records", asText, func(context.Context) error { return nil }, s)
@@ -138,7 +168,7 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 	q.disk = o
 	// The queue sends only when the test flushes it.
 	close(q.stopped)
-	return TestDiskBackedQueue{TestQueue{q}}, nil
+	return TestDiskBackedQueue{TestQueue{q}, logs}, nil
 }
 
 // Written says what was queued for disk is written.

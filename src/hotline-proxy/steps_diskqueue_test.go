@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,6 +38,22 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		w.stopTime = 2 * time.Second
 		return nil
 	})
+	sc.Step(`^the exporter keeps a disk queue(, and its collector is busy)?$`, func(busy string) error {
+		w.exporterExtra = []string{"      queueFolder: queue\n      queueDisk: 64MiB\n"}
+		w.receivers[0].setBusy(busy != "")
+		w.exportTimeout = 300 * time.Millisecond
+		w.stopTime = 2 * time.Second
+		return nil
+	})
+	sc.Step(`^the proxy warns that the export queue was full and new items go to the disk queue$`, func() error {
+		w.settle()
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, "level=WARN") && strings.Contains(line, "go to the disk queue") {
+				return nil
+			}
+		}
+		return failf("no warning that the disk queue is in use; the log is %s", w.logs.String())
+	})
 	sc.Step(`^(\d+) calls end one after another$`, func(n int) error {
 		for range n {
 			calls++
@@ -65,16 +82,21 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		return w.start()
 	})
 	sc.Step(`^the last item on disk is damaged$`, func() error {
-		files, _ := filepath.Glob(filepath.Join(queueFolder(), "records", "*.queue"))
+		records, err := os.OpenRoot(filepath.Join(queueFolder(), "records"))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = records.Close() }()
+		files, _ := fs.Glob(records.FS(), "*.queue")
 		slices.Sort(files)
 		for i := len(files) - 1; i >= 0; i-- {
-			data, err := os.ReadFile(files[i])
+			data, err := records.ReadFile(files[i])
 			if err != nil {
 				return err
 			}
 			if len(data) > queueFileHeader {
 				data[len(data)-1] ^= 0xff
-				return os.WriteFile(files[i], data, 0o600)
+				return records.WriteFile(files[i], data, 0o600)
 			}
 		}
 		return failf("no item on disk to damage")

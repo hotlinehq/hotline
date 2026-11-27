@@ -28,6 +28,9 @@ func queueFiles(dir string) []string {
 	return files
 }
 
+// errRefused is a send the collector refused for good.
+var errRefused = errors.New("refused")
+
 var _ = Describe("disk queue", func() {
 	var dir string
 	BeforeEach(func() { dir = filepath.Join(GinkgoT().TempDir(), "records") })
@@ -408,6 +411,24 @@ var _ = Describe("a queue with a disk queue behind it", func() {
 		Expect(q.Flush(context.Background())).To(Succeed())
 		Expect(sender.got()).To(Equal([]string{"a", "b", "c"}))
 		Expect(q.OnDisk()).To(BeFalse())
+		Expect(q.Logs()).To(ContainSubstring("new items go to the disk queue until it is empty"))
+		Expect(q.Shutdown(context.Background())).To(Succeed())
+	})
+
+	It("knows when the oldest waiting item was queued, in memory and then on disk", func() {
+		q := start(1, 1<<30)
+		Expect(q.Oldest().IsZero()).To(BeTrue())
+		before := time.Now()
+		q.Add("a")
+		Expect(q.Oldest()).To(BeTemporally(">=", before))
+		q.Add("b")
+		Eventually(q.Written).Should(BeTrue())
+		// Memory goes, and the collector is busy for what the disk holds.
+		sender.answers = []error{nil, export.ErrTestBusy}
+		Expect(q.Flush(context.Background())).To(MatchError(export.ErrTestBusy))
+		Expect(q.Oldest()).To(BeTemporally(">=", before))
+		Expect(q.Flush(context.Background())).To(Succeed())
+		Expect(q.Oldest().IsZero()).To(BeTrue())
 		Expect(q.Shutdown(context.Background())).To(Succeed())
 	})
 
@@ -417,9 +438,9 @@ var _ = Describe("a queue with a disk queue behind it", func() {
 		q.Add("b")
 		q.Add("c")
 		Eventually(q.Written).Should(BeTrue())
-		sender.answers = []error{nil, export.ErrTestBusy, errors.New("refused")}
+		sender.answers = []error{nil, export.ErrTestBusy, errRefused}
 		Expect(q.Flush(context.Background())).To(MatchError(export.ErrTestBusy))
-		Expect(q.Flush(context.Background())).To(MatchError("refused"))
+		Expect(q.Flush(context.Background())).To(MatchError(errRefused))
 		Expect(sender.got()).To(Equal([]string{"a"}))
 		Expect(q.Shutdown(context.Background())).To(Succeed())
 	})
@@ -431,6 +452,7 @@ var _ = Describe("a queue with a disk queue behind it", func() {
 		refused, _ := q.Refused()
 		Expect(refused).To(Equal(1))
 		Expect(q.Shutdown(context.Background())).To(Succeed())
+		Expect(q.Logs()).To(ContainSubstring("export queue and its disk queue full"))
 	})
 
 	It("cannot start where a file stands in the folder's place", func() {

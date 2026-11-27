@@ -65,6 +65,9 @@ func (t TestQueue) Refused() (int, int) {
 // Flush sends everything that waits.
 func (t TestQueue) Flush(ctx context.Context) error { return t.q.ForceFlush(ctx) }
 
+// Oldest is when the oldest waiting item was queued; zero for none.
+func (t TestQueue) Oldest() time.Time { return t.q.oldest() }
+
 // Shutdown stops the queue.
 func (t TestQueue) Shutdown(ctx context.Context) error { return t.q.Shutdown(ctx) }
 

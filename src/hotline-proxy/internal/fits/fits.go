@@ -25,6 +25,15 @@ func Uint16(n int) (uint16, bool) {
 	return uint16(n), true
 }
 
+// Uint32 is n as a uint32, such as a length written in 4 bytes, and false
+// when n does not fit.
+func Uint32(n int) (uint32, bool) {
+	if n < 0 || n > math.MaxUint32 {
+		return 0, false
+	}
+	return uint32(n), true
+}
+
 // Int32 is n as an int32, such as a file descriptor for poll, and false
 // when n does not fit.
 func Int32(n int) (int32, bool) {
@@ -40,4 +49,22 @@ func Uint64(n int) (uint64, bool) {
 		return 0, false
 	}
 	return uint64(n), true
+}
+
+// Int64 is an unsigned n, such as one read from a file, as an int64, and
+// false when it is above the largest int64.
+func Int64(n uint64) (int64, bool) {
+	if n > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(n), true
+}
+
+// Int is an unsigned n, such as a count or a length read from a file, as
+// an int, and false when it is above the largest int.
+func Int(n uint64) (int, bool) {
+	if n > math.MaxInt {
+		return 0, false
+	}
+	return int(n), true
 }

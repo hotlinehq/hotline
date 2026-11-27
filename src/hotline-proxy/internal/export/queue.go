@@ -48,9 +48,11 @@ type queue struct {
 	mu sync.Mutex
 	// ring holds the waiting items: count of them, from first on, wrapping
 	// around the end.
-	ring  [][]byte
-	first int
-	count int
+	ring [][]byte
+	// queued is when each item in the ring was queued, at the same place.
+	queued []time.Time
+	first  int
+	count  int
 	// batch is the sender's own copy of the items it sends, kept between
 	// sends, since sends come one at a time.
 	batch [][]byte
@@ -105,6 +107,7 @@ func buildQueue(signalName string, export func(context.Context, [][]byte) error,
 		up:         s.up,
 		// The places past size are kept for the ledger's batch records.
 		ring:    make([][]byte, s.size+batchReserve),
+		queued:  make([]time.Time, s.size+batchReserve),
 		full:    make(chan struct{}, 1),
 		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
@@ -154,6 +157,10 @@ func (q *queue) put(items [][]byte, weight int64) {
 	end := (q.first + q.count) % len(q.ring)
 	copied := copy(q.ring[end:], items)
 	copy(q.ring, items[copied:])
+	now := time.Now()
+	for i := range items {
+		q.queued[(end+i)%len(q.queued)] = now
+	}
 	q.count += len(items)
 	q.held += weight
 	if q.count >= batchSize || q.eager {
@@ -392,16 +399,36 @@ func (q *queue) warnDropped(last bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.crowded.due(last) {
-		q.logger.Warn("export queue full, dropped the newest "+q.signalName, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
+		full := "export queue full"
+		if q.disk != nil {
+			full = "export queue and its disk queue full"
+		}
+		q.logger.Warn(full+", dropped the newest "+q.signalName, "endpoint", q.endpoint, "dropped", q.crowded.count, "calls", q.crowded.groups)
 		q.crowded.count, q.crowded.groups = 0, 0
 	}
 	if q.disk != nil {
-		q.disk.warnUnreadable(last)
+		q.disk.warn(last)
 	}
 	if q.failed.due(last) {
 		q.logger.Warn("export failed, dropped the "+q.signalName+" it held", "endpoint", q.endpoint, "dropped", q.failed.count, "error", q.lastErr.Error())
 		q.failed.count = 0
 	}
+}
+
+// oldest is when the oldest waiting item was queued, in memory or on
+// disk; zero when nothing waits. While the disk is in use, what is in
+// memory came before it.
+func (q *queue) oldest() time.Time {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.count > 0 {
+		return q.queued[q.first]
+	}
+	if q.disk == nil {
+		return time.Time{}
+	}
+	_, at := q.disk.disk.waiting()
+	return at
 }
 
 // fill is how many items wait, and how many the queue holds at most.
@@ -439,12 +466,18 @@ func (q *queue) Shutdown(ctx context.Context) error {
 	err := q.flushUntil(sending, false)
 	q.sendMu.Lock()
 	var front [][]byte
+	var queued []time.Time
 	for batch := q.peek(); len(batch) > 0; batch = q.peek() {
 		front = append(front, batch...)
+		q.mu.Lock()
+		for i := range batch {
+			queued = append(queued, q.queued[(q.first+i)%len(q.queued)])
+		}
+		q.mu.Unlock()
 		q.remove(len(batch))
 	}
 	q.sendMu.Unlock()
-	return errors.Join(err, q.disk.close(front), q.close(ctx))
+	return errors.Join(err, q.disk.close(front, queued), q.close(ctx))
 }
 
 // flushUntil sends everything queued, trying a busy collector again
