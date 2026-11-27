@@ -29,10 +29,19 @@ type field struct {
 // recordName is what a copied field's name may hold.
 var recordName = regexp.MustCompile(`^[A-Za-z0-9_.]+$`)
 
-// ownNames start the names of the attributes the proxy writes itself, so a
-// copied field can never pass for one of them.
-func ownNames() []string {
-	return []string{"hotline.", "http.", "url.", "server.", "network.", "error.", "dns.", "tls.", "log."}
+// ownStarts start the names of the attributes the proxy writes itself: its
+// own under hotline., and OpenTelemetry's standard ones. ownExact are the
+// proxy's own names whose start a mark may still use, such as messaging.,
+// which SQS's messaging.destination.name shares. A copied field is
+// recorded under hotline.recorded. (recordedPrefix, where the record is
+// written), but its name is still never one of these, so taking the prefix
+// off later gives a name the proxy never writes (Peter, 2026-11-27).
+func ownStarts() []string {
+	return []string{"hotline.", "http.", "url.", "server.", "client.", "network.", "error.", "dns.", "tls.", "log."}
+}
+
+func ownExact() []string {
+	return []string{"messaging.message.conversation_id"}
 }
 
 // fields finds the marked fields of a body schema. Only properties are
@@ -131,8 +140,10 @@ func recordedAs(mark any) (string, string) {
 		return "", "must be a name, such as messaging.destination.name"
 	case !recordName.MatchString(name):
 		return "", fmt.Sprintf("names %q, but a name may only hold letters, digits, dots and underscores", name)
-	case slices.ContainsFunc(ownNames(), func(own string) bool { return strings.HasPrefix(name, own) }):
-		return "", fmt.Sprintf("names %s, which starts like the proxy's own names (%s)", name, strings.Join(ownNames(), " "))
+	case slices.ContainsFunc(ownStarts(), func(own string) bool { return strings.HasPrefix(name, own) }):
+		return "", fmt.Sprintf("names %s, which starts like the proxy's own names (%s)", name, strings.Join(ownStarts(), " "))
+	case slices.Contains(ownExact(), name):
+		return "", fmt.Sprintf("names %s, which is one of the proxy's own names", name)
 	}
 	return name, ""
 }

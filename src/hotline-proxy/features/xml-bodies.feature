@@ -97,7 +97,7 @@ Feature: Checking XML bodies
     Scenario: A marked XML field is copied into the record
       Given the files vendor answers 201 with the application/xml body <label><trackingId>T-1</trackingId></label>
       When the app sends POST /shipments to the files vendor with the text/xml body <shipment reference="A-1"><parcels><parcel><weightGrams>1</weightGrams></parcel></parcels></shipment>
-      Then the record holds shipment.tracking_id = T-1
+      Then the record holds hotline.recorded.shipment.tracking_id = T-1
 
   Rule: The XML must be readable, with the root element the schema names
 

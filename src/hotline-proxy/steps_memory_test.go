@@ -96,8 +96,8 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 			return failf("%d records arrived, want 40", len(records))
 		}
 		for _, r := range records {
-			quantity := fmt.Sprint(r.attrs["shop.order.quantity"])
-			item, _ := r.attrs["shop.order.item"].(string)
+			quantity := fmt.Sprint(r.attrs["hotline.recorded.shop.order.quantity"])
+			item, _ := r.attrs["hotline.recorded.shop.order.item"].(string)
 			if !strings.HasPrefix(item, "A"+quantity+"-") {
 				return failf("a record holds item %.20q with quantity %s, from another order", item, quantity)
 			}

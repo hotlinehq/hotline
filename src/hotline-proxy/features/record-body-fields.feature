@@ -3,11 +3,14 @@ Feature: Marked body fields and headers are copied into the record
   Bodies are never recorded. But a spec can mark a field of a call's or a
   response's body with x-hotline-record, giving the name of a record
   attribute, and the proxy then copies that one field's value into the
-  record. For example, SQS's QueueUrl is recorded as
-  messaging.destination.name, OpenTelemetry's name for a queue, so a log
-  tool shows which queue a call went to. The same mark on a header
-  parameter of the call copies that header: SQS's X-Amz-Target is recorded
-  as messaging.operation.name, such as AmazonSQS.SendMessage.
+  record, under hotline.recorded. and that name, so a copied value never
+  mixes with what the proxy measures itself (Peter, 2026-11-27). For
+  example, SQS's QueueUrl is marked messaging.destination.name,
+  OpenTelemetry's name for a queue, and recorded as
+  hotline.recorded.messaging.destination.name, so a log tool shows which
+  queue a call went to. The same mark on a header parameter of the call
+  copies that header: SQS's X-Amz-Target is recorded as
+  hotline.recorded.messaging.operation.name, such as AmazonSQS.SendMessage.
 
   A mark is the spec author's promise that the field holds no secret and
   no personal data. Only plain values are copied: text, numbers, and true
@@ -43,8 +46,9 @@ Feature: Marked body fields and headers are copied into the record
     Scenario: A field of the call
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
-      Then the record holds shop.order.item = A1
-      And the record holds shop.order.quantity = 2
+      Then the record holds hotline.recorded.shop.order.item = A1
+      And the record holds hotline.recorded.shop.order.quantity = 2
+      And the record has no attribute shop.order.item
 
     Scenario Outline: A <kind> stays a <kind>
       Given the vendor answers 201
@@ -53,19 +57,19 @@ Feature: Marked body fields and headers are copied into the record
 
       Examples:
         | kind          | field        | name              | value |
-        | true or false | "gift":true  | shop.order.gift   | true  |
-        | number        | "weight":1.5 | shop.order.weight | 1.5   |
-        | whole number  | "weight":3   | shop.order.weight | 3     |
+        | true or false | "gift":true  | hotline.recorded.shop.order.gift   | true  |
+        | number        | "weight":1.5 | hotline.recorded.shop.order.weight | 1.5   |
+        | whole number  | "weight":3   | hotline.recorded.shop.order.weight | 3     |
 
     Scenario: A field of the response
       Given the vendor answers 200 with "X-Request-Id: r1" and the json body {"item":"B2","quantity":1}
       When the app sends GET /orders/0b4e7d2a-5c55-4b36-9f6e-8a0d1f2b3c4d
-      Then the record holds shop.order.item = B2
+      Then the record holds hotline.recorded.shop.order.item = B2
 
     Scenario: A field inside an object
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2,"customer":{"country":"SK"}}
-      Then the record holds shop.customer.country = SK
+      Then the record holds hotline.recorded.shop.customer.country = SK
 
     Scenario: Each call's fields come from its own body
       The proxy borrows the buffer it keeps a body in from a shared pool
@@ -81,12 +85,12 @@ Feature: Marked body fields and headers are copied into the record
 
     Scenario: A field of a form body
       When the app sends POST /payments and the form body amount=100&currency=EUR
-      Then the record holds shop.payment.currency = EUR
+      Then the record holds hotline.recorded.shop.payment.currency = EUR
 
     Scenario: A field inside a list is not copied, since it has no one value
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2,"lines":[{"sku":"S1"}]}
-      Then the record has no attribute shop.line.sku
+      Then the record has no attribute hotline.recorded.shop.line.sku
 
     Scenario Outline: Nothing is copied when <case>
       Given the vendor answers 201
@@ -95,17 +99,17 @@ Feature: Marked body fields and headers are copied into the record
 
       Examples:
         | case                                   | body                                      | name              |
-        | the field is missing                   | {"quantity":2}                            | shop.order.item   |
-        | a number is sent for text              | {"item":5,"quantity":2}                   | shop.order.item   |
-        | true is sent for text                  | {"item":true,"quantity":2}                | shop.order.item   |
-        | text is sent for true or false         | {"item":"A1","quantity":2,"gift":"yes"}   | shop.order.gift   |
-        | the number is too large for the record | {"item":"A1","quantity":2,"weight":1e400} | shop.order.weight |
-        | the body is not JSON                   | {"item":                                  | shop.order.item   |
+        | the field is missing                   | {"quantity":2}                            | hotline.recorded.shop.order.item   |
+        | a number is sent for text              | {"item":5,"quantity":2}                   | hotline.recorded.shop.order.item   |
+        | true is sent for text                  | {"item":true,"quantity":2}                | hotline.recorded.shop.order.item   |
+        | text is sent for true or false         | {"item":"A1","quantity":2,"gift":"yes"}   | hotline.recorded.shop.order.gift   |
+        | the number is too large for the record | {"item":"A1","quantity":2,"weight":1e400} | hotline.recorded.shop.order.weight |
+        | the body is not JSON                   | {"item":                                  | hotline.recorded.shop.order.item   |
 
     Scenario: A long text is cut at 256 characters
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and an order whose item is 300 characters long
-      Then the record holds shop.order.item with its first 256 characters
+      Then the record holds hotline.recorded.shop.order.item with its first 256 characters
 
   Rule: Marked headers of the call are copied
 
@@ -123,20 +127,20 @@ Feature: Marked body fields and headers are copied into the record
 
     Scenario: A header is copied, and covered by the record's hash
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
-      Then the record holds shop.idempotency_key = k1
+      Then the record holds hotline.recorded.shop.idempotency_key = k1
       And the hash checks out when rebuilt from the record alone
 
     Scenario: A header sent twice is joined
       When the app sends POST /orders with "Idempotency-Key: k1; Idempotency-Key: k2" and the json body {"item":"A1","quantity":2}
-      Then the record holds shop.idempotency_key = "k1, k2"
+      Then the record holds hotline.recorded.shop.idempotency_key = "k1, k2"
 
     Scenario: A missing header is not copied
       When the app sends POST /orders and the json body {"item":"A1","quantity":2}
-      Then the record has no attribute shop.idempotency_key
+      Then the record has no attribute hotline.recorded.shop.idempotency_key
 
     Scenario: A long header is cut at 256 characters
       When the app sends POST /orders with an Idempotency-Key 300 characters long
-      Then the record holds shop.idempotency_key with its first 256 characters
+      Then the record holds hotline.recorded.shop.idempotency_key with its first 256 characters
 
   Rule: The copied fields are covered by the record's hash
 
@@ -146,13 +150,13 @@ Feature: Marked body fields and headers are copied into the record
     Scenario: A copied field is covered by the record's hash
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
-      Then the record holds shop.order.item = A1
+      Then the record holds hotline.recorded.shop.order.item = A1
       And the hash checks out when rebuilt from the record alone
 
     Scenario: A change to a copied field shows
       Given the vendor answers 201
       When the app sends POST /orders with "Idempotency-Key: k1" and the json body {"item":"A1","quantity":2}
-      And shop.order.item is changed in the received record
+      And hotline.recorded.shop.order.item is changed in the received record
       Then the hash no longer checks out
 
   Rule: A mark the proxy can't use is refused when it starts
@@ -170,6 +174,8 @@ Feature: Marked body fields and headers are copied into the record
         | A name with a space          | "shop item"         | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | letters, digits              |
         | A name the proxy uses itself | http.request.method | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | the proxy's own              |
         | A hotline name               | hotline.item        | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | the proxy's own              |
+        | A client name                | client.address      | $.components.schemas.Order.properties.item                                                                    | Order/properties/item       | the proxy's own              |
+        | The WebSocket correlation id | messaging.message.conversation_id | $.components.schemas.Order.properties.item                                                      | Order/properties/item       | the proxy's own              |
         | A mark on a query parameter  | shop.limit          | $.paths['/orders'].get.parameters[?@.name == 'limit']                                                         | limit                       | only on a header of the call |
         | A mark on a response header  | shop.request_id     | $.paths['/orders/{orderId}'].get.responses['200'].headers['X-Request-Id']                                     | X-Request-Id                | only on a header of the call |
         | A bad name on a header       | "shop key"          | $.paths['/orders'].post.parameters[?@.name == 'Idempotency-Key']                                              | Idempotency-Key             | letters, digits              |
@@ -244,7 +250,7 @@ Feature: Marked body fields and headers are copied into the record
       Given the SQS spec with the invoices overlay
       And SQS answers 200 with the json body {}
       When the app sends <action> with the json body {"QueueUrl":"https://sqs.eu-west-1.amazonaws.com/192325781350/invoices"<more>}
-      Then the record holds messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices
+      Then the record holds hotline.recorded.messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices
 
       Examples:
         | action         | more                                                                                                                                                                                                                   |
@@ -256,7 +262,7 @@ Feature: Marked body fields and headers are copied into the record
       Given the SQS spec
       And SQS answers 200 with the json body {}
       When the app sends <action> with the json body {"QueueUrl":"https://sqs.eu-west-1.amazonaws.com/192325781350/orders"<more>}
-      Then the record holds messaging.operation.name = AmazonSQS.<action>
+      Then the record holds hotline.recorded.messaging.operation.name = AmazonSQS.<action>
       And the record has no request results
 
       Examples:

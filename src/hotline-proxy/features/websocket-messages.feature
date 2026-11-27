@@ -347,8 +347,8 @@ Feature: WebSocket messages checked against the spec
     And the app sends add_order with req_id 7
     And the app reads a message
     And the app closes the Kraken WebSocket
-    Then message record 2 says kraken.order.id OQCLML-BW3P3-BUCMWZ
-    And message record 1 has no kraken.order.id
+    Then message record 2 says hotline.recorded.kraken.order.id OQCLML-BW3P3-BUCMWZ
+    And message record 1 has no hotline.recorded.kraken.order.id
 
   Scenario: hotline-proxy verify checks the message records too
     Given a file exporter writing to the folder calls

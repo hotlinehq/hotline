@@ -127,7 +127,7 @@ There are two sizes of record:
 | `hotline.config.version` | text | The config file's name (without its folder), a `+`, and the first 12 hex characters of a SHA-256 over the config, its specs and overlays, such as `hotline-proxy.aws-shop.yaml+a3f9c21e07b4`. |
 | `hotline.schema.*` | see below | What the check against the spec found. |
 | `hotline.request.files` | list of maps | The file parts of a `multipart/form-data` request body, one map each: `name` (the part's name in the form), `size` (bytes), `content_type` (as the app sent it) and `file_name`, which is `REDACTED` unless the spec marks the file `x-hotline-redact: false`. The file itself is never read. Only when the api checks the request body; also when that check gave way (`overloaded`), and for the files seen before a body broke off. |
-| any name the spec gives | text, number, or true or false | A body field or call header the spec marks `x-hotline-record`, such as `messaging.destination.name` for SQS's `QueueUrl` and `messaging.operation.name` for its `X-Amz-Target`. Detail: [proxy-body-fields.md](proxy-body-fields.md). |
+| `hotline.recorded.<name>` | text, number, or true or false | A body field or call header the spec marks `x-hotline-record: <name>`, such as `hotline.recorded.messaging.destination.name` for SQS's `QueueUrl` and `hotline.recorded.messaging.operation.name` for its `X-Amz-Target`. Always under `hotline.recorded.`, never under the plain name, even when the name is a standard OpenTelemetry one (Peter, 2026-11-27). Detail: [proxy-body-fields.md](proxy-body-fields.md). |
 
 **Headers.** Kept by default: `content-type`, `content-length`, `date`, `retry-after`, `request-id`, `x-request-id` and any `ratelimit-*`. A header marked `x-hotline-redact: false` in the spec is kept; one marked `true` shows as `REDACTED`. Never recorded: `authorization`, `proxy-authorization`, `cookie`, `set-cookie` and the login headers named in the spec. Every other header is left out, name and all.
 
@@ -231,7 +231,7 @@ Each message of a session whose route lists its messages gets one log record, se
 | `hotline.websocket.message.size` | number | The message's bytes as sent, all its frames' payloads together, without the frame headers. |
 | `hotline.websocket.message.unpacked_size` | number | For a compressed message, its size once unpacked. |
 | `hotline.schema.*` | | The spec check, as for a call's body: from the app under `request`, from the vendor under `response`. `hotline.schema.skipped` is `body_too_large` over 2 MiB after unpacking, `overloaded` when its check, or its reading, gave way, `unsupported_content_type` for a side that is not JSON. None for an `unknown` message, or when the api's `checks` leave out `messages`. |
-| fields marked `x-hotline-record` | | Copied as sent, such as Gemini's `usageMetadata.totalTokenCount`; never added up. |
+| `hotline.recorded.<name>` | | A field marked `x-hotline-record`, copied as sent, such as Kraken's order id, `hotline.recorded.kraken.order.id`; never added up. |
 
 ### Streamed responses
 
@@ -271,7 +271,7 @@ Each stream item of a streamed response (an event, a JSON line or a JSON sequenc
 | `hotline.stream.item.index` | number | 1, 2, 3 in the order the stream items ended. |
 | `hotline.stream.item.size` | number | The stream item's bytes as sent: an event with its blank line, a line with its line end, a record with its separator. |
 | `hotline.schema.*` | | The check, under `response`. `hotline.schema.skipped` is `body_too_large` for a stream item over 2 MiB, and `overloaded` when the spec check line was full. None when the api's `checks` leave out `responseBody`. |
-| fields marked `x-hotline-record` | | Copied as sent, such as Anthropic's event name, `anthropic.stream.event`. |
+| `hotline.recorded.<name>` | | A field marked `x-hotline-record`, copied as sent, such as Anthropic's event name, `hotline.recorded.anthropic.stream.event`. |
 
 ### Probes
 

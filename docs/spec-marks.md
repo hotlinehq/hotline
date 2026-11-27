@@ -47,7 +47,7 @@ Detail: [otel-export.md](otel-export.md), [proxy-aws.md](proxy-aws.md).
 
 ## x-hotline-record
 
-**What it's for.** The proxy never records bodies. But some body fields say something useful and safe, such as which queue a message went to. This mark copies that one field into the record, under the attribute name it gives.
+**What it's for.** The proxy never records bodies. But some body fields say something useful and safe, such as which queue a message went to. This mark copies that one field into the record, under `hotline.recorded.` and the name it gives, so a copied value never mixes with what the proxy measures itself (Peter, 2026-11-27).
 
 **Use case.** SQS puts the queue address only in the body, so without the mark you can't tell in Grafana which queue a call went to.
 
@@ -57,7 +57,7 @@ QueueUrl:
   x-hotline-record: messaging.destination.name
 ```
 
-The record then holds `messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices`.
+The record then holds `hotline.recorded.messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices`.
 
 It also works on a header of the call, for example to record the action:
 
@@ -73,7 +73,7 @@ parameters:
 
 1. On a body field of the call or the response (JSON, XML or form bodies), or of a WebSocket message, or on a header of the call. Never on a path, query or cookie value, a response header, or a login header.
 2. Only plain values: text, a number, true or false. Never an object or a list, and never a field inside a list.
-3. The name uses letters, digits, dots and underscores. Names starting like the proxy's own (`hotline.`, `http.`, `url.`, `server.`, `network.`, `error.`, `dns.`, `tls.`, `log.`) are refused. Prefer OpenTelemetry's standard names, such as `messaging.destination.name` or `db.collection.name`.
+3. The name uses letters, digits, dots and underscores. Names starting like the proxy's own (`hotline.`, `http.`, `url.`, `server.`, `client.`, `network.`, `error.`, `dns.`, `tls.`, `log.`), and `messaging.message.conversation_id`, are refused. Prefer OpenTelemetry's standard names, such as `messaging.destination.name` or `db.collection.name`: the record holds them as `hotline.recorded.messaging.destination.name`, and a user who needs the plain name can take the prefix off in their own pipeline.
 4. Text is cut at 256 characters. The value goes into full records only, signed with the rest, never into the counter.
 5. A mark is a promise that the field holds no secret and no personal data.
 

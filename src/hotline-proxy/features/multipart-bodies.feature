@@ -17,7 +17,7 @@ Feature: Multipart request bodies
       Then the vendor got the upload byte for byte
       And the record has no request results
       And the record says hotline.schema.status=valid
-      And the record holds gen_ai.request.model = gpt-4o-transcribe
+      And the record holds hotline.recorded.gen_ai.request.model = gpt-4o-transcribe
 
     Scenario Outline: A text part that breaks the spec is reported
       Given the OpenAI audio spec from specs
@@ -63,7 +63,7 @@ Feature: Multipart request bodies
       When the app starts a voice call at OpenAI's /v1/realtime/calls with the session {"type":"realtime","model":"gpt-realtime"}
       Then the vendor got the upload byte for byte
       And the record has no request results
-      And the record holds gen_ai.request.model = gpt-realtime
+      And the record holds hotline.recorded.gen_ai.request.model = gpt-realtime
 
     Scenario: A JSON part sent twice is read as a list of both
       Given the OpenAI audio spec from specs

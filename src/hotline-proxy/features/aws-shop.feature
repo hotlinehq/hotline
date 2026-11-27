@@ -18,8 +18,8 @@ Feature: The shop's AWS apis through the proxy
       When the app calls DynamoDB_20120810.PutItem with the json body {"TableName":"orders","Item":{"orderId":{"S":"A-1001"},"total":{"N":"12.50"},"currency":{"S":"EUR"},"language":{"S":"en"},"paidAt":{"S":"2026-11-01T10:00:00Z"}}}
       Then the record has url.template /#X-Amz-Target=DynamoDB_20120810.PutItem
       And the record has no request results
-      And the record holds db.collection.name = orders
-      And the record holds db.operation.name = DynamoDB_20120810.PutItem
+      And the record holds hotline.recorded.db.collection.name = orders
+      And the record holds hotline.recorded.db.operation.name = DynamoDB_20120810.PutItem
 
     Scenario Outline: A mistake in the row is reported at its place
       Given AWS answers 200 with the json body {}
@@ -66,7 +66,7 @@ Feature: The shop's AWS apis through the proxy
     Scenario: A valid shop event has no results, and the record names the stream
       When the app puts a Kinesis record holding {"type":"order-paid","orderId":"A-1001","at":"2026-11-01T10:00:00Z","total":"12.50"}
       Then the record has no request results
-      And the record holds messaging.destination.name = shop-events
+      And the record holds hotline.recorded.messaging.destination.name = shop-events
 
     Scenario Outline: A mistake in the data is reported at its place
       When the app puts a Kinesis record holding <data>
@@ -89,7 +89,7 @@ Feature: The shop's AWS apis through the proxy
       And AWS answers 200 with the json body {"FailedEntryCount":0,"Entries":[{"EventId":"e-1"}]}
       When the app calls AWSEvents.PutEvents with the json body {"Entries":[{"EventBusName":"shop","Source":"shop.invoices","DetailType":"InvoiceReady","Detail":"{\"orderId\":\"A-1001\",\"eventId\":\"5f0c1b6e-3a52-4f7e-9d0e-2b8f6f1f2a10\",\"language\":\"en\",\"createdAt\":\"2026-11-01T10:00:00Z\"}"}]}
       Then the request results are body $.Entries[0].Detail.file required
-      And the record holds rpc.method = AWSEvents.PutEvents
+      And the record holds hotline.recorded.rpc.method = AWSEvents.PutEvents
 
     Scenario: An event to another bus is reported
       Given the shop api aws-eventbridge-shop
@@ -136,8 +136,8 @@ Feature: The shop's AWS apis through the proxy
       Then the record has url.template /#Action=Publish
       And the record has no request results
       And the record has no response results
-      And the record holds messaging.destination.name = arn:aws:sns:eu-west-1:192325781350:order-paid
-      And the record holds messaging.operation.name = Publish
+      And the record holds hotline.recorded.messaging.destination.name = arn:aws:sns:eu-west-1:192325781350:order-paid
+      And the record holds hotline.recorded.messaging.operation.name = Publish
 
     Scenario: A mistake in the job is reported at its place
       When the app publishes {"orderId":"A-1001"} to the topic arn:aws:sns:eu-west-1:192325781350:order-paid
@@ -164,7 +164,7 @@ Feature: The shop's AWS apis through the proxy
       Then the record has url.template /#Action=AssumeRole
       And the record has no request results
       And the record has no response results
-      And the record holds rpc.method = AssumeRole
+      And the record holds hotline.recorded.rpc.method = AssumeRole
       And no record and no span holds ASIAFAKEROLEKEY00001 or fake-role-secret-key or fake-role-session-token
 
     Scenario: Taking on another role is reported
