@@ -64,7 +64,7 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		w.receivers[0].setBusy(false)
 		return w.start()
 	})
-	sc.Step(`^the last record on disk is damaged$`, func() error {
+	sc.Step(`^the last item on disk is damaged$`, func() error {
 		files, _ := filepath.Glob(filepath.Join(queueFolder(), "records", "*.queue"))
 		slices.Sort(files)
 		for i := len(files) - 1; i >= 0; i-- {
@@ -77,7 +77,7 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 				return os.WriteFile(files[i], data, 0o600)
 			}
 		}
-		return failf("no record on disk to damage")
+		return failf("no item on disk to damage")
 	})
 	sc.Step(`^the collector gets (\d+) records$`, func(n int) error {
 		if got := len(w.records()); got != n {
@@ -102,7 +102,6 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	}
 	sc.Step(`^the collector gets records (\d+) to (\d+) in the order of the calls$`, wantOrder)
-	sc.Step(`^the collector gets records 1 and 2$`, func() error { return wantOrder(1, 2) })
 	sc.Step(`^every call's spans$`, func() error {
 		traces := map[string]bool{}
 		for _, s := range w.receivers[0].spans() {
@@ -131,7 +130,7 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the proxy warns that 1 record on disk could not be read$`, func() error {
+	sc.Step(`^the proxy warns that 1 item on disk could not be read$`, func() error {
 		w.settle()
 		for _, line := range strings.Split(w.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "could not be read") && strings.Contains(line, "dropped=1") {

@@ -103,10 +103,11 @@ func buildQueue(signalName string, export func(context.Context, [][]byte) error,
 		dropped:    s.dropped,
 		labels:     s.labels,
 		up:         s.up,
-		ring:       make([][]byte, s.size),
-		full:       make(chan struct{}, 1),
-		stop:       make(chan struct{}),
-		stopped:    make(chan struct{}),
+		// The places past size are kept for the ledger's batch records.
+		ring:    make([][]byte, s.size+batchReserve),
+		full:    make(chan struct{}, 1),
+		stop:    make(chan struct{}),
+		stopped: make(chan struct{}),
 	}
 }
 
@@ -130,7 +131,7 @@ func (q *queue) add(items ...[]byte) bool {
 			weight += int64(len(item))
 		}
 	}
-	fits := len(items) <= len(q.ring)-q.count && (q.memory == 0 || q.held+weight <= q.memory)
+	fits := len(items) <= q.size-q.count && (q.memory == 0 || q.held+weight <= q.memory)
 	if q.disk != nil && q.disk.takes(fits) {
 		if q.disk.add(items) {
 			return true
@@ -143,17 +144,40 @@ func (q *queue) add(items ...[]byte) bool {
 		q.dropped.Add(context.Background(), int64(len(items)), dropReason(q.labels, "queue_full"))
 		return false
 	}
+	q.put(items, weight)
+	return true
+}
+
+// put adds items at the end of the ring. The caller holds the lock and
+// has checked they fit.
+func (q *queue) put(items [][]byte, weight int64) {
 	end := (q.first + q.count) % len(q.ring)
 	copied := copy(q.ring[end:], items)
 	copy(q.ring, items[copied:])
 	q.count += len(items)
 	q.held += weight
 	if q.count >= batchSize || q.eager {
-		select {
-		case q.full <- struct{}{}:
-		default:
-		}
+		q.wake()
 	}
+}
+
+// addBatch queues one of the ledger's batch records behind the records
+// before it, without waiting. It may take the places kept for batch
+// records and passes the memory limit, so a queue full of calls never
+// refuses it; it says whether it found room even so. While the disk is in
+// use it goes there, past the disk's limit if need be, as it is small.
+func (q *queue) addBatch(item []byte) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	fits := q.count < len(q.ring)
+	if q.disk != nil && q.disk.takes(fits) {
+		q.disk.addBatch(item)
+		return true
+	}
+	if !fits {
+		return false
+	}
+	q.put([][]byte{item}, int64(len(item)))
 	return true
 }
 

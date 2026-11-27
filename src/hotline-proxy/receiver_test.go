@@ -230,6 +230,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		refuse = &answer{status: http.StatusBadRequest}
 	} else if r.busy && (logs || strings.HasSuffix(req.URL.Path, "/v1/traces")) {
 		refuse = &answer{status: http.StatusServiceUnavailable}
+		down = logs
 	} else if logs && len(r.answers) > 0 {
 		refuse = &r.answers[0]
 		r.answers = r.answers[1:]

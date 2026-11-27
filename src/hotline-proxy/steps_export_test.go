@@ -414,9 +414,10 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the proxy logs a warning that 1 record was dropped for that exporter$`, func() error {
+	sc.Step(`^the proxy logs a warning that (1 record was|2 records were) dropped for that exporter$`, func(how string) error {
+		dropped := "dropped=" + how[:1] + " "
 		for _, line := range strings.Split(w.logs.String(), "\n") {
-			if strings.Contains(line, "level=WARN") && strings.Contains(line, "dropped=1") &&
+			if strings.Contains(line, "level=WARN") && strings.Contains(line+" ", dropped) &&
 				strings.Contains(line, w.receivers[0].endpoint) {
 				return nil
 			}

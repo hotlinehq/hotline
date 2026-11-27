@@ -228,15 +228,8 @@ func New(setup Setup) (*Exporters, error) {
 			s.closeAll()
 			return nil, fmt.Errorf("exporter %s: the disk queue in %s: %w", e.Endpoint, e.QueueFolder, err)
 		}
-		// The batch line sends records too, at the same time as the record
-		// queue, so it has its own zipper.
-		batchZip := t.newZipper()
 		d.batches = newBatchLine(batchLineSetup{
-			name: e.Endpoint, logger: logger, before: d.queue.ForceFlush, resource: s.resource,
-			send: func(ctx context.Context, items [][]byte) error {
-				body := appendBatch(nil, written, items)
-				return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
-			},
+			name: e.Endpoint, logger: logger, queue: d.queue.addBatch, resource: s.resource,
 			render: func(b Batch) []byte {
 				return appendRecord(nil, b.Event, b.At, b.Observed, b.Severity, trace.SpanContext{}, "", b.Attrs)
 			},
@@ -248,8 +241,7 @@ func New(setup Setup) (*Exporters, error) {
 	for i := range s.files {
 		f := &s.files[i]
 		f.batches = newBatchLine(batchLineSetup{
-			name: f.writer.e.Path, logger: logger, before: f.queue.ForceFlush, resource: s.resource,
-			send: func(_ context.Context, items [][]byte) error { return f.writer.write(items) },
+			name: f.writer.e.Path, logger: logger, queue: f.queue.addBatch, resource: s.resource,
 			render: func(b Batch) []byte {
 				buf := &bytes.Buffer{}
 				appendBatchLine(buf, s.resource, b)
@@ -293,9 +285,6 @@ func (s *Exporters) closeAll() {
 	ctx, cancel := context.WithCancel(context.Background())
 	// Nothing has been sent yet; what waits stays on disk.
 	cancel()
-	for _, b := range s.batches {
-		_ = b.shutdown(ctx)
-	}
 	for _, d := range s.exporters {
 		for _, q := range []*queue{d.queue, d.spans} {
 			if q != nil {
@@ -514,9 +503,6 @@ func (s *Exporters) Shutdown(ctx context.Context) error {
 	select {
 	case <-signed:
 	case <-ctx.Done():
-	}
-	for _, b := range s.batches {
-		errs = append(errs, b.shutdown(ctx))
 	}
 	for _, d := range s.exporters {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx))

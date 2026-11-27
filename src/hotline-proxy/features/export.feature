@@ -133,11 +133,12 @@ Feature: Sending OpenTelemetry data
 
   Scenario: Records still waiting at a stop for a busy collector are counted
     With no queueFolder, records the collector cannot take before the stop
-    time runs out are lost, counted and warned about.
+    time runs out are lost, counted and warned about: the call's record
+    and the batch record the stop made.
     Given a receiver that answers every log send with 503
     When a call ends
     And the proxy shuts down
-    Then the proxy logs a warning that 1 record was dropped for that exporter
+    Then the proxy logs a warning that 2 records were dropped for that exporter
 
   Scenario: Flushing on shutdown
     Given records waiting in the queue

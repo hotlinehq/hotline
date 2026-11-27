@@ -15,6 +15,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -141,6 +142,12 @@ type lineRecord struct {
 	batchID         string
 	index           int64
 	hash            string
+}
+
+// sameAs says whether other is an exact copy of r, as a send that was
+// tried again leaves it.
+func (r *lineRecord) sameAs(other *lineRecord) bool {
+	return r != nil && r.traceID == other.traceID && r.spanID == other.spanID && reflect.DeepEqual(r.attrs, other.attrs)
 }
 
 func (r *lineRecord) text(name string) string {
@@ -343,14 +350,21 @@ func (v *verifier) readLine(at place, data []byte) error {
 // batches, then chains.
 func (v *verifier) check() {
 	v.exporter = v.copyExporter()
-	v.batches = v.withoutSecondBatchRecords()
+	v.batches = v.withoutSecondBatchRecords(v.withoutRepeatedBatchRecords())
 	byID := map[string]*lineBatch{}
 	for _, b := range v.batches {
 		byID[b.id] = b
 	}
 	unbatched := map[string][]*lineRecord{}
+	repeated := map[*lineBatch][]int64{}
+	kept := v.records[:0:0]
 	for _, r := range v.records {
 		b := byID[r.batchID]
+		if b != nil && b.records[r.index].sameAs(r) {
+			repeated[b] = append(repeated[b], r.index)
+			continue
+		}
+		kept = append(kept, r)
 		v.checkRecord(r, b)
 		if b == nil {
 			unbatched[r.batchID] = append(unbatched[r.batchID], r)
@@ -363,8 +377,13 @@ func (v *verifier) check() {
 		}
 		b.records[r.index] = r
 	}
+	v.records = kept
 	for _, b := range v.batches {
 		v.checkBatch(b)
+		if indexes := repeated[b]; len(indexes) > 0 {
+			v.notes = append(v.notes, v.about(finding{Code: "records_repeated", Indexes: indexes,
+				Message: fmt.Sprintf("batch %s holds %d exact copies of its records, at index %s, as a send that was tried again leaves them", b.sequenceText(), len(indexes), joinInts(indexes))}, b))
+		}
 	}
 	v.checkChains()
 	for _, id := range slices.Sorted(maps.Keys(unbatched)) {
@@ -647,19 +666,40 @@ func (v *verifier) copyExporter() string {
 // names another exporter for a batch the copy's own exporter has a batch
 // record of. A copy holds one batch record per batch, so that one is taken
 // from another copy, and is reported, not checked.
-func (v *verifier) withoutSecondBatchRecords() []*lineBatch {
+func (v *verifier) withoutSecondBatchRecords(batches []*lineBatch) []*lineBatch {
 	own := map[string]bool{}
-	for _, b := range v.batches {
+	for _, b := range batches {
 		if b.text("hotline.exporter") == v.exporter {
 			own[b.id] = true
 		}
 	}
-	kept := v.batches[:0:0]
-	for _, b := range v.batches {
+	kept := batches[:0:0]
+	for _, b := range batches {
 		if exporter := b.text("hotline.exporter"); exporter != v.exporter && own[b.id] {
 			v.problem(finding{Code: "batch_record_foreign",
 				Message: fmt.Sprintf("batch %s has more than one batch record in this copy: one is from the exporter %s", b.sequenceText(), safe(exporter))}, b)
 			continue
+		}
+		kept = append(kept, b)
+	}
+	return kept
+}
+
+// withoutRepeatedBatchRecords are the batch records, less each exact copy
+// of one before it. A send that was tried again can leave a copy (Peter,
+// 2026-11-27); it is a note, not a problem. A copy that differs in
+// anything stays, so the chain check finds it.
+func (v *verifier) withoutRepeatedBatchRecords() []*lineBatch {
+	first := map[string]*lineBatch{}
+	kept := v.batches[:0:0]
+	for _, b := range v.batches {
+		if seen := first[b.id]; seen != nil && seen.at.Equal(b.at) && reflect.DeepEqual(seen.attrs, b.attrs) {
+			v.notes = append(v.notes, v.about(finding{File: b.file, Line: b.line, Code: "batch_record_repeated",
+				Message: fmt.Sprintf("batch %s has an exact copy of its batch record, as a send that was tried again leaves it", b.sequenceText())}, b))
+			continue
+		}
+		if first[b.id] == nil {
+			first[b.id] = b
 		}
 		kept = append(kept, b)
 	}

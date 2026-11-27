@@ -539,12 +539,12 @@ Feature: Records a third party can trust
       And the queue has room again
       Then the file got the batch record
 
-    Scenario: At most 64 batch records wait; the oldest are let go
-      The chain shows the batches that are missing, so the batch records
-      say nothing more about them (Peter, 2026-11-25).
-      Given the OTLP exporter's collector is down
-      When the app sends GET /orders in each of 66 batch windows
-      And the collector is back
-      Then the collector got the newest 64 waiting batch records
+    Scenario: Batch records wait in the queue while the collector is busy
+      A batch record waits in its exporter's queue, behind the records it
+      covers, in places kept for batch records, and is tried again like
+      any record until the collector takes it (Peter, 2026-11-27).
+      Given the OTLP exporter's collector is busy
+      When the app sends GET /orders in each of 3 batch windows
+      And the collector is no longer busy
+      Then the collector got all 3 batch records, in order
       And none of them has hotline.batch.lost_batches
-      And the proxy's memory stayed bounded

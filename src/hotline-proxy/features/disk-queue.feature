@@ -32,13 +32,15 @@ Feature: The disk queue
     Then the collector gets records 1 to 10 in the order of the calls
 
   Scenario: An item that cannot be read is skipped, counted and warned about
+    The last item on disk is the batch record the stop made, after the
+    three records.
     Given an exporter with queueSize 1 and a disk queue, whose collector is busy
     When 3 calls end one after another
     And the proxy stops cleanly
-    And the last record on disk is damaged
+    And the last item on disk is damaged
     And the proxy starts again with the collector back
-    Then the collector gets records 1 and 2
-    And the proxy warns that 1 record on disk could not be read
+    Then the collector gets records 1 to 3 in the order of the calls
+    And the proxy warns that 1 item on disk could not be read
 
   Scenario: The disk queue's files are the proxy's own
     Given an exporter with queueSize 1 and a disk queue, whose collector is busy

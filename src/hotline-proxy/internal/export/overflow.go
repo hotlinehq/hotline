@@ -117,6 +117,23 @@ func (o *overflow) add(items [][]byte) bool {
 	return true
 }
 
+// addBatch queues one of the ledger's batch records to be written. It
+// is never refused: it passes the disk's limit and the memory waiting to
+// be written, as it is small and there is one per batch.
+func (o *overflow) addBatch(item []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	size := frameSize(item)
+	o.disk.budget.used.Add(size)
+	o.spill = append(o.spill, spilled{kind: kindBatch, payload: item})
+	o.spillBytes += size
+	o.inUse = true
+	select {
+	case o.wake <- struct{}{}:
+	default:
+	}
+}
+
 // write writes what waits, and syncs at most every syncEvery while it
 // writes, until the queue stops.
 func (o *overflow) write() {
