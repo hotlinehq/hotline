@@ -453,7 +453,9 @@ Feature: Records a third party can trust
   Rule: A run has a name, and a clean stop is marked
 
     The instance is the run's service.instance.id: the label the records
-    section gives it, or a random id per run (Peter, 2026-11-27).
+    section gives it, or a random id per run. Every batch also says when
+    its run started, so two runs of the same instance are told apart
+    (Peter, 2026-11-27).
 
     Scenario: The instance is random per run
       Given no service.instance.id label in the config
@@ -463,9 +465,9 @@ Feature: Records a third party can trust
       And hotline-proxy is stopped
       Then the two runs' hotline.batch.instance are different
       And each is that run's service.instance.id
-      And the batches have no hotline.batch.run
+      And each batch's hotline.batch.run_started is when its run started
 
-    Scenario: The instance is the service.instance.id label, with the random run id kept next to it
+    Scenario: The instance is the service.instance.id label, and the start time tells its runs apart
       Given the records transform labels service.instance.id { env: POD_NAME } and POD_NAME is invoices-proxy-0
       When the app sends GET /orders
       And hotline-proxy is stopped and started again
@@ -473,7 +475,7 @@ Feature: Records a third party can trust
       And hotline-proxy is stopped
       Then both runs' batches have hotline.batch.instance invoices-proxy-0
       And each is that run's service.instance.id
-      And their hotline.batch.run are different
+      And their hotline.batch.run_started are different
       And each run's sequence starts at 0
 
     Scenario: A clean stop closes one last batch

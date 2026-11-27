@@ -68,7 +68,7 @@ A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger
 | `hotline.batch.id` | A UUID version 7, new for each batch. |
 | `hotline.batch.integration` | The integration the chain is for, or `not-passed`. |
 | `hotline.batch.instance` | The run's `service.instance.id`: the one the `records.transform` labels set, or a random id per run. |
-| `hotline.batch.run` | The random run id, only when the labels set `service.instance.id`, so two runs of the same name are told apart. |
+| `hotline.batch.run_started` | When this run of the proxy started, in UTC, to the microsecond, so two runs of the same instance are told apart. On every batch. |
 | `hotline.batch.sequence` | 0 for the first batch of the chain in this run, then 1, 2 and so on. |
 | `hotline.batch.previous` | The root of the batch before. Not on sequence 0. |
 | `hotline.batch.records`, `hotline.batch.root` | How many records, and the root of their tree. |
