@@ -601,6 +601,14 @@ func (c *call) full(attrs []attribute.KeyValue, found spec.Checked, ran bool) []
 	return checked(attrs, found, ran)
 }
 
+// recordedPrefix starts the name of every field copied because the spec
+// marks it x-hotline-record, so a copied value never mixes with what the
+// proxy measures itself (Peter, 2026-11-27). The mark rpc.method is
+// recorded as hotline.recorded.rpc.method. The spec package refuses mark
+// names the proxy writes itself (ownStarts and ownExact), so the name with
+// this prefix taken off never clashes with one of the proxy's own.
+const recordedPrefix = "hotline.recorded."
+
 // shownFindings is how many findings of one side a record holds at most.
 const shownFindings = 20
 
@@ -609,15 +617,16 @@ const shownFindings = 20
 // the check did not run (Peter, 2026-10-31).
 func checked(attrs []attribute.KeyValue, found spec.Checked, ran bool) []attribute.KeyValue {
 	for _, f := range found.Copied {
+		name := recordedPrefix + f.Name
 		switch v := f.Value.(type) {
 		case string:
-			attrs = append(attrs, attribute.String(f.Name, v))
+			attrs = append(attrs, attribute.String(name, v))
 		case bool:
-			attrs = append(attrs, attribute.Bool(f.Name, v))
+			attrs = append(attrs, attribute.Bool(name, v))
 		case int64:
-			attrs = append(attrs, attribute.Int64(f.Name, v))
+			attrs = append(attrs, attribute.Int64(name, v))
 		case float64:
-			attrs = append(attrs, attribute.Float64(f.Name, v))
+			attrs = append(attrs, attribute.Float64(name, v))
 		}
 	}
 	status := "valid"

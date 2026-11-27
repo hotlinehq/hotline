@@ -115,7 +115,7 @@ func snsScenario(sc *godog.ScenarioContext, p *program, app *exampleApp) {
 			return err
 		}
 		if len(records) != 1 || records[0]["url.template"] != "/#Action=Publish" || records[0]["hotline.integration.id"] != "checkout" ||
-			records[0]["messaging.destination.name"] != orderPaidTopic {
+			records[0]["hotline.recorded.messaging.destination.name"] != orderPaidTopic {
 			return failf("want one Publish record from checkout naming the topic, got %v", records)
 		}
 		for _, key := range []string{"hotline.schema.request.errors", "hotline.schema.response.errors", "hotline.schema.skipped"} {

@@ -423,12 +423,12 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		result = w.verify(o)
 		return nil
 	})
-	sc.Step(`^the file writes shop.order.weight as 2.0 and as 1.5$`, func() error {
+	sc.Step(`^the file writes hotline.recorded.shop.order.weight as 2.0 and as 1.5$`, func() error {
 		data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
 		if err != nil {
 			return err
 		}
-		for _, want := range []string{`"shop.order.weight":2.0`, `"shop.order.weight":1.5`} {
+		for _, want := range []string{`"hotline.recorded.shop.order.weight":2.0`, `"hotline.recorded.shop.order.weight":1.5`} {
 			if !bytes.Contains(data, []byte(want)) {
 				return failf("the file has no %s: %s", want, data)
 			}

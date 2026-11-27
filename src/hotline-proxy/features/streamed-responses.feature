@@ -24,8 +24,8 @@ Feature: Streamed responses checked item by item
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
     And there are 8 stream item records, each hotline.schema.status valid
-    And stream item record 1 says anthropic.stream.event message_start, hotline.stream.item.index 1
-    And stream item record 8 says anthropic.stream.event message_stop, hotline.stream.item.index 8
+    And stream item record 1 says hotline.recorded.anthropic.stream.event message_start, hotline.stream.item.index 1
+    And stream item record 8 says hotline.recorded.anthropic.stream.event message_stop, hotline.stream.item.index 8
     And the stream record says hotline.stream.items 8, hotline.stream.items_invalid 0, hotline.stream.end complete
     And the ledger holds the call first, then the 8 items, then the stream
 
@@ -33,7 +33,7 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor streams the response "Hello!", with event 4's data {"type":"content_block_delta","index":0,"delta":{"type":"text_delta"}}
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
-    And stream item record 4 says anthropic.stream.event content_block_delta, hotline.schema.status invalid
+    And stream item record 4 says hotline.recorded.anthropic.stream.event content_block_delta, hotline.schema.status invalid
     And stream item record 4's response results are body $.data.delta.text required
     And stream item records 1 to 3 say hotline.schema.status valid
     And stream item records 5 to 8 say hotline.schema.status valid
@@ -109,7 +109,7 @@ Feature: Streamed responses checked item by item
     Given the Anthropic vendor streams message_start, then the rest of the response "Hello!" once the proxy is stopping
     When the app asks for a streamed message and reads 1 event
     Then a call record and an stream item record arrive while the stream is open
-    And the stream's call record says http.response.status_code 200, gen_ai.request.model claude-opus-5-5, hotline.schema.status valid
+    And the stream's call record says http.response.status_code 200, hotline.recorded.gen_ai.request.model claude-opus-5-5, hotline.schema.status valid
 
   Scenario: The call record has no response body; the stream record counts and hashes it
     The bytes after the headers are the stream's, not the call's, as for
@@ -151,7 +151,7 @@ Feature: Streamed responses checked item by item
     When the app asks for a streamed message
     Then the app got every byte as the vendor sent it
     And stream item record 1 says hotline.schema.skipped body_too_large, hotline.stream.item.size 3145728
-    And stream item record 2 says anthropic.stream.event message_start, hotline.schema.status valid
+    And stream item record 2 says hotline.recorded.anthropic.stream.event message_start, hotline.schema.status valid
 
   Scenario: A full spec check line drops item checks, never a byte of the stream
     As in spec-check-line.feature, one worker is kept busy by the check of
@@ -172,7 +172,7 @@ Feature: Streamed responses checked item by item
     And the Anthropic vendor streams the response "Hello!"
     When the app asks for a streamed message
     Then there are 8 stream item records
-    And stream item record 1 has no hotline.schema.status, anthropic.stream.event
+    And stream item record 1 has no hotline.schema.status, hotline.recorded.anthropic.stream.event
 
   # How the stream ended
 
@@ -212,7 +212,7 @@ Feature: Streamed responses checked item by item
     And the feed vendor streams <type> bytes "{\"id\":\"A-1001\",\"total\":12.5}\n{\"id\":\"A-1002\",\"total\":3}\n"
     When the app reads the order feed
     Then there are 2 stream item records, each hotline.schema.status valid
-    And stream item record 2 says shop.order.id A-1002, hotline.stream.item.index 2
+    And stream item record 2 says hotline.recorded.shop.order.id A-1002, hotline.stream.item.index 2
     And the stream record says hotline.stream.items 2, hotline.stream.items_invalid 0, hotline.stream.end complete
 
     Examples:
@@ -263,7 +263,7 @@ Feature: Streamed responses checked item by item
     Given the order feed spec
     And the feed vendor streams <type> bytes "\x1e{\"id\":\"A-1001\",\"total\":12.5}\n\x1e{\"total\":3}\n"
     When the app reads the order feed
-    Then stream item record 1 says shop.order.id A-1001, hotline.schema.status valid
+    Then stream item record 1 says hotline.recorded.shop.order.id A-1001, hotline.schema.status valid
     And stream item record 2's response results are body $.id required
     And the stream record says hotline.stream.items 2, hotline.stream.items_invalid 1, hotline.stream.end complete
 

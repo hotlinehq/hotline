@@ -40,7 +40,7 @@ Feature: Checking records with hotline-proxy verify
       And the app sends POST /orders with "Idempotency-Key: k2" and the json body {"item":"A1","quantity":2,"weight":1.5}
       And I run hotline-proxy verify calls
       Then it exits with 0
-      And the file writes shop.order.weight as 2.0 and as 1.5
+      And the file writes hotline.recorded.shop.order.weight as 2.0 and as 1.5
 
     Scenario: A whole folder checks out
       When the app sends GET /orders 5 times

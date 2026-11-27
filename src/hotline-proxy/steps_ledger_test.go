@@ -172,8 +172,8 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 			changed.attrs[name] = "sha256:" + strings.Repeat("00", 32)
 		case "hotline.batch.index is changed":
 			changed.attrs["hotline.batch.index"] = changed.attrs["hotline.batch.index"].(int64) + 1
-		case "shop.order.item is changed":
-			changed.attrs["shop.order.item"] = "A2"
+		case "hotline.recorded.shop.order.item is changed":
+			changed.attrs["hotline.recorded.shop.order.item"] = "A2"
 		case "an attribute is added":
 			changed.attrs["shop.added"] = "x"
 		case "an attribute is removed":

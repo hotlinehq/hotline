@@ -78,5 +78,5 @@ Feature: Routes picked by a body field
       the call just over 1 MiB (Peter, 2026-11-01).
       Given the SQS spec
       When the app sends SendMessage to the invoices queue with a message of 1 MiB
-      Then the record holds messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices
+      Then the record holds hotline.recorded.messaging.destination.name = https://sqs.eu-west-1.amazonaws.com/192325781350/invoices
       And the record has no hotline.schema.skipped

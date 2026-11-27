@@ -264,7 +264,7 @@ Hiding a value from a record by writing `REDACTED` in its place. Path and query 
 _Avoid_: masking, scrubbing, anonymising
 
 **Body field**:
-One value from inside a body that the spec marks with `x-hotline-record`, copied into the record because it is safe and helps find a call, such as an order number.
+One value from inside a body (or a call header) that the spec marks with `x-hotline-record`, copied into the record because it is safe and helps find a call, such as an order number. The record holds it under `hotline.recorded.` and the name the mark gives, such as `hotline.recorded.rpc.method`.
 _Avoid_: extracted field, tag
 
 **Full content**:
