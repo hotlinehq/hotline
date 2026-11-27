@@ -212,6 +212,50 @@ var _ = Describe("The fake receiver", func() {
 		Expect(receiver.Requests()).To(Equal(int64(4)))
 	})
 
+	It("answers records and spans with 503 while busy, as in an outage, and takes them again after", func() {
+		receiver.SetBusy(true)
+		Expect(send("/v1/logs", []byte("1"), false).StatusCode).To(Equal(http.StatusServiceUnavailable))
+		Expect(send("/v1/traces", []byte("1"), false).StatusCode).To(Equal(http.StatusServiceUnavailable))
+		Expect(receiver.Records().Requests).To(BeZero())
+		receiver.SetBusy(false)
+		Expect(send("/v1/logs", []byte("1"), false).StatusCode).To(Equal(http.StatusOK))
+		Expect(receiver.Records().Requests).To(Equal(int64(1)))
+	})
+
+	It("keeps the most the disk queues held at once, and the longest and the last wait of an item", func() {
+		usage := func(record, span int64) *metrics.Metric {
+			point := func(n int64) *metrics.NumberDataPoint {
+				return &metrics.NumberDataPoint{Value: &metrics.NumberDataPoint_AsInt{AsInt: n}}
+			}
+			return &metrics.Metric{Name: "hotline.exporter.queue.disk.usage", Data: &metrics.Metric_Sum{Sum: &metrics.Sum{DataPoints: []*metrics.NumberDataPoint{point(record), point(span)}}}}
+		}
+		age := func(seconds ...float64) *metrics.Metric {
+			var points []*metrics.NumberDataPoint
+			for _, s := range seconds {
+				points = append(points, &metrics.NumberDataPoint{Value: &metrics.NumberDataPoint_AsDouble{AsDouble: s}})
+			}
+			return &metrics.Metric{Name: "hotline.exporter.queue.oldest.age", Data: &metrics.Metric_Gauge{Gauge: &metrics.Gauge{DataPoints: points}}}
+		}
+		numbers := func(ms ...*metrics.Metric) []byte {
+			out, err := proto.Marshal(&colmetrics.ExportMetricsServiceRequest{
+				ResourceMetrics: []*metrics.ResourceMetrics{{ScopeMetrics: []*metrics.ScopeMetrics{{Metrics: ms}}}},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return out
+		}
+		send("/telemetry/v1/metrics", numbers(usage(30, 20), age(4, 7)), false)
+		send("/telemetry/v1/metrics", numbers(usage(10, 0), age(0, 2)), false)
+		peak, longest, last := receiver.Queueing()
+		Expect(peak).To(Equal(int64(50)))
+		Expect(longest).To(Equal(7.0))
+		Expect(last).To(Equal(2.0))
+		receiver.ResetQueueing()
+		peak, longest, last = receiver.Queueing()
+		Expect(peak).To(BeZero())
+		Expect(longest).To(BeZero())
+		Expect(last).To(Equal(2.0))
+	})
+
 	It("keeps the proxy's own count of the records and spans its exporters dropped", func() {
 		point := func(signal, reason string, n int64) *metrics.NumberDataPoint {
 			text := func(k, v string) *common.KeyValue {

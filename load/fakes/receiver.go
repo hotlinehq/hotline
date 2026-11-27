@@ -46,8 +46,12 @@ type Receiver struct {
 	spans   counted
 	// messages counts what the WebSocket records said, read as they come.
 	messages messageCounts
-	// drops keeps the proxy's own count of what its exporters lost.
-	drops  drops
+	// drops keeps the proxy's own count of what its exporters lost, and
+	// queueing what it says about its queues.
+	drops    drops
+	queueing queueing
+	// busy answers records and spans with 503, as in an outage.
+	busy   atomic.Bool
 	server *http.Server
 
 	mu        sync.Mutex
@@ -90,6 +94,11 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 	data, _ := io.ReadAll(body)
 	_, _ = io.Copy(io.Discard, counted)
 	r.bytes.Add(counted.n)
+	signal := strings.HasSuffix(req.URL.Path, "/v1/logs") || strings.HasSuffix(req.URL.Path, "/v1/traces")
+	if signal && r.busy.Load() {
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return
+	}
 	switch {
 	case strings.HasSuffix(req.URL.Path, "/v1/logs"):
 		r.records.add(counted.n)
@@ -113,6 +122,7 @@ func (r *Receiver) serve(w http.ResponseWriter, req *http.Request) {
 		}
 		r.readAllocated(&export)
 		r.drops.read(&export)
+		r.queueing.read(&export)
 		if req.URL.Path == TelemetryPath+"/v1/metrics" {
 			r.pass(data)
 		}

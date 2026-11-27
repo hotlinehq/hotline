@@ -40,6 +40,7 @@ var (
 	errNoProfile     = errors.New("the proxy serves no profile pages: its admin port needs telemetry.pprof, which an older build lacks")
 	errNoMoreSpecs   = errors.New("no more specs")
 	errBadInterval   = errors.New("bad metric interval")
+	errBadOutage     = errors.New("bad outage")
 	errProcStat      = errors.New("cannot read the proxy's processor time from /proc or ps")
 	errPSTime        = errors.New("not a time from ps")
 )
@@ -92,6 +93,15 @@ type Config struct {
 	// Label names what is measured (for example the branch), kept in every
 	// result so runs of two builds can be set side by side.
 	Label string
+	// DiskQueue gives the proxy's exporter a disk queue, in a fresh folder
+	// of each run, so what does not fit in memory goes to disk (Peter,
+	// 2026-11-27). A proxy older than the disk queue refuses the setting.
+	DiskQueue bool
+	// Outage, when set, has the fake receiver answer records and spans
+	// with 503 for this long in the middle of each proxy repeat, as a
+	// collector in a short outage does; it needs DiskQueue. The repeat then
+	// waits until the proxy has sent everything it held.
+	Outage time.Duration
 	// Out is where the table goes; nil means nowhere.
 	Out io.Writer
 }
@@ -140,6 +150,18 @@ type Result struct {
 	OTLPRecordBytes    int64 `json:"otlpRecordBytes"`
 	OTLPSpanRequests   int64 `json:"otlpSpanRequests"`
 	OTLPSpanBytes      int64 `json:"otlpSpanBytes"`
+	// RecordsDropped and SpansDropped are what the proxy's exporters lost
+	// during the run, by their own count.
+	RecordsDropped int64 `json:"recordsDropped"`
+	SpansDropped   int64 `json:"spansDropped"`
+	// DiskPeakBytes is the most bytes the disk queue's files took at once,
+	// and LongestWaitSeconds the longest an item waited in the queue, in
+	// memory or on disk, as the proxy's own numbers said.
+	DiskPeakBytes      int64   `json:"diskPeakBytes,omitempty"`
+	LongestWaitSeconds float64 `json:"longestWaitSeconds,omitempty"`
+	// DrainSeconds is, after an outage, how long the proxy took from the
+	// collector's return until nothing waited.
+	DrainSeconds float64 `json:"drainSeconds,omitempty"`
 }
 
 // ReadSummary takes the numbers out of a k6 summary file.
@@ -254,6 +276,9 @@ func Run(cfg Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := CheckOutage(cfg); err != nil {
+		return "", err
+	}
 	if line, err := Scenario(cfg); err == nil && cfg.Out != nil {
 		_, _ = fmt.Fprintln(cfg.Out, line)
 	}
@@ -303,7 +328,7 @@ func Run(cfg Config) (string, error) {
 		return "", err
 	}
 	_, vendorPort, _ := net.SplitHostPort(vendor.TLSAddr)
-	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle, tags: tags}
+	d := driver{k6: k6Path, script: scriptPath, call: c, rate: cfg.Rate, settle: cfg.Settle, tags: tags, outage: cfg.Outage}
 	if d.settle == 0 {
 		d.settle = DefaultSettle
 	}
@@ -346,6 +371,9 @@ func Run(cfg Config) (string, error) {
 	}
 	if cfg.Out != nil {
 		table(cfg.Out, results)
+		if cfg.DiskQueue {
+			queueTable(cfg.Out, results)
+		}
 		if n := receiver.ForwardFailures(); n > 0 {
 			fmt.Fprintf(cfg.Out, "warning: %d sends of the proxy's own numbers to Grafana failed, the last: %s\n", n, receiver.ForwardError())
 		}
@@ -472,6 +500,17 @@ func table(w io.Writer, results []Result) {
 	}
 }
 
+// queueTable prints, per repeat, what the proxy's queue held: what it
+// lost, the most its disk queue took, the longest an item waited, and
+// after an outage how long it took to send it all.
+func queueTable(w io.Writer, results []Result) {
+	_, _ = fmt.Fprintln(w, "repeat  records lost  spans lost  disk peak MB  longest wait s  drain s")
+	for _, r := range results {
+		_, _ = fmt.Fprintf(w, "%6d  %12d  %10d  %12.1f  %14.1f  %7.1f\n",
+			r.Repeat, r.RecordsDropped, r.SpansDropped, float64(r.DiskPeakBytes)/(1<<20), r.LongestWaitSeconds, r.DrainSeconds)
+	}
+}
+
 // driver runs k6 for one call shape.
 type driver struct {
 	k6, script          string
@@ -482,6 +521,8 @@ type driver struct {
 	directURL, proxyURL string
 	// exact says the proxy serves its own memory number, so no waiting.
 	exact bool
+	// outage is how long the receiver is busy in each proxy repeat.
+	outage time.Duration
 }
 
 func (d driver) k6run(summary, duration, url string, viaProxy bool, rate int, phase string, repeat int) (Latency, error) {
@@ -532,6 +573,31 @@ func PushOptions(pushURL string, t PushTags, target, phase string, repeat int) [
 		opts = append(opts, "--tag", "label="+t.Label)
 	}
 	return append(opts, "--tag", "repeat="+strconv.Itoa(repeat), "--tag", "phase="+phase)
+}
+
+// CheckOutage refuses an outage without a disk queue, and one that does
+// not fit inside a repeat.
+func CheckOutage(cfg Config) error {
+	if cfg.Outage <= 0 {
+		return nil
+	}
+	if !cfg.DiskQueue {
+		return fmt.Errorf("%w: an outage needs -disk-queue", errBadOutage)
+	}
+	length, err := time.ParseDuration(cfg.Duration)
+	if err != nil || cfg.Outage >= length {
+		return fmt.Errorf("%w: an outage of %s does not fit in repeats of %s", errBadOutage, cfg.Outage, cfg.Duration)
+	}
+	return nil
+}
+
+// DiskQueueYAML is the exporter's disk queue settings, in a folder of the
+// run's own, or nothing without one.
+func DiskQueueYAML(on bool, work string) string {
+	if !on {
+		return ""
+	}
+	return fmt.Sprintf("      queueFolder: %q\n      queueDisk: 1GiB\n", filepath.Join(work, "queue"))
 }
 
 func (c Config) metricInterval() string {
@@ -674,6 +740,8 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	if !d.exact {
 		time.Sleep(d.settle)
 	}
+	receiver.ResetQueueing()
+	recordsLost0, spansLost0 := receiver.Dropped()
 	alloc0, ok := allocated()
 	if !ok {
 		return Result{}, errNoAllocated
@@ -685,7 +753,12 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 		return Result{}, err
 	}
 	sampler := p.sampleMemory()
+	back := d.startOutage(receiver, duration)
 	l, err := d.k6run(summary, duration, d.proxyURL, true, d.rate, "measured", repeat)
+	drain := 0.0
+	if d.outage > 0 {
+		drain = Drained(<-back, receiver, drainLimit)
+	}
 	peak := sampler()
 	if err != nil {
 		return Result{}, err
@@ -700,6 +773,8 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	alloc1, _ := allocated()
 	calls := float64(l.Calls)
 	records, spans := receiver.Records(), receiver.Spans()
+	recordsLost1, spansLost1 := receiver.Dropped()
+	diskPeak, longest, _ := receiver.Queueing()
 	return Result{
 		Proxy:                 l,
 		CPUMicrosPerCall:      float64(cpu1-cpu0) * 10000 / calls, // 100 ticks a second
@@ -711,7 +786,48 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 		OTLPRecordBytes:       records.Bytes - records0.Bytes,
 		OTLPSpanRequests:      spans.Requests - spans0.Requests,
 		OTLPSpanBytes:         spans.Bytes - spans0.Bytes,
+		RecordsDropped:        recordsLost1 - recordsLost0,
+		SpansDropped:          spansLost1 - spansLost0,
+		DiskPeakBytes:         diskPeak,
+		LongestWaitSeconds:    longest,
+		DrainSeconds:          drain,
 	}, nil
+}
+
+// drainLimit is the longest a repeat waits after an outage for the proxy
+// to send what it held.
+const drainLimit = 5 * time.Minute
+
+// startOutage has the receiver answer 503 for the outage, in the middle
+// of a repeat that lasts duration, and gives the time it ended on the
+// channel; with no outage nothing happens.
+func (d driver) startOutage(receiver *fakes.Receiver, duration string) <-chan time.Time {
+	back := make(chan time.Time, 1)
+	if d.outage <= 0 {
+		return back
+	}
+	// Run checked the duration before any repeat.
+	length, _ := time.ParseDuration(duration)
+	go func() {
+		time.Sleep((length - d.outage) / 2)
+		receiver.SetBusy(true)
+		time.Sleep(d.outage)
+		receiver.SetBusy(false)
+		back <- time.Now()
+	}()
+	return back
+}
+
+// Drained waits, up to limit, until the proxy's own numbers say nothing
+// waits in its queues, and gives the seconds since back, when the
+// collector returned; the limit when it never drained.
+func Drained(back time.Time, receiver *fakes.Receiver, limit time.Duration) float64 {
+	for deadline := back.Add(limit); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if _, _, waiting := receiver.Queueing(); waiting == 0 && time.Since(back) > time.Second {
+			return time.Since(back).Seconds()
+		}
+	}
+	return limit.Seconds()
 }
 
 // proxyProcess is the running proxy.
@@ -764,7 +880,7 @@ listeners:
 exporters:
   - otlp:
       endpoint: http://%s
-telemetry:
+%stelemetry:
   otlp:
     endpoint: http://%s%s
     metricInterval: %s
@@ -777,7 +893,7 @@ apis:
 %sintegrations:
   - id: bench-shop
     apis: [%s%s]
-`, adminAddr, proxyAddr, receiver.Addr, receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
+`, adminAddr, proxyAddr, receiver.Addr, DiskQueueYAML(cfg.DiskQueue, work), receiver.Addr, fakes.TelemetryPath, cfg.metricInterval(), resource, api, spec, moreAPIs, api, moreNames)
 	for path, data := range map[string][]byte{cert: vendorCert, conf: []byte(yaml)} {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return nil, err
