@@ -7,10 +7,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -300,12 +300,16 @@ var _ = Describe("disk queue", func() {
 			Expect(d.Close()).NotTo(Succeed())
 		})
 
-		It("says a write or a sync failed", func() {
+		It("says a write or a sync failed, and writes on in a new file", func() {
 			d := open()
 			Expect(d.Write("a")).To(Succeed())
 			d.BreakWriter()
-			Expect(d.Write("b")).NotTo(Succeed())
 			Expect(d.Sync()).NotTo(Succeed())
+			Expect(d.Write("b")).NotTo(Succeed())
+			Expect(d.Write("c")).To(Succeed())
+			read, lost := d.Read(10)
+			Expect(read).To(Equal([]string{"a", "c"}))
+			Expect(lost).To(BeZero())
 			d.BreakPosition()
 			d.Taken()
 			Expect(d.Sync()).NotTo(Succeed())
@@ -345,15 +349,19 @@ var _ = Describe("disk queue", func() {
 		})
 
 		It("says a file before the oldest could not be written", func() {
-			if runtime.GOOS != "linux" {
-				Skip("needs /dev/full, a file every write to fails")
-			}
 			d := open()
 			Expect(d.Write("b")).To(Succeed())
-			files := queueFiles(dir)
-			front := strings.Replace(files[0], "01048576", "01048575", 1)
-			Expect(os.Symlink("/dev/full", front)).To(Succeed())
-			Expect(d.WriteFront("a")).NotTo(Succeed())
+			// A limit on the size of the files this process writes makes
+			// the write of a larger one fail; Go ignores the signal that
+			// comes with it.
+			var limit syscall.Rlimit
+			Expect(syscall.Getrlimit(syscall.RLIMIT_FSIZE, &limit)).To(Succeed())
+			small := limit
+			small.Cur = 1 << 20
+			Expect(syscall.Setrlimit(syscall.RLIMIT_FSIZE, &small)).To(Succeed())
+			err := d.WriteFront(strings.Repeat("a", 2<<20))
+			Expect(syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limit)).To(Succeed())
+			Expect(err).To(HaveOccurred())
 			Expect(d.Close()).To(Succeed())
 		})
 	})
@@ -461,13 +469,42 @@ var _ = Describe("a queue with a disk queue behind it", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("warns when the disk queue cannot be written, and goes on", func() {
+	It("warns when the disk queue cannot be written, counts what it lost, and goes on", func() {
 		q := start(1, 1<<30)
 		q.Add("a")
 		q.BreakDiskWriter()
 		q.Add("b")
 		Eventually(q.Written).Should(BeTrue())
-		Expect(q.Shutdown(context.Background())).NotTo(Succeed())
+		Expect(q.Logs()).To(ContainSubstring("the disk queue could not be written"))
+		q.Add("c")
+		Eventually(q.Written).Should(BeTrue())
+		Expect(q.Flush(context.Background())).To(Succeed())
+		Expect(sender.got()).To(Equal([]string{"a", "c"}))
+		Expect(q.Logs()).To(ContainSubstring("dropped=1"))
+		Expect(q.Shutdown(context.Background())).To(Succeed())
+	})
+
+	It("does not send again what was sent before a stop put memory in front", func() {
+		q := start(1, 1<<30)
+		q.Add("a")
+		q.Add("b")
+		Eventually(q.Written).Should(BeTrue())
+		// a and b go; the sender is past b, in the middle of its file.
+		Expect(q.Flush(context.Background())).To(Succeed())
+		q.Add("c")
+		q.Add("d")
+		Eventually(q.Written).Should(BeTrue())
+		// The collector is busy until the stop, so c goes in front of d.
+		sender.answers = []error{export.ErrTestBusy, export.ErrTestBusy, export.ErrTestBusy}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		Expect(q.Shutdown(ctx)).To(Succeed())
+		sender.answers = nil
+		again, err := export.NewTestDiskBackedQueue(1, dir, 1<<30, sender.send)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(again.Flush(context.Background())).To(Succeed())
+		Expect(sender.got()).To(Equal([]string{"a", "b", "c", "d"}))
+		Expect(again.Shutdown(context.Background())).To(Succeed())
 	})
 
 	It("writes what is still in memory to disk at a stop, before what is there", func() {

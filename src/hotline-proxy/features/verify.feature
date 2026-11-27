@@ -552,8 +552,8 @@ Feature: Checking records with hotline-proxy verify
         | the batch record with sequence 1 is deleted        | batch_missing           |
         | batch 2's hotline.batch.previous is changed        | chain_broken            |
         | a record's hotline.batch.index is changed to 99    | record_extra            |
-        | a changed copy of batch 0 is in the file           | chain_broken            |
-        | a changed copy of a record is in the file          | record_extra            |
+        | a changed batch 0 is in the file twice            | chain_broken            |
+        | a changed record is in the file twice             | record_extra            |
         | batch 0 names a batch before it                    | chain_broken            |
 
     Scenario Outline: A changed full record has its own code
@@ -588,11 +588,11 @@ Feature: Checking records with hotline-proxy verify
         | the folder calls from a stopped proxy           | key_self_certified |
         | the file exporter dropped one record of batch 0 | records_dropped  |
         | a kept body was cut short by maxBodySize        | body_not_checked |
-        | the folder calls holds an exact copy of a record | records_repeated |
-        | the folder calls holds an exact copy of batch 0 | batch_record_repeated |
+        | the folder calls holds a record twice           | records_repeated      |
+        | the folder calls holds batch 0 twice            | batch_record_repeated |
 
-    Scenario Outline: An exact copy, as a send tried again leaves it, is not a problem
-      Given the folder calls holds an exact copy of <what>
+    Scenario Outline: A record or batch sent twice, as a send tried again leaves it, is not a problem
+      Given the folder calls holds <what> twice
       When I run hotline-proxy verify calls --format json
       Then it exits with 0
       And its summary counts 3 records, 1 run and 0 problems

@@ -46,16 +46,16 @@ func (q *queueing) read(export *colmetrics.ExportMetricsServiceRequest) {
 	}
 }
 
-// Queueing is the most bytes the proxy's disk queues took at once and the
+// QueueNumbers is the most bytes the proxy's disk queues took at once and the
 // longest any item waited in its queues, in seconds, since the last
 // ResetQueueing; and how long the oldest item waited in the last numbers.
-func (r *Receiver) Queueing() (diskPeak int64, longestWait, lastWait float64) {
+func (r *Receiver) QueueNumbers() (diskPeak int64, longestWait, lastWait float64) {
 	r.queueing.mu.Lock()
 	defer r.queueing.mu.Unlock()
 	return r.queueing.diskPeak, r.queueing.longestWait, r.queueing.lastWait
 }
 
-// ResetQueueing starts the peaks of Queueing again.
+// ResetQueueing starts the peaks of QueueNumbers again.
 func (r *Receiver) ResetQueueing() {
 	r.queueing.mu.Lock()
 	defer r.queueing.mu.Unlock()

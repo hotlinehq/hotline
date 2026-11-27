@@ -805,15 +805,15 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|a changed copy of batch 0 is in the file|a changed copy of a record is in the file|batch 0 names a batch before it)$`, func(change string) error {
+	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|a changed batch 0 is in the file twice|a changed record is in the file twice|batch 0 names a batch before it)$`, func(change string) error {
 		switch change {
 		case "a record's hotline.batch.index is changed to 99":
 			return w.changeLine(2, func(line map[string]any) {
 				line["attributes"].(map[string]any)["hotline.batch.index"] = json.Number("99")
 			})
-		case "a changed copy of batch 0 is in the file":
+		case "a changed batch 0 is in the file twice":
 			return w.twiceBatch0(func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
-		case "a changed copy of a record is in the file":
+		case "a changed record is in the file twice":
 			return w.twiceRecord(func(attrs map[string]any) { attrs["http.response.status_code"] = json.Number("599") })
 		case "batch 0 names a batch before it":
 			return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.previous"] = "sha256:" + strings.Repeat("0", 64) })
@@ -917,7 +917,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		w.settle()
 		return nil
 	})
-	sc.Step(`^the folder calls holds an exact copy of (a record|batch 0)$`, func(what string) error {
+	sc.Step(`^the folder calls holds (a record|batch 0) twice$`, func(what string) error {
 		if err := w.ordersTimes(3); err != nil {
 			return err
 		}

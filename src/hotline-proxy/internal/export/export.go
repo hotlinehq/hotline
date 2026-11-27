@@ -229,7 +229,7 @@ func New(setup Setup) (*Exporters, error) {
 			return nil, fmt.Errorf("exporter %s: the disk queue in %s: %w", e.Endpoint, e.QueueFolder, err)
 		}
 		d.batches = newBatchLine(batchLineSetup{
-			name: e.Endpoint, logger: logger, queue: d.queue.addBatch, resource: s.resource,
+			name: e.Endpoint, logger: logger, queue: d.queue.addBatchRecord, resource: s.resource,
 			render: func(b Batch) []byte {
 				return appendRecord(nil, b.Event, b.At, b.Observed, b.Severity, trace.SpanContext{}, "", b.Attrs)
 			},
@@ -241,7 +241,7 @@ func New(setup Setup) (*Exporters, error) {
 	for i := range s.files {
 		f := &s.files[i]
 		f.batches = newBatchLine(batchLineSetup{
-			name: f.writer.e.Path, logger: logger, queue: f.queue.addBatch, resource: s.resource,
+			name: f.writer.e.Path, logger: logger, queue: f.queue.addBatchRecord, resource: s.resource,
 			render: func(b Batch) []byte {
 				buf := &bytes.Buffer{}
 				appendBatchLine(buf, s.resource, b)

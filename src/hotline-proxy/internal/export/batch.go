@@ -15,10 +15,10 @@ import (
 	"hotline-proxy/internal/vault"
 )
 
-// batchReserve is how many places every exporter's queue keeps for the
+// batchRecordReserve is how many places every exporter's queue keeps for the
 // ledger's batch records only, so a queue full of calls never refuses
 // one (Peter, 2026-11-27).
-const batchReserve = 64
+const batchRecordReserve = 64
 
 // shownDropped is how many dropped records a batch record lists at most,
 // by index and hash; past it, only their count.

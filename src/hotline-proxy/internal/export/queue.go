@@ -43,16 +43,16 @@ type queue struct {
 	// eager sends every item as soon as it comes, not in batches.
 	eager bool
 	// disk, when set, takes what no longer fits in memory.
-	disk *overflow
+	disk *diskQueue
 
 	mu sync.Mutex
 	// ring holds the waiting items: count of them, from first on, wrapping
 	// around the end.
 	ring [][]byte
-	// queued is when each item in the ring was queued, at the same place.
-	queued []time.Time
-	first  int
-	count  int
+	// queuedAt is when each item in the ring was queued, at the same place.
+	queuedAt []time.Time
+	first    int
+	count    int
 	// batch is the sender's own copy of the items it sends, kept between
 	// sends, since sends come one at a time.
 	batch [][]byte
@@ -106,11 +106,11 @@ func buildQueue(signalName string, export func(context.Context, [][]byte) error,
 		labels:     s.labels,
 		up:         s.up,
 		// The places past size are kept for the ledger's batch records.
-		ring:    make([][]byte, s.size+batchReserve),
-		queued:  make([]time.Time, s.size+batchReserve),
-		full:    make(chan struct{}, 1),
-		stop:    make(chan struct{}),
-		stopped: make(chan struct{}),
+		ring:     make([][]byte, s.size+batchRecordReserve),
+		queuedAt: make([]time.Time, s.size+batchRecordReserve),
+		full:     make(chan struct{}, 1),
+		stop:     make(chan struct{}),
+		stopped:  make(chan struct{}),
 	}
 }
 
@@ -135,7 +135,7 @@ func (q *queue) add(items ...[]byte) bool {
 		}
 	}
 	fits := len(items) <= q.size-q.count && (q.memory == 0 || q.held+weight <= q.memory)
-	if q.disk != nil && q.disk.takes(fits) {
+	if q.disk != nil && q.disk.goesToDisk(fits) {
 		if q.disk.add(items) {
 			return true
 		}
@@ -159,7 +159,7 @@ func (q *queue) put(items [][]byte, weight int64) {
 	copy(q.ring, items[copied:])
 	now := time.Now()
 	for i := range items {
-		q.queued[(end+i)%len(q.queued)] = now
+		q.queuedAt[(end+i)%len(q.queuedAt)] = now
 	}
 	q.count += len(items)
 	q.held += weight
@@ -168,17 +168,17 @@ func (q *queue) put(items [][]byte, weight int64) {
 	}
 }
 
-// addBatch queues one of the ledger's batch records behind the records
+// addBatchRecord queues one of the ledger's batch records behind the records
 // before it, without waiting. It may take the places kept for batch
 // records and passes the memory limit, so a queue full of calls never
 // refuses it; it says whether it found room even so. While the disk is in
 // use it goes there, past the disk's limit if need be, as it is small.
-func (q *queue) addBatch(item []byte) bool {
+func (q *queue) addBatchRecord(item []byte) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	fits := q.count < len(q.ring)
-	if q.disk != nil && q.disk.takes(fits) {
-		q.disk.addBatch(item)
+	if q.disk != nil && q.disk.goesToDisk(fits) {
+		q.disk.addBatchRecord(item)
 		return true
 	}
 	if !fits {
@@ -312,7 +312,7 @@ func (q *queue) send(ctx context.Context, all bool) error {
 			q.mu.Unlock()
 			return err
 		}
-		if !all && q.waitingCount() < batchSize && (q.disk == nil || q.disk.disk.empty()) {
+		if !all && q.waitingCount() < batchSize && (q.disk == nil || q.disk.empty()) {
 			return nil
 		}
 	}
@@ -422,13 +422,12 @@ func (q *queue) oldest() time.Time {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.count > 0 {
-		return q.queued[q.first]
+		return q.queuedAt[q.first]
 	}
 	if q.disk == nil {
 		return time.Time{}
 	}
-	_, at := q.disk.disk.waiting()
-	return at
+	return q.disk.oldestQueued()
 }
 
 // fill is how many items wait, and how many the queue holds at most.
@@ -471,7 +470,7 @@ func (q *queue) Shutdown(ctx context.Context) error {
 		front = append(front, batch...)
 		q.mu.Lock()
 		for i := range batch {
-			queued = append(queued, q.queued[(q.first+i)%len(q.queued)])
+			queued = append(queued, q.queuedAt[(q.first+i)%len(q.queuedAt)])
 		}
 		q.mu.Unlock()
 		q.remove(len(batch))
@@ -522,7 +521,7 @@ func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte
 		if k == spans {
 			kind = kindSpans
 		}
-		o, err := newOverflow(disk.folder, disk.budget, overflowSetup{
+		o, err := newDiskQueue(disk.folder, disk.budget, diskQueueSetup{
 			kind: kind, logger: s.logger, name: s.endpoint, dropped: s.dropped, labels: s.labels, kick: q.wake,
 		})
 		if err != nil {
@@ -531,7 +530,7 @@ func newItemQueue(signalName string, k signal, t *httpTransport, resource []byte
 		q.disk = o
 	}
 	go q.run()
-	if q.disk != nil && !q.disk.disk.empty() {
+	if q.disk != nil && !q.disk.empty() {
 		q.wake()
 	}
 	return q, nil

@@ -144,7 +144,7 @@ type lineRecord struct {
 	hash            string
 }
 
-// sameAs says whether other is an exact copy of r, as a send that was
+// sameAs says whether other is r sent twice, the same in every field, as a send that was
 // tried again leaves it.
 func (r *lineRecord) sameAs(other *lineRecord) bool {
 	return r != nil && r.traceID == other.traceID && r.spanID == other.spanID && reflect.DeepEqual(r.attrs, other.attrs)
@@ -382,7 +382,7 @@ func (v *verifier) check() {
 		v.checkBatch(b)
 		if indexes := repeated[b]; len(indexes) > 0 {
 			v.notes = append(v.notes, v.about(finding{Code: "records_repeated", Indexes: indexes,
-				Message: fmt.Sprintf("batch %s holds %d exact copies of its records, at index %s, as a send that was tried again leaves them", b.sequenceText(), len(indexes), joinInts(indexes))}, b))
+				Message: fmt.Sprintf("batch %s holds %d records sent twice, at index %s, as a send that was tried again leaves them", b.sequenceText(), len(indexes), joinInts(indexes))}, b))
 		}
 	}
 	v.checkChains()
@@ -685,8 +685,8 @@ func (v *verifier) withoutSecondBatchRecords(batches []*lineBatch) []*lineBatch 
 	return kept
 }
 
-// withoutRepeatedBatchRecords are the batch records, less each exact copy
-// of one before it. A send that was tried again can leave a copy (Peter,
+// withoutRepeatedBatchRecords are the batch records, less each one sent
+// twice, the same in every field as one before it. A send that was tried again can leave a copy (Peter,
 // 2026-11-27); it is a note, not a problem. A copy that differs in
 // anything stays, so the chain check finds it.
 func (v *verifier) withoutRepeatedBatchRecords() []*lineBatch {
@@ -695,7 +695,7 @@ func (v *verifier) withoutRepeatedBatchRecords() []*lineBatch {
 	for _, b := range v.batches {
 		if seen := first[b.id]; seen != nil && seen.at.Equal(b.at) && reflect.DeepEqual(seen.attrs, b.attrs) {
 			v.notes = append(v.notes, v.about(finding{File: b.file, Line: b.line, Code: "batch_record_repeated",
-				Message: fmt.Sprintf("batch %s has an exact copy of its batch record, as a send that was tried again leaves it", b.sequenceText())}, b))
+				Message: fmt.Sprintf("batch %s has its batch record sent twice, as a send that was tried again leaves it", b.sequenceText())}, b))
 			continue
 		}
 		if first[b.id] == nil {

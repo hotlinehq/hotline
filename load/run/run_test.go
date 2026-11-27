@@ -209,14 +209,14 @@ var _ = Describe("The disk queue and an outage", func() {
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(receiver.Close)
 		back := time.Now().Add(-3 * time.Second)
-		Expect(run.Drained(back, receiver, time.Minute)).To(BeNumerically("~", 3, 1))
+		Expect(run.SecondsToDrain(back, receiver, time.Minute)).To(BeNumerically("~", 3, 1))
 	})
 
 	It("gives the limit when the proxy never sent everything", func() {
 		receiver, err := fakes.StartReceiver()
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(receiver.Close)
-		Expect(run.Drained(time.Now().Add(-time.Minute), receiver, time.Second)).To(Equal(1.0))
+		Expect(run.SecondsToDrain(time.Now().Add(-time.Minute), receiver, time.Second)).To(Equal(1.0))
 	})
 })
 

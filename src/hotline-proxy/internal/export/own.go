@@ -121,7 +121,7 @@ func observeExporters(meter metric.Meter, exporters []exporter, files []fileExpo
 		}
 		o.ObserveFloat64(age, waited, labels)
 		if q.disk != nil {
-			bytes, _ := q.disk.disk.waiting()
+			bytes := q.disk.fileBytes()
 			o.ObserveInt64(disk, bytes, labels)
 		}
 	}

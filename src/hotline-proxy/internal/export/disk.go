@@ -61,8 +61,8 @@ const (
 type itemKind byte
 
 const (
-	kindRecord itemKind = 1
-	kindBatch  itemKind = 2
+	kindRecord      itemKind = 1
+	kindBatchRecord itemKind = 2
 	// kindSpans is one call's spans, kept together.
 	kindSpans itemKind = 3
 )
@@ -108,9 +108,9 @@ type position struct {
 	item   uint64
 }
 
-// spilled is one item waiting to be written to disk, and the time it was
+// frame is one item waiting to be written to disk, and the time it was
 // first queued, in memory or on disk.
-type spilled struct {
+type frame struct {
 	kind    itemKind
 	payload []byte
 	queued  time.Time
@@ -123,10 +123,10 @@ type diskItem struct {
 	items [][]byte
 }
 
-// diskQueue is the queue files of one signal. One writer appends and syncs;
+// queueFiles is the queue files of one signal. One writer appends and syncs;
 // the sender reads, and moves its position once the collector took what
 // it read. mu guards files and next; each side owns its own file handles.
-type diskQueue struct {
+type queueFiles struct {
 	dir string
 	// root opens the files inside dir only.
 	root   *os.Root
@@ -137,9 +137,9 @@ type diskQueue struct {
 	files []queueFile
 	// next is the number of the next item written.
 	next uint64
-	// oldest is when the sender's next item was queued, as it last read
-	// it; zero once the sender has handed on everything.
-	oldest time.Time
+	// lastReadQueued is when the sender's next item was queued, as it last
+	// read it; zero once the sender has handed on everything.
+	lastReadQueued time.Time
 
 	// The writer's side.
 	w     *os.File
@@ -157,13 +157,13 @@ type diskQueue struct {
 // the oldest first.
 func queueFileName(number uint32) string { return fmt.Sprintf("%08d.queue", number) }
 
-// openDiskQueue opens the queue files in dir, or starts them. It reads the
+// openQueueFiles opens the queue files in dir, or starts them. It reads the
 // position file; when that cannot be read the sender starts at the oldest
 // file, and the collector may get some items twice. A cut-off item at the
 // end of the newest file, from a crash while it was written, is cut away
 // and counted in lost, as is a file with no readable header. New items
 // always go to a new file.
-func openDiskQueue(dir string, budget *diskBudget) (*diskQueue, int, error) {
+func openQueueFiles(dir string, budget *diskBudget) (*queueFiles, int, error) {
 	var root *os.Root
 	err := os.MkdirAll(dir, 0o700)
 	if err == nil {
@@ -172,7 +172,7 @@ func openDiskQueue(dir string, budget *diskBudget) (*diskQueue, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	d := &diskQueue{dir: dir, root: root, budget: budget}
+	d := &queueFiles{dir: dir, root: root, budget: budget}
 	at, known := readPosition(root)
 	lost := 0
 	for _, number := range listQueueFiles(root) {
@@ -213,7 +213,7 @@ func openDiskQueue(dir string, budget *diskBudget) (*diskQueue, int, error) {
 // cutTail finds where the newest queue file's last whole item ends, and
 // cuts away anything after it: an item a crash cut short. It counts that
 // item as lost, and sets the number of the next item.
-func (d *diskQueue) cutTail() int {
+func (d *queueFiles) cutTail() int {
 	last := &d.files[len(d.files)-1]
 	name := queueFileName(last.number)
 	// statQueueFile has just read the file.
@@ -243,7 +243,7 @@ func (d *diskQueue) cutTail() int {
 }
 
 // listQueueFiles are the numbers of the queue files in root, oldest
-// first. openDiskQueue has just opened it, so it can be read.
+// first. openQueueFiles has just opened it, so it can be read.
 func listQueueFiles(root *os.Root) []uint32 {
 	entries, _ := fs.ReadDir(root.FS(), ".")
 	var numbers []uint32
@@ -277,29 +277,29 @@ func statQueueFile(root *os.Root, number uint32) (queueFile, error) {
 
 // readFrame reads one item at the start of data, and how many bytes it
 // takes. Its payload points into data.
-func readFrame(data []byte) (spilled, int64, error) {
+func readFrame(data []byte) (frame, int64, error) {
 	if len(data) < frameHeaderSize {
-		return spilled{}, 0, errQueueFile
+		return frame{}, 0, errQueueFile
 	}
 	length := int64(binary.LittleEndian.Uint32(data))
 	if int64(len(data)) < frameHeaderSize+length {
-		return spilled{}, 0, errQueueFile
+		return frame{}, 0, errQueueFile
 	}
 	body := data[8 : frameHeaderSize+length]
 	if checksum(body) != binary.LittleEndian.Uint32(data[4:]) {
-		return spilled{}, 0, errQueueFile
+		return frame{}, 0, errQueueFile
 	}
 	// A time past the year 2262 cannot be written, so it cannot be read.
 	nanos, _ := fits.Int64(binary.LittleEndian.Uint64(body[1:]))
 	queued := time.Unix(0, nanos)
-	return spilled{kind: itemKind(body[0]), payload: body[9:], queued: queued}, frameHeaderSize + length, nil
+	return frame{kind: itemKind(body[0]), payload: body[9:], queued: queued}, frameHeaderSize + length, nil
 }
 
 // appendFrame writes one item: length, crc, kind, the time it was queued
 // and payload. The crc covers all but the length and itself.
-func appendFrame(b []byte, item spilled) []byte {
+func appendFrame(b []byte, item frame) []byte {
 	// An item is far below 4 GiB: what goes to disk is refused above
-	// spillMemory, and what goes from memory at a stop was one call's.
+	// unwrittenMemory, and what goes from memory at a stop was one call's.
 	length, _ := fits.Uint32(len(item.payload))
 	b = binary.LittleEndian.AppendUint32(b, length)
 	start := len(b)
@@ -334,7 +334,7 @@ func readPosition(root *os.Root) (position, bool) {
 
 // writePosition moves the sender to at, and writes it in place. The
 // writer syncs it.
-func (d *diskQueue) writePosition(at position) {
+func (d *queueFiles) writePosition(at position) {
 	d.mu.Lock()
 	d.at = at
 	d.mu.Unlock()
@@ -353,7 +353,7 @@ func (d *diskQueue) writePosition(at position) {
 
 // startFile starts queue file number, whose first item is first, and
 // syncs it, so it is on disk before anything is written to it.
-func (d *diskQueue) startFile(number uint32, first uint64) error {
+func (d *queueFiles) startFile(number uint32, first uint64) error {
 	w, err := createQueueFile(d.root, queueFileName(number), os.O_EXCL, first, nil)
 	if err != nil {
 		return err
@@ -383,10 +383,13 @@ func createQueueFile(root *os.Root, name string, flag int, first uint64, frames 
 }
 
 // write appends items to the newest queue file, starting the next one when
-// it is full. The items' bytes were reserved in the budget when they were
-// queued. Only the writer calls it.
-func (d *diskQueue) write(items []spilled) error {
+// it is full, and says how many it wrote. The items' bytes were reserved
+// in the budget when they were queued. A write that fails starts the next
+// file, so the next write has a whole file to go to. Only the writer
+// calls it.
+func (d *queueFiles) write(items []frame) (int, error) {
 	var buf []byte
+	written := 0
 	for len(items) > 0 {
 		d.mu.Lock()
 		last := d.files[len(d.files)-1]
@@ -406,12 +409,12 @@ func (d *diskQueue) write(items []spilled) error {
 		}
 		if n == 0 {
 			if err := d.nextFile(); err != nil {
-				return err
+				return written, err
 			}
 			continue
 		}
 		if _, err := d.w.Write(buf); err != nil {
-			return err
+			return written, errors.Join(err, d.nextFile())
 		}
 		d.dirty = true
 		d.mu.Lock()
@@ -419,26 +422,27 @@ func (d *diskQueue) write(items []spilled) error {
 		d.next += uint64(n)
 		d.mu.Unlock()
 		items = items[n:]
+		written += n
 	}
-	return nil
+	return written, nil
 }
 
 // nextFile syncs and closes the newest queue file, and starts the next.
-func (d *diskQueue) nextFile() error {
-	if err := errors.Join(d.w.Sync(), d.w.Close()); err != nil {
-		return err
-	}
+// A file that could not be synced or closed is still left for the next,
+// so one broken file does not stop every later write.
+func (d *queueFiles) nextFile() error {
+	err := errors.Join(d.w.Sync(), d.w.Close())
 	d.dirty = false
 	d.mu.Lock()
 	last := d.files[len(d.files)-1]
 	next := d.next
 	d.mu.Unlock()
-	return d.startFile(last.number+1, next)
+	return errors.Join(err, d.startFile(last.number+1, next))
 }
 
 // sync syncs the newest queue file and the position file to disk, when
 // anything was written since the last sync. Only the writer calls it.
-func (d *diskQueue) sync() error {
+func (d *queueFiles) sync() error {
 	var errs []error
 	if d.dirty {
 		errs = append(errs, d.w.Sync())
@@ -455,11 +459,15 @@ func (d *diskQueue) sync() error {
 // of a file, is skipped to the next file and counted in lost; in the file
 // being written that cannot happen, as only whole items are written there.
 // Only the sender calls it.
-func (d *diskQueue) read(limit int) ([]diskItem, position, int) {
+func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
 	d.mu.Lock()
 	files := slices.Clone(d.files)
 	d.mu.Unlock()
 	at, lost := d.at, 0
+	// reached is the next item the sender has not had. A file put in front
+	// at a stop is followed by the file the sender was in, whose items
+	// before reached were already sent.
+	reached := at.item
 	var items []diskItem
 	var oldest time.Time
 	count := 0
@@ -470,23 +478,26 @@ func (d *diskQueue) read(limit int) ([]diskItem, position, int) {
 		f := files[i]
 		data, ok := d.readAt(f, at.offset)
 		for ok && len(data) > 0 && count < limit {
-			frame, n, err := readFrame(data)
+			got, n, err := readFrame(data)
 			if err != nil {
 				ok = false
 				break
 			}
-			if len(items) == 0 {
-				oldest = frame.queued
-			}
-			item := diskItem{kind: frame.kind, items: [][]byte{slices.Clone(frame.payload)}}
-			if frame.kind == kindSpans {
-				item.items = splitSpans(frame.payload)
-			}
-			items = append(items, item)
-			count += len(item.items)
 			data = data[n:]
 			at.offset += n
 			at.item++
+			if at.item <= reached {
+				continue
+			}
+			if len(items) == 0 {
+				oldest = got.queued
+			}
+			item := diskItem{kind: got.kind, items: [][]byte{slices.Clone(got.payload)}}
+			if got.kind == kindSpans {
+				item.items = splitSpans(got.payload)
+			}
+			items = append(items, item)
+			count += len(item.items)
 		}
 		if i == len(files)-1 {
 			if !ok {
@@ -507,18 +518,19 @@ func (d *diskQueue) read(limit int) ([]diskItem, position, int) {
 			lost += max(1, gap)
 		}
 		// A file read to its end is passed, so taken can delete it.
+		reached = max(reached, at.item)
 		i++
 		at = position{number: files[i].number, offset: queueHeaderSize, item: files[i].first}
 	}
 	d.mu.Lock()
-	d.oldest = oldest
+	d.lastReadQueued = oldest
 	d.mu.Unlock()
 	return items, at, lost
 }
 
 // readAt reads queue file f from offset to its end as written, through
 // the sender's own handle, and says whether it could.
-func (d *diskQueue) readAt(f queueFile, offset int64) ([]byte, bool) {
+func (d *queueFiles) readAt(f queueFile, offset int64) ([]byte, bool) {
 	if d.r == nil || d.rNumber != f.number {
 		if d.r != nil {
 			_ = d.r.Close()
@@ -538,7 +550,7 @@ func (d *diskQueue) readAt(f queueFile, offset int64) ([]byte, bool) {
 // taken moves the sender to at, past items the collector took or refused
 // for good, and deletes the queue files it is past. Only the sender calls
 // it.
-func (d *diskQueue) taken(at position) {
+func (d *queueFiles) taken(at position) {
 	d.writePosition(at)
 	d.mu.Lock()
 	var gone []queueFile
@@ -547,7 +559,7 @@ func (d *diskQueue) taken(at position) {
 		d.files = d.files[1:]
 	}
 	if d.emptyLocked() {
-		d.oldest = time.Time{}
+		d.lastReadQueued = time.Time{}
 	}
 	d.mu.Unlock()
 	for _, f := range gone {
@@ -562,35 +574,43 @@ func (d *diskQueue) taken(at position) {
 }
 
 // empty says the sender has read and handed on everything written.
-func (d *diskQueue) empty() bool {
+func (d *queueFiles) empty() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.emptyLocked()
 }
 
 // emptyLocked is empty, for a caller that holds mu.
-func (d *diskQueue) emptyLocked() bool {
+func (d *queueFiles) emptyLocked() bool {
 	last := d.files[len(d.files)-1]
 	return d.at.number == last.number && d.at.offset >= last.size
 }
 
-// waiting is the bytes the queue files take, and when the sender's next
-// item was queued: zero when it has not read it yet, or nothing waits.
-func (d *diskQueue) waiting() (int64, time.Time) {
+// fileBytes is the bytes the queue files take, what was sent included
+// until a whole file is.
+func (d *queueFiles) fileBytes() int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	size := int64(0)
 	for _, f := range d.files {
 		size += f.size
 	}
-	return size, d.oldest
+	return size
+}
+
+// oldestQueued is when the sender's next item was queued: zero when it
+// has not read it yet, or nothing waits.
+func (d *queueFiles) oldestQueued() time.Time {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lastReadQueued
 }
 
 // writeFront puts items before everything else on disk, in a new queue
 // file numbered before the oldest one, and moves the sender there. A stop
 // uses it for the items still in memory, which are older than those on
 // disk. The writer has stopped.
-func (d *diskQueue) writeFront(items []spilled) error {
+func (d *queueFiles) writeFront(items []frame) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -615,7 +635,7 @@ func (d *diskQueue) writeFront(items []spilled) error {
 }
 
 // close syncs what was written and closes the files.
-func (d *diskQueue) close() error {
+func (d *queueFiles) close() error {
 	d.posDirty.Store(true)
 	d.dirty = true
 	err := d.sync()

@@ -757,7 +757,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	l, err := d.k6run(summary, duration, d.proxyURL, true, d.rate, "measured", repeat)
 	drain := 0.0
 	if d.outage > 0 {
-		drain = Drained(<-back, receiver, drainLimit)
+		drain = SecondsToDrain(<-back, receiver, drainLimit)
 	}
 	peak := sampler()
 	if err != nil {
@@ -774,7 +774,7 @@ func (d driver) measured(p *proxyProcess, receiver *fakes.Receiver, summary, dur
 	calls := float64(l.Calls)
 	records, spans := receiver.Records(), receiver.Spans()
 	recordsLost1, spansLost1 := receiver.Dropped()
-	diskPeak, longest, _ := receiver.Queueing()
+	diskPeak, longest, _ := receiver.QueueNumbers()
 	return Result{
 		Proxy:                 l,
 		CPUMicrosPerCall:      float64(cpu1-cpu0) * 10000 / calls, // 100 ticks a second
@@ -818,12 +818,12 @@ func (d driver) startOutage(receiver *fakes.Receiver, duration string) <-chan ti
 	return back
 }
 
-// Drained waits, up to limit, until the proxy's own numbers say nothing
+// SecondsToDrain waits, up to limit, until the proxy's own numbers say nothing
 // waits in its queues, and gives the seconds since back, when the
 // collector returned; the limit when it never drained.
-func Drained(back time.Time, receiver *fakes.Receiver, limit time.Duration) float64 {
+func SecondsToDrain(back time.Time, receiver *fakes.Receiver, limit time.Duration) float64 {
 	for deadline := back.Add(limit); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if _, _, waiting := receiver.Queueing(); waiting == 0 && time.Since(back) > time.Second {
+		if _, _, waiting := receiver.QueueNumbers(); waiting == 0 && time.Since(back) > time.Second {
 			return time.Since(back).Seconds()
 		}
 	}

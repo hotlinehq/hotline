@@ -27,30 +27,32 @@ var ErrTestBusy error = busy{err: errBusy}
 
 // TestDiskQueue is the queue files of one signal.
 type TestDiskQueue struct {
-	d    *diskQueue
+	d    *queueFiles
 	last *position
 }
 
 // OpenTestDiskQueue opens the queue files in dir, with a budget of limit
 // bytes, and says how many items it found it could not read.
 func OpenTestDiskQueue(dir string, limit int64) (TestDiskQueue, int, error) {
-	d, lost, err := openDiskQueue(dir, &diskBudget{limit: limit})
+	d, lost, err := openQueueFiles(dir, &diskBudget{limit: limit})
 	return TestDiskQueue{d: d, last: &position{}}, lost, err
 }
 
 // Write writes records, each taken from the budget first.
 func (t TestDiskQueue) Write(records ...string) error {
-	var items []spilled
+	var items []frame
 	for _, r := range records {
-		items = append(items, spilled{kind: kindRecord, payload: []byte(r)})
+		items = append(items, frame{kind: kindRecord, payload: []byte(r)})
 		t.d.budget.take(frameSize([]byte(r)))
 	}
-	return t.d.write(items)
+	_, err := t.d.write(items)
+	return err
 }
 
 // WriteSpans writes one call's spans as one item.
 func (t TestDiskQueue) WriteSpans(spans ...string) error {
-	return t.d.write([]spilled{{kind: kindSpans, payload: joinSpans(texts(spans))}})
+	_, err := t.d.write([]frame{{kind: kindSpans, payload: joinSpans(texts(spans))}})
+	return err
 }
 
 // Read reads up to limit records or spans, and keeps where it ended for
@@ -81,9 +83,9 @@ func (t TestDiskQueue) Sync() error { return t.d.sync() }
 
 // WriteFront puts records before everything on disk.
 func (t TestDiskQueue) WriteFront(records ...string) error {
-	var items []spilled
+	var items []frame
 	for _, r := range records {
-		items = append(items, spilled{kind: kindRecord, payload: []byte(r)})
+		items = append(items, frame{kind: kindRecord, payload: []byte(r)})
 	}
 	return t.d.writeFront(items)
 }
@@ -159,7 +161,7 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 		sent: counter, dropped: counter, up: &atomic.Int64{},
 	}
 	q := buildQueue("records", asText, func(context.Context) error { return nil }, s)
-	o, err := newOverflow(dir, &diskBudget{limit: limit}, overflowSetup{
+	o, err := newDiskQueue(dir, &diskBudget{limit: limit}, diskQueueSetup{
 		kind: kindRecord, logger: s.logger, dropped: counter, kick: func() {},
 	})
 	if err != nil {
@@ -175,12 +177,12 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 func (t TestDiskBackedQueue) Written() bool {
 	t.q.disk.mu.Lock()
 	defer t.q.disk.mu.Unlock()
-	return len(t.q.disk.spill) == 0 && t.q.disk.writing == 0
+	return len(t.q.disk.unwritten) == 0 && t.q.disk.writing == 0
 }
 
 // OnDisk says the disk queue is in use.
-func (t TestDiskBackedQueue) OnDisk() bool { return t.q.disk.takes(true) }
+func (t TestDiskBackedQueue) OnDisk() bool { return t.q.disk.goesToDisk(true) }
 
 // BreakDiskWriter closes the file the disk queue writes, so its writer
 // fails.
-func (t TestDiskBackedQueue) BreakDiskWriter() { _ = t.q.disk.disk.w.Close() }
+func (t TestDiskBackedQueue) BreakDiskWriter() { _ = t.q.disk.files.w.Close() }
