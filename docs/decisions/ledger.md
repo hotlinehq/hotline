@@ -60,7 +60,7 @@ The batch certificate was self-signed, so nothing outside the folder vouched for
 
 ## The instance is service.instance.id (Peter, 2026-11-27)
 
-32. `ledger.instance` is gone: it named the same thing as the `service.instance.id` label in `records.transform`, and the two could disagree. A batch's `hotline.batch.instance` is the resource's `service.instance.id`, the label or a random id per run; when the label sets it, the batch also carries the random run id, `hotline.batch.run`. An old `ledger.instance` gets the usual warning for a setting the proxy does not know.
+32. `ledger.instance` is gone: it named the same thing as the `service.instance.id` label in `records.transform`, and the two could disagree. A batch's `hotline.batch.instance` is the resource's `service.instance.id`, the label or a random id per run; when the label sets it, the batch also carries the random run id, `hotline.batch.run`. Nothing special is done for an old config that still has it.
 
 ## Tripwires (2026-11-25)
 

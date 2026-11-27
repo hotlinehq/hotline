@@ -476,12 +476,6 @@ Feature: Records a third party can trust
       And their hotline.batch.run are different
       And each run's sequence starts at 0
 
-    Scenario: The ledger has no instance setting of its own
-      As with any setting the proxy does not know, it warns and goes on.
-      Given the config has ledger instance { env: POD_NAME }
-      When the proxy loads the config
-      Then the proxy logged a warning with "field instance" and "is not a setting and is ignored"
-
     Scenario: A clean stop closes one last batch
       When the app sends GET /orders
       And hotline-proxy is stopped

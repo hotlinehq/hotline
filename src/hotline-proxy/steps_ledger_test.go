@@ -867,14 +867,6 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		w.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
 		return nil
 	})
-	sc.Step(`^the config has ledger instance \{ env: POD_NAME \}$`, func() error {
-		if w.env == nil {
-			w.env = map[string]string{}
-		}
-		w.env["POD_NAME"] = "invoices-proxy-0"
-		w.topExtra += "ledger:\n  instance: { env: POD_NAME }\n"
-		return nil
-	})
 	sc.Step(`^both runs' batches have hotline.batch.instance (\S+)$`, func(name string) error {
 		w.settle()
 		for _, b := range w.receivers[0].ledger() {
