@@ -290,15 +290,23 @@ The record that closes a batch, `hotline.ledger.batch`. Each exporter sends its 
 _Avoid_: drop record (the separate record it replaced), batch log
 
 **Batch certificate**:
-The certificate in each batch record for the hourly key that signs it, naming the service and the key's hour. Self-signed for now, so it vouches for nothing outside the folder.
+The certificate in each batch record for the hourly key that signs it, naming the service and the key's hour, and marked "not an authority". Signed by the key itself, so it vouches for nothing outside the folder, or by the authority `ledger.signing.cert` names.
 _Avoid_: cert, key certificate
+
+**Authority**:
+A key whose job is to vouch for other keys by signing their certificates. A batch record's `hotline.batch.authorities` are the ones above its own certificate, the one that signed it first, up to a **root authority**: the top one, which the person checking chooses to trust.
+_Avoid_: CA (spell it out), issuer, chain
+
+**Signer**:
+What the vault hands the ledger for one batch: it signs all of the batch's digests in one go, and gives the certificate and the authorities to put beside the signatures. It prints as `redacted`.
+_Avoid_: key (the signer may sign with a key held elsewhere), signing key
 
 **Copy**:
 One exporter's records and batch records, as a file exporter's folder holds them. `verify` checks one copy, and says whose it is.
 _Avoid_: backup, replica, duplicate
 
 **Vault**:
-The proxy's in-memory place for the key batches are signed with. It makes a new key at start and every hour, never writes it anywhere, and hands it to the ledger once for each batch. Unlike a remote vault such as OpenBao, which only signs, it hands the key out.
+The proxy's in-memory place for the key batches are signed with. It makes a new key at start and every hour, never writes it anywhere, and hands the ledger a signer for it once for each batch.
 _Avoid_: keyring, key store, key keeper
 
 **Chain**:

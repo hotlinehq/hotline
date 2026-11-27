@@ -36,11 +36,27 @@ From the ADR check: the record hash left out some fields the proxy sends, such a
 22. One record per batch per exporter: the ledger builds the batch and signs nothing; each exporter adds `hotline.exporter` and `hotline.batch.dropped_records` (empty when none) or `hotline.batch.dropped_count`, and signs the whole batch record, `hotline.batch.v3`, at `WARN` when it dropped records. The drop record and `hotline.ledger.dropped` are gone (Q2). `verify` takes the exporter most batch records name as the copy's, refuses others as `batch_record_foreign`, and says whose copy it is (`summary.exporter`).
 23. The vault, the proxy's in-memory place for the key, makes a new key at start and every hour. The ledger asks it once per batch and hands the key to every exporter beside the batch; exporters never ask it, so a batch is never split across two keys (Q3). It lives in its own package, `internal/vault`, which knows nothing of the ledger; how a signature is written into a batch record stays in the ledger (Peter, 2026-11-26).
 
-24. Each hourly key comes with an X.509 certificate the vault makes and the key signs itself, valid for the key's hour, carried as `hotline.batch.certificate` in place of `hotline.batch.key` (Q4: in the same pull request, since `hotline.batch.v3` was not released). A certificate from a trusted source is the next step.
-25. The certificate names the service (`service.name`), not the pod (Q5). `verify` refuses one that cannot be read, is not signed by its own key or names another service (`batch_certificate_invalid`), and a batch closed outside its hour (`batch_outside_certificate`); every run gets the note `key_self_certified`.
+24. Each hourly key comes with an X.509 certificate the vault makes and the key signs itself, valid for the key's hour, carried as `hotline.batch.certificate` in place of `hotline.batch.key` (Q4: in the same pull request, since `hotline.batch.v3` was not released). A certificate from a trusted source is the next step. *Done by 28 (2026-11-26): a file authority can sign it.*
+25. The certificate names the service (`service.name`), not the pod (Q5). `verify` refuses one that cannot be read, is not signed by its own key or names another service (`batch_certificate_invalid`), and a batch closed outside its hour (`batch_outside_certificate`); every run gets the note `key_self_certified`. *Changed by 28 and 31 (2026-11-26): a certificate signed by an authority passes when it leads to a trusted root, one claiming to be an authority is refused, and only runs with self-signed batches get the note.*
 
 - Revisit if the trusted source to come issues a certificate per pod rather than per service (Q5).
-- Revisit if a remote vault such as OpenBao is put behind the vault: the ledger would then ask it to sign, rather than take the key, and the `certs` keys move under the vault too, as OpenBao would host them (Peter, 2026-11-26: a next step). A certificate for each hourly key from a trusted source is its own later topic.
+- Revisit if a remote vault such as OpenBao is put behind the vault (the ledger already asks for a signer rather than a key, since 27), and the `certs` keys move under the vault too, as OpenBao would host them (Peter, 2026-11-26: a next step). A certificate for each hourly key from a trusted source is its own later topic.
+
+## Signing sources: memory and a file authority (Peter, 2026-11-26)
+
+The batch certificate was self-signed, so nothing outside the folder vouched for the key. Spike and requirements: `batch-signing/spike.md` and `batch-signing/requirements.md` in the project files.
+
+26. The source of the signing key is a module chosen in the config (Q1). Built in this order: memory, then a file authority, then an outside service that issues key and certificate (OpenBao PKI), then one that only signs (OpenBao transit) (Q3). Memory and the file authority are built; the OpenBao sources are not.
+27. The vault gives the ledger a signer once per batch, not a key: it signs all of a batch's digests in one go, can fail, and gives the certificate and the authorities to put beside the signatures. Each exporter fixes its batch record under the lock and signs afterwards, on its own, so no call waits on signing and a remote signer later needs one call per batch. A batch record that cannot be signed is let go with a warning, and the chain shows it missing.
+28. With `ledger.signing.cert`, the certificate authority the config names in `certs` signs each hourly key's certificate; the proxy still makes the keys in memory (Q4). Any authorities above it are accepted, with no path length limit. The hourly certificate is marked "not an authority". A new authority at a reload makes a new hourly key at once; a refused one keeps the old.
+29. An authority that expires while the proxy runs still signs; the proxy warns on each hourly key made under it and reports its expiry in `hotline.certificate.not_after` with use `ledger.signing`, and `verify` refuses those batches (`batch_outside_authority`) (Q7).
+30. The proxy's own keys are Ed25519 by default; `ledger.signing.hourlyKeyType` can choose ML-DSA-44, ML-DSA-65 or ML-DSA-87 (Q8). `verify` checks Ed25519, ECDSA, RSA and ML-DSA, named in front of each signature (`ed25519:`, `ecdsa-sha256:`, `rsa-pss-sha256:`, `rsa-pkcs1-sha256:`, `ml-dsa-44:` and so on) (Q6).
+31. `verify` trusts the computer's public root authorities and the ones given with `--root-authority` (Q5). It reports no levels: each run and the summary say `batch_signing`, `self_signed`, `root_authority` or `both`, with the `root_authorities` its batches lead to (Q10, which replaced Q2 and dropped the policy numbers of Q9). The target is a dispute with a vendor; the qualified time-stamp it needs is a control plane topic.
+
+- Revisit if users can only get plain certificates (for example from cert-manager), not an authority certificate (Q4).
+- Revisit if ML-DSA certificates turn out not to verify with the standard library (Q6).
+- Revisit if a customer needs post-quantum evidence (Q8).
+- Revisit if expired batches go unnoticed until verify runs (Q7).
 
 ## Tripwires (2026-11-25)
 

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/sha256"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -36,9 +37,12 @@ type book struct {
 	hashes ledger.Hasher
 
 	mu sync.Mutex
-	// vault makes the key each batch is signed with, a new one every hour.
-	vault  *vault.Vault
-	chains map[string]*chain
+	// vault makes the key each batch is signed with, a new one every hour,
+	// and certificate is the newest key's, to tell when a key is new.
+	vault       *vault.Vault
+	certificate string
+	logger      *slog.Logger
+	chains      map[string]*chain
 	// closedChains are the chains a reload closed with a last batch. A record of
 	// a call that started before that reload goes on the same chain.
 	closedChains map[string]*chain
@@ -73,10 +77,10 @@ type openBatch struct {
 	leaves     [][sha256.Size]byte
 }
 
-func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config) *book {
+func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, instanceID, version string, current func() *config.Config, logger *slog.Logger) *book {
 	b := &book{
-		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current,
-		vault: vault.New(exporters.ServiceName(), keyLife, clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
+		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current, logger: logger,
+		vault: vault.New(exporters.ServiceName(), keyLife, hourlyKeys(cfg.Ledger.Signing), clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
 	if cfg.Ledger.Instance != "" {
 		// A named instance keeps the random id next to it, so two runs of
@@ -236,11 +240,32 @@ func (b *book) close(ch *chain, last bool) {
 		attrs = append(attrs, attribute.Bool("hotline.batch.last", true))
 	}
 	batch := export.Batch{ID: open.id, At: now, Observed: now, Attrs: attrs}
-	// The key is asked for once, so every exporter signs this batch with
-	// the same key.
-	b.exporters.Batch(batch, b.vault.Key(now))
+	// The signer is asked for once, so every exporter's batch record is
+	// signed with the same key.
+	signing := b.config().Ledger.Signing
+	signer := b.vault.Signer(hourlyKeys(signing), now)
+	if signer.Certificate != b.certificate {
+		b.certificate = signer.Certificate
+		if signing.Authority != nil && now.After(signing.Authority.Certificate.Leaf.NotAfter) {
+			// It still signs, as Envoy and HAProxy keep an expired
+			// certificate; verify refuses these batches (Peter, 2026-11-26).
+			b.logger.Warn("the ledger's signing authority has expired and still signs the new hourly key; verify refuses these batches",
+				"cert", signing.CertName, "expired", signing.Authority.Certificate.Leaf.NotAfter.UTC().Format(time.RFC3339))
+		}
+	}
+	b.exporters.Batch(batch, signer)
 	ch.previous = root
 	ch.sequence++
+}
+
+// hourlyKeys is how the vault makes keys under the config's signing
+// settings.
+func hourlyKeys(s config.Signing) vault.HourlyKeys {
+	keys := vault.HourlyKeys{Type: s.HourlyKeyType}
+	if s.Authority != nil {
+		keys.Authority = s.Authority.Certificate
+	}
+	return keys
 }
 
 // wholeMicros is t cut to a whole microsecond, as the proxy sends every time.

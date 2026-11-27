@@ -71,14 +71,18 @@ var _ = Describe("Checking a batch's signature", func() {
 	var signed ledger.Record
 
 	BeforeEach(func() {
-		key := vault.NewKey("hotline-proxy", time.UnixMicro(1_700_000_000_000_000), time.Hour)
+		at := time.UnixMicro(1_700_000_000_000_000)
+		signer := vault.New("hotline-proxy", time.Hour, vault.HourlyKeys{}, at).Signer(vault.HourlyKeys{}, at)
 		signed = ledger.Record{
 			Attrs: []attribute.KeyValue{attribute.String("hotline.batch.root", "sha256:00")},
 			At:    time.UnixMicro(1_700_000_000_000_000), Observed: time.UnixMicro(1_700_000_000_000_000),
 			SeverityNumber: 9, SeverityText: "INFO", Event: "hotline.ledger.batch",
 			Resource: []attribute.KeyValue{attribute.String("service.name", "hotline-proxy")},
 		}
-		signed.Attrs = ledger.Sign(ledger.BatchFormat, signed, key)
+		attrs, digest := ledger.WithCertificate(ledger.BatchFormat, signed, signer)
+		signatures, err := signer.Sign([][]byte{digest[:]})
+		Expect(err).NotTo(HaveOccurred())
+		signed.Attrs = ledger.WithSignature(attrs, signer.Algorithm, signatures[0])
 	})
 
 	// with is the signed batch with one attribute set to another text.
@@ -112,9 +116,20 @@ var _ = Describe("Checking a batch's signature", func() {
 		},
 		Entry("with a certificate that is not base64", "hotline.batch.certificate", "!!"),
 		Entry("with a certificate cut short", "hotline.batch.certificate", "AAAA"),
-		Entry("with a signature that does not say ed25519", "hotline.batch.signature", "rsa:AAAA"),
+		Entry("with a signature that does not say ed25519", "hotline.batch.signature", "rsa-pss-sha256:AAAA"),
 		Entry("with a signature that is not base64", "hotline.batch.signature", "ed25519:!!"),
 		Entry("with a changed root", "hotline.batch.root", "sha256:01"),
+	)
+
+	DescribeTable("fails with authorities that cannot be read",
+		func(authorities attribute.KeyValue) {
+			r := signed
+			r.Attrs = append(slices.Clone(signed.Attrs), authorities)
+			_, err := ledger.CheckSignature(ledger.BatchFormat, r)
+			Expect(err).To(MatchError(vault.ErrNotACertificate))
+		},
+		Entry("not a list", attribute.String("hotline.batch.authorities", "AAAA")),
+		Entry("a list holding what is not a certificate", attribute.Slice("hotline.batch.authorities", attribute.StringValue("AAAA"))),
 	)
 
 	DescribeTable("fails when a field besides the attributes changes",

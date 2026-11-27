@@ -181,7 +181,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 	}
 	h.forward.Buffers = &h.buffers
 	h.cfg.Store(cfg)
-	h.book = newBook(o.Clock, exporters, cfg, o.InstanceID, o.Version, h.cfg.Load)
+	h.book = newBook(o.Clock, exporters, cfg, o.InstanceID, o.Version, h.cfg.Load, o.Logger)
 	// Probes connect as calls do, with the same resolver, dialer and
 	// certificate authorities.
 	h.probes = newProbes(o.Clock, &dialer{resolver: o.Resolver, dialer: o.Dialer, clock: o.Clock}, o.Packets, o.RootCAs, h.cfg.Load, h.book)

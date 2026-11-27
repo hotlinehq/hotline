@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"crypto/sha256"
 	"log/slog"
 	"slices"
 	"sync"
@@ -49,14 +50,36 @@ func signedRecord(b Batch, resource []attribute.KeyValue) ledger.Record {
 	}
 }
 
-// Batch queues a batch record for every exporter that keeps the ledger,
-// each signed at once by that exporter with key, which is never kept. It
-// never blocks and is never refused for a full queue: it waits apart from
-// the records, after them.
-func (s *Exporters) Batch(b Batch, key vault.Key) {
-	for _, line := range s.batches {
-		line.add(b, key)
+// Batch queues a batch record for every exporter that keeps the ledger.
+// Each exporter fixes its own batch record at once; signer signs them all
+// afterwards, in one go and apart from the calls, so no call ever waits on
+// signing (Peter, 2026-11-26). The signer is never kept. Batch never blocks
+// and is never refused for a full queue: the records wait apart from the
+// calls' records, after them.
+func (s *Exporters) Batch(b Batch, signer vault.Signer) {
+	if len(s.batches) == 0 {
+		return
 	}
+	numbers := make([]uint64, len(s.batches))
+	digests := make([][]byte, len(s.batches))
+	lines := s.batches
+	for i, line := range lines {
+		var digest [sha256.Size]byte
+		numbers[i], digest = line.add(b, signer)
+		digests[i] = digest[:]
+	}
+	s.signing.Add(1)
+	go func() {
+		defer s.signing.Done()
+		signatures, err := signer.Sign(digests)
+		for i, line := range lines {
+			var signature []byte
+			if err == nil {
+				signature = signatures[i]
+			}
+			line.signed(numbers[i], signer.Algorithm, signature, err)
+		}
+	}()
 }
 
 // batchDrops are the records of one batch an exporter dropped: the
@@ -99,9 +122,11 @@ type batchLine struct {
 }
 
 // waitingBatch is one batch record waiting, numbered in the order it was
-// queued, and already written, so a retry sends the same bytes.
+// queued. Until it is signed it holds the record without its signature;
+// then it is written, so a retry sends the same bytes.
 type waitingBatch struct {
 	number uint64
+	record Batch
 	items  [][]byte
 }
 
@@ -151,12 +176,14 @@ func (l *batchLine) dropped(e LedgerEntry) {
 	}
 }
 
-// add queues this exporter's batch record. The exporter's drops for that
-// batch are final now, as the ledger hands over a call's record and closes
-// its batch under the same lock, so the record is made and signed here,
-// once (Peter, 2026-11-26).
-func (l *batchLine) add(b Batch, key vault.Key) {
+// add queues this exporter's batch record, to be signed, and gives its
+// number and the digest its signature covers. The exporter's drops for
+// that batch are final now, as the ledger hands over a call's record and
+// closes its batch under the same lock, so the record is made here, once
+// (Peter, 2026-11-26).
+func (l *batchLine) add(b Batch, signer vault.Signer) (uint64, [sha256.Size]byte) {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	d := l.drops[b.ID]
 	if d == nil {
 		d = &batchDrops{}
@@ -169,8 +196,8 @@ func (l *batchLine) add(b Batch, key vault.Key) {
 	// The exporter is named, so verify can tell one exporter's copy from
 	// another's.
 	mine.Attrs = append(slices.Clip(b.Attrs), attribute.String("hotline.exporter", l.name), d.list())
-	mine.Attrs = ledger.Sign(ledger.BatchFormat, signedRecord(mine, l.resource), key)
-	items := [][]byte{l.render(mine)}
+	var digest [sha256.Size]byte
+	mine.Attrs, digest = ledger.WithCertificate(ledger.BatchFormat, signedRecord(mine, l.resource), signer)
 	delete(l.drops, b.ID)
 	if len(l.waiting) == waitingBatches {
 		clear(l.waiting[:1])
@@ -178,12 +205,43 @@ func (l *batchLine) add(b Batch, key vault.Key) {
 		l.lost()
 	}
 	l.queued++
-	l.waiting = append(l.waiting, waitingBatch{number: l.queued, items: items})
+	l.waiting = append(l.waiting, waitingBatch{number: l.queued, record: mine})
+	return l.queued, digest
+}
+
+// signed puts the signature in batch record number and writes it, so it
+// can be sent. A record the signer could not sign is let go and counted,
+// and the chain shows the batch is missing. A record let go as the oldest
+// while it was signed stays gone.
+func (l *batchLine) signed(number uint64, algorithm string, signature []byte, err error) {
+	l.mu.Lock()
+	// The record is looked for by its number, as it may have been let go
+	// as the oldest meanwhile.
+	for i := range l.waiting {
+		if l.waiting[i].number == number {
+			l.settle(i, algorithm, signature, err)
+			break
+		}
+	}
 	l.mu.Unlock()
 	select {
 	case l.kick <- struct{}{}:
 	default:
 	}
+}
+
+// settle puts the signature in waiting batch record i, or lets the record
+// go when it could not be signed. The caller holds the lock.
+func (l *batchLine) settle(i int, algorithm string, signature []byte, err error) {
+	if err != nil {
+		l.waiting = slices.Delete(l.waiting, i, i+1)
+		l.lost()
+		l.logger.Warn("could not sign a batch record, it is let go", "endpoint", l.name, "error", err.Error())
+		return
+	}
+	w := &l.waiting[i]
+	w.record.Attrs = ledger.WithSignature(w.record.Attrs, algorithm, signature)
+	w.items = [][]byte{l.render(w.record)}
 }
 
 func (l *batchLine) run() {
@@ -210,7 +268,13 @@ func (l *batchLine) flush(ctx context.Context) error {
 	l.sendMu.Lock()
 	defer l.sendMu.Unlock()
 	l.mu.Lock()
-	waiting := slices.Clone(l.waiting)
+	// Only the signed ones go, in order: one still being signed holds back
+	// those after it.
+	ready := slices.IndexFunc(l.waiting, func(w waitingBatch) bool { return w.items == nil })
+	if ready < 0 {
+		ready = len(l.waiting)
+	}
+	waiting := slices.Clone(l.waiting[:ready])
 	l.mu.Unlock()
 	if len(waiting) == 0 {
 		return nil

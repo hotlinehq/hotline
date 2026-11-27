@@ -229,6 +229,17 @@ func makeOverlay(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// rootAuthorities are the files --root-authority names, each time it is
+// given.
+type rootAuthorities []string
+
+func (r *rootAuthorities) String() string { return strings.Join(*r, ",") }
+
+func (r *rootAuthorities) Set(path string) error {
+	*r = append(*r, path)
+	return nil
+}
+
 // verify checks the records a file exporter wrote to a folder. It needs no
 // config, no key and no network. The folder comes first, then the flags.
 func verify(args []string, stdout, stderr io.Writer) int {
@@ -238,6 +249,8 @@ func verify(args []string, stdout, stderr io.Writer) int {
 	body := flags.String("body", "", "a body someone kept, to check against the hash in a record (with --span and --side)")
 	span := flags.String("span", "", "the span id of the record whose body hash --body is checked against")
 	side := flags.String("side", "", "which body --body is: request or response")
+	var roots rootAuthorities
+	flags.Var(&roots, "root-authority", "a file of root authority certificates in PEM to trust, beside the computer's own; may be given again")
 	f := formatFlag(flags)
 	folder := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -259,7 +272,7 @@ func verify(args []string, stdout, stderr io.Writer) int {
 	return proxy.Verify(stdout, proxy.VerifyOptions{
 		Folder: folder, Integration: *integration,
 		Body: *body, Span: *span, Side: *side,
-		JSON: *f == "json",
+		JSON: *f == "json", RootAuthorities: roots,
 	})
 }
 

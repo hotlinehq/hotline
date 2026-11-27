@@ -214,6 +214,9 @@ type world struct {
 	captureDropped bool
 	// noProxyPort leaves the proxy listener out of the config.
 	noProxyPort bool
+	// signing is the config's ledger.signing settings, each line indented
+	// under it, when it has any.
+	signing string
 	// certEntries is the config's certs section, when it has one.
 	certEntries string
 	// interception is the certificate authority in the connect part files, and second
@@ -566,12 +569,25 @@ func (w *world) config() string {
 			b.WriteString("  pprof: true\n")
 		}
 	}
-	b.WriteString(w.topExtra)
+	b.WriteString(w.ledgerExtra())
 	b.WriteString(w.apisSection())
 	if len(w.integrations) > 0 {
 		b.WriteString("integrations:\n" + strings.Join(w.integrations, ""))
 	}
 	return b.String()
+}
+
+// ledgerExtra is the config's other top sections, with the ledger's
+// signing settings put in its ledger section, or in one of their own.
+func (w *world) ledgerExtra() string {
+	if w.signing == "" {
+		return w.topExtra
+	}
+	signing := "  signing:\n" + w.signing
+	if strings.Contains(w.topExtra, "ledger:\n") {
+		return strings.Replace(w.topExtra, "ledger:\n", "ledger:\n"+signing, 1)
+	}
+	return w.topExtra + "ledger:\n" + signing
 }
 
 // start writes the config and starts the proxy, if not done yet.

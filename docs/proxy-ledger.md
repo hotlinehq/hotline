@@ -1,6 +1,6 @@
 # The evidence ledger
 
-*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Each exporter signs its own batch record, with a self-signed certificate for the key: decided and built 2026-11-26 (decisions 21 to 25). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
+*Agreed with Peter, 2026-11-13 to 2026-11-16, and built 2026-11-16. Every field covered: decided and built 2026-11-25 ([decisions 15 to 20](decisions/ledger.md)). Each exporter signs its own batch record, with a self-signed certificate for the key: decided and built 2026-11-26 (decisions 21 to 25). Signing sources, memory and a file authority: decided and built 2026-11-26 (decisions 26 to 31). Scenarios: `src/hotline-proxy/features/ledger.feature` and `verify.feature`. The requirements, with the history of each choice: `evidence-ledger/requirements.md` in the Hotline project files. Replaces the signed records of 2026-10-30 (HMAC with `fingerprintKey`), which are gone.*
 
 Every record, minimal or full, carries a hash of everything it holds. Every 10 seconds the proxy puts the hashes of each integration's records into a tree, and each exporter signs the tree's top, with a key the proxy made itself, in its own batch record. Each batch points to the one before, so a missing batch shows. Anyone can check the records with `hotline-proxy verify`, with no secret, no config and no network.
 
@@ -60,7 +60,7 @@ A file exporter with `content: full` writes the real values beside the record, u
 
 ## What a batch record holds
 
-A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger.batch`, after the batch's call records. The ledger builds the batch and signs nothing. It asks the vault (the proxy's in-memory place for the signing key) for the key once, and hands the batch and the key to every exporter. Each exporter adds its own name and the records of the batch it dropped, and signs its own batch record (Peter, 2026-11-26). So each copy holds one batch record per batch, and a copy mixed from two exporters shows. Batch records of the same batch differ between exporters only in `hotline.exporter`, the dropped records, the level and the signature.
+A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger.batch`, after the batch's call records. The ledger builds the batch and signs nothing. It asks the vault (the proxy's in-memory place for the signing key) for a signer once, and hands the batch and the signer to every exporter. Each exporter adds its own name and the records of the batch it dropped, and signs its own batch record (Peter, 2026-11-26). It fixes the record under the ledger's lock and signs it afterwards, on its own, so no call waits on signing. So each copy holds one batch record per batch, and a copy mixed from two exporters shows. Batch records of the same batch differ between exporters only in `hotline.exporter`, the dropped records, the level and the signature.
 
 | Attribute | What it holds |
 |---|---|
@@ -78,15 +78,16 @@ A batch leaves as one OTLP log record per exporter, `event.name = hotline.ledger
 | `hotline.batch.dropped_records` | The index and hash of each record of the batch this exporter dropped because its queue was full, up to 1,024. An empty list when it dropped none. |
 | `hotline.batch.dropped_count` | In place of the list, when it dropped more than 1,024. That copy cannot rebuild the root. |
 | `hotline.batch.certificate` | The certificate of the key that signed the batch record: base64 of its DER bytes (the standard binary form of a certificate). |
-| `hotline.batch.signature` | `ed25519:` and the base64 of the signature. |
+| `hotline.batch.authorities` | Only under an authority: the certificates above the batch certificate, the one that signed it first, each as base64 of its DER bytes. |
+| `hotline.batch.signature` | The algorithm, a colon, and the base64 of the signature: `ed25519:`, `ml-dsa-44:`, `ml-dsa-65:` or `ml-dsa-87:` from the proxy; `verify` also reads `ecdsa-sha256:`, `rsa-pss-sha256:` and `rsa-pkcs1-sha256:`. |
 
 The level is `INFO`, or `WARN` when the exporter dropped records of the batch.
 
-The certificate is an X.509 certificate for the hourly Ed25519 key, made by the vault and signed by that key itself (Peter, 2026-11-26). Its name (common name) is the service, `service.name` from the resource, not the pod; the batch record names its pod as the instance. It is valid from when the key was made for one hour, the start cut down to a whole second and the end cut down plus one second. A self-signed certificate vouches for nothing outside the folder; it gives the key a name and an hour, so a certificate from a trusted source can take its place later.
+The certificate is an X.509 certificate for the hourly key (Ed25519 unless `ledger.signing.hourlyKeyType` says an ML-DSA type), made by the vault and marked "not an authority". Without `ledger.signing.cert` it is signed by that key itself (Peter, 2026-11-26); with it, by the authority from `certs` (a key whose job is to vouch for other keys). Its name (common name) is the service, `service.name` from the resource, not the pod; the batch record names its pod as the instance. It is valid from when the key was made for one hour, the start cut down to a whole second and the end cut down plus one second. A self-signed certificate vouches for nothing outside the folder; it gives the key a name and an hour. One under an authority leads to a root authority the person checking can choose to trust.
 
 The tree is the one from Certificate Transparency (RFC 6962): a leaf is SHA-256 of `0x00` and the record's hash, an inner node SHA-256 of `0x01`, left and right, and the split is the largest power of two below the count.
 
-The signature is Ed25519 over the SHA-256 of the word `hotline.batch.v3`, every attribute but the signature in name order, then the record's other fields as a record's hash covers them: its time, observed time, level, event name and resource (with an empty trace, flags and body). An exporter signs when it queues the batch record, once its drops for the batch are final, and keeps no key: a retry sends the same bytes.
+The signature is over the SHA-256 of the word `hotline.batch.v3`, every attribute but the signature in name order, then the record's other fields as a record's hash covers them: its time, observed time, level, event name and resource (with an empty trace, flags and body). Ed25519 and ML-DSA sign that 32-byte digest as it is; ECDSA and RSA sign it as an already hashed SHA-256 value. An exporter fixes the batch record when it queues it, once its drops for the batch are final, signs it right after, and keeps no key: a retry sends the same bytes. A batch record that cannot be signed is let go with a warning, and the chain shows it missing.
 
 `verify` takes the dropped records' hashes in place of the records, so a copy with drops still rebuilds the root. A record deleted and listed as dropped fails the signature. A folder is one exporter's copy, so `verify` works out the exporter most of its batch records name, says whose copy the folder is, and refuses a batch record that names another exporter or lists a record the folder still holds: each is a batch record taken from another copy.
 
@@ -94,7 +95,7 @@ The signature is Ed25519 over the SHA-256 of the word `hotline.batch.v3`, every 
 
 - One chain per integration in the config, and one, `not-passed`, for everything else. A dispute is about one integration, so it hands over its own chain only.
 - A batch closes every 10 seconds, or at 65,536 records. A window with no calls sends no batch.
-- The vault makes a new key in memory at start, and again every hour; the ledger asks it once for each batch it closes, so every exporter signs a batch with the same key. Exporters never ask the vault themselves, since a new key made between two of them would split a batch across two keys. The key is never written anywhere.
+- The vault makes a new key in memory at start, again every hour, and at once when a reload changes the key type or the authority, so no batch is signed under an authority after it was replaced; the ledger asks it once for each batch it closes, so every exporter signs a batch with the same key. Exporters never ask the vault themselves, since a new key made between two of them would split a batch across two keys. The key is never written anywhere.
 - Each run starts each chain at sequence 0. On a clean stop the proxy sends a last batch for every chain, an empty one too, with `hotline.batch.last`. A chain with no last batch means a crash or a cut-off end.
 - A config reload changes `hotline.batch.config` from the next batch on. An integration added starts its chain at 0; one removed closes its chain with a last batch. A last batch sent empty names the config of the chain's batch before it, not the config in use at the time.
 - Every record in a batch is of the config the batch names: the config its call started with, even when a reload came before the record was made. The first record of another config closes the open batch and starts a new one. A record of a call that started before its integration was removed goes on that integration's chain, after its last batch.
@@ -106,26 +107,31 @@ ledger:                       # optional; the values shown are the defaults
     every: 10s
     maxRecords: 65536
   instance: { env: POD_NAME } # optional; left out, the name is random per run
+  signing:                     # optional; left out, Ed25519 keys that sign their own certificates
+    hourlyKeyType: ed25519     # or ml-dsa-44, ml-dsa-65, ml-dsa-87
+    cert: batch-authority      # optional; a name in certs, whose authority signs the hourly keys
 ```
+
+`ledger.signing.cert` names a certificate and key pair in `certs`, checked as every cert is (the pair matches and has not expired, the key file is kept out of the config hash), and also that it is a certificate authority and that each certificate in its file is signed by the next one. Its file holds the authority first, then the ones above it; its key may be Ed25519, ECDSA, RSA or ML-DSA. A refusal at start stops the proxy; at a reload the old config stays in use. An authority that expires while the proxy runs still signs: the proxy logs a warning on each hourly key made under it, and its expiry shows in `hotline.certificate.not_after` with use `ledger.signing`; `verify` refuses those batches.
 
 ## hotline-proxy verify
 
 ```
-hotline-proxy verify <folder> [--integration id] [--body file --span id --side request|response] [--format json]
+hotline-proxy verify <folder> [--integration id] [--body file --span id --side request|response] [--root-authority file]... [--format json]
 ```
 
-It reads a file exporter's folder (`calls.jsonl` and the rotated files, compressed or not) and checks each record's hash, each trace's hash from the spans kept in the line, the content hash and kept bodies, each batch's signature and root, and each run's chain. With `--body` it checks a body someone kept against the hash in the record with that span id.
+It reads a file exporter's folder (`calls.jsonl` and the rotated files, compressed or not) and checks each record's hash, each trace's hash from the spans kept in the line, the content hash and kept bodies, each batch's signature and root, and each run's chain. With `--body` it checks a body someone kept against the hash in the record with that span id. A batch certificate signed by its own key passes as self-signed. Any other must link up, through the batch's authorities, to a root authority it trusts: the computer's public ones, or one in a PEM file given with `--root-authority`, which may repeat. Each run and the summary say `batch_signing` (`self_signed`, `root_authority`, or `both` when a reload brought an authority in the middle of a run) and `root_authorities`, the names of the roots its batches lead to.
 
 It reads only the formats of this build: a folder written by an older edge build, with `hotline.batch.v1` or `hotline.batch.v2`, is refused as unreadable, with a message that says so.
 
 It exits with 0 when everything checks out, 1 when it found a problem, and 2 when it could not read its input. With `--format json` it prints one object, `format: hotline.verify.v1`, with `ok`, `summary` (with `exporter`, whose copy the folder is), `runs`, `problems` and `notes`, each with a fixed `code` and a plain `message`.
 
-- Problems: `batch_certificate_invalid` (a certificate that cannot be read, is not signed by its own key, or names another service than the batch record), `batch_outside_certificate` (a batch closed outside its certificate's hour), `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `batch_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
-- Notes, which leave the exit code at 0: `key_self_certified` (on every run: nothing outside the folder vouches for the key), `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
+- Problems: `batch_certificate_invalid` (a certificate that cannot be read, is not signed by its own key with no authority named, claims to be an authority, or names another service than the batch record), `batch_authority_unlinked` (a certificate not signed by the authority after it, or an authority that is not one), `batch_authority_untrusted` (authorities that lead to no root it trusts), `batch_outside_authority` (a batch closed outside the time an authority is valid), `batch_outside_certificate` (a batch closed outside its certificate's hour), `record_hash_mismatch`, `trace_hash_mismatch`, `content_hash_mismatch`, `body_hash_mismatch`, `record_extra`, `record_missing`, `batch_signature_invalid`, `batch_root_mismatch`, `batch_unprovable`, `batch_record_foreign`, `batch_missing`, `chain_broken`, `body_mismatch`, `body_record_missing`, `body_unreadable`, `input_unreadable`.
+- Notes, which leave the exit code at 0: `key_self_certified` (on a run with self-signed batches: nothing outside the folder vouches for the key), `records_dropped`, `records_unbatched`, `no_last_batch`, `body_not_checked`.
 
 ## Limits
 
 - Without the control plane, the batches do not stop a deliberate forger: whoever holds the records can make a new key and sign new batches. The minute entry, the witness and the time stamp, which come with the control plane, anchor the key.
 - A record an exporter loses after taking it, when a send or a write fails for good, is not in that exporter's dropped list, since the batch record has gone out already. That copy of the batch cannot rebuild its root.
-- The key's certificate is signed by the key itself, so nothing outside the folder vouches for it, and a folder that names one exporter throughout is only as strong as the key. A certificate from a trusted source is the next step.
+- Without an authority, the key's certificate is signed by the key itself, so nothing outside the folder vouches for it, and a folder that names one exporter throughout is only as strong as the key. With a file authority, whoever can read the authority's key file can sign keys for any hour, past ones too; an outside service such as OpenBao, which is not built yet, keeps the authority's key away from the proxy.
 - The build hash waits for secure hardware: a proxy can only report its own.

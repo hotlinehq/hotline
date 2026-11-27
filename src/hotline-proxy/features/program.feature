@@ -105,6 +105,11 @@ Feature: The hotline-proxy program
     Then it exits with code 2
     And standard output starts with "problem: input cannot be read"
 
+  Scenario: verify takes --root-authority more than once
+    When hotline-proxy is run with "verify calls --root-authority root.pem --root-authority other.pem"
+    Then it exits with code 2
+    And standard output starts with "problem: input cannot be read"
+
   Scenario: validate accepts a valid config
     Given a valid config file
     When hotline-proxy is run with "validate --config hotline-proxy.yaml"
