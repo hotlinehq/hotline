@@ -135,17 +135,31 @@ func (q *queue[T]) add(items ...T) bool {
 	return true
 }
 
-// take moves up to one batch of waiting items into the sender's batch, and
-// clears their places in the ring so what they point to can be freed. The
-// caller holds sendMu.
-func (q *queue[T]) take() []T {
+// peek copies up to one batch of the oldest waiting items into the
+// sender's batch, and leaves them in the ring: they keep their places
+// until the collector has taken them, or refused them for good. The
+// caller holds sendMu, so nothing else takes items meanwhile.
+func (q *queue[T]) peek() []T {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	n := min(batchSize, q.count)
 	q.batch = q.batch[:0]
+	for at := q.first; n > 0; at = 0 {
+		part := q.ring[at:min(at+n, len(q.ring))]
+		q.batch = append(q.batch, part...)
+		n -= len(part)
+	}
+	return q.batch
+}
+
+// remove lets go of the n oldest items, sent or refused for good, and
+// clears their places in the ring so what they point to can be freed.
+// The caller holds sendMu.
+func (q *queue[T]) remove(n int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	for n > 0 {
 		part := q.ring[q.first:min(q.first+n, len(q.ring))]
-		q.batch = append(q.batch, part...)
 		if q.memory > 0 {
 			for _, item := range part {
 				q.held -= weigh(item)
@@ -156,50 +170,121 @@ func (q *queue[T]) take() []T {
 		q.count -= len(part)
 		n -= len(part)
 	}
-	return q.batch
 }
 
+// run sends a batch every interval, or as soon as one fills. While the
+// collector is busy or cannot be reached, it tries again after a growing
+// wait instead, and the batch stays first in line.
 func (q *queue[T]) run() {
 	defer close(q.stopped)
 	ticker := time.NewTicker(q.interval)
 	defer ticker.Stop()
+	retry := time.NewTimer(time.Hour)
+	retry.Stop()
+	wait := time.Duration(0)
 	for {
-		select {
-		case <-ticker.C:
-		case <-q.full:
-		case <-q.stop:
-			return
+		if wait > 0 {
+			retry.Reset(wait)
+			select {
+			case <-retry.C:
+			case <-q.stop:
+				retry.Stop()
+				return
+			}
+		} else {
+			select {
+			case <-ticker.C:
+			case <-q.full:
+			case <-q.stop:
+				return
+			}
 		}
-		_ = q.send(context.Background(), false)
+		if err := q.send(context.Background(), false); busyErr(err) {
+			wait = nextWait(wait)
+		} else {
+			wait = 0
+		}
 	}
 }
 
-// send sends what is queued, in batches; all of it when flushing, else one
-// batch. A batch the exporter refuses is lost and counted: the
-// exporter has had its retries.
+// nextWait is how long to wait before trying a busy collector again:
+// first about a second, then half as long again each time, at most a few
+// seconds.
+func nextWait(last time.Duration) time.Duration {
+	if last == 0 {
+		return retryFirst
+	}
+	return min(last*3/2, retryMost)
+}
+
+// busyErr says the collector was busy or could not be reached: the
+// items are kept and tried again.
+func busyErr(err error) bool {
+	var b busy
+	return errors.As(err, &b)
+}
+
+// send sends what is queued, in batches: all of it when flushing, else
+// while a whole batch waits. A batch leaves the queue once the collector
+// took it. One the collector refused for good is lost and counted. One
+// it was too busy for, or could not be reached for, stays first in line,
+// and send returns the error so the caller can try again later
+// (Peter, 2026-11-27).
 func (q *queue[T]) send(ctx context.Context, all bool) error {
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
 	defer q.warnDropped(all)
 	for {
-		batch := q.take()
+		batch := q.peek()
 		if len(batch) == 0 {
 			return nil
 		}
+		n := len(batch)
 		err := q.export(ctx, batch)
 		// The batch is kept for the next send; let go of what it held.
 		clear(batch)
-		measured(ctx, q.sent, q.dropped, len(batch), q.labels, err, q.up)
-		if err != nil {
-			q.mu.Lock()
-			q.failed.count += len(batch)
-			q.lastErr = err
-			q.mu.Unlock()
-		}
-		if err != nil || !all {
+		if busyErr(err) {
+			q.up.Store(0)
 			return err
 		}
+		q.remove(n)
+		measured(ctx, q.sent, q.dropped, n, q.labels, err, q.up)
+		if err != nil {
+			q.mu.Lock()
+			q.failed.count += n
+			q.lastErr = err
+			q.mu.Unlock()
+			return err
+		}
+		if !all && q.waitingCount() < batchSize {
+			return nil
+		}
 	}
+}
+
+// waitingCount is how many items wait.
+func (q *queue[T]) waitingCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.count
+}
+
+// dropWaiting lets go of every waiting item, counted as lost in a send,
+// when the stop time ran out before the collector took them.
+func (q *queue[T]) dropWaiting(err error) {
+	q.sendMu.Lock()
+	defer q.sendMu.Unlock()
+	n := q.waitingCount()
+	if n == 0 {
+		return
+	}
+	q.remove(n)
+	q.dropped.Add(context.Background(), int64(n), dropReason(q.labels, "send_failed"))
+	q.mu.Lock()
+	q.failed.count += n
+	q.lastErr = err
+	q.mu.Unlock()
+	q.warnDropped(true)
 }
 
 // drops counts lost items until the next warning about them, and for a
@@ -248,11 +333,34 @@ func (q *queue[T]) ForceFlush(ctx context.Context) error {
 }
 
 // Shutdown stops the queue, sends what is left and closes the sender.
+// A busy collector is tried again until the time ctx allows runs out;
+// what it still has not taken then is lost, counted and warned about.
 func (q *queue[T]) Shutdown(ctx context.Context) error {
 	close(q.stop)
 	<-q.stopped
-	err := q.ForceFlush(ctx)
+	err := q.flushUntil(ctx)
 	return errors.Join(err, q.close(ctx))
+}
+
+// flushUntil sends everything queued, trying a busy collector again
+// until ctx ends. It returns only a send refused for good.
+func (q *queue[T]) flushUntil(ctx context.Context) error {
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+	for wait := time.Duration(0); ; {
+		err := q.ForceFlush(ctx)
+		if !busyErr(err) {
+			return err
+		}
+		wait = nextWait(wait)
+		timer.Reset(wait)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			q.dropWaiting(err)
+			return nil
+		}
+	}
 }
 
 // newItemQueue is the queue of one kind of written items for one

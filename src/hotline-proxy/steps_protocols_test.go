@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"crypto/tls"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -212,6 +213,40 @@ func protocolSteps(sc *godog.ScenarioContext, w *world) {
 		pause(50 * time.Millisecond)
 		return logSends()
 	}
+	sc.Step(`^a receiver that answers the first (\d+) log sends with 503, each longer than a send may take$`, func(n int) error {
+		for range n {
+			w.receivers[0].answers = append(w.receivers[0].answers, answer{status: http.StatusServiceUnavailable})
+		}
+		// Shorter than the first wait before a retry, so each send gives up
+		// after its first try.
+		w.exportTimeout = 300 * time.Millisecond
+		return nil
+	})
+	sc.Step(`^a receiver that answers every log send with 503$`, func() error {
+		for range 1000 {
+			w.receivers[0].answers = append(w.receivers[0].answers, answer{status: http.StatusServiceUnavailable})
+		}
+		w.exportTimeout = 300 * time.Millisecond
+		return nil
+	})
+	sc.Step(`^the record arrives on the third send$`, func() error {
+		sends := sendsBeforeStop(func() bool { return len(w.receivers[0].got()) > 0 })
+		if got := len(w.records()); got != 1 {
+			return failf("the receiver got %d records, want 1", got)
+		}
+		if sends != 3 {
+			return failf("the record was sent %d times, want 3", sends)
+		}
+		return nil
+	})
+	sc.Step(`^the proxy logs no warning about dropped records$`, func() error {
+		for _, line := range strings.Split(w.logs.String(), "\n") {
+			if strings.Contains(line, "level=WARN") && strings.Contains(line, "dropped") {
+				return failf("the proxy warned about dropped records: %s", line)
+			}
+		}
+		return nil
+	})
 	sc.Step(`^the record arrives on the second try$`, func() error {
 		sends := sendsBeforeStop(func() bool { records := w.receivers[0].got(); return len(records) > 0 })
 		if got := len(w.records()); got != 1 {

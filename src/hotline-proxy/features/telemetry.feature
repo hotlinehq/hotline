@@ -102,7 +102,7 @@ Feature: The proxy's own telemetry
 
   Scenario: Records dropped from a full queue are counted
     Given an exporter with queueSize 3 whose exporter is busy with the first record
-    When 4 more calls end
+    When 3 more calls end
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason queue_full
 
   Scenario: Records lost in a refused send are counted
@@ -251,7 +251,7 @@ Feature: The proxy's own telemetry
 
   Scenario: Dropped items have their unit and a description
     Given an exporter with queueSize 3 whose exporter is busy with the first record
-    When 4 more calls end
+    When 3 more calls end
     Then the telemetry receiver gets hotline.exporter.dropped with unit "{item}" and a description
 
   Scenario: One metric turned off

@@ -308,5 +308,18 @@ func (l *batchLine) flush(ctx context.Context) error {
 func (l *batchLine) shutdown(ctx context.Context) error {
 	close(l.stop)
 	<-l.stopped
-	return l.flush(ctx)
+	err := l.flush(ctx)
+	if !busyErr(err) {
+		return err
+	}
+	// The collector was still busy when the stop time ran out: the batch
+	// records waiting are lost, counted and warned about, as records are.
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for range l.waiting {
+		l.lost()
+	}
+	l.logger.Warn("export failed at the stop, dropped the ledger's batch records", "endpoint", l.name, "dropped", len(l.waiting), "error", err.Error())
+	l.waiting = nil
+	return nil
 }

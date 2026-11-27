@@ -95,10 +95,12 @@ Feature: Sending OpenTelemetry data
   Scenario: A full queue refuses the newest record
     A full queue keeps what waits and refuses what is new, for records and
     spans alike (Peter, 2026-11-09). Drops are counted in a warning log
-    line, at most once a minute per exporter (Peter, 2026-10-28).
+    line, at most once a minute per exporter (Peter, 2026-10-28). The
+    record being sent keeps its place until the collector takes it
+    (Peter, 2026-11-27).
     Given an exporter with queueSize 3 whose exporter is busy with the first record
-    When 4 more calls end
-    Then the exporter gets records 1, 2, 3 and 4
+    When 3 more calls end
+    Then the exporter gets records 1, 2 and 3
     And the proxy logs a warning that 1 record was dropped for that exporter
     And no call was blocked or slowed
 
@@ -119,6 +121,23 @@ Feature: Sending OpenTelemetry data
     When a call ends
     And the proxy shuts down
     Then the exporter gets no span
+
+  Scenario: A busy collector never loses a batch
+    A batch the collector is too busy for, or that cannot reach it, stays
+    first in line and is tried again, for as long as it takes. Only a
+    refusal for good drops it (Peter, 2026-11-27).
+    Given a receiver that answers the first 2 log sends with 503, each longer than a send may take
+    When a call ends
+    Then the record arrives on the third send
+    And the proxy logs no warning about dropped records
+
+  Scenario: Records still waiting at a stop for a busy collector are counted
+    With no queueFolder, records the collector cannot take before the stop
+    time runs out are lost, counted and warned about.
+    Given a receiver that answers every log send with 503
+    When a call ends
+    And the proxy shuts down
+    Then the proxy logs a warning that 1 record was dropped for that exporter
 
   Scenario: Flushing on shutdown
     Given records waiting in the queue
