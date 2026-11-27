@@ -71,6 +71,7 @@ admin:                                  # health checks (/livez, /readyz), on th
 certs:                                  # certificate pairs, named, used by the listeners
   shop:     { cert: ./ca/shop.pem, key: ./ca/shop-key.pem }           # a certificate authority the proxy signs with
   internal: { cert: ./ca/internal.pem, key: ./ca/internal-key.pem }   # an ordinary certificate
+  batches:  { cert: ./ca/batches.pem, key: ./ca/batches-key.pem }     # a certificate authority that vouches for the ledger's keys
 
 listeners:                              # the ports and socket files apps reach the proxy on
   apps:                                 # forward proxy, Host header and vendor URL in path
@@ -128,6 +129,9 @@ ledger:                                 # the evidence ledger; the values shown 
     every: 10s                          # a signed batch per integration this often
     maxRecords: 65536                   # or sooner, at this many records
   instance: { env: POD_NAME }           # optional; left out, the name is random per run
+  signing:                              # optional; left out, Ed25519 keys that sign their own certificates
+    hourlyKeyType: ed25519              # or ml-dsa-44, ml-dsa-65, ml-dsa-87
+    cert: batches                       # optional; a name in certs, whose authority signs the hourly keys
 
 records:                                # how every record is built, before its hash
   transform:                            # steps run on every record, in order
