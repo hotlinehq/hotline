@@ -162,12 +162,12 @@ func (o *overflow) warnIf(err error) {
 	}
 }
 
-// read reads up to max items from disk for the sender, counting those it
-// could not read.
-func (o *overflow) read(max int) ([]diskItem, position, error) {
-	items, at, lost, err := o.disk.read(max)
+// read reads up to limit items from disk for the sender, counting those
+// it could not read.
+func (o *overflow) read(limit int) ([]diskItem, position) {
+	items, at, lost := o.disk.read(limit)
 	o.lost(lost)
-	return items, at, err
+	return items, at
 }
 
 // taken moves the sender past what the collector took, and once the disk

@@ -281,7 +281,7 @@ func (q *queue) send(ctx context.Context, all bool) error {
 			q.mu.Unlock()
 			return err
 		}
-		if !all && q.waitingCount() < batchSize {
+		if !all && q.waitingCount() < batchSize && (q.disk == nil || q.disk.disk.empty()) {
 			return nil
 		}
 	}
@@ -293,11 +293,7 @@ func (q *queue) send(ctx context.Context, all bool) error {
 // is read again next time. The caller holds sendMu.
 func (q *queue) sendDisk(ctx context.Context) error {
 	for {
-		read, at, err := q.disk.read(batchSize)
-		if err != nil {
-			q.disk.warnIf(err)
-			return nil
-		}
+		read, at := q.disk.read(batchSize)
 		if len(read) == 0 {
 			q.disk.taken(at)
 			return nil
@@ -307,7 +303,7 @@ func (q *queue) sendDisk(ctx context.Context) error {
 			q.batch = append(q.batch, item.items...)
 		}
 		n := len(q.batch)
-		err = q.export(ctx, q.batch)
+		err := q.export(ctx, q.batch)
 		clear(q.batch)
 		if busyErr(err) {
 			q.up.Store(0)
@@ -337,10 +333,8 @@ func (q *queue) waitingCount() int {
 func (q *queue) dropWaiting(err error) {
 	q.sendMu.Lock()
 	defer q.sendMu.Unlock()
+	// The collector was busy with what waits, so something waits.
 	n := q.waitingCount()
-	if n == 0 {
-		return
-	}
 	q.remove(n)
 	q.dropped.Add(context.Background(), int64(n), dropReason(q.labels, "send_failed"))
 	q.mu.Lock()

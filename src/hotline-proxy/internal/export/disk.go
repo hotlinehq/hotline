@@ -81,15 +81,11 @@ type diskBudget struct {
 
 // take reserves n bytes, and says whether they fit.
 func (b *diskBudget) take(n int64) bool {
-	for {
-		used := b.used.Load()
-		if used+n > b.limit {
-			return false
-		}
-		if b.used.CompareAndSwap(used, used+n) {
-			return true
-		}
+	if b.used.Add(n) > b.limit {
+		b.used.Add(-n)
+		return false
 	}
+	return true
 }
 
 // queueFile is one queue file: its number, the number of its first item,
@@ -154,97 +150,96 @@ func queueFileName(number uint32) string { return fmt.Sprintf("%08d.queue", numb
 // position file; when that cannot be read the sender starts at the oldest
 // file, and the collector may get some items twice. A cut-off item at the
 // end of the newest file, from a crash while it was written, is cut away
-// and counted in lost. New items always go to a new file.
+// and counted in lost, as is a file with no readable header. New items
+// always go to a new file.
 func openDiskQueue(dir string, budget *diskBudget) (*diskQueue, int, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, 0, err
 	}
 	d := &diskQueue{dir: dir, budget: budget}
-	numbers, err := listQueueFiles(dir)
-	if err != nil {
-		return nil, 0, err
-	}
 	at, known := readPosition(filepath.Join(dir, positionFile))
 	lost := 0
-	for _, number := range numbers {
-		if known && number < at.number {
-			// Taken before the stop; only its deletion was missed.
-			_ = os.Remove(filepath.Join(dir, queueFileName(number)))
-			continue
-		}
+	for _, number := range listQueueFiles(dir) {
 		f, err := statQueueFile(dir, number)
-		if err != nil {
-			// A file whose header cannot be read holds nothing usable.
-			_ = os.Remove(filepath.Join(dir, queueFileName(number)))
+		switch {
+		case known && number < at.number:
+			// Taken before the stop; only its deletion was missed.
+		case err != nil:
 			lost++
+		default:
+			d.files = append(d.files, f)
+			budget.used.Add(f.size)
 			continue
 		}
-		d.files = append(d.files, f)
-	}
-	if n := len(d.files); n > 0 {
-		end, count, err := scanQueueFile(filepath.Join(dir, queueFileName(d.files[n-1].number)))
-		if err != nil {
-			return nil, 0, err
-		}
-		if end < d.files[n-1].size {
-			if err := os.Truncate(filepath.Join(dir, queueFileName(d.files[n-1].number)), end); err != nil {
-				return nil, 0, err
-			}
-			d.files[n-1].size = end
-			lost++
-		}
-		d.next = d.files[n-1].first + count
-	}
-	if !known || len(d.files) == 0 || !slices.ContainsFunc(d.files, func(f queueFile) bool { return f.number == at.number }) {
-		at = position{}
-		if len(d.files) > 0 {
-			at = position{number: d.files[0].number, offset: queueHeaderSize, item: d.files[0].first}
-		}
-	}
-	for _, f := range d.files {
-		budget.used.Add(f.size)
+		// What cannot be removed stays, and is skipped again next time.
+		_ = os.Remove(filepath.Join(dir, queueFileName(number)))
 	}
 	number, first := uint32(firstFileNumber), uint64(firstItemNumber)
+	d.next = first
 	if n := len(d.files); n > 0 {
+		lost += d.cutTail()
 		number, first = d.files[n-1].number+1, d.next
 	}
 	if err := d.startFile(number, first); err != nil {
 		return nil, 0, err
 	}
-	if at.number == 0 {
-		at = position{number: number, offset: queueHeaderSize, item: first}
+	if !known || !slices.ContainsFunc(d.files, func(f queueFile) bool { return f.number == at.number }) {
+		at = position{number: d.files[0].number, offset: queueHeaderSize, item: d.files[0].first}
 	}
 	d.at = at
-	d.pos, err = os.OpenFile(filepath.Join(dir, positionFile), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		_ = d.w.Close()
-		return nil, 0, err
-	}
+	// The folder could be written to just now, so the position file can
+	// be made.
+	d.pos, _ = os.OpenFile(filepath.Join(dir, positionFile), os.O_CREATE|os.O_RDWR, 0o600)
 	d.writePosition()
 	return d, lost, nil
 }
 
-// listQueueFiles are the numbers of the queue files in dir, oldest first.
-func listQueueFiles(dir string) ([]uint32, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
+// cutTail finds where the newest queue file's last whole item ends, and
+// cuts away anything after it: an item a crash cut short. It counts that
+// item as lost, and sets the number of the next item.
+func (d *diskQueue) cutTail() int {
+	last := &d.files[len(d.files)-1]
+	path := filepath.Join(d.dir, queueFileName(last.number))
+	// statQueueFile has just read the file.
+	data, _ := os.ReadFile(path)
+	offset, count := int64(queueHeaderSize), uint64(0)
+	for {
+		_, _, n, err := readFrame(data[offset:])
+		if err != nil {
+			break
+		}
+		offset += n
+		count++
 	}
+	d.next = last.first + count
+	if offset == last.size {
+		return 0
+	}
+	// A file that cannot be cut is read up to its broken item, and the
+	// rest is skipped as unreadable then.
+	_ = os.Truncate(path, offset)
+	d.budget.used.Add(offset - last.size)
+	last.size = offset
+	return 1
+}
+
+// listQueueFiles are the numbers of the queue files in dir, oldest first.
+// openDiskQueue has made dir, so it can be read.
+func listQueueFiles(dir string) []uint32 {
+	entries, _ := os.ReadDir(dir)
 	var numbers []uint32
 	for _, e := range entries {
 		name, found := strings.CutSuffix(e.Name(), ".queue")
-		if !found {
-			continue
-		}
-		if n, err := strconv.ParseUint(name, 10, 32); err == nil {
+		if n, err := strconv.ParseUint(name, 10, 32); found && err == nil {
 			numbers = append(numbers, uint32(n))
 		}
 	}
 	slices.Sort(numbers)
-	return numbers, nil
+	return numbers
 }
 
-// statQueueFile reads a queue file's header and size.
+// statQueueFile reads a queue file's header and size. A file that cannot
+// be opened or has no whole header holds nothing that can be read.
 func statQueueFile(dir string, number uint32) (queueFile, error) {
 	f, err := os.Open(filepath.Join(dir, queueFileName(number)))
 	if err != nil {
@@ -252,35 +247,13 @@ func statQueueFile(dir string, number uint32) (queueFile, error) {
 	}
 	defer f.Close()
 	var header [queueHeaderSize]byte
-	if _, err := io.ReadFull(f, header[:]); err != nil {
+	_, err = io.ReadFull(f, header[:])
+	if err != nil || string(header[:4]) != queueMagic || header[4] != queueVersion {
 		return queueFile{}, errQueueFile
 	}
-	if string(header[:4]) != queueMagic || header[4] != queueVersion {
-		return queueFile{}, errQueueFile
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return queueFile{}, err
-	}
-	return queueFile{number: number, first: binary.LittleEndian.Uint64(header[5:]), size: info.Size()}, nil
-}
-
-// scanQueueFile finds where the last whole, readable item of a queue file
-// ends, and how many items it holds up to there.
-func scanQueueFile(path string) (int64, uint64, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, 0, err
-	}
-	offset, count := int64(queueHeaderSize), uint64(0)
-	for {
-		_, _, n, err := readFrame(data[offset:])
-		if err != nil {
-			return offset, count, nil
-		}
-		offset += n
-		count++
-	}
+	// The file was read, so it has a size.
+	size, _ := f.Seek(0, io.SeekEnd)
+	return queueFile{number: number, first: binary.LittleEndian.Uint64(header[5:]), size: size}, nil
 }
 
 // readFrame reads one item at the start of data: its kind, its payload and
@@ -345,17 +318,8 @@ func (d *diskQueue) writePosition() {
 // startFile starts queue file number, whose first item is first, and
 // syncs it, so it is on disk before anything is written to it.
 func (d *diskQueue) startFile(number uint32, first uint64) error {
-	w, err := os.OpenFile(filepath.Join(d.dir, queueFileName(number)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	w, err := createQueueFile(filepath.Join(d.dir, queueFileName(number)), os.O_EXCL, first, nil)
 	if err != nil {
-		return err
-	}
-	header := binary.LittleEndian.AppendUint64(append([]byte(queueMagic), queueVersion), first)
-	if _, err := w.Write(header); err != nil {
-		_ = w.Close()
-		return err
-	}
-	if err := w.Sync(); err != nil {
-		_ = w.Close()
 		return err
 	}
 	d.budget.used.Add(queueHeaderSize)
@@ -364,6 +328,22 @@ func (d *diskQueue) startFile(number uint32, first uint64) error {
 	d.files = append(d.files, queueFile{number: number, first: first, size: queueHeaderSize})
 	d.mu.Unlock()
 	return nil
+}
+
+// createQueueFile makes a queue file whose first item is first, open to
+// the proxy's user only, writes its header and frames, and syncs it.
+func createQueueFile(path string, flag int, first uint64, frames []byte) (*os.File, error) {
+	w, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|flag, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	header := binary.LittleEndian.AppendUint64(append([]byte(queueMagic), queueVersion), first)
+	_, err = w.Write(append(header, frames...))
+	if err = errors.Join(err, w.Sync()); err != nil {
+		_ = w.Close()
+		return nil, err
+	}
+	return w, nil
 }
 
 // write appends items to the newest queue file, starting the next one when
@@ -409,13 +389,10 @@ func (d *diskQueue) write(items []spilled) error {
 
 // nextFile syncs and closes the newest queue file, and starts the next.
 func (d *diskQueue) nextFile() error {
-	if err := d.w.Sync(); err != nil {
+	if err := errors.Join(d.w.Sync(), d.w.Close()); err != nil {
 		return err
 	}
 	d.dirty = false
-	if err := d.w.Close(); err != nil {
-		return err
-	}
 	d.mu.Lock()
 	last := d.files[len(d.files)-1]
 	next := d.next
@@ -437,46 +414,28 @@ func (d *diskQueue) sync() error {
 	return errors.Join(errs...)
 }
 
-// read reads up to max records or spans from where the sender is, and
-// gives the position after them. Items it cannot read are skipped to the
-// next file and counted in lost. Only the sender calls it.
-func (d *diskQueue) read(max int) ([]diskItem, position, int, error) {
+// read reads up to limit records or spans from where the sender is, and
+// gives the position after them. What it cannot read, an item or the rest
+// of a file, is skipped to the next file and counted in lost; in the file
+// being written that cannot happen, as only whole items are written there.
+// Only the sender calls it.
+func (d *diskQueue) read(limit int) ([]diskItem, position, int) {
 	d.mu.Lock()
 	files := slices.Clone(d.files)
 	d.mu.Unlock()
 	at, lost := d.at, 0
 	var items []diskItem
 	count := 0
-	for count < max {
-		i := slices.IndexFunc(files, func(f queueFile) bool { return f.number == at.number })
-		if i < 0 {
-			break
-		}
+	// The sender's file is always one of the files: only those before it
+	// are ever deleted.
+	i := slices.IndexFunc(files, func(f queueFile) bool { return f.number == at.number })
+	for count < limit {
 		f := files[i]
-		if at.offset >= f.size {
-			if i == len(files)-1 {
-				break
-			}
-			at = position{number: files[i+1].number, offset: queueHeaderSize, item: files[i+1].first}
-			continue
-		}
-		data, err := d.readAt(f, at.offset)
-		if err != nil {
-			return nil, d.at, 0, err
-		}
-		for len(data) > 0 && count < max {
+		data, ok := d.readAt(f, at.offset)
+		for ok && len(data) > 0 && count < limit {
 			kind, payload, n, err := readFrame(data)
 			if err != nil {
-				// The rest of this file cannot be read. A file still being
-				// written never has a broken item, so a next one exists.
-				if i == len(files)-1 {
-					data = nil
-					at.offset = f.size
-					break
-				}
-				lost += int(max64(1, files[i+1].first-at.item))
-				at = position{number: files[i+1].number, offset: queueHeaderSize, item: files[i+1].first}
-				data = nil
+				ok = false
 				break
 			}
 			item := diskItem{kind: kind, items: [][]byte{slices.Clone(payload)}}
@@ -489,20 +448,31 @@ func (d *diskQueue) read(max int) ([]diskItem, position, int, error) {
 			at.offset += n
 			at.item++
 		}
+		if i == len(files)-1 {
+			if !ok {
+				// Only a file changed under the proxy gets here: what is
+				// left of it is skipped.
+				lost++
+				at.offset = f.size
+			}
+			break
+		}
+		if ok && at.offset < f.size {
+			break
+		}
+		if !ok {
+			lost += int(max(1, files[i+1].first-at.item))
+		}
+		// A file read to its end is passed, so taken can delete it.
+		i++
+		at = position{number: files[i].number, offset: queueHeaderSize, item: files[i].first}
 	}
-	return items, at, lost, nil
-}
-
-func max64(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
+	return items, at, lost
 }
 
 // readAt reads queue file f from offset to its end as written, through
-// the sender's own handle.
-func (d *diskQueue) readAt(f queueFile, offset int64) ([]byte, error) {
+// the sender's own handle, and says whether it could.
+func (d *diskQueue) readAt(f queueFile, offset int64) ([]byte, bool) {
 	if d.r == nil || d.rNumber != f.number {
 		if d.r != nil {
 			_ = d.r.Close()
@@ -510,13 +480,13 @@ func (d *diskQueue) readAt(f queueFile, offset int64) ([]byte, error) {
 		r, err := os.Open(filepath.Join(d.dir, queueFileName(f.number)))
 		if err != nil {
 			d.r = nil
-			return nil, err
+			return nil, false
 		}
 		d.r, d.rNumber = r, f.number
 	}
 	data := make([]byte, f.size-offset)
 	_, err := d.r.ReadAt(data, offset)
-	return data, err
+	return data, err == nil
 }
 
 // taken moves the sender to at, past items the collector took or refused
@@ -551,17 +521,6 @@ func (d *diskQueue) empty() bool {
 	return d.at.number == last.number && d.at.offset >= last.size
 }
 
-// usage is the bytes the queue files hold.
-func (d *diskQueue) usage() int64 {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	var n int64
-	for _, f := range d.files {
-		n += f.size
-	}
-	return n
-}
-
 // writeFront puts items before everything else on disk, in a new queue
 // file numbered before the oldest one, and moves the sender there. A stop
 // uses it for the items still in memory, which are older than those on
@@ -575,16 +534,12 @@ func (d *diskQueue) writeFront(items []spilled) error {
 		buf = appendFrame(buf, item.kind, item.payload)
 	}
 	number, first := d.at.number-1, d.at.item-uint64(len(items))
-	w, err := os.OpenFile(filepath.Join(d.dir, queueFileName(number)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	w, err := createQueueFile(filepath.Join(d.dir, queueFileName(number)), os.O_TRUNC, first, buf)
 	if err != nil {
 		return err
 	}
-	header := binary.LittleEndian.AppendUint64(append([]byte(queueMagic), queueVersion), first)
-	_, err = w.Write(append(header, buf...))
-	err = errors.Join(err, w.Sync(), w.Close())
-	if err != nil {
-		return err
-	}
+	// The file is written and synced, so closing it loses nothing.
+	_ = w.Close()
 	size := int64(queueHeaderSize + len(buf))
 	d.budget.used.Add(size)
 	d.mu.Lock()
