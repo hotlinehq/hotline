@@ -8,7 +8,7 @@ Full wording in [docs/proxy-ledger.md](../proxy-ledger.md). Requirements, with t
 4. A batch closes every 10 seconds or at 65,536 records (`ledger.batch.every`, `maxRecords`). A window with no calls sends no batch.
 5. A batch leaves as one OTLP log record, `hotline.ledger.batch`, through every exporter. Each exporter adds the hashes of the records it dropped (up to 1,024, then only a count). At most 64 batch records wait per exporter; past that the oldest goes and the next one says how many were lost. *Changed by 19 and 20 (2026-11-25): the dropped hashes are in a signed drop record of their own, and nothing says how many were lost. Changed by 22 (2026-11-26): in the exporter's own batch record.*
 6. The batch carries the proxy's version and the config's hash (secrets left out), signed.
-7. `ledger.instance` can name the instance (for example `{ env: POD_NAME }`); the batch then also carries the random run id.
+7. `ledger.instance` can name the instance (for example `{ env: POD_NAME }`); the batch then also carries the random run id. *Changed by 32 (2026-11-27): the instance is the `service.instance.id` label.*
 8. Body hashes are salted with the call's trace id and span id, no secret. Every record with an HTTP exchange has both, an empty body hashed as zero bytes.
 9. `content: full` keeps the real values beside the record under `hotline.content.*`, covered by `hotline.content.hash` (bodies left out: the body hashes cover them).
 10. `hotline-proxy verify <folder>` checks a file exporter's folder with no config, key or network. Exit 0, 1 or 2; `--format json` gives `hotline.verify.v1`.
@@ -57,6 +57,10 @@ The batch certificate was self-signed, so nothing outside the folder vouched for
 - Revisit if ML-DSA certificates turn out not to verify with the standard library (Q6).
 - Revisit if a customer needs post-quantum evidence (Q8).
 - Revisit if expired batches go unnoticed until verify runs (Q7).
+
+## The instance is service.instance.id (Peter, 2026-11-27)
+
+32. `ledger.instance` is gone: it named the same thing as the `service.instance.id` label in `records.transform`, and the two could disagree. A batch's `hotline.batch.instance` is the resource's `service.instance.id`, the label or a random id per run; when the label sets it, the batch also carries the random run id, `hotline.batch.run`. An old `ledger.instance` gets the usual warning for a setting the proxy does not know.
 
 ## Tripwires (2026-11-25)
 

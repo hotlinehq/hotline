@@ -286,6 +286,15 @@ func (s *Exporters) ServiceName() string {
 	return name.AsString()
 }
 
+// ServiceInstanceID is the resource's service.instance.id: the label the
+// config gives it, or the proxy's own id for this run.
+func (s *Exporters) ServiceInstanceID() string {
+	// The resource always holds service.instance.id.
+	labels := attribute.NewSet(s.resource...)
+	id, _ := labels.Value(semconv.ServiceInstanceIDKey)
+	return id.AsString()
+}
+
 // describe is the resource the proxy's signals go with: its own labels,
 // with the config's labels on top. The config has refused service.version.
 func describe(service Service, labels map[string]string) *resource.Resource {

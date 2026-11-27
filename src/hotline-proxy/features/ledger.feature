@@ -452,8 +452,11 @@ Feature: Records a third party can trust
 
   Rule: A run has a name, and a clean stop is marked
 
+    The instance is the run's service.instance.id: the label the records
+    section gives it, or a random id per run (Peter, 2026-11-27).
+
     Scenario: The instance is random per run
-      Given no ledger instance in the config
+      Given no service.instance.id label in the config
       When the app sends GET /orders
       And hotline-proxy is stopped and started again
       And the app sends GET /orders
@@ -462,15 +465,22 @@ Feature: Records a third party can trust
       And each is that run's service.instance.id
       And the batches have no hotline.batch.run
 
-    Scenario: The instance can be named in the config, with the random run id kept next to it
-      Given the config has ledger instance { env: POD_NAME } and POD_NAME is invoices-proxy-0
+    Scenario: The instance is the service.instance.id label, with the random run id kept next to it
+      Given the records transform labels service.instance.id { env: POD_NAME } and POD_NAME is invoices-proxy-0
       When the app sends GET /orders
       And hotline-proxy is stopped and started again
       And the app sends GET /orders
       And hotline-proxy is stopped
       Then both runs' batches have hotline.batch.instance invoices-proxy-0
+      And each is that run's service.instance.id
       And their hotline.batch.run are different
       And each run's sequence starts at 0
+
+    Scenario: The ledger has no instance setting of its own
+      As with any setting the proxy does not know, it warns and goes on.
+      Given the config has ledger instance { env: POD_NAME }
+      When the proxy loads the config
+      Then the proxy logged a warning with "field instance" and "is not a setting and is ignored"
 
     Scenario: A clean stop closes one last batch
       When the app sends GET /orders

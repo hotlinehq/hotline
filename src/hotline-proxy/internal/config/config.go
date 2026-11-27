@@ -144,11 +144,11 @@ type Records struct {
 
 // Ledger is how records are grouped into signed batches (Peter,
 // 2026-11-16): a batch closes every Every, or at MaxRecords records.
-// Instance, when set, names the proxy in place of a random id per run.
+// The instance a batch names is the resource's service.instance.id (Peter,
+// 2026-11-27), so the ledger has no setting for it.
 type Ledger struct {
 	Every      time.Duration
 	MaxRecords int
-	Instance   string
 	Signing    Signing
 }
 
@@ -314,8 +314,7 @@ type file struct {
 			Every      *string `yaml:"every"`
 			MaxRecords *int    `yaml:"maxRecords"`
 		} `yaml:"batch"`
-		Instance *secret `yaml:"instance"`
-		Signing  struct {
+		Signing struct {
 			HourlyKeyType *string `yaml:"hourlyKeyType"`
 			Cert          string  `yaml:"cert"`
 		} `yaml:"signing"`
@@ -658,9 +657,6 @@ func (l *loader) ledger(f file, certs map[string]*TLS) Ledger {
 			l.problem("ledger.batch: maxRecords must be at least 1")
 		}
 		out.MaxRecords = *n
-	}
-	if f.Ledger.Instance != nil {
-		out.Instance = l.secret("ledger: instance", *f.Ledger.Instance)
 	}
 	out.Signing = l.signing(f, certs)
 	return out

@@ -82,10 +82,10 @@ func newBook(clock Clock, exporters *export.Exporters, cfg *config.Config, insta
 		clock: clock, exporters: exporters, instance: instanceID, version: version, config: current, logger: logger,
 		vault: vault.New(exporters.ServiceName(), keyLife, hourlyKeys(cfg.Ledger.Signing), clock.Now()), chains: map[string]*chain{}, closedChains: map[string]*chain{}, every: cfg.Ledger.Every,
 	}
-	if cfg.Ledger.Instance != "" {
-		// A named instance keeps the random id next to it, so two runs of
-		// the same name are told apart.
-		b.instance, b.runID = cfg.Ledger.Instance, instanceID
+	if named := exporters.ServiceInstanceID(); named != instanceID {
+		// An instance the labels name keeps the random id next to it, so
+		// two runs of the same name are told apart (Peter, 2026-11-27).
+		b.instance, b.runID = named, instanceID
 	}
 	b.timer = clock.AfterFunc(b.every, b.tick)
 	return b

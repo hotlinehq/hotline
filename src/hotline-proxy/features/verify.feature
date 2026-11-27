@@ -82,7 +82,7 @@ Feature: Checking records with hotline-proxy verify
       And it prints that checkout's 3 records check out, and mentions no other integration
 
     Scenario: A run with a named instance shows its run id
-      Given the config has ledger instance { env: POD_NAME } and POD_NAME is checkout-0
+      Given the records transform labels service.instance.id { env: POD_NAME } and POD_NAME is checkout-0
       And the folder calls from a stopped proxy, with 1 calls
       When I run hotline-proxy verify calls
       Then it exits with 0

@@ -825,7 +825,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return checkChain(batches)
 	})
-	sc.Step(`^no ledger instance in the config$`, func() error { return nil })
+	sc.Step(`^no service.instance.id label in the config$`, func() error { return nil })
 	sc.Step(`^the two runs' hotline.batch.instance are different$`, func() error {
 		runs, err := w.runBatches(2)
 		if err != nil {
@@ -859,11 +859,19 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the config has ledger instance \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
+	sc.Step(`^the records transform labels service.instance.id \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
 		if w.env == nil {
 			w.env = map[string]string{}
 		}
 		w.env["POD_NAME"] = name
+		w.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
+		return nil
+	})
+	sc.Step(`^the config has ledger instance \{ env: POD_NAME \}$`, func() error {
+		if w.env == nil {
+			w.env = map[string]string{}
+		}
+		w.env["POD_NAME"] = "invoices-proxy-0"
 		w.topExtra += "ledger:\n  instance: { env: POD_NAME }\n"
 		return nil
 	})
@@ -1035,7 +1043,12 @@ func (w *world) runBatches(n int) ([][]receivedRecord, error) {
 	byRun := map[string][]receivedRecord{}
 	var order []string
 	for _, b := range w.receivers[0].ledger() {
+		// A named instance is the same in every run; the run id tells
+		// them apart.
 		run := sprint(b.resource["service.instance.id"])
+		if id, named := b.attrs["hotline.batch.run"]; named {
+			run = sprint(id)
+		}
 		if _, seen := byRun[run]; !seen {
 			order = append(order, run)
 		}
