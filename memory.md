@@ -94,3 +94,4 @@ Open only the file for the topic at hand.
 - Tests in CI (no race detector; ports picked again when taken): [docs/decisions/tests-in-ci.md](docs/decisions/tests-in-ci.md)
 - Fuzzing (nightly `fuzz.yml`; through the ways in, and straight at the parsers behind the `fuzz` tag): [docs/decisions/fuzzing.md](docs/decisions/fuzzing.md)
 - Evidence ledger (record hashes, signed batches per integration, `hotline-proxy verify`; no more `fingerprintKey`): [docs/decisions/ledger.md](docs/decisions/ledger.md)
+- Disk queue of an OTLP exporter (`queueFolder`, `queueDisk`; a busy collector never loses a batch; a call never waits): [docs/decisions/disk-queue.md](docs/decisions/disk-queue.md)

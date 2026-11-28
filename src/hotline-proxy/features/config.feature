@@ -105,6 +105,12 @@ Feature: Loading the config file
       | the telemetry section's temporality is neither cumulative nor delta |
       | an exporter's endpoint is not a valid address        |
       | an exporter's queueSize is zero                      |
+      | an exporter sets queueFolder without queueDisk       |
+      | an exporter sets queueDisk without queueFolder       |
+      | an exporter's queueDisk is under 64MiB               |
+      | an exporter's queueFolder cannot be written to       |
+      | two exporters share one queueFolder                  |
+      | the telemetry section sets queueFolder               |
       | the ledger's maxRecords is zero                      |
       | the telemetry section's metricInterval is zero       |
       | an exporter's logInterval is not a duration          |

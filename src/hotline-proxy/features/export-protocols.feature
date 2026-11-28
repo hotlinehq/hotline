@@ -64,7 +64,7 @@ Feature: How OpenTelemetry data is sent
       | sets compression to none | plain    |
 
   Scenario Outline: Retries
-    Busy answers are tried again within the send's time limit. Any other
+    Busy answers are tried again; a batch is never lost to them. Any other
     refusal loses the batch, and the loss is logged like a full queue.
     Given a receiver that answers the first log send with <answer>
     When a call ends

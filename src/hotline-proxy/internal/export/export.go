@@ -11,8 +11,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -68,8 +71,8 @@ type Exporters struct {
 type exporter struct {
 	// queue holds the written records and spans the written spans, both
 	// sent with transport.
-	queue     *queue[[]byte]
-	spans     *queue[[]byte]
+	queue     *queue
+	spans     *queue
 	transport *httpTransport
 	// up is 1 while sends work, 0 from a failed send until one works, and
 	// place names the exporter in the proxy's own numbers.
@@ -78,12 +81,14 @@ type exporter struct {
 	// batches sends the ledger's batch records to the exporter, and
 	// notes the records its queue dropped.
 	batches *batchLine
+	// lock holds the exporter's queueFolder, when it has one.
+	lock *os.File
 }
 
 // fileExporter is one file exporter's queue of written lines and its
 // writer.
 type fileExporter struct {
-	queue   *queue[[]byte]
+	queue   *queue
 	writer  *fileWriter
 	up      *atomic.Int64
 	place   attribute.Set
@@ -210,22 +215,21 @@ func New(setup Setup) (*Exporters, error) {
 		spanSetup := setup
 		spanSetup.labels = signalLabels(e, "span")
 		spanSetup.interval = e.TraceInterval
-		d := exporter{
-			queue:     newItemQueue("records", records, t, written, timing.Timeout, logSetup),
-			spans:     newItemQueue("spans", spans, t, written, timing.Timeout, spanSetup),
-			transport: t,
-			up:        up,
-			place:     attribute.NewSet(exporterLabel(e)),
+		d := exporter{transport: t, up: up, place: attribute.NewSet(exporterLabel(e))}
+		recordDisk, spanDisk, err := d.openDisk(e)
+		if err == nil {
+			d.queue, err = newItemQueue("records", records, t, written, timing.Timeout, logSetup, recordDisk)
 		}
-		// The batch line sends records too, at the same time as the record
-		// queue, so it has its own zipper.
-		batchZip := t.newZipper()
+		if err == nil {
+			d.spans, err = newItemQueue("spans", spans, t, written, timing.Timeout, spanSetup, spanDisk)
+		}
+		if err != nil {
+			s.exporters = append(s.exporters, d)
+			s.closeAll()
+			return nil, fmt.Errorf("exporter %s: the disk queue in %s: %w", e.Endpoint, e.QueueFolder, err)
+		}
 		d.batches = newBatchLine(batchLineSetup{
-			name: e.Endpoint, logger: logger, before: d.queue.ForceFlush, resource: s.resource,
-			send: func(ctx context.Context, items [][]byte) error {
-				body := appendBatch(nil, written, items)
-				return sendWithRetry(ctx, t, records, batchZip, body, timing.Timeout)
-			},
+			name: e.Endpoint, logger: logger, queue: d.queue.addBatchRecord, resource: s.resource,
 			render: func(b Batch) []byte {
 				return appendRecord(nil, b.Event, b.At, b.Observed, b.Severity, trace.SpanContext{}, "", b.Attrs)
 			},
@@ -237,8 +241,7 @@ func New(setup Setup) (*Exporters, error) {
 	for i := range s.files {
 		f := &s.files[i]
 		f.batches = newBatchLine(batchLineSetup{
-			name: f.writer.e.Path, logger: logger, before: f.queue.ForceFlush, resource: s.resource,
-			send: func(_ context.Context, items [][]byte) error { return f.writer.write(items) },
+			name: f.writer.e.Path, logger: logger, queue: f.queue.addBatchRecord, resource: s.resource,
 			render: func(b Batch) []byte {
 				buf := &bytes.Buffer{}
 				appendBatchLine(buf, s.resource, b)
@@ -274,6 +277,47 @@ func (s *Exporters) closeFiles() {
 	for _, f := range s.files {
 		_ = f.queue.Shutdown(context.Background())
 	}
+}
+
+// closeAll stops every queue started so far and lets go of their folders,
+// when New fails.
+func (s *Exporters) closeAll() {
+	ctx, cancel := context.WithCancel(context.Background())
+	// Nothing has been sent yet; what waits stays on disk.
+	cancel()
+	for _, d := range s.exporters {
+		for _, q := range []*queue{d.queue, d.spans} {
+			if q != nil {
+				_ = q.Shutdown(ctx)
+			}
+		}
+		if d.lock != nil {
+			_ = d.lock.Close()
+		}
+		d.transport.close()
+	}
+	s.closeFiles()
+}
+
+// openDisk takes an exporter's queueFolder, with its lock, and gives
+// where its records and its spans go when memory is full: no folder when
+// the config names none.
+func (d *exporter) openDisk(e config.Exporter) (diskSetup, diskSetup, error) {
+	if e.QueueFolder == "" {
+		return diskSetup{}, diskSetup{}, nil
+	}
+	lock, err := os.OpenFile(filepath.Join(e.QueueFolder, queueLockFile), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return diskSetup{}, diskSetup{}, err
+	}
+	if err := lockExclusive(lock); err != nil {
+		_ = lock.Close()
+		return diskSetup{}, diskSetup{}, ErrFolderTaken
+	}
+	d.lock = lock
+	budget := &diskBudget{limit: e.QueueDisk}
+	return diskSetup{folder: filepath.Join(e.QueueFolder, "records"), budget: budget},
+		diskSetup{folder: filepath.Join(e.QueueFolder, "spans"), budget: budget}, nil
 }
 
 // ServiceName is the service.name every exporter sends records with: the
@@ -460,12 +504,12 @@ func (s *Exporters) Shutdown(ctx context.Context) error {
 	case <-signed:
 	case <-ctx.Done():
 	}
-	for _, b := range s.batches {
-		errs = append(errs, b.shutdown(ctx))
-	}
 	for _, d := range s.exporters {
 		errs = append(errs, d.queue.Shutdown(ctx), d.spans.Shutdown(ctx))
 		d.transport.close()
+		if d.lock != nil {
+			errs = append(errs, d.lock.Close())
+		}
 	}
 	for _, f := range s.local() {
 		errs = append(errs, f.queue.Shutdown(ctx))

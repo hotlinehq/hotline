@@ -27,6 +27,8 @@ func main() {
 	flag.StringVar(&cfg.MetricInterval, "metric-interval", interval, "how often the proxy sends its own numbers, such as 60s (default 1s, or HOTLINE_LOAD_METRIC_INTERVAL); above 1s needs a proxy with the telemetry.pprof setting")
 	flag.StringVar(&cfg.MoreSpecs, "more-specs", "", "a folder of specs, one folder each (for example specs/aws), that the proxy loads as well; calls still go to -spec's api")
 	flag.StringVar(&cfg.ProxyCPUs, "proxy-cpus", os.Getenv("HOTLINE_LOAD_PROXY_CPUS"), "run the proxy only on these cores, such as 0,1 (Linux, needs taskset; or HOTLINE_LOAD_PROXY_CPUS); start the load test itself on the other cores, for example with taskset -c 2,3")
+	flag.BoolVar(&cfg.DiskQueue, "disk-queue", false, "give the proxy's exporter a disk queue (queueFolder and queueDisk 1GiB) in a fresh folder; a proxy older than the disk queue refuses it")
+	flag.DurationVar(&cfg.Outage, "outage", 0, "have the fake receiver answer records and spans with 503 for this long in the middle of each proxy repeat, then wait until the proxy has sent everything; needs -disk-queue")
 	flag.Parse()
 	if cfg.Proxy == "" || cfg.Spec == "" {
 		fmt.Fprintln(os.Stderr, "-proxy and -spec are required")

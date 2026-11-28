@@ -231,6 +231,11 @@ type Exporter struct {
 	H2C bool
 	// QueueSize is how many records wait for the exporter at most.
 	QueueSize int
+	// QueueFolder, when set, is where the disk queue keeps the records
+	// and spans that do not fit in memory, at most QueueDisk bytes in all
+	// (Peter, 2026-11-27).
+	QueueFolder string
+	QueueDisk   int64
 	// LogInterval and TraceInterval are how often records and spans are
 	// sent. Both also go sooner once a batch of them waits.
 	LogInterval   time.Duration
@@ -348,6 +353,8 @@ type exporterFile struct {
 	// (Peter, 2026-11-21).
 	Temporality string `yaml:"temporality"`
 	QueueSize   *int   `yaml:"queueSize"`
+	QueueFolder string `yaml:"queueFolder"`
+	QueueDisk   string `yaml:"queueDisk"`
 	// The intervals are durations, such as 15s.
 	MetricInterval *string           `yaml:"metricInterval"`
 	LogInterval    *string           `yaml:"logInterval"`
@@ -505,7 +512,13 @@ func Load(path string, now time.Time, lookupEnv func(string) (string, bool)) (*C
 			if len(e.OTLP.Resource) > 0 {
 				l.problem("exporter %s: resource is no longer set per exporter: use records.transform labels", e.OTLP.Endpoint)
 			}
-			c.Exporters = append(c.Exporters, l.exporter(*e.OTLP, now))
+			exporter := l.exporter(*e.OTLP, now)
+			for _, other := range c.Exporters {
+				if exporter.QueueFolder != "" && other.QueueFolder == exporter.QueueFolder {
+					l.problem("two exporters keep their queue in the folder %s", e.OTLP.QueueFolder)
+				}
+			}
+			c.Exporters = append(c.Exporters, exporter)
 		case e.File != nil:
 			c.FileExporters = append(c.FileExporters, l.fileExporter(*e.File, c.FileExporters))
 		case console:
@@ -771,6 +784,7 @@ func (l *loader) exporter(f exporterFile, now time.Time) Exporter {
 	if e.QueueSize < 1 {
 		l.problem("%s: queueSize must be at least 1", label)
 	}
+	e.QueueFolder, e.QueueDisk = l.diskQueue(label, f.QueueFolder, f.QueueDisk)
 	for _, name := range slices.Sorted(maps.Keys(f.Headers)) {
 		e.Headers[name] = l.secret(label+": header "+name, f.Headers[name])
 	}
@@ -1091,6 +1105,39 @@ func (l *loader) size(label, text string, def int64) int64 {
 		l.problem("%s must be at least 1 byte", label)
 	}
 	return n * unit
+}
+
+// minQueueDisk is the smallest disk queue: two queue files of 16 MiB for
+// the records and two for the spans, since space comes back one whole
+// file at a time.
+const minQueueDisk = 64 << 20
+
+// diskQueue reads an exporter's queueFolder and queueDisk: both or
+// neither, as the disk queue's size has no default (Peter, 2026-11-27).
+// The folder is made, open to the proxy's user only, as the records in it
+// may hold body fields.
+func (l *loader) diskQueue(label, folder, size string) (string, int64) {
+	switch {
+	case folder == "" && size == "":
+		return "", 0
+	case size == "":
+		l.problem("%s: queueFolder needs queueDisk, the most bytes the disk queue may hold", label)
+		return "", 0
+	case folder == "":
+		l.problem("%s: queueDisk needs queueFolder, the folder the disk queue is kept in", label)
+		return "", 0
+	}
+	bytes := l.size(label+": queueDisk", size, 0)
+	if bytes < minQueueDisk {
+		l.problem("%s: queueDisk must be at least 64MiB", label)
+	}
+	path := filepath.Clean(l.path(folder))
+	// A folder that cannot be made shows in the check below.
+	_ = os.MkdirAll(path, 0o700)
+	if err := writable(path); err != nil {
+		l.problem("%s: the queueFolder cannot be written to: %v", label, err)
+	}
+	return path, bytes
 }
 
 // maxSocketPath is the longest path a socket file may have: macOS keeps

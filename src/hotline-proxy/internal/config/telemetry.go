@@ -37,6 +37,8 @@ func OwnMetrics() []string {
 		"hotline.app_tls.failures",
 		"hotline.exporter.up",
 		"hotline.exporter.queue.size",
+		"hotline.exporter.queue.oldest.age",
+		"hotline.exporter.queue.disk.usage",
 		"hotline.exporter.sent",
 		"hotline.exporter.dropped",
 		"hotline.config.reload_failed",
@@ -66,6 +68,9 @@ func (l *loader) telemetry(f *telemetryFile, now time.Time) *Telemetry {
 		return nil
 	}
 	label := "telemetry.otlp"
+	if f.OTLP.QueueFolder != "" || f.OTLP.QueueDisk != "" {
+		l.problem("%s: queueFolder and queueDisk are for record exporters only", label)
+	}
 	t := &Telemetry{
 		Exporter: l.exporter(*f.OTLP, now),
 		// A data point a minute is what Grafana Cloud's standard pricing

@@ -2,7 +2,7 @@ Feature: The proxy's own telemetry
   The proxy sends numbers about itself as OpenTelemetry metrics to the
   telemetry section only, never mixed with the records of vendor calls:
   calls in flight, how long calls take, failed TLS setups with apps, each
-  exporter, config reloads, certificates and the Go runtime: 14 metrics
+  exporter, config reloads, certificates and the Go runtime: 16 metrics
   (Peter, 2026-11-01). Standard names where OpenTelemetry has one,
   hotline. for our own. Every metric has a description and a unit that
   Grafana can chart; a 1 or 0 gauge has no unit, so its Prometheus name
@@ -89,7 +89,20 @@ Feature: The proxy's own telemetry
     When a call ends
     Then hotline.exporter.queue.size is sent for that exporter and hotline.signal record
     And hotline.exporter.queue.size is sent for that exporter and hotline.signal span
+    And hotline.exporter.queue.oldest.age is sent for that exporter and hotline.signal record
     And the telemetry receiver gets no metric starting with otel.sdk.
+
+  Scenario: The disk queue of each exporter
+    Given the exporter keeps a disk queue
+    When a call ends
+    Then hotline.exporter.queue.disk.usage is sent for that exporter and hotline.signal record
+    And hotline.exporter.queue.disk.usage is sent for that exporter and hotline.signal span
+    And the telemetry receiver gets hotline.exporter.queue.disk.usage with unit "By" and a description
+
+  Scenario: How long the oldest waiting record has waited
+    Given the exporter keeps a disk queue, and its collector is busy
+    When a call ends
+    Then hotline.exporter.queue.oldest.age counts some for that exporter and hotline.signal record
 
   Scenario: Records sent fine are counted
     When 3 calls end
@@ -102,7 +115,7 @@ Feature: The proxy's own telemetry
 
   Scenario: Records dropped from a full queue are counted
     Given an exporter with queueSize 3 whose exporter is busy with the first record
-    When 4 more calls end
+    When 3 more calls end
     Then hotline.exporter.dropped counts 1 for that exporter, hotline.signal record and hotline.drop.reason queue_full
 
   Scenario: Records lost in a refused send are counted
@@ -231,18 +244,19 @@ Feature: The proxy's own telemetry
     Then the telemetry receiver gets <name> with unit "<unit>" and a description
 
     Examples:
-      | name                          | unit        |
-      | http.server.active_requests   | {request}   |
-      | http.server.request.duration  | s           |
-      | hotline.exporter.up           |             |
-      | hotline.exporter.queue.size   | {item}      |
-      | hotline.exporter.sent         | {item}      |
-      | hotline.config.reload_failed  |             |
-      | hotline.config.restart_needed |             |
-      | hotline.certificate.not_after | s           |
-      | go.memory.used                | By          |
-      | go.goroutine.count            | {goroutine} |
-      | go.memory.allocated           | By          |
+      | name                              | unit        |
+      | http.server.active_requests       | {request}   |
+      | http.server.request.duration      | s           |
+      | hotline.exporter.up               |             |
+      | hotline.exporter.queue.size       | {item}      |
+      | hotline.exporter.queue.oldest.age | s           |
+      | hotline.exporter.sent             | {item}      |
+      | hotline.config.reload_failed      |             |
+      | hotline.config.restart_needed     |             |
+      | hotline.certificate.not_after     | s           |
+      | go.memory.used                    | By          |
+      | go.goroutine.count                | {goroutine} |
+      | go.memory.allocated               | By          |
 
   Scenario: Failed TLS setups have their unit and a description
     Given the proxy port takes TLS
@@ -251,7 +265,7 @@ Feature: The proxy's own telemetry
 
   Scenario: Dropped items have their unit and a description
     Given an exporter with queueSize 3 whose exporter is busy with the first record
-    When 4 more calls end
+    When 3 more calls end
     Then the telemetry receiver gets hotline.exporter.dropped with unit "{item}" and a description
 
   Scenario: One metric turned off

@@ -44,50 +44,58 @@ e2e:
 # each, one folder load/results/run-NNN per line below. The proxy is built
 # as it ships; the runner turns on its profile pages (telemetry.pprof) so the
 # lines marked -profile can also save a
-# processor and a memory profile. See load/README.md.
+# processor and a memory profile. Every line gives the exporter a disk
+# queue, as the proxy runs with one (Peter, 2026-11-27). See load/README.md.
 .PHONY: load
 load: k6
 	mkdir -p load/out
 	cd src/hotline-proxy && go build -o ../../load/out/hotline-proxy ./cmd
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 2000
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 5000 -profile
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 10000
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 20000
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 5000 -duration 120s -label long
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape medium-json -rate 400
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 200 -profile
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 400
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 500
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape huge-json -rate 50 -profile
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/s3/2006-03-01.openapi.yaml -shape xml -rate 500 -profile
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape large-json -rate 200
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape huge-json -rate 50
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 500
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 2000
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 5000 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 10000
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 20000
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 5000 -duration 120s -label long
+	# A short outage of the collector: 20 seconds of 503 in the middle of
+	# each 60 second repeat, at 1000 calls a second, so the memory queue
+	# fills and the rest goes to disk. The table after it says what was
+	# lost (nothing, it should be), the most the disk held, the longest an
+	# item waited and how long the proxy took to send it all once the
+	# collector was back.
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape small-json -rate 1000 -duration 60s -outage 20s -metric-interval 1s -label outage
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape medium-json -rate 400
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 200 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 400
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape large-json -rate 500
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -shape huge-json -rate 50 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/s3/2006-03-01.openapi.yaml -shape xml -rate 500 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape large-json -rate 200
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/aws/ssm/2014-11-06.openapi.yaml -more-specs specs/aws -label all-specs -shape huge-json -rate 50
 	# Streamed responses: an Anthropic answer of 100 Server-Sent Events, each
 	# checked and recorded on its own, so 100 item records per call.
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 50
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 100 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 50
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec specs/anthropic/messages/2023-06-01.openapi.yaml -shape stream-sse -rate 100 -profile
 	# Multipart uploads: an OpenAI transcription of a 300 KiB audio file,
 	# read part by part as it passes, and the same with a 1 MiB prompt, the
 	# text part the proxy keeps and checks.
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart -rate 100
-	go run ./load/cmd/load -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart-long-prompt -rate 50 -profile
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart -rate 100
+	go run ./load/cmd/load -disk-queue -proxy load/out/hotline-proxy -spec $(OPENAI_AUDIO_SPEC) -shape multipart-long-prompt -rate 50 -profile
 	# WebSockets: Gemini Live sessions, each sending and getting 25 messages
 	# of audio a second, so 50 messages a second per session both ways.
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100 -profile
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-alone -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50 -profile
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 20
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 50
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-plain -sessions 100 -profile
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-alone -sessions 50
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(LIVE_SPEC) -shape live-context -sessions 50 -profile
 	# Kraken market data sessions, each pinging 25 times a second, with a
 	# pong and a book update for each ping, so 75 messages a second per
 	# session both ways. The same counts as the Gemini lines, to compare.
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 20
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 100 -profile
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-alone -sessions 50
-	go run ./load/cmd/load -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-context -sessions 50 -profile
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 20
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 50
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-plain -sessions 100 -profile
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-alone -sessions 50
+	go run ./load/cmd/load -disk-queue -k6 $(K6) -proxy load/out/hotline-proxy -spec $(KRAKEN_SPEC) -shape kraken-context -sessions 50 -profile
 
 LIVE_SPEC = load/live/live.openapi.yaml
 KRAKEN_SPEC = specs/kraken/spot-websocket/v2.openapi.yaml

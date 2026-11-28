@@ -120,6 +120,10 @@ _Avoid_: issuer, in both its meanings: our signing pair (the old `issuers` secti
 Reading the config, specs, overlays, keys and certs again while running, every few seconds or at once on a `HUP` signal, without dropping calls.
 _Avoid_: hot reload, refresh, restart
 
+**Disk queue**:
+The part of an OTLP exporter's queue kept as files in `queueFolder`, at most `queueDisk` bytes. It is used when the memory queue is full, and stays in use until it is empty. An item leaves it only after the collector accepts it.
+_Avoid_: spool, spill file, buffer, segment
+
 **Own telemetry**:
 Numbers about the proxy itself (calls in flight, queue lengths, drops), sent only when the `telemetry` section names a collector.
 _Avoid_: proxy metrics, internal metrics, self-monitoring, "the `telemetry` destination" (say "the `telemetry` section": it is not an exporter)

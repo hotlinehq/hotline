@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
@@ -106,21 +107,36 @@ func observeExporters(meter metric.Meter, exporters []exporter, files []fileExpo
 			"A queue that keeps growing will soon drop items."))
 	up, _ := meter.Int64ObservableGauge("hotline.exporter.up",
 		metric.WithDescription("1 while sends to this exporter work, 0 from the first failed send until one works again."))
+	age, _ := meter.Float64ObservableGauge("hotline.exporter.queue.oldest.age", metric.WithUnit("s"),
+		metric.WithDescription("How long the oldest item waiting for this exporter, in memory or on disk, has waited; 0 when none waits."))
+	disk, _ := meter.Int64ObservableUpDownCounter("hotline.exporter.queue.disk.usage", metric.WithUnit("By"),
+		metric.WithDescription("Bytes the disk queue's files of this exporter take, for exporters with a queueFolder."))
+	observe := func(o metric.Observer, q *queue) {
+		labels := metric.WithAttributeSet(q.labels)
+		waiting, _ := q.fill()
+		o.ObserveInt64(size, int64(waiting), labels)
+		waited := 0.0
+		if oldest := q.oldest(); !oldest.IsZero() {
+			waited = time.Since(oldest).Seconds()
+		}
+		o.ObserveFloat64(age, waited, labels)
+		if q.disk != nil {
+			bytes := q.disk.fileBytes()
+			o.ObserveInt64(disk, bytes, labels)
+		}
+	}
 	_, _ = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		for _, d := range exporters {
-			waiting, _ := d.queue.fill()
-			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(d.queue.labels))
-			waiting, _ = d.spans.fill()
-			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(d.spans.labels))
+			observe(o, d.queue)
+			observe(o, d.spans)
 			o.ObserveInt64(up, d.up.Load(), metric.WithAttributeSet(d.place))
 		}
 		for _, f := range files {
-			waiting, _ := f.queue.fill()
-			o.ObserveInt64(size, int64(waiting), metric.WithAttributeSet(f.queue.labels))
+			observe(o, f.queue)
 			o.ObserveInt64(up, f.up.Load(), metric.WithAttributeSet(f.place))
 		}
 		return nil
-	}, size, up)
+	}, size, up, age, disk)
 }
 
 // exporterLabel names an exporter by its endpoint, as the config writes

@@ -21,19 +21,32 @@ const BatchSize = batchSize
 
 // TestQueue is a queue of strings that sends with the given function and
 // never on its own timer.
-type TestQueue struct{ q *queue[string] }
+type TestQueue struct{ q *queue }
 
 // NewTestQueue is a queue holding at most size items.
 func NewTestQueue(size int, send func(context.Context, []string) error) TestQueue {
 	counter, _ := noop.NewMeterProvider().Meter("test").Int64Counter("test")
-	return TestQueue{newQueue("spans", send, func(context.Context) error { return nil }, queueSetup{
+	asText := func(ctx context.Context, items [][]byte) error {
+		texts := make([]string, len(items))
+		for i, item := range items {
+			texts[i] = string(item)
+		}
+		return send(ctx, texts)
+	}
+	return TestQueue{newQueue("spans", asText, func(context.Context) error { return nil }, queueSetup{
 		size: size, interval: time.Hour, logger: slog.New(slog.DiscardHandler),
 		sent: counter, dropped: counter, up: &atomic.Int64{},
 	})}
 }
 
 // Add queues items: all of them, or none.
-func (t TestQueue) Add(items ...string) { t.q.add(items...) }
+func (t TestQueue) Add(items ...string) {
+	written := make([][]byte, len(items))
+	for i, item := range items {
+		written[i] = []byte(item)
+	}
+	t.q.add(written...)
+}
 
 // Waiting is how many items wait.
 func (t TestQueue) Waiting() int {
@@ -51,6 +64,9 @@ func (t TestQueue) Refused() (int, int) {
 
 // Flush sends everything that waits.
 func (t TestQueue) Flush(ctx context.Context) error { return t.q.ForceFlush(ctx) }
+
+// Oldest is when the oldest waiting item was queued; zero for none.
+func (t TestQueue) Oldest() time.Time { return t.q.oldest() }
 
 // Shutdown stops the queue.
 func (t TestQueue) Shutdown(ctx context.Context) error { return t.q.Shutdown(ctx) }

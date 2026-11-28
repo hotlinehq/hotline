@@ -190,6 +190,36 @@ var _ = Describe("The scenario line", func() {
 	})
 })
 
+var _ = Describe("The disk queue and an outage", func() {
+	It("gives the exporter a disk queue in the run's own folder, only when asked", func() {
+		Expect(run.DiskQueueYAML(false, "/w")).To(BeEmpty())
+		Expect(run.DiskQueueYAML(true, "/w")).To(Equal("      queueFolder: \"/w/queue\"\n      queueDisk: 1GiB\n"))
+	})
+
+	It("refuses an outage without a disk queue, or longer than a repeat", func() {
+		Expect(run.CheckOutage(run.Config{Duration: "20s"})).To(Succeed())
+		Expect(run.CheckOutage(run.Config{Duration: "60s", Outage: 20 * time.Second, DiskQueue: true})).To(Succeed())
+		Expect(run.CheckOutage(run.Config{Duration: "60s", Outage: 20 * time.Second})).To(MatchError(ContainSubstring("needs -disk-queue")))
+		Expect(run.CheckOutage(run.Config{Duration: "20s", Outage: 20 * time.Second, DiskQueue: true})).To(MatchError(ContainSubstring("does not fit")))
+		Expect(run.CheckOutage(run.Config{Duration: "soon", Outage: time.Second, DiskQueue: true})).To(MatchError(ContainSubstring("does not fit")))
+	})
+
+	It("says how long the proxy took to send everything once the collector was back", func() {
+		receiver, err := fakes.StartReceiver()
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(receiver.Close)
+		back := time.Now().Add(-3 * time.Second)
+		Expect(run.SecondsToDrain(back, receiver, time.Minute)).To(BeNumerically("~", 3, 1))
+	})
+
+	It("gives the limit when the proxy never sent everything", func() {
+		receiver, err := fakes.StartReceiver()
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(receiver.Close)
+		Expect(run.SecondsToDrain(time.Now().Add(-time.Minute), receiver, time.Second)).To(Equal(1.0))
+	})
+})
+
 var _ = Describe("Waiting for the proxy's memory number", func() {
 	It("waits longer than the 15 seconds the runtime library keeps its last reading", func() {
 		Expect(run.DefaultSettle).To(BeNumerically(">", 15*time.Second))

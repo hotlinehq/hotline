@@ -156,9 +156,9 @@ type receiver struct {
 	items   []receivedRecord
 	// probes are the records of the probes of vendors, kept apart too.
 	probes []receivedRecord
-	// down refuses every log export, until it is back.
-	down bool
-	// refused counts the call records refused while down.
+	// busy answers every log and trace export with 503, until it is back.
+	busy bool
+	// refused counts the call records refused while busy.
 	refused  int
 	points   []receivedPoint
 	spanList []receivedSpan
@@ -222,11 +222,13 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		proto:         req.Proto,
 	})
 	var refuse *answer
-	down := logs && r.down
-	if down {
-		// A collector that is down refuses every log export at once.
-		refuse = &answer{status: http.StatusBadRequest}
-	} else if logs && len(r.answers) > 0 {
+	// A busy collector refuses every export; the records it refused are
+	// counted, so a test can tell they were sent.
+	busy := r.busy && (logs || strings.HasSuffix(req.URL.Path, "/v1/traces"))
+	switch {
+	case busy:
+		refuse = &answer{status: http.StatusServiceUnavailable}
+	case logs && len(r.answers) > 0:
 		refuse = &r.answers[0]
 		r.answers = r.answers[1:]
 	}
@@ -237,7 +239,7 @@ func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		// and wait half a second in a goroutine of its own, which outlives
 		// the scenario and fails its check for leftover goroutines.
 		data, _ := io.ReadAll(req.Body)
-		if down {
+		if busy && logs {
 			r.countRefused(req.Header.Get("Content-Encoding"), data)
 		}
 		if refuse.retryAfter != "" {
@@ -644,9 +646,8 @@ func value(v *common.AnyValue) any {
 	return nil
 }
 
-// setDown makes the receiver refuse every log export, or take them again.
-func (r *receiver) setDown(down bool) {
+func (r *receiver) setBusy(busy bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.down = down
+	r.busy = busy
 }

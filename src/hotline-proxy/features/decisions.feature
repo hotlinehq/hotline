@@ -149,6 +149,15 @@ Feature: The code still follows the decision log
       When the app sends GET /orders with "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
       Then the record's trace_id is 4bf92f3577b34da6a3ce929d0e0e4736 and its flags are 01
 
+    Scenario: disk-queue. A busy collector loses nothing, the disk keeps the order, and no call waits
+      Given a fake OTLP receiver
+      And an exporter with queueSize 3 and a disk queue, whose collector is busy
+      When 10 calls end one after another
+      And the collector is back, and 1 more call ends at once
+      Then the collector gets records 1 to 11 in the order of the calls
+      And the proxy logs no warning about dropped records
+      And no call was blocked or slowed
+
     Scenario: ledger. Every field of a record is covered by its hash
       The list of covered fields is closed: a field the proxy starts to send
       fails here until the hash covers it (Peter, 2026-11-25).

@@ -220,27 +220,20 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^the OTLP exporter's collector is down$`, func() error {
-		w.receivers[0].setDown(true)
+	sc.Step(`^the OTLP exporter's collector is busy$`, func() error {
+		w.receivers[0].setBusy(true)
 		return nil
 	})
-	sc.Step(`^the collector is back$`, func() error {
-		// Sends refused a moment ago end at once; let them.
-		pause(300 * time.Millisecond)
-		w.receivers[0].setDown(false)
+	sc.Step(`^the collector is no longer busy$`, func() error {
+		w.receivers[0].setBusy(false)
 		return nil
 	})
-	sc.Step(`^the collector got the newest 64 waiting batch records$`, func() error {
-		if _, err := w.waitBatches(64); err != nil {
+	sc.Step(`^the collector got all (\d+) batch records, in order$`, func(n int) error {
+		if _, err := w.waitBatches(n); err != nil {
 			return err
 		}
-		pause(200 * time.Millisecond)
-		batches := w.receivers[0].ledger()
-		if len(batches) != 64 {
-			return failf("the collector got %d batch records", len(batches))
-		}
-		for i, b := range batches {
-			if err := has(b.attrs, "hotline.batch.sequence", int64(i+2)); err != nil {
+		for i, b := range w.receivers[0].ledger()[:n] {
+			if err := has(b.attrs, "hotline.batch.sequence", int64(i)); err != nil {
 				return err
 			}
 		}
@@ -251,14 +244,6 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 			if err := hasNo(b.attrs, "hotline.batch.lost_batches"); err != nil {
 				return err
 			}
-		}
-		return nil
-	})
-	sc.Step(`^the proxy's memory stayed bounded$`, func() error {
-		// At most 64 batch records waited: the collector got no more than
-		// that from the time it was down.
-		if n := len(w.receivers[0].ledger()); n > 64 {
-			return failf("%d batch records waited", n)
 		}
 		return nil
 	})
@@ -820,14 +805,16 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|batch 0 is in the file twice|batch 0 names a batch before it)$`, func(change string) error {
+	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|a changed batch 0 is in the file twice|a changed record is in the file twice|batch 0 names a batch before it)$`, func(change string) error {
 		switch change {
 		case "a record's hotline.batch.index is changed to 99":
 			return w.changeLine(2, func(line map[string]any) {
 				line["attributes"].(map[string]any)["hotline.batch.index"] = json.Number("99")
 			})
-		case "batch 0 is in the file twice":
-			return w.twiceBatch0()
+		case "a changed batch 0 is in the file twice":
+			return w.twiceBatch0(func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
+		case "a changed record is in the file twice":
+			return w.twiceRecord(func(attrs map[string]any) { attrs["http.response.status_code"] = json.Number("599") })
 		case "batch 0 names a batch before it":
 			return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.previous"] = "sha256:" + strings.Repeat("0", 64) })
 		case "http.response.status_code is changed in a record":
@@ -929,6 +916,16 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		}
 		w.settle()
 		return nil
+	})
+	sc.Step(`^the folder calls holds (a record|batch 0) twice$`, func(what string) error {
+		if err := w.ordersTimes(3); err != nil {
+			return err
+		}
+		w.settle()
+		if what == "batch 0" {
+			return w.twiceBatch0(func(map[string]any) {})
+		}
+		return w.twiceRecord(func(map[string]any) {})
 	})
 	sc.Step(`^the run or batch has the note (\S+)$`, func(code string) error {
 		report, err := result.json()
@@ -1199,20 +1196,36 @@ func (w *world) changeBatchLine(sequence int, change func(map[string]any)) error
 }
 
 // twiceBatch0 writes the batch line with sequence 0 a second time, right
-// after itself.
-func (w *world) twiceBatch0() error {
+// after itself, with change made to the copy's attributes.
+func (w *world) twiceBatch0(change func(attrs map[string]any)) error {
+	return w.twice(func(line map[string]any, attrs map[string]any) bool {
+		return line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == "0"
+	}, change)
+}
+
+// twiceRecord writes the first call line a second time, right after
+// itself, with change made to the copy's attributes.
+func (w *world) twiceRecord(change func(attrs map[string]any)) error {
+	return w.twice(func(line map[string]any, _ map[string]any) bool { return line["event"] == "hotline.request" }, change)
+}
+
+// twice writes the first line that is wanted a second time, right after
+// itself, with change made to the copy's attributes.
+func (w *world) twice(wanted func(line, attrs map[string]any) bool, change func(attrs map[string]any)) error {
 	lines, err := w.folderLines()
 	if err != nil {
 		return err
 	}
 	for i, line := range lines {
 		attrs, _ := line["attributes"].(map[string]any)
-		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == "0" {
-			lines = slices.Insert(lines, i+1, cloneLine(line))
+		if wanted(line, attrs) {
+			copied := cloneLine(line)
+			change(copied["attributes"].(map[string]any))
+			lines = slices.Insert(lines, i+1, copied)
 			return w.writeLines(lines)
 		}
 	}
-	return failf("no batch line has the sequence 0")
+	return failf("no line to copy")
 }
 
 func cloneLine(line map[string]any) map[string]any {
