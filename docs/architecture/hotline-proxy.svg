@@ -224,19 +224,24 @@
 
   <!-- Exporters -->
   <g filter="url(#shadow)">
-    <rect x="1410" y="640" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1410" y="742" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
-    <rect x="1410" y="844" width="320" height="82" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="568" width="320" height="76" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="658" width="320" height="76" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="748" width="320" height="76" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+    <rect x="1410" y="838" width="320" height="76" rx="14" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
   </g>
-  <text x="1430" y="674" font-size="17" font-weight="700" fill="#0F172A">OTLP collector, own tools</text>
-  <text x="1430" y="700" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">OTLP logs · traces</text>
-  <text x="1430" y="776" font-size="17" font-weight="700" fill="#0F172A">Local folder</text>
-  <text x="1430" y="802" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">hotline-proxy verify &lt;folder&gt;</text>
-  <text x="1430" y="878" font-size="17" font-weight="700" fill="#0F172A">Terminal</text>
-  <text x="1430" y="904" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">two coloured lines per call</text>
-  <path d="M1322,740 C1366,740 1360,681 1406,681" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <path d="M1322,760 C1366,760 1360,783 1406,783" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <path d="M1322,780 C1366,780 1360,885 1406,885" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="1430" y="600" font-size="17" font-weight="700" fill="#0F172A">OTLP collector, own tools</text>
+  <text x="1430" y="626" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">OTLP logs · traces</text>
+  <text x="1430" y="690" font-size="17" font-weight="700" fill="#0F172A">Disk queue, while it is down</text>
+  <text x="1430" y="716" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">queueFolder, up to queueDisk</text>
+  <text x="1430" y="780" font-size="17" font-weight="700" fill="#0F172A">Local folder</text>
+  <text x="1430" y="806" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">hotline-proxy verify &lt;folder&gt;</text>
+  <text x="1430" y="870" font-size="17" font-weight="700" fill="#0F172A">Terminal</text>
+  <text x="1430" y="896" font-size="13" fill="#334155" font-family="'SF Mono', Menlo, Consolas, monospace">two coloured lines per call</text>
+  <path d="M1322,730 C1366,730 1360,606 1406,606" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1322,750 C1366,750 1360,696 1406,696" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1322,770 C1366,770 1360,786 1406,786" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1322,790 C1366,790 1360,876 1406,876" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <path d="M1710,658 L1710,648" fill="none" stroke="#2563EB" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrowBlue)"/>
 
   <!-- Footer -->
   <line x1="60" y1="980" x2="1740" y2="980" stroke="#E2E8F0" stroke-width="1.5"/>
