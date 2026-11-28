@@ -23,6 +23,7 @@ This project uses **Test-Driven Development (TDD)**. Write tests before writing 
 - **Proxy behaviour**: Gherkin feature files in `src/hotline-proxy/features/`, run by [godog](https://github.com/cucumber/godog). See the `hotline-go-proxy` skill for the system under test approach.
 - **Everything else, and small solitary tests**: [Ginkgo](https://onsi.github.io/ginkgo/) + [Gomega](https://onsi.github.io/gomega/)
 - **Run tests**: `go test ./...` from the relevant module directory
+- **Every Ginkgo test and godog step uses a SUT struct** (Peter, 2026-11-28); fuzz tests and benchmarks do not. SUT means system under test: the part a test drives and checks. Each `Describe` or `Context` holds one `sut` value of a type named `<area>SUT`; its struct, at the bottom of the file, builds the system with `for...` methods, acts and answers in domain words, keeps defaults and setup error checks inside, and hides waiting. Test bodies are build, act, check, in a few lines. For godog, one small sut per area, each with its own steps. See the [`sut-tests` skill](.claude/skills/sut-tests/SKILL.md).
 
 ### Test structure
 

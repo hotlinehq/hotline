@@ -34,6 +34,7 @@ Decisions already made, so a new session does not have to dig through old thread
 
 - Proxy behaviour: Gherkin feature files in `src/hotline-proxy/features/`, run by godog. Everything else: Ginkgo and Gomega.
 - The whole proxy is the system under test (the thing a test drives and checks), with fake vendors and a fake OTLP receiver at its edges.
+- Every test is shaped around a SUT struct: one `sut` per `Describe` or `Context`, and one small sut per area for godog. The [`sut-tests` skill](.claude/skills/sut-tests/SKILL.md); decision in [docs/decisions/sut-tests.md](docs/decisions/sut-tests.md) (Peter, 2026-11-28).
 - Never change production code just so a test can reach it.
 - A flaky test is a bug: log it in [docs/flakes.md](docs/flakes.md) and fix it, never just rerun. Tests wait with `eventually` or `pause` (no `time.Sleep`), and take ports from `reservedPorts`, never a port picked and let go (Peter, 2026-11-24).
 - Never add a lint skip on your own: no new `//nolint`, exclusion rule or turned-off check. Fix the cause instead, and when no clean fix exists, raise it with Peter first. Decisions so far: [docs/decisions/lint.md](docs/decisions/lint.md) (Peter, 2026-11-24).
