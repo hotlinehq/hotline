@@ -8,6 +8,8 @@ SUT means system under test: the part a test drives and checks. Here it is also 
   - `internal/export/disk_test.go`: an `open` closure instead of a sut, files changed by hand, and `export.QueueFileSize`, exported only for tests.
   - `internal/ledger/ledger_test.go`: `BeforeEach` builds a signer and a record with internal calls.
   - `world_test.go`: one struct for every area, instead of one sut per area as in `77ddc68`.
+- **Remove a test-only bridge in the same step as the rework** (Peter, 2026-11-28, Q3). Revisit if: removing a bridge makes a rework too large to review on its own.
+- **A broad public constructor instead of a bridge** (Peter, 2026-11-28). A part that a solitary test builds gets one constructor, named for what it builds and used by production too, and the test passes its fakes through it: `export.NewQueue(export.QueueSetup{...})` replaced `export.NewTestQueue`. Tests stay in the `<pkg>_test` package. This makes the part visible to the other packages that import it; Peter accepted that.
 
 ## Tripwires (2026-11-28)
 

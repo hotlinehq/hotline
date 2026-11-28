@@ -51,6 +51,8 @@ From [Decoupling tests from implementation details](https://medium.com/codex/dec
 
 The exception is passing in what the proxy needs from the world anyway: the clock, randomness, environment variables, DNS and the vendor transport come in through the constructor (section 3). That makes the code clearer as well as testable.
 
+**No test-only bridge (Peter, 2026-11-28).** A file such as `export_test.go` in the package itself, that exports inner parts for tests under names like `TestQueue` or `NewTestQueue`, is not allowed. When a small solitary test needs to build a part, give that part one broad constructor that production uses too, named for what it builds (`export.NewQueue(export.QueueSetup{...})`, not a test constructor), and let the test pass its own fakes through it. Tests stay in the `<pkg>_test` package. Existing bridges go when their tests are reworked into the SUT pattern.
+
 **No other link between tests and code.**
 - Never redo the code's logic in a test ("I'll just recompute it here"). Write the expected value out in full.
 - Never use the code's constants or variables in a test. If a test needs a different value, such as a smaller queue, pass it in.

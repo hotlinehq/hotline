@@ -111,7 +111,7 @@ func observeExporters(meter metric.Meter, exporters []exporter, files []fileExpo
 		metric.WithDescription("How long the oldest item waiting for this exporter, in memory or on disk, has waited; 0 when none waits."))
 	disk, _ := meter.Int64ObservableUpDownCounter("hotline.exporter.queue.disk.usage", metric.WithUnit("By"),
 		metric.WithDescription("Bytes the disk queue's files of this exporter take, for exporters with a queueFolder."))
-	observe := func(o metric.Observer, q *queue) {
+	observe := func(o metric.Observer, q *Queue) {
 		labels := metric.WithAttributeSet(q.labels)
 		waiting, _ := q.fill()
 		o.ObserveInt64(size, int64(waiting), labels)

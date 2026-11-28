@@ -120,9 +120,29 @@ func texts(items []string) [][]byte {
 // TestDiskBackedQueue is a queue of records with a disk queue behind it,
 // and what it logged.
 type TestDiskBackedQueue struct {
-	TestQueue
+	q    *Queue
 	logs *lockedBuffer
 }
+
+// Add queues records: all of them, or none.
+func (t TestDiskBackedQueue) Add(records ...string) { t.q.Add(texts(records)...) }
+
+// Refused is how many items, and in how many groups, a full queue refused
+// since the last warning.
+func (t TestDiskBackedQueue) Refused() (int, int) {
+	t.q.mu.Lock()
+	defer t.q.mu.Unlock()
+	return t.q.crowded.count, t.q.crowded.groups
+}
+
+// Flush sends everything that waits.
+func (t TestDiskBackedQueue) Flush(ctx context.Context) error { return t.q.ForceFlush(ctx) }
+
+// Oldest is when the oldest waiting item was queued; zero for none.
+func (t TestDiskBackedQueue) Oldest() time.Time { return t.q.oldest() }
+
+// Shutdown stops the queue.
+func (t TestDiskBackedQueue) Shutdown(ctx context.Context) error { return t.q.Shutdown(ctx) }
 
 // lockedBuffer is a buffer the queue's writer and sender may log to at
 // once.
@@ -156,13 +176,13 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 		return send(ctx, read)
 	}
 	logs := &lockedBuffer{}
-	s := queueSetup{
-		size: size, interval: time.Hour, logger: slog.New(slog.NewTextHandler(logs, nil)),
-		sent: counter, dropped: counter, up: &atomic.Int64{},
+	s := QueueSetup{
+		ItemName: "records", Size: size, Interval: time.Hour, Logger: slog.New(slog.NewTextHandler(logs, nil)),
+		Counts: QueueCounts{Sent: counter, Dropped: counter}, ExporterUp: &atomic.Int64{}, Send: asText,
 	}
-	q := buildQueue("records", asText, func(context.Context) error { return nil }, s)
+	q := buildQueue(s)
 	o, err := newDiskQueue(dir, &diskBudget{limit: limit}, diskQueueSetup{
-		kind: kindRecord, logger: s.logger, dropped: counter, kick: func() {},
+		kind: kindRecord, logger: s.Logger, dropped: counter, kick: func() {},
 	})
 	if err != nil {
 		return TestDiskBackedQueue{}, err
@@ -170,7 +190,7 @@ func NewTestDiskBackedQueue(size int, dir string, limit int64, send func(context
 	q.disk = o
 	// The queue sends only when the test flushes it.
 	close(q.stopped)
-	return TestDiskBackedQueue{TestQueue{q}, logs}, nil
+	return TestDiskBackedQueue{q, logs}, nil
 }
 
 // Written says what was queued for disk is written.

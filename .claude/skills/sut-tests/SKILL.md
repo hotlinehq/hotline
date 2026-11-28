@@ -5,7 +5,7 @@ description: Shape every Go test in this repo around a SUT struct (Peter's patte
 
 # Tests shaped around a SUT struct
 
-SUT means system under test: the part a test drives and checks. Here it is also a small struct that owns all setup, so each test reads in a few lines. Reference: `git show 668dfa9:src/hotline/servicelevels/pipelne_test.go`. Decision: [docs/decisions/sut-tests.md](../../../docs/decisions/sut-tests.md).
+SUT means system under test: the part a test drives and checks. Here it is also a small struct that owns all setup, so each test reads in a few lines. Reference: `git show 668dfa9:src/hotline/servicelevels/pipelne_test.go`, and the first reworked file, `src/hotline-proxy/internal/export/queue_test.go`. Decision: [docs/decisions/sut-tests.md](../../../docs/decisions/sut-tests.md).
 
 **Where it applies:** every Ginkgo test and every godog step. Not to fuzz tests, benchmarks, or a `DescribeTable` whose rows each call one function with a value and check what comes back.
 
@@ -21,6 +21,14 @@ SUT means system under test: the part a test drives and checks. Here it is also 
 8. The test body is build, act, check: usually three to eight lines, and the `Expect` lines stay in the test.
 9. Setup closures and setup helpers in a test file become sut methods. Shared fakes and the shared wait and port helpers (`eventually`, `pause`, `reservedPorts`, see `docs/flakes.md`) stay as they are, and the sut uses them.
 10. The sut uses only the ways in and out that the `hotline-go-proxy` skill allows: no code constants, no exports made for tests, expected values written out in full.
+11. The sut lives in the `<pkg>_test` package. When it must build an inner part, it uses that part's broad public constructor, the one production uses too, and passes its fakes through the constructor's setup struct (for example `export.NewQueue(export.QueueSetup{Send: s.recordBatch, ...})`). Never a bridge file that exports inner parts under test names (Peter, 2026-11-28).
+12. The sut checks what can be seen from outside: what its fake received, what was logged, what a counter says. It adds no methods to the code, such as `Waiting()` or `Refused()`, only to look inside.
+
+## Reworking an old test file
+
+- Rework one test file at a time, in its own pull request, keeping the same behaviours: no test added or dropped.
+- In the same step, remove the part of any test-only bridge that file used, and give the part a broad constructor instead (Peter, 2026-11-28). Leave the bridge's other parts until their own files are reworked.
+- Bring Peter the plan first: the file, the sut's names (decided by decomplect), the way in and out, and any new public constructor, shown as its signature.
 
 ## godog steps
 

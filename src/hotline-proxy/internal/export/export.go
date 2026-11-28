@@ -71,8 +71,8 @@ type Exporters struct {
 type exporter struct {
 	// queue holds the written records and spans the written spans, both
 	// sent with transport.
-	queue     *queue
-	spans     *queue
+	queue     *Queue
+	spans     *Queue
 	transport *httpTransport
 	// up is 1 while sends work, 0 from a failed send until one works, and
 	// place names the exporter in the proxy's own numbers.
@@ -88,7 +88,7 @@ type exporter struct {
 // fileExporter is one file exporter's queue of written lines and its
 // writer.
 type fileExporter struct {
-	queue   *queue
+	queue   *Queue
 	writer  *fileWriter
 	up      *atomic.Int64
 	place   attribute.Set
@@ -191,13 +191,15 @@ func New(setup Setup) (*Exporters, error) {
 		up := &atomic.Int64{}
 		up.Store(1)
 		label := attribute.String("hotline.exporter", e.Path)
-		setup := queueSetup{
-			endpoint: e.Path, size: fileQueueSize, memory: e.QueueMemory, interval: fileInterval, logger: logger, up: up,
-			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
+		setup := QueueSetup{
+			ItemName: "records", ExporterName: e.Path, Size: fileQueueSize, Memory: e.QueueMemory, Interval: fileInterval,
+			Logger: logger, ExporterUp: up,
+			Counts: QueueCounts{Sent: stats.sent, Dropped: stats.dropped, Labels: attribute.NewSet(label, attribute.String("hotline.signal", "record"))},
+			Send:   func(_ context.Context, lines [][]byte) error { return writer.write(lines) },
+			Close:  func(context.Context) error { return writer.close() },
 		}
-		write := func(_ context.Context, lines [][]byte) error { return writer.write(lines) }
 		s.files = append(s.files, fileExporter{
-			queue:  newQueue("records", write, func(context.Context) error { return writer.close() }, setup),
+			queue:  NewQueue(setup),
 			writer: writer,
 			up:     up,
 			place:  attribute.NewSet(label),
@@ -207,21 +209,23 @@ func New(setup Setup) (*Exporters, error) {
 		t := newHTTPTransport(e, tlsFor(e, roots), service.Version)
 		up := &atomic.Int64{}
 		up.Store(1)
-		setup := queueSetup{endpoint: e.Endpoint, size: e.QueueSize, logger: logger, up: up}
-		setup.sent, setup.dropped = stats.sent, stats.dropped
+		setup := QueueSetup{ExporterName: e.Endpoint, Size: e.QueueSize, Logger: logger, ExporterUp: up}
+		setup.Counts.Sent, setup.Counts.Dropped = stats.sent, stats.dropped
 		logSetup := setup
-		logSetup.labels = signalLabels(e, "record")
-		logSetup.interval = e.LogInterval
+		logSetup.ItemName = "records"
+		logSetup.Counts.Labels = signalLabels(e, "record")
+		logSetup.Interval = e.LogInterval
 		spanSetup := setup
-		spanSetup.labels = signalLabels(e, "span")
-		spanSetup.interval = e.TraceInterval
+		spanSetup.ItemName = "spans"
+		spanSetup.Counts.Labels = signalLabels(e, "span")
+		spanSetup.Interval = e.TraceInterval
 		d := exporter{transport: t, up: up, place: attribute.NewSet(exporterLabel(e))}
 		recordDisk, spanDisk, err := d.openDisk(e)
 		if err == nil {
-			d.queue, err = newItemQueue("records", records, t, written, timing.Timeout, logSetup, recordDisk)
+			d.queue, err = newItemQueue(records, t, written, timing.Timeout, logSetup, recordDisk)
 		}
 		if err == nil {
-			d.spans, err = newItemQueue("spans", spans, t, written, timing.Timeout, spanSetup, spanDisk)
+			d.spans, err = newItemQueue(spans, t, written, timing.Timeout, spanSetup, spanDisk)
 		}
 		if err != nil {
 			s.exporters = append(s.exporters, d)
@@ -255,9 +259,10 @@ func New(setup Setup) (*Exporters, error) {
 		up := &atomic.Int64{}
 		up.Store(1)
 		label := attribute.String("hotline.exporter", "console")
-		s.console = newConsole(console, out, queueSetup{
-			endpoint: "console", size: consoleQueueSize, interval: fileInterval, eager: true, logger: logger, up: up,
-			sent: stats.sent, dropped: stats.dropped, labels: attribute.NewSet(label, attribute.String("hotline.signal", "record")),
+		s.console = newConsole(console, out, QueueSetup{
+			ItemName: "calls", ExporterName: "console", Size: consoleQueueSize, Interval: fileInterval, Eager: true,
+			Logger: logger, ExporterUp: up,
+			Counts: QueueCounts{Sent: stats.sent, Dropped: stats.dropped, Labels: attribute.NewSet(label, attribute.String("hotline.signal", "record"))},
 		})
 	}
 	observeExporters(meter, s.exporters, s.local())
@@ -286,7 +291,7 @@ func (s *Exporters) closeAll() {
 	// Nothing has been sent yet; what waits stays on disk.
 	cancel()
 	for _, d := range s.exporters {
-		for _, q := range []*queue{d.queue, d.spans} {
+		for _, q := range []*Queue{d.queue, d.spans} {
 			if q != nil {
 				_ = q.Shutdown(ctx)
 			}
@@ -384,7 +389,7 @@ func (s *Exporters) Call(_ context.Context, c Call) {
 	if len(s.files) > 0 {
 		line = s.line(c, true)
 		for _, f := range s.files {
-			if !f.queue.add(line) {
+			if !f.queue.Add(line) {
 				f.batches.dropped(c.Ledger)
 			}
 		}
@@ -397,10 +402,10 @@ func (s *Exporters) Call(_ context.Context, c Call) {
 		if line == nil || c.Content != nil {
 			line = s.line(c, false)
 		}
-		s.console.queue.add(terminalSafe(line))
+		s.console.queue.Add(terminalSafe(line))
 	default:
 		if lines := s.console.lines(c); lines != nil {
-			s.console.queue.add(lines)
+			s.console.queue.Add(lines)
 		}
 	}
 }
@@ -453,7 +458,7 @@ func (s *Exporters) record(c Call) {
 	*scratch = b
 	s.scratch.Put(scratch)
 	for _, d := range s.exporters {
-		if !d.queue.add(written) {
+		if !d.queue.Add(written) {
 			d.batches.dropped(c.Ledger)
 		}
 	}
