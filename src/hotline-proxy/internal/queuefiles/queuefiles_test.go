@@ -43,6 +43,14 @@ var _ = Describe("disk queue", func() {
 		Expect(read).To(Equal([]string{""}))
 		Expect(sut.Close()).To(Succeed())
 	})
+	It("refuses a record with more than one part, and writes none of the items", func() {
+		sut.forEmptyFolder()
+		Expect(sut.WriteWithARecordOfTwoParts("a")).NotTo(Succeed())
+		Expect(sut.WriteFrontWithARecordOfTwoParts("a")).NotTo(Succeed())
+		Expect(sut.Empty()).To(BeTrue())
+		Expect(sut.Close()).To(Succeed())
+	})
+
 	It("reads the same items again until they are taken", func() {
 		sut.forEmptyFolder()
 		Expect(sut.Write("a", "b")).To(Succeed())
@@ -371,10 +379,9 @@ func (s *folderSUT) OpenError() error {
 
 // Write writes records, each taken from the budget first.
 func (s *folderSUT) Write(records ...string) error {
-	items := make([]queuefiles.Item, len(records))
-	for i, r := range records {
-		items[i] = queuefiles.Item{Kind: queuefiles.Record, Parts: [][]byte{[]byte(r)}}
-		s.budget.Take(items[i].Size())
+	items := recordItems(records)
+	for _, item := range items {
+		s.budget.Take(item.Size())
 	}
 	_, err := s.folder.Write(items)
 	return err
@@ -386,6 +393,33 @@ func (s *folderSUT) WriteRecordWithNoParts() error {
 	return err
 }
 
+// WriteWithARecordOfTwoParts writes the records, then a record with two
+// parts.
+func (s *folderSUT) WriteWithARecordOfTwoParts(records ...string) error {
+	_, err := s.folder.Write(append(recordItems(records), twoPartRecord()))
+	return err
+}
+
+// WriteFrontWithARecordOfTwoParts puts the records, then a record with
+// two parts, before everything on disk.
+func (s *folderSUT) WriteFrontWithARecordOfTwoParts(records ...string) error {
+	return s.folder.WriteFront(append(recordItems(records), twoPartRecord()))
+}
+
+// recordItems are records as items, one part each.
+func recordItems(records []string) []queuefiles.Item {
+	items := make([]queuefiles.Item, len(records))
+	for i, r := range records {
+		items[i] = queuefiles.Item{Kind: queuefiles.Record, Parts: [][]byte{[]byte(r)}}
+	}
+	return items
+}
+
+// twoPartRecord is a record item with two parts, which no record has.
+func twoPartRecord() queuefiles.Item {
+	return queuefiles.Item{Kind: queuefiles.Record, Parts: texts([]string{"b", "c"})}
+}
+
 // WriteSpans writes one call's spans as one item.
 func (s *folderSUT) WriteSpans(spans ...string) error {
 	_, err := s.folder.Write([]queuefiles.Item{{Kind: queuefiles.Spans, Parts: texts(spans)}})
@@ -394,11 +428,7 @@ func (s *folderSUT) WriteSpans(spans ...string) error {
 
 // WriteFront puts records before everything on disk.
 func (s *folderSUT) WriteFront(records ...string) error {
-	items := make([]queuefiles.Item, len(records))
-	for i, r := range records {
-		items[i] = queuefiles.Item{Kind: queuefiles.Record, Parts: [][]byte{[]byte(r)}}
-	}
-	return s.folder.WriteFront(items)
+	return s.folder.WriteFront(recordItems(records))
 }
 
 // WriteFrontWithFilesLimitedToAMegabyte puts records before everything on

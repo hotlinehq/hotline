@@ -74,6 +74,10 @@ func checksum(b []byte) uint32 { return crc32.Checksum(b, crc32.MakeTable(crc32.
 // cut short.
 var errQueueFile = errors.New("queuefiles: a queue file item cannot be read")
 
+// errManyParts is a record or batch record item with more than its one
+// part, which is never written: only its first part would be kept.
+var errManyParts = errors.New("queuefiles: a record or batch record item has more than one part")
+
 // Budget is the bytes one exporter's disk queues may hold in all,
 // records and spans together: what waits to be written and what the
 // queue files hold. Every Folder of the exporter shares it.
@@ -151,13 +155,17 @@ func (it Item) payload() []byte {
 	return it.Parts[0]
 }
 
-// frames are items as they are written.
-func frames(items []Item) []frame {
+// frames are items as they are written. A record with more than one part
+// is refused before any item is written, so no part is lost unseen.
+func frames(items []Item) ([]frame, error) {
 	out := make([]frame, len(items))
 	for i, it := range items {
+		if it.Kind != Spans && len(it.Parts) > 1 {
+			return nil, errManyParts
+		}
 		out[i] = frame{kind: it.Kind, payload: it.payload(), queued: it.Queued}
 	}
-	return out
+	return out, nil
 }
 
 // Folder is the queue files of one signal. One writer appends and syncs;
@@ -421,10 +429,14 @@ func createQueueFile(root *os.Root, name string, flag int, first uint64, frames 
 // Write appends items to the newest queue file, starting the next one when
 // it is full, and says how many it wrote. The items' bytes were reserved
 // in the budget when they were queued. A write that fails starts the next
-// file, so the next write has a whole file to go to. Only the writer
+// file, so the next write has a whole file to go to. A record with more
+// than one part is refused before anything is written. Only the writer
 // calls it.
 func (d *Folder) Write(queued []Item) (int, error) {
-	items := frames(queued)
+	items, err := frames(queued)
+	if err != nil {
+		return 0, err
+	}
 	var buf []byte
 	written := 0
 	for len(items) > 0 {
@@ -646,9 +658,13 @@ func (d *Folder) OldestQueued() time.Time {
 // WriteFront puts items before everything else on disk, in a new queue
 // file numbered before the oldest one, and moves the sender there. A stop
 // uses it for the items still in memory, which are older than those on
-// disk. The writer has stopped.
+// disk. A record with more than one part is refused before anything is
+// written. The writer has stopped.
 func (d *Folder) WriteFront(front []Item) error {
-	items := frames(front)
+	items, err := frames(front)
+	if err != nil {
+		return err
+	}
 	if len(items) == 0 {
 		return nil
 	}
