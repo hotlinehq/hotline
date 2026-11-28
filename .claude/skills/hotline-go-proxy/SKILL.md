@@ -25,6 +25,7 @@ The approach follows [Unit testing: values and principles](https://medium.com/co
 - **Small solitary tests only when they pay.** A part with a stable interface and many cases of its own (for example matching a path to a route template) may get its own small Ginkgo test as well. Do this only when driving every case through the whole proxy would be slow or awkward.
 - **Tests must pay their cost.** They are deterministic, fast enough that nobody skips them, and free to survive any refactoring that keeps the behaviour. A test that breaks when the inside changes but the behaviour does not is a bad test: rewrite it.
 - **Tests are the documentation.** Anyone should be able to read the feature files and know what the proxy does.
+- **Every test is shaped around a SUT struct** (Peter, 2026-11-28): one `sut` per `Describe` or `Context`, and one small sut per area for the godog steps. How: the [`sut-tests` skill](../sut-tests/SKILL.md).
 
 ### Tests do not mirror the code
 
