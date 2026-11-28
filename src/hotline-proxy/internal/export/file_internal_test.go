@@ -1,32 +1,65 @@
 package export
 
-import "hotline-proxy/internal/config"
+import (
+	"os"
+	"path/filepath"
 
-// What the tests in export_test may reach of the file writer: open one,
-// write lines, and rotate it at a moment the test picks, to pin what it
-// does when the folder changes under it.
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
-// TestFileWriter writes call lines to one folder.
-type TestFileWriter struct{ w *fileWriter }
+	"hotline-proxy/internal/config"
+)
 
-// OpenTestFileWriter takes the folder's lock, rotating past maxSize and
-// keeping maxFiles rotated files, without gzip.
-func OpenTestFileWriter(dir string, maxSize int64, maxFiles int) (TestFileWriter, error) {
-	w, err := openFileWriter(config.FileExporter{Path: dir, MaxFileSize: maxSize, MaxFiles: maxFiles})
-	return TestFileWriter{w}, err
+// A rotation that fails cannot be made from outside: a write opens a
+// current file that went away again before it rotates, so only the
+// rotation itself, called at the moment the test picks, shows what is
+// lost (Peter, 2026-11-28, Q2).
+var _ = Describe("Rotating the file of call lines", func() {
+	sut := rotationSUT{}
+
+	It("loses only the lines of a failed rotation, and writes on after it", func() {
+		sut.forWriter()
+		sut.Write(`{"call":1}`)
+		sut.RemoveTheCurrentFile()
+		Expect(sut.Rotate()).NotTo(Succeed())
+		sut.Write(`{"call":2}`)
+		Expect(sut.CurrentFile()).To(Equal("{\"call\":2}\n"))
+	})
+})
+
+// rotationSUT is one file writer of call lines in a new folder, which
+// the test rotates by hand.
+type rotationSUT struct {
+	dir    string
+	writer *fileWriter
 }
 
-// Write adds lines, each ending in a line break.
-func (t TestFileWriter) Write(lines ...string) error {
-	written := make([][]byte, len(lines))
-	for i, line := range lines {
-		written[i] = []byte(line + "\n")
-	}
-	return t.w.write(written)
+// forWriter is a writer that rotates past a megabyte and keeps two
+// rotated files, without gzip.
+func (s *rotationSUT) forWriter() {
+	s.dir = GinkgoT().TempDir()
+	var err error
+	s.writer, err = openFileWriter(config.FileExporter{Path: s.dir, MaxFileSize: 1 << 20, MaxFiles: 2})
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	DeferCleanup(func() { _ = s.writer.close() })
+}
+
+// Write adds one line, failing the test if it cannot.
+func (s *rotationSUT) Write(line string) {
+	Expect(s.writer.write([][]byte{[]byte(line + "\n")})).WithOffset(1).To(Succeed())
+}
+
+// RemoveTheCurrentFile deletes the file being written, under the writer.
+func (s *rotationSUT) RemoveTheCurrentFile() {
+	Expect(os.Remove(filepath.Join(s.dir, "calls.jsonl"))).WithOffset(1).To(Succeed())
 }
 
 // Rotate starts a new file now.
-func (t TestFileWriter) Rotate() error { return t.w.rotate() }
+func (s *rotationSUT) Rotate() error { return s.writer.rotate() }
 
-// Close closes the file and lets go of the folder.
-func (t TestFileWriter) Close() error { return t.w.close() }
+// CurrentFile is what the file being written holds.
+func (s *rotationSUT) CurrentFile() string {
+	b, err := os.ReadFile(filepath.Join(s.dir, "calls.jsonl"))
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+	return string(b)
+}

@@ -151,7 +151,7 @@ func (h *handler) captured(w http.ResponseWriter, r *http.Request, t *tunnel, li
 		return
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	stop := h.tunnels.closed.afterFire(func() { _ = conn.SetReadDeadline(time.Now()) })
+	stop := h.tunnels.closed.AfterFire(func() { _ = conn.SetReadDeadline(time.Now()) })
 	first, err := reader.Peek(1)
 	stop()
 	switch {

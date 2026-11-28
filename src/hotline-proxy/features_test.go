@@ -47,16 +47,14 @@ func TestFeatures(t *testing.T) {
 }
 
 func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reservedPorts) {
-	w := &world{}
+	s := newScenario(ports, app)
 	var before goleak.Option
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		before = goleak.IgnoreCurrent()
-		fresh, err := newWorld(ports)
-		*w = *fresh
-		return ctx, err
+		return ctx, s.open()
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
-		w.close()
+		s.close()
 		if err == nil {
 			// Every goroutine the proxy started must be gone once it has
 			// shut down.
@@ -68,70 +66,108 @@ func initializeScenario(sc *godog.ScenarioContext, app *exampleApp, ports *reser
 			// running to its end; a body check cannot be interrupted, and
 			// under the race detector it takes seconds, longer than Find
 			// waits. Keep looking for a while.
-			for end := time.Now().Add(30 * time.Second); err != nil && w.stoppedEarly && time.Now().Before(end); {
+			for end := time.Now().Add(30 * time.Second); err != nil && s.proxy.stoppedEarly && time.Now().Before(end); {
 				pause(100 * time.Millisecond)
 				err = goleak.Find(opts...)
 			}
 		}
-		if err != nil && w.stoppedEarly && !strings.Contains(err.Error(), "hotline-proxy.") {
+		if err != nil && s.proxy.stoppedEarly && !strings.Contains(err.Error(), "hotline-proxy.") {
 			// A stop that ran out of time cuts off the exporters' sends,
 			// as the program then exits; the rest must still be gone.
 			err = nil
 		}
 		return ctx, err
 	})
-	configSteps(sc, w)
-	listenerSteps(sc, w)
-	checksSteps(sc, w)
-	specSteps(sc, w)
-	methodsSteps(sc, w)
-	querystringSteps(sc, w)
-	parameterSteps(sc, w)
-	webhookSteps(sc, w)
-	multipartSteps(sc, w)
-	discriminatorSteps(sc, w)
-	ingressSteps(sc, w)
-	integrationSteps(sc, w)
-	forwardSteps(sc, w)
-	trailerSteps(sc, w)
-	timingSteps(sc, w)
-	redactionSteps(sc, w)
-	headerSteps(sc, w)
-	recordSteps(sc, w)
-	exportSteps(sc, w)
-	diskQueueSteps(sc, w)
-	fileSteps(sc, w)
-	consoleSteps(sc, w)
-	ledgerSteps(sc, w)
-	ledgerReloadSteps(sc, w)
-	bodyFieldSteps(sc, w)
-	protocolSteps(sc, w)
-	tlsSteps(sc, w)
-	guardSteps(sc, w)
-	hostHeaderSteps(sc, w)
-	connectSteps(sc, w)
-	transparentSteps(sc, w)
-	captureSteps(sc, w)
-	captureSocketSteps(sc, w)
-	halfCloseSteps(sc, w)
-	overlaySteps(sc, w)
-	awsSteps(sc, w)
-	shopSteps(sc, w)
-	xmlSteps(sc, w)
-	routeSteps(sc, w)
-	bodyRouteSteps(sc, w)
-	s3Steps(sc, w, app)
-	traceSteps(sc, w)
-	reloadSteps(sc, w)
-	telemetrySteps(sc, w)
-	memorySteps(sc, w)
-	specLineSteps(sc, w)
-	websocketSteps(sc, w)
-	websocketMessageSteps(sc, w)
-	streamSteps(sc, w)
-	probeSteps(sc, w)
-	pathSteps(sc, w)
+	for _, area := range s.areas() {
+		area.AddSteps(sc)
+	}
 	decisionSteps(sc)
+}
+
+// scenario is every sut of one scenario, built once and wired together:
+// the shared ones first, then each area with only the suts it uses.
+type scenario struct {
+	proxy             *proxySUT
+	vendors           *vendorsSUT
+	certs             *certsSUT
+	app               *appSUT
+	apis              *apisSUT
+	otlp              *otlpSUT
+	fileExport        *fileExportSUT
+	console           *consoleSUT
+	tlsIngress        *tlsIngressSUT
+	aws               *awsSUT
+	connect           *connectSUT
+	telemetry         *telemetrySUT
+	capture           *captureSUT
+	transparent       *transparentSUT
+	ledger            *ledgerSUT
+	listeners         *listenersSUT
+	forward           *forwardSUT
+	specChecks        *specChecksSUT
+	streamedResponses *streamedResponseSUT
+	webSocket         *webSocketSUT
+	probe             *probeSUT
+	configFile        *configFileSUT
+}
+
+// area is a sut with steps of its own.
+type area interface {
+	AddSteps(sc *godog.ScenarioContext)
+}
+
+func newScenario(ports *reservedPorts, example *exampleApp) *scenario {
+	s := &scenario{proxy: newProxySUT(ports)}
+	s.vendors = newVendorsSUT(s.proxy)
+	s.certs = newCertsSUT(s.proxy)
+	s.app = newAppSUT(s.proxy, s.vendors)
+	s.apis = newApisSUT(s.proxy, s.app, s.vendors)
+	s.otlp = newOTLPSUT(s.proxy, s.app, s.vendors, s.apis)
+	s.fileExport = newFileExportSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp)
+	s.console = newConsoleSUT(s.proxy, s.vendors, s.app)
+	s.tlsIngress = newTLSIngressSUT(s.proxy, s.vendors, s.app, s.otlp)
+	s.aws = newAWSSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, example)
+	s.connect = newConnectSUT(s.proxy, s.vendors, s.certs, s.app, s.otlp, s.tlsIngress)
+	s.telemetry = newTelemetrySUT(s.proxy, s.vendors, s.certs, s.app, s.otlp, s.tlsIngress, s.connect)
+	s.capture = newCaptureSUT(s.proxy, s.vendors, s.app, s.otlp, s.connect)
+	s.transparent = newTransparentSUT(s.proxy, s.vendors, s.certs, s.app, s.otlp, s.connect)
+	s.ledger = newLedgerSUT(s.proxy, s.vendors, s.certs, s.app, s.apis, s.otlp, s.fileExport, s.telemetry)
+	s.listeners = newListenersSUT(s.proxy, s.vendors, s.certs, s.app, s.tlsIngress, s.connect, s.telemetry, s.capture)
+	s.forward = newForwardSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.tlsIngress)
+	s.specChecks = newSpecChecksSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console, s.aws, s.telemetry)
+	s.streamedResponses = newStreamedResponseSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console)
+	s.webSocket = newWebSocketSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.console, s.connect, s.capture)
+	s.probe = newProbeSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console, s.ledger)
+	s.configFile = newConfigFileSUT(s.proxy, s.vendors, s.certs, s.app, s.apis, s.otlp, s.tlsIngress, s.connect,
+		s.telemetry, s.capture, s.transparent, s.listeners)
+	return s
+}
+
+// areas are the suts with steps of their own.
+func (s *scenario) areas() []area {
+	return []area{
+		s.otlp, s.fileExport, s.console, s.tlsIngress, s.aws, s.connect, s.telemetry, s.capture, s.transparent,
+		s.ledger, s.listeners, s.forward, s.specChecks, s.streamedResponses, s.webSocket, s.probe, s.configFile,
+	}
+}
+
+// open makes what the scenario needs before its first step: its folder
+// and the first OTLP receiver.
+func (s *scenario) open() error {
+	s.otlp.Open()
+	return s.proxy.Open()
+}
+
+// close stops everything the scenario started. The app's connections close
+// first, so the proxy does not wait for them as it stops; the vendors and
+// receivers stop after the proxy, which may still send to them.
+func (s *scenario) close() {
+	s.streamedResponses.Close()
+	s.app.Close()
+	s.proxy.Close()
+	s.vendors.Close()
+	s.otlp.Close()
+	s.telemetry.Close()
 }
 
 var errCheck = errors.New("check failed")

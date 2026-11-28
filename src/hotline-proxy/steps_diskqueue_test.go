@@ -15,14 +15,14 @@ import (
 // The header of a queue file: its magic, version and first item's number.
 const queueFileHeader = 13
 
-func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
-	queueFolder := func() string { return filepath.Join(w.dir, "queue") }
+func diskQueueSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
+	queueFolder := func() string { return filepath.Join(sut.proxy.dir, "queue") }
 	stripeCall := func(i int) error {
 		started := time.Now()
-		if err := w.call("GET", fmt.Sprintf("https://api.stripe.com/v1/payment_intents/pi_%d", i)); err != nil {
+		if err := sut.app.call("GET", fmt.Sprintf("https://api.stripe.com/v1/payment_intents/pi_%d", i)); err != nil {
 			return err
 		}
-		w.appTook = max(w.appTook, time.Since(started))
+		sut.app.appTook = max(sut.app.appTook, time.Since(started))
 		// A record is queued just after its response has gone back, so give
 		// it time to be queued before the next call.
 		pause(20 * time.Millisecond)
@@ -30,29 +30,29 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 	}
 	calls := 0
 	sc.Step(`^an exporter with queueSize (\d+) and a disk queue(, whose collector is busy)?$`, func(size int, busy string) error {
-		w.exporterExtra = []string{fmt.Sprintf("      queueSize: %d\n      queueFolder: queue\n      queueDisk: 64MiB\n", size)}
-		w.receivers[0].setBusy(busy != "")
+		sut.exporterExtra = []string{fmt.Sprintf("      queueSize: %d\n      queueFolder: queue\n      queueDisk: 64MiB\n", size)}
+		sut.receivers[0].setBusy(busy != "")
 		// Each send gives up after its first try, so the test sees the
 		// sender's own waits between tries.
-		w.exportTimeout = 300 * time.Millisecond
-		w.stopTime = 2 * time.Second
+		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.proxy.stopTime = 2 * time.Second
 		return nil
 	})
 	sc.Step(`^the exporter keeps a disk queue(, and its collector is busy)?$`, func(busy string) error {
-		w.exporterExtra = []string{"      queueFolder: queue\n      queueDisk: 64MiB\n"}
-		w.receivers[0].setBusy(busy != "")
-		w.exportTimeout = 300 * time.Millisecond
-		w.stopTime = 2 * time.Second
+		sut.exporterExtra = []string{"      queueFolder: queue\n      queueDisk: 64MiB\n"}
+		sut.receivers[0].setBusy(busy != "")
+		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.proxy.stopTime = 2 * time.Second
 		return nil
 	})
 	sc.Step(`^the proxy warns that the export queue was full and new items go to the disk queue$`, func() error {
-		w.settle()
-		for _, line := range strings.Split(w.logs.String(), "\n") {
+		sut.proxy.settle()
+		for _, line := range strings.Split(sut.proxy.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "go to the disk queue") {
 				return nil
 			}
 		}
-		return failf("no warning that the disk queue is in use; the log is %s", w.logs.String())
+		return failf("no warning that the disk queue is in use; the log is %s", sut.proxy.logs.String())
 	})
 	sc.Step(`^(\d+) calls end one after another$`, func(n int) error {
 		for range n {
@@ -64,22 +64,22 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the collector is back, and 1 more call ends at once$`, func() error {
-		w.receivers[0].setBusy(false)
+		sut.receivers[0].setBusy(false)
 		calls++
 		return stripeCall(calls)
 	})
 	sc.Step(`^the proxy stops cleanly$`, func() error {
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the proxy stops, and starts again with the collector back$`, func() error {
-		w.settle()
-		w.receivers[0].setBusy(false)
-		return w.start()
+		sut.proxy.settle()
+		sut.receivers[0].setBusy(false)
+		return sut.proxy.start()
 	})
 	sc.Step(`^the proxy starts again with the collector back$`, func() error {
-		w.receivers[0].setBusy(false)
-		return w.start()
+		sut.receivers[0].setBusy(false)
+		return sut.proxy.start()
 	})
 	sc.Step(`^the last item on disk is damaged$`, func() error {
 		records, err := os.OpenRoot(filepath.Join(queueFolder(), "records"))
@@ -102,17 +102,17 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no item on disk to damage")
 	})
 	sc.Step(`^the collector gets (\d+) records$`, func(n int) error {
-		if got := len(w.records()); got != n {
+		if got := len(sut.records()); got != n {
 			return failf("the collector got %d records, want %d", got, n)
 		}
 		return nil
 	})
 	wantOrder := func(first, last int) error {
-		if err := w.waitForRecords(last - first + 1); err != nil {
+		if err := sut.waitForRecords(last - first + 1); err != nil {
 			return err
 		}
 		var got, want []string
-		for _, r := range w.records() {
+		for _, r := range sut.records() {
 			got = append(got, sprint(r.attrs["url.full"]))
 		}
 		for i := first; i <= last; i++ {
@@ -126,10 +126,10 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the collector gets records (\d+) to (\d+) in the order of the calls$`, wantOrder)
 	sc.Step(`^every call's spans$`, func() error {
 		traces := map[string]bool{}
-		for _, s := range w.receivers[0].spans() {
+		for _, s := range sut.receivers[0].spans() {
 			traces[s.traceID] = true
 		}
-		for _, r := range w.records() {
+		for _, r := range sut.records() {
 			if !traces[r.traceID] {
 				return failf("no span of the call to %v arrived", r.attrs["url.full"])
 			}
@@ -153,16 +153,16 @@ func diskQueueSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the proxy warns that 1 item on disk could not be read$`, func() error {
-		w.settle()
-		for _, line := range strings.Split(w.logs.String(), "\n") {
+		sut.proxy.settle()
+		for _, line := range strings.Split(sut.proxy.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "could not be read") && strings.Contains(line, "dropped=1") {
 				return nil
 			}
 		}
-		return failf("no warning about the record that could not be read; the log is %s", w.logs.String())
+		return failf("no warning about the record that could not be read; the log is %s", sut.proxy.logs.String())
 	})
 	sc.Step(`^the queue folder and its files are open to the proxy's user only$`, func() error {
-		w.settle()
+		sut.proxy.settle()
 		return filepath.Walk(queueFolder(), func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err

@@ -26,7 +26,7 @@ import (
 // carries, and the signed batches they are grouped in. Every check rebuilds
 // what it checks from what an exporter got, the way anyone without a key
 // would (docs/proxy-ledger.md).
-func ledgerSteps(sc *godog.ScenarioContext, w *world) {
+func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	var changed receivedRecord
 	var changedTrace callTrace
 	// killed are the batch records sent before the proxy was killed.
@@ -35,89 +35,89 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	var before map[string]any
 
 	sc.Step(`^the proxy's clock is a test clock, so a wait of minutes passes at once$`, func() error {
-		if w.clock == nil {
-			w.clock = &fakeClock{}
+		if sut.proxy.clock == nil {
+			sut.proxy.clock = &fakeClock{}
 		}
 		return nil
 	})
 	sc.Step(`^(\d+) seconds pass(?: with no (?:more )?calls)?$`, func(seconds int) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
 		// Each call's record is made in the background: let it join its
 		// batch before the window closes.
-		w.waitCalls(w.sent)
-		w.clock.pass(time.Duration(seconds) * time.Second)
+		sut.otlp.waitCalls(sut.app.sent)
+		sut.proxy.clock.pass(time.Duration(seconds) * time.Second)
 		return nil
 	})
 	sc.Step(`^an hour passes on the proxy's clock$`, func() error {
-		w.waitCalls(w.sent)
-		w.clock.pass(time.Hour)
+		sut.otlp.waitCalls(sut.app.sent)
+		sut.proxy.clock.pass(time.Hour)
 		return nil
 	})
 	sc.Step(`^the app sends GET /orders (\d+) times$`, func(n int) error {
-		return w.ordersTimes(n)
+		return sut.ordersTimes(n)
 	})
 	sc.Step(`^the app sends GET /orders twice$`, func() error {
-		return w.ordersTimes(2)
+		return sut.ordersTimes(2)
 	})
 	sc.Step(`^the app sends GET /orders 1,025 times$`, func() error {
-		return w.ordersTimes(1025)
+		return sut.ordersTimes(1025)
 	})
 	sc.Step(`^the app sends GET /orders in each of (\d+) batch windows$`, func(n int) error {
 		for range n {
-			if err := w.ordersTimes(1); err != nil {
+			if err := sut.ordersTimes(1); err != nil {
 				return err
 			}
-			w.clock.pass(10 * time.Second)
+			sut.proxy.clock.pass(10 * time.Second)
 		}
 		return nil
 	})
 	sc.Step(`^the app sends GET /orders with no integration ID$`, func() error {
-		w.appID = ""
-		return w.shopCall("GET", "/orders", true, "", "", "")
+		sut.app.appID = ""
+		return sut.app.shopCall("GET", "/orders", true, "", "", "")
 	})
 	sc.Step(`^the app sends POST /orders with no integration ID and a json body$`, func() error {
-		w.appID = ""
-		return w.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", `{"item":"A1","quantity":2}`)
+		sut.app.appID = ""
+		return sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", `{"item":"A1","quantity":2}`)
 	})
 	sc.Step(`^the record has no hotline.signature or hotline.signature_key_id$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasNo(record, "hotline.signature", "hotline.signature_key_id")
 	})
 	sc.Step(`^the record has (hotline\.[\w.]+)$`, func(name string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasAll(record, name)
 	})
 	sc.Step(`^the record has hotline.record.hash, hotline.batch.id and hotline.batch.index$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasAll(record, "hotline.record.hash", "hotline.batch.id", "hotline.batch.index")
 	})
 	sc.Step(`^the record has no hotline.request.body.hash or hotline.response.body.hash$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasNo(record, "hotline.request.body.hash", "hotline.response.body.hash")
 	})
 	sc.Step(`^(?:it has|the record has) hotline.request.body.hash and hotline.response.body.hash$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasAll(record, "hotline.request.body.hash", "hotline.response.body.hash")
 	})
 	sc.Step(`^the record is minimal$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -127,14 +127,14 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		if changed.attrs != nil {
 			return checkRecordHash(changed)
 		}
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
 		return checkRecordHash(records[len(records)-1])
 	})
 	sc.Step(`^(.+) in the received record$`, func(change string) error {
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
@@ -187,8 +187,8 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^every LogRecord field the receiver got, on the call record and the batch record, is one the hash or signature covers, in a scope named hotline-proxy$`, func() error {
-		records := w.records()
-		batches, err := w.waitBatches(1)
+		records := sut.otlp.records()
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -217,11 +217,11 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the batch's root no longer rebuilds from its records$`, func() error {
-		batch, err := w.batchOf(changed)
+		batch, err := sut.batchOf(changed)
 		if err != nil {
 			return err
 		}
-		records := w.records()
+		records := sut.otlp.records()
 		var leaves []string
 		for _, r := range records {
 			if r.attrs["hotline.batch.id"] == changed.attrs["hotline.batch.id"] {
@@ -237,40 +237,40 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^hotline.request.body.hash is the body hash of the body the vendor got, with the record's trace id and span id$`, func() error {
-		calls := w.vendor("api.shop.test").received()
+		calls := sut.vendors.vendor("api.shop.test").received()
 		if len(calls) == 0 {
 			return failf("the vendor got no call")
 		}
-		return w.bodyHashIs("request", calls[len(calls)-1].body)
+		return sut.bodyHashIs("request", calls[len(calls)-1].body)
 	})
 	sc.Step(`^hotline.response.body.hash is the body hash of the body the app got, with the record's trace id and span id$`, func() error {
-		return w.bodyHashIs("response", w.respBody)
+		return sut.bodyHashIs("response", sut.app.respBody)
 	})
 	sc.Step(`^hotline.response.body.hash is the body hash of those 1000 bytes$`, func() error {
-		return w.bodyHashIs("response", []byte(strings.Repeat("x", 1000)))
+		return sut.bodyHashIs("response", []byte(strings.Repeat("x", 1000)))
 	})
 	sc.Step(`^hotline.request.body.hash and hotline.response.body.hash are both there$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasAll(record, "hotline.request.body.hash", "hotline.response.body.hash")
 	})
 	sc.Step(`^each is the body hash of zero bytes, with the record's trace id and span id$`, func() error {
-		if err := w.bodyHashIs("request", nil); err != nil {
+		if err := sut.bodyHashIs("request", nil); err != nil {
 			return err
 		}
-		return w.bodyHashIs("response", nil)
+		return sut.bodyHashIs("response", nil)
 	})
 	sc.Step(`^the vendor answers (\d+) with no body$`, func(status int) error {
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.WriteHeader(status)
 		})
 		return nil
 	})
 	sc.Step(`^the vendor closes the connection after 1000 of 5000 promised bytes$`, func() error {
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Length", "5000")
 			rw.WriteHeader(http.StatusOK)
@@ -283,7 +283,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the two records have different hotline.response.body.hash$`, func() error {
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) != 2 {
 			return failf("want two records, got %d", len(records))
 		}
@@ -293,14 +293,14 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the trace hash checks out when rebuilt from the spans alone$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
 		return checkTraceHash(t)
 	})
 	sc.Step(`^(.+) in the received trace$`, func(change string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -324,7 +324,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the record holds no (\S+)$`, func(secret string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -338,7 +338,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the records have the same hotline.batch.id, a UUID version 7$`, func() error {
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
@@ -354,7 +354,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^their hotline.batch.index are 0, 1 and 2, in the order they were written$`, func() error {
-		records := w.records()
+		records := sut.otlp.records()
 		sort.Slice(records, func(i, j int) bool { return records[i].timestamp < records[j].timestamp })
 		for i, r := range records {
 			if r.attrs["hotline.batch.index"] != int64(i) {
@@ -364,11 +364,11 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the exporter got a log record with event.name hotline.ledger.batch$`, func() error {
-		_, err := w.waitBatches(1)
+		_, err := sut.waitBatches(1)
 		return err
 	})
 	sc.Step(`^it has hotline.batch.format hotline.batch.v3, hotline.batch.records (\d+) and hotline.batch.root$`, func(n int64) error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -382,29 +382,29 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return hasAll(b, "hotline.batch.root")
 	})
 	sc.Step(`^the root rebuilds from the (\d+) records' hashes$`, func(n int) error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(n)
+		records, err := sut.otlp.waitRecords(n)
 		if err != nil {
 			return err
 		}
 		return checkRoot(batches[0], records, nil)
 	})
 	sc.Step(`^hotline.batch.signature checks out with the key of hotline.batch.certificate$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
 		return checkSigned(batches[0])
 	})
 	sc.Step(`^ledger batches hold at most (\d+) records$`, func(n int) error {
-		w.topExtra += fmt.Sprintf("ledger:\n  batch:\n    maxRecords: %d\n", n)
+		sut.proxy.topExtra += fmt.Sprintf("ledger:\n  batch:\n    maxRecords: %d\n", n)
 		return nil
 	})
 	sc.Step(`^the first 3 records are in one batch and the 4th in the next$`, func() error {
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) != 4 {
 			return failf("want 4 records, got %d", len(records))
 		}
@@ -421,7 +421,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the exporter got 1 batch record, with hotline.batch.records 1$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -429,20 +429,20 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^no integration sent a batch record for the windows without calls$`, func() error {
 		pause(200 * time.Millisecond)
-		if batches := w.receivers[0].ledger(); len(batches) != 1 {
+		if batches := sut.otlp.receivers[0].ledger(); len(batches) != 1 {
 			return failf("the exporter got %d batch records", len(batches))
 		}
 		return nil
 	})
 	sc.Step(`^the two batch records have hotline.batch.sequence 0 and 1, and the second's previous is the root of the first$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
 		return checkChain(batches[:2])
 	})
 	sc.Step(`^the checkout batch records have hotline.batch.sequence 0, 1 and 2, with one hotline.batch.instance$`, func() error {
-		batches, err := w.waitBatches(3)
+		batches, err := sut.waitBatches(3)
 		if err != nil {
 			return err
 		}
@@ -457,51 +457,51 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^batch 0 has no hotline.batch.previous$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
 		return hasNo(batches[0].attrs, "hotline.batch.previous")
 	})
 	sc.Step(`^each later batch's hotline.batch.previous is the root of the batch before$`, func() error {
-		batches, err := w.waitBatches(3)
+		batches, err := sut.waitBatches(3)
 		if err != nil {
 			return err
 		}
 		return checkChain(batches)
 	})
 	sc.Step(`^the integrations? (\S+)(?: and (\S+))?$`, func(first, second string) error {
-		w.integrations = nil
+		sut.apis.integrations = nil
 		for _, id := range []string{first, second} {
 			if id == "" {
 				continue
 			}
-			line, err := w.shopAPI("", "")
+			line, err := sut.apis.shopAPI("", "")
 			if err != nil {
 				return err
 			}
-			w.addIntegration(integration(id, line))
+			sut.apis.addIntegration(integration(id, line))
 		}
-		w.appID = first
+		sut.app.appID = first
 		return nil
 	})
 	sc.Step(`^the app sends GET /orders as (\S+)(?: and GET /refunds as (\S+))?$`, func(first, second string) error {
-		w.appID = first
-		if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
+		sut.app.appID = first
+		if err := sut.app.shopCall("GET", "/orders", true, "", "", ""); err != nil {
 			return err
 		}
 		if second == "" {
 			return nil
 		}
-		w.appID = second
-		return w.shopCall("GET", "/refunds", true, "", "", "")
+		sut.app.appID = second
+		return sut.app.shopCall("GET", "/refunds", true, "", "", "")
 	})
 	sc.Step(`^the app sends GET /refunds as (\S+)$`, func(id string) error {
-		w.appID = id
-		return w.shopCall("GET", "/refunds", true, "", "", "")
+		sut.app.appID = id
+		return sut.app.shopCall("GET", "/refunds", true, "", "", "")
 	})
 	sc.Step(`^there is one batch record with hotline.batch.integration checkout and one with refunds$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -515,11 +515,11 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each holds only its own integration's record$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(2)
+		records, err := sut.otlp.waitRecords(2)
 		if err != nil {
 			return err
 		}
@@ -540,7 +540,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each chain starts at sequence 0$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -552,11 +552,11 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the minimal record is in a batch with hotline.batch.integration not-passed$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(1)
+		records, err := sut.otlp.waitRecords(1)
 		if err != nil {
 			return err
 		}
@@ -566,44 +566,44 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return has(batches[0].attrs, "hotline.batch.integration", "not-passed")
 	})
 	sc.Step(`^refunds is added to the config and reloaded$`, func() error {
-		line, err := w.shopAPI("", "")
+		line, err := sut.apis.shopAPI("", "")
 		if err != nil {
 			return err
 		}
-		w.addIntegration(integration("refunds", line))
-		return w.reloadConfig()
+		sut.apis.addIntegration(integration("refunds", line))
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^refunds is removed from the config and reloaded$`, func() error {
-		w.integrations = slices.DeleteFunc(w.integrations, func(yaml string) bool { return strings.Contains(yaml, "id: refunds\n") })
-		return w.reloadConfig()
+		sut.apis.integrations = slices.DeleteFunc(sut.apis.integrations, func(yaml string) bool { return strings.Contains(yaml, "id: refunds\n") })
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the config is changed and reloaded$`, func() error {
-		w.topExtra += "# changed\n"
-		return w.reloadConfig()
+		sut.proxy.topExtra += "# changed\n"
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the (refunds|checkout) chain starts at sequence 0$`, func(chain string) error {
-		batches, err := w.chain(chain, 1)
+		batches, err := sut.otlp.chain(chain, 1)
 		if err != nil {
 			return err
 		}
 		return has(batches[0].attrs, "hotline.batch.sequence", int64(0))
 	})
 	sc.Step(`^the checkout chain goes on unbroken$`, func() error {
-		batches, err := w.chain("checkout", 2)
+		batches, err := sut.otlp.chain("checkout", 2)
 		if err != nil {
 			return err
 		}
 		return checkChain(batches)
 	})
 	sc.Step(`^the refunds chain ends with a batch with hotline.batch.last true$`, func() error {
-		batches, err := w.chain("refunds", 1)
+		batches, err := sut.otlp.chain("refunds", 1)
 		if err != nil {
 			return err
 		}
 		return has(batches[len(batches)-1].attrs, "hotline.batch.last", true)
 	})
 	sc.Step(`^the refunds chain ends with an empty last batch of the config of the batch before it$`, func() error {
-		batches, err := w.chain("refunds", 2)
+		batches, err := sut.otlp.chain("refunds", 2)
 		if err != nil {
 			return err
 		}
@@ -617,7 +617,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return has(last.attrs, "hotline.batch.config", before.attrs["hotline.batch.config"])
 	})
 	sc.Step(`^the batch ids, sorted as text, are in sequence order$`, func() error {
-		batches, err := w.waitBatches(3)
+		batches, err := sut.waitBatches(3)
 		if err != nil {
 			return err
 		}
@@ -631,27 +631,27 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no ledger section in the config$`, func() error { return nil })
-	sc.Step(`^hotline-proxy starts$`, func() error { return w.start() })
+	sc.Step(`^hotline-proxy starts$`, func() error { return sut.proxy.start() })
 	sc.Step(`^its batch settings are every 10 seconds and at most 65,536 records$`, func() error {
-		logs := w.logs.String()
+		logs := sut.proxy.logs.String()
 		if !strings.Contains(logs, "every=10s") || !strings.Contains(logs, "max_records=65536") {
 			return failf("the proxy did not log its batch settings: %s", logs)
 		}
 		return nil
 	})
 	sc.Step(`^the batch record has hotline.batch.version, the proxy's version$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
 		return has(batches[0].attrs, "hotline.batch.version", "1.0.0-test")
 	})
 	sc.Step(`^hotline.batch.config is the SHA-256 of the config and its specs as loaded, which hotline.config.version is cut from$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(1)
+		records, err := sut.otlp.waitRecords(1)
 		if err != nil {
 			return err
 		}
@@ -663,23 +663,23 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the OTLP exporter's Authorization header is read from a file$`, func() error {
-		file := w.writeFile("keys/otlp-token", "Bearer first-token\n")
-		w.exporterExtra = []string{"      headers:\n        Authorization: { file: " + file + " }\n"}
+		file := sut.proxy.writeFile("keys/otlp-token", "Bearer first-token\n")
+		sut.otlp.exporterExtra = []string{"      headers:\n        Authorization: { file: " + file + " }\n"}
 		return nil
 	})
 	sc.Step(`^the file's token changes and the proxy restarts$`, func() error {
-		w.settle()
-		batches := w.receivers[0].ledger()
+		sut.proxy.settle()
+		batches := sut.otlp.receivers[0].ledger()
 		if len(batches) == 0 {
 			return failf("the first run sent no batch record")
 		}
 		before = batches[0].attrs
-		w.writeFile("keys/otlp-token", "Bearer second-token\n")
-		return w.start()
+		sut.proxy.writeFile("keys/otlp-token", "Bearer second-token\n")
+		return sut.proxy.start()
 	})
 	sc.Step(`^hotline.batch.config is the same as before$`, func() error {
-		w.settle()
-		batches := w.receivers[0].ledger()
+		sut.proxy.settle()
+		batches := sut.otlp.receivers[0].ledger()
 		last := batches[len(batches)-1].attrs
 		if last["hotline.batch.instance"] == before["hotline.batch.instance"] {
 			return failf("the proxy did not restart")
@@ -687,7 +687,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return has(last, "hotline.batch.config", before["hotline.batch.config"])
 	})
 	sc.Step(`^the batch after the reload has a different hotline.batch.config$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -697,14 +697,14 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^it still follows the chain of the batches before$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
 		return checkChain(batches[:2])
 	})
 	sc.Step(`^the vendor got no header it would not have got without the proxy$`, func() error {
-		for _, c := range w.vendor("api.shop.test").received() {
+		for _, c := range sut.vendors.vendor("api.shop.test").received() {
 			for name := range c.header {
 				if strings.Contains(strings.ToLower(name), "hotline") || strings.Contains(strings.ToLower(name), "signature") {
 					return failf("the vendor got the header %s", name)
@@ -714,10 +714,10 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the app got no header it would not have got without the proxy$`, func() error {
-		if w.resp == nil {
+		if sut.app.resp == nil {
 			return failf("the app got no response")
 		}
-		for name := range w.resp.Header {
+		for name := range sut.app.resp.Header {
 			if strings.Contains(strings.ToLower(name), "hotline") || strings.Contains(strings.ToLower(name), "signature") {
 				return failf("the app got the header %s", name)
 			}
@@ -725,15 +725,15 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^hotline-proxy is stopped and started again$`, func() error {
-		w.settle()
-		return w.start()
+		sut.proxy.settle()
+		return sut.proxy.start()
 	})
 	sc.Step(`^hotline-proxy is stopped$`, func() error {
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the batch record's hotline.batch.certificate is an X.509 certificate for an Ed25519 key, signed by that key$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -747,7 +747,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return certificate.CheckSignature(certificate.SignatureAlgorithm, certificate.RawTBSCertificate, certificate.Signature)
 	})
 	sc.Step(`^the batch record's certificate names the service (\S+)$`, func(name string) error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -761,7 +761,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^it is valid from the proxy's start for one hour$`, func() error {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return err
 		}
@@ -771,7 +771,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		// Certificate times are whole seconds: the start is cut down and
 		// the end cut down plus one second, so the hour is covered whole.
-		now := w.clock.Now()
+		now := sut.proxy.clock.Now()
 		life := certificate.NotAfter.Sub(certificate.NotBefore)
 		if life < time.Hour || life > time.Hour+2*time.Second || certificate.NotBefore.After(now) || now.Sub(certificate.NotBefore) > time.Minute {
 			return failf("the certificate is valid from %v to %v, and it is %v now", certificate.NotBefore, certificate.NotAfter, now)
@@ -779,7 +779,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the two runs sign with different hotline.batch.certificate$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -789,7 +789,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no file the proxy wrote holds a private key$`, func() error {
-		return filepath.WalkDir(w.dir, func(path string, d os.DirEntry, err error) error {
+		return filepath.WalkDir(sut.proxy.dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
@@ -804,7 +804,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^the batches after it have a new hotline.batch.certificate$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -814,7 +814,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the chain goes on unbroken across the change$`, func() error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -827,7 +827,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^no service.instance.id label in the config$`, func() error { return nil })
 	sc.Step(`^the two runs' hotline.batch.instance are different$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -837,7 +837,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each is that run's service.instance.id$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -851,7 +851,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each batch's hotline.batch.run_started is when its run started$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -871,16 +871,16 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the records transform labels service.instance.id \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
-		if w.env == nil {
-			w.env = map[string]string{}
+		if sut.proxy.env == nil {
+			sut.proxy.env = map[string]string{}
 		}
-		w.env["POD_NAME"] = name
-		w.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
+		sut.proxy.env["POD_NAME"] = name
+		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
 		return nil
 	})
 	sc.Step(`^both runs' batches have hotline.batch.instance (\S+)$`, func(name string) error {
-		w.settle()
-		for _, b := range w.receivers[0].ledger() {
+		sut.proxy.settle()
+		for _, b := range sut.otlp.receivers[0].ledger() {
 			if err := has(b.attrs, "hotline.batch.instance", name); err != nil {
 				return err
 			}
@@ -888,7 +888,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^their hotline.batch.run_started are different$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -898,7 +898,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each run's sequence starts at 0$`, func() error {
-		runs, err := w.runBatches(2)
+		runs, err := sut.runBatches(2)
 		if err != nil {
 			return err
 		}
@@ -910,9 +910,9 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the last batch record has hotline.batch.last true and covers that call$`, func() error {
-		w.settle()
-		batches := w.receivers[0].ledger()
-		records := w.receivers[0].got()
+		sut.proxy.settle()
+		batches := sut.otlp.receivers[0].ledger()
+		records := sut.otlp.receivers[0].got()
 		if len(batches) == 0 || len(records) == 0 {
 			return failf("the exporter got %d batch records and %d records", len(batches), len(records))
 		}
@@ -923,7 +923,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return has(records[len(records)-1].attrs, "hotline.batch.id", last.attrs["hotline.batch.id"])
 	})
 	sc.Step(`^no other batch has hotline.batch.last$`, func() error {
-		batches := w.receivers[0].ledger()
+		batches := sut.otlp.receivers[0].ledger()
 		for _, b := range batches[:len(batches)-1] {
 			if err := hasNo(b.attrs, "hotline.batch.last"); err != nil {
 				return err
@@ -932,7 +932,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the last batch record has hotline.batch.records 0 and hotline.batch.last true$`, func() error {
-		batches := w.receivers[0].ledger()
+		batches := sut.otlp.receivers[0].ledger()
 		if len(batches) < 2 {
 			return failf("the exporter got %d batch records", len(batches))
 		}
@@ -946,7 +946,7 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		// What a killed proxy leaves is what it sent while it ran: the
 		// batch records so far, and no last one. The proxy itself stops
 		// when the scenario ends.
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		killed = batches
 		return err
 	})
@@ -958,55 +958,55 @@ func ledgerSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
-	exporterLedgerSteps(sc, w)
+	exporterLedgerSteps(sc, sut)
 }
 
 // ordersTimes sends GET /orders n times, one after another.
-func (w *world) ordersTimes(n int) error {
-	before := w.callsMade()
+func (sut *ledgerSUT) ordersTimes(n int) error {
+	before := sut.callsMade()
 	for range n {
-		if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
+		if err := sut.app.shopCall("GET", "/orders", true, "", "", ""); err != nil {
 			return err
 		}
 	}
-	w.waitCalls(before + n)
+	sut.otlp.waitCalls(before + n)
 	return nil
 }
 
 // callsMade counts the call records the first receiver got or refused.
-func (w *world) callsMade() int {
-	if len(w.receivers) == 0 {
+func (sut *ledgerSUT) callsMade() int {
+	if len(sut.otlp.receivers) == 0 {
 		return 0
 	}
-	return w.receivers[0].callsMade()
+	return sut.otlp.receivers[0].callsMade()
 }
 
 // waitCalls waits a little until the first receiver has seen n call
 // records. A record is made after the response, in the background, so time
 // passed on the proxy's clock right after a call could otherwise close its
 // batch window before the record joined it.
-func (w *world) waitCalls(n int) {
-	if len(w.receivers) == 0 {
+func (sut *otlpSUT) waitCalls(n int) {
+	if len(sut.receivers) == 0 {
 		return
 	}
-	eventually(waitLimit, func() bool { return w.receivers[0].callsMade() >= n })
+	eventually(waitLimit, func() bool { return sut.receivers[0].callsMade() >= n })
 }
 
 // reloadConfig writes the config again and has the proxy load it.
-func (w *world) reloadConfig() error {
-	if err := w.start(); err != nil {
+func (sut *proxySUT) reloadConfig() error {
+	if err := sut.start(); err != nil {
 		return err
 	}
-	w.replaceFile("hotline-proxy.yaml", w.config())
-	w.proxy.Reload()
+	sut.replaceFile("hotline-proxy.yaml", sut.configText())
+	sut.running.Reload()
 	return nil
 }
 
 // waitBatches waits, while the proxy runs, until the first exporter has
 // got at least n batch records, and gives them in sequence order per chain.
-func (w *world) waitBatches(n int) ([]receivedRecord, error) {
+func (sut *ledgerSUT) waitBatches(n int) ([]receivedRecord, error) {
 	var batches []receivedRecord
-	if !eventually(waitLimit, func() bool { batches = w.receivers[0].ledger(); return len(batches) >= n }) {
+	if !eventually(waitLimit, func() bool { batches = sut.otlp.receivers[0].ledger(); return len(batches) >= n }) {
 		return nil, failf("the exporter got %d batch records, want %d", len(batches), n)
 	}
 	return batches, nil
@@ -1014,20 +1014,20 @@ func (w *world) waitBatches(n int) ([]receivedRecord, error) {
 
 // waitRecords waits, while the proxy runs, until the first exporter has
 // got at least n call records.
-func (w *world) waitRecords(n int) ([]receivedRecord, error) {
+func (sut *otlpSUT) waitRecords(n int) ([]receivedRecord, error) {
 	var records []receivedRecord
-	if !eventually(waitLimit, func() bool { records = w.receivers[0].got(); return len(records) >= n }) {
+	if !eventually(waitLimit, func() bool { records = sut.receivers[0].got(); return len(records) >= n }) {
 		return nil, failf("the exporter got %d records, want %d", len(records), n)
 	}
 	return records, nil
 }
 
 // chain is one integration's batch records, at least n of them.
-func (w *world) chain(name string, n int) ([]receivedRecord, error) {
+func (sut *otlpSUT) chain(name string, n int) ([]receivedRecord, error) {
 	var mine []receivedRecord
 	found := eventually(waitLimit, func() bool {
 		mine = nil
-		for _, b := range w.receivers[0].ledger() {
+		for _, b := range sut.receivers[0].ledger() {
 			if b.attrs["hotline.batch.integration"] == name {
 				mine = append(mine, b)
 			}
@@ -1041,11 +1041,11 @@ func (w *world) chain(name string, n int) ([]receivedRecord, error) {
 }
 
 // runBatches are the batch records of each run, once the proxy stopped.
-func (w *world) runBatches(n int) ([][]receivedRecord, error) {
-	w.settle()
+func (sut *ledgerSUT) runBatches(n int) ([][]receivedRecord, error) {
+	sut.proxy.settle()
 	byRun := map[string][]receivedRecord{}
 	var order []string
-	for _, b := range w.receivers[0].ledger() {
+	for _, b := range sut.otlp.receivers[0].ledger() {
 		// A named instance is the same in every run; the start time tells
 		// them apart.
 		run := sprint(b.attrs["hotline.batch.instance"]) + " " + sprint(b.attrs["hotline.batch.run_started"])
@@ -1065,9 +1065,9 @@ func (w *world) runBatches(n int) ([][]receivedRecord, error) {
 }
 
 // batchOf is the batch record a record names.
-func (w *world) batchOf(r receivedRecord) (receivedRecord, error) {
-	w.settle()
-	for _, b := range w.receivers[0].ledger() {
+func (sut *ledgerSUT) batchOf(r receivedRecord) (receivedRecord, error) {
+	sut.proxy.settle()
+	for _, b := range sut.otlp.receivers[0].ledger() {
 		if b.attrs["hotline.batch.id"] == r.attrs["hotline.batch.id"] {
 			return b, nil
 		}
@@ -1077,8 +1077,8 @@ func (w *world) batchOf(r receivedRecord) (receivedRecord, error) {
 
 // bodyHashIs checks that the last record's body hash of one side is the
 // body hash of body.
-func (w *world) bodyHashIs(side string, body []byte) error {
-	records := w.records()
+func (sut *ledgerSUT) bodyHashIs(side string, body []byte) error {
+	records := sut.otlp.records()
 	if len(records) == 0 {
 		return failf("no record arrived")
 	}
@@ -1353,4 +1353,37 @@ func checkChain(batches []receivedRecord) error {
 		}
 	}
 	return nil
+}
+
+// ledgerSUT is the ledger: the batch records that chain each integration's
+// calls, how they are signed, and how a reader checks them.
+type ledgerSUT struct {
+	proxy      *proxySUT
+	vendors    *vendorsSUT
+	certs      *certsSUT
+	app        *appSUT
+	apis       *apisSUT
+	otlp       *otlpSUT
+	fileExport *fileExportSUT
+	telemetry  *telemetrySUT
+	// signing is the config's ledger.signing settings, each line indented
+	// under it, when it has any.
+	signing string
+}
+
+func newLedgerSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, fileExport *fileExportSUT, telemetry *telemetrySUT) *ledgerSUT {
+	sut := &ledgerSUT{proxy: root, vendors: vendors, certs: certs, app: app, apis: apis, otlp: otlp, fileExport: fileExport, telemetry: telemetry}
+	root.addConfig(configLedger, func() string {
+		if sut.signing == "" {
+			return ""
+		}
+		return "  signing:\n" + sut.signing
+	})
+	return sut
+}
+
+// AddSteps adds the steps of the ledger.
+func (sut *ledgerSUT) AddSteps(sc *godog.ScenarioContext) {
+	ledgerSteps(sc, sut)
+	ledgerReloadSteps(sc, sut)
 }

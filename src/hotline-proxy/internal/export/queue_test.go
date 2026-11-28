@@ -90,7 +90,7 @@ func (s *queueSUT) forQueueHolding(size int) {
 	counter, err := noop.NewMeterProvider().Meter("test").Int64Counter("test")
 	Expect(err).WithOffset(1).NotTo(HaveOccurred())
 	s.batches, s.stopped, s.logs = nil, false, &lockedLog{}
-	s.queue = export.NewQueue(export.QueueSetup{
+	s.queue, err = export.NewQueue(export.QueueSetup{
 		ItemName:     "spans",
 		ExporterName: "http://collector.test",
 		Size:         size,
@@ -100,6 +100,7 @@ func (s *queueSUT) forQueueHolding(size int) {
 		ExporterUp:   &atomic.Int64{},
 		Send:         s.recordBatch,
 	})
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
 	DeferCleanup(s.Close)
 }
 

@@ -15,16 +15,16 @@ import (
 // numbers per call are for all three together; a change in the proxy shows
 // as the difference between two runs.
 func BenchmarkCall(b *testing.B) {
-	w, err := newWorld(newReservedPorts())
-	if err != nil {
+	s := newScenario(newReservedPorts(), nil)
+	defer s.close()
+	if err := s.open(); err != nil {
 		b.Fatal(err)
 	}
-	defer w.close()
-	if err := w.start(); err != nil {
+	if err := s.proxy.start(); err != nil {
 		b.Fatal(err)
 	}
-	w.vendor("api.talon.one")
-	proxyURL, _ := url.Parse("http://" + w.addr)
+	s.vendors.vendor("api.talon.one")
+	proxyURL, _ := url.Parse("http://" + s.proxy.addr)
 	app := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableCompression: true}}
 	body := strings.Repeat("x", 1024)
 	send := func() {

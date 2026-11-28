@@ -8,14 +8,14 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func redactionSteps(sc *godog.ScenarioContext, w *world) {
+func redactionSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^the (Talon.One|Stripe) spec$`, func(vendor string) error {
 		if vendor == "Stripe" {
-			w.addIntegration(integration("talon-shop-a", w.stripeAPI("")))
-			w.method, w.target = "GET", "https://api.stripe.com/v1/payment_intents"
+			sut.apis.addIntegration(integration("talon-shop-a", sut.apis.stripeAPI("")))
+			sut.app.method, sut.app.target = "GET", "https://api.stripe.com/v1/payment_intents"
 			return nil
 		}
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("")))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("")))
 		return nil
 	})
 	sc.Step(`^an app calls "([^"]+)"$`, func(address string) error {
@@ -23,13 +23,13 @@ func redactionSteps(sc *godog.ScenarioContext, w *world) {
 		if strings.Contains(address, "api.talon.one") {
 			method = "PUT"
 		}
-		return w.call(method, address)
+		return sut.app.call(method, address)
 	})
 	sc.Step(`^url.full is "([^"]+)"$`, func(full string) error {
-		return w.lastHas("url.full", full)
+		return sut.otlp.lastHas("url.full", full)
 	})
 	sc.Step(`^the query in url.full is "([^"]+)"$`, func(query string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -40,7 +40,7 @@ func redactionSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a spec whose security section names the query parameter key, which is also marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -53,10 +53,10 @@ components:
 		return nil
 	})
 	sc.Step(`^an app calls with "\?([^"]+)"$`, func(query string) error {
-		return w.call(w.method, w.target+"?"+query)
+		return sut.app.call(sut.app.method, sut.app.target+"?"+query)
 	})
 	sc.Step(`^url.full has no (user name or password|fragment)$`, func(what string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -67,7 +67,7 @@ components:
 		return hasAll(record, "url.full")
 	})
 	sc.Step(`^there is no url.full or url.template$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -77,35 +77,35 @@ components:
 
 // useSpec gives integration talon-shop-a an api for api.x.com with the spec,
 // and makes GET https://api.x.com/v1/things the usual call.
-func (w *world) useSpec(spec string) {
-	w.addIntegration(integration("talon-shop-a", w.specAPI("api.x.com", spec, "")))
-	w.method, w.target = "GET", "https://api.x.com/v1/things"
+func (sut *apisSUT) useSpec(spec string) {
+	sut.addIntegration(integration("talon-shop-a", sut.specAPI("api.x.com", spec, "")))
+	sut.app.method, sut.app.target = "GET", "https://api.x.com/v1/things"
 }
 
-func headerSteps(sc *godog.ScenarioContext, w *world) {
+func headerSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^a call carries (?:the header )?"([^:]+): ([^"]*)"$`, func(name, value string) error {
 		if isResponseHeader(name) {
-			w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+			sut.vendors.vendor(hostOf(sut.app.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 				rw.Header().Add(name, value)
 			})
-			return w.defaultCall()
+			return sut.app.defaultCall()
 		}
 		if strings.EqualFold(name, "Content-Length") {
-			return w.send(request{
-				method:  w.method,
-				target:  w.target,
-				headers: []string{basic(w.appID + ":x")},
+			return sut.app.send(request{
+				method:  sut.app.method,
+				target:  sut.app.target,
+				headers: []string{basic(sut.app.appID + ":x")},
 				body:    strings.NewReader(strings.Repeat("b", 24)),
 				length:  24,
 			})
 		}
-		return w.defaultCall(name + ": " + value)
+		return sut.app.defaultCall(name + ": " + value)
 	})
 	sc.Step(`^the record has "(\S+) = (.+)"$`, func(key, value string) error {
-		return w.lastHas(key, []string{value})
+		return sut.otlp.lastHas(key, []string{value})
 	})
 	sc.Step(`^a spec with the header X-Debug-Token marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -115,7 +115,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^a spec whose header X-Debug-Token is a \$ref to a parameter marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -128,7 +128,7 @@ components:
 		return nil
 	})
 	sc.Step(`^a spec whose response header Request-Id is a \$ref to a header marked x-hotline-redact true$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -144,13 +144,13 @@ components:
 		return nil
 	})
 	sc.Step(`^a response carries "([^:]+): ([^"]*)"$`, func(name, value string) error {
-		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor(hostOf(sut.app.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set(name, value)
 		})
-		return w.defaultCall()
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^the record has no attribute for (\S+)$`, func(name string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -162,23 +162,23 @@ components:
 		return nil
 	})
 	sc.Step(`^a response carries Request-Id with the byte FF in it, which is not UTF-8$`, func() error {
-		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor(hostOf(sut.app.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Request-Id", "req\xff1")
 		})
-		return w.defaultCall()
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^a response carries "([^"]+)" twice$`, func(name string) error {
-		w.vendor(hostOf(w.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor(hostOf(sut.app.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Add(name, "100;w=60")
 			rw.Header().Add(name, "1000;w=3600")
 		})
-		return w.defaultCall()
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^the record has both values as a list$`, func() error {
-		return w.lastHas("http.response.header.ratelimit-policy", []string{"100;w=60", "1000;w=3600"})
+		return sut.otlp.lastHas("http.response.header.ratelimit-policy", []string{"100;w=60", "1000;w=3600"})
 	})
 	sc.Step(`^a spec that marks Authorization x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -188,7 +188,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^a spec whose security section names X-Api-Key, also marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     get:
@@ -201,7 +201,7 @@ components:
 		return nil
 	})
 	sc.Step(`^the record has no value for it$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}

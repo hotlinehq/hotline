@@ -12,13 +12,13 @@ import (
 // pathSituation sets up the network between the proxy and a vendor whose
 // port gives no answer or cannot be reached, router by router, for the
 // path probes of slice 2.
-func (w *world) pathSituation(situation string) error {
-	v := w.vendor("api.talon.one")
-	address := w.talonAddress("443")
+func (sut *probeSUT) pathSituation(situation string) error {
+	v := sut.vendors.vendor("api.talon.one")
+	address := sut.talonAddress("443")
 	ours, public2, public3 := netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("198.51.100.2"), netip.MustParseAddr("198.51.100.3")
 	routers := []netip.Addr{netip.MustParseAddr("203.0.113.1"), netip.MustParseAddr("203.0.113.2"), netip.MustParseAddr("203.0.113.3")}
 	route := &path{routers: routers}
-	w.network.setHang(address)
+	sut.vendors.network.setHang(address)
 	switch situation {
 	case "a vendor whose firewall drops our packets, and whose machine answers UDP":
 		route.answersUDP = true
@@ -33,27 +33,27 @@ func (w *world) pathSituation(situation string) error {
 	case "a path where no router answers":
 		route = &path{}
 	case `a firewall on the way that answers "administratively prohibited"`:
-		w.network.setUnreachable(address)
+		sut.vendors.network.setUnreachable(address)
 		route = &path{routers: []netip.Addr{ours, public2}, prohibitedBy: 2, answersUDP: true}
 	case `a firewall of ours on the way that answers "administratively prohibited"`:
-		w.network.setUnreachable(address)
+		sut.vendors.network.setUnreachable(address)
 		route = &path{routers: []netip.Addr{ours}, prohibitedBy: 1}
 	case "a router on the way that says the vendor's machine cannot be reached":
-		w.network.setUnreachable(address)
+		sut.vendors.network.setUnreachable(address)
 		route = &path{routers: []netip.Addr{ours, public2}, unreachableBy: 2}
 	case "a vendor whose firewall drops our packets, where path probes cannot run":
 		return nil
 	}
-	w.network.mu.Lock()
-	defer w.network.mu.Unlock()
-	w.network.paths[v.ip] = route
+	sut.vendors.network.mu.Lock()
+	defer sut.vendors.network.mu.Unlock()
+	sut.vendors.network.paths[v.ip] = route
 	return nil
 }
 
 // spansIn are the spans of one trace, in the order they were sent.
-func (w *world) spansIn(traceID string) []receivedSpan {
+func (sut *probeSUT) spansIn(traceID string) []receivedSpan {
 	var out []receivedSpan
-	for _, s := range w.receivers[0].spans() {
+	for _, s := range sut.otlp.receivers[0].spans() {
 		if s.traceID == traceID {
 			out = append(out, s)
 		}
@@ -62,10 +62,10 @@ func (w *world) spansIn(traceID string) []receivedSpan {
 }
 
 // hopSpans are the hop spans of a probe's trace, over one transport.
-func (w *world) hopSpans(r receivedRecord, transport string) []receivedSpan {
+func (sut *probeSUT) hopSpans(r receivedRecord, transport string) []receivedSpan {
 	var hops []receivedSpan
-	path := w.spansOfTrace(r.traceID)["path_reaches_vendor"]
-	for _, s := range w.spansIn(r.traceID) {
+	path := sut.spansOfTrace(r.traceID)["path_reaches_vendor"]
+	for _, s := range sut.spansIn(r.traceID) {
 		if s.name == "hop" && s.parent == path.spanID && s.attrs["network.transport"] == transport {
 			hops = append(hops, s)
 		}
@@ -92,11 +92,11 @@ func oneTo(n int) []int {
 	return out
 }
 
-func pathSteps(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^(a vendor whose firewall drops our packets, and whose machine answers UDP|a vendor whose firewall drops our packets, and whose machine answers only ping|a vendor whose firewall drops our packets, where ping is not allowed|a path whose packets stop after our own router|a path whose packets stop after a public router|a path where no router answers|a firewall on the way that answers "administratively prohibited"|a firewall of ours on the way that answers "administratively prohibited"|a router on the way that says the vendor's machine cannot be reached|a vendor whose firewall drops our packets, where path probes cannot run)$`, w.pathSituation)
+func pathSteps(sc *godog.ScenarioContext, sut *probeSUT) {
+	sc.Step(`^(a vendor whose firewall drops our packets, and whose machine answers UDP|a vendor whose firewall drops our packets, and whose machine answers only ping|a vendor whose firewall drops our packets, where ping is not allowed|a path whose packets stop after our own router|a path whose packets stop after a public router|a path where no router answers|a firewall on the way that answers "administratively prohibited"|a firewall of ours on the way that answers "administratively prohibited"|a router on the way that says the vendor's machine cannot be reached|a vendor whose firewall drops our packets, where path probes cannot run)$`, sut.pathSituation)
 
 	sc.Step(`^its path answers are path_reaches_vendor (\S+) and host_up (\S+)$`, func(path, host string) error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the probe's body says "([^"]*)"$`, func(text string) error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
@@ -121,13 +121,13 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the probe's trace has spans "name_resolves", "path_reaches_vendor", "host_up" and "port_accepts_us", in that order$`, func() error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
-		root := w.spansOfTrace(r.traceID)["probe"]
+		root := sut.spansOfTrace(r.traceID)["probe"]
 		var names []string
-		for _, s := range w.spansIn(r.traceID) {
+		for _, s := range sut.spansIn(r.traceID) {
 			if s.parent == root.spanID {
 				names = append(names, s.name)
 			}
@@ -138,23 +138,23 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the span "path_reaches_vendor" has "hop" spans under it for tcp with hotline.probe.hop.ttl 1 to (\d+), and for udp 1 to (\d+)$`, func(tcp, udp int) error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
 		for transport, last := range map[string]int{"tcp": tcp, "udp": udp} {
-			if got := hopTTLs(w.hopSpans(r, transport)); !slices.Equal(got, oneTo(last)) {
+			if got := hopTTLs(sut.hopSpans(r, transport)); !slices.Equal(got, oneTo(last)) {
 				return failf("the %s hop spans have TTLs %v, want 1 to %d", transport, got, last)
 			}
 		}
 		return nil
 	})
 	sc.Step(`^the first hop span has hotline.probe.hop.from "([^"]+)", hotline.probe.hop.answer "([^"]+)" and network.transport "([^"]+)"$`, func(from, answer, transport string) error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
-		hops := w.hopSpans(r, transport)
+		hops := sut.hopSpans(r, transport)
 		if len(hops) == 0 {
 			return failf("the probe's trace has no %s hop spans", transport)
 		}
@@ -164,7 +164,7 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return has(hops[0].attrs, "hotline.probe.hop.answer", answer)
 	})
 	sc.Step(`^the probe's hotline.probe.path_reaches_vendor.evidence has a line "([^"]+)"$`, func(line string) error {
-		r, err := w.onlyProbe()
+		r, err := sut.onlyProbe()
 		if err != nil {
 			return err
 		}
@@ -175,26 +175,26 @@ func pathSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the proxy sent no path packets$`, func() error {
-		w.network.mu.Lock()
-		defer w.network.mu.Unlock()
-		if len(w.network.packets) > 0 {
-			return failf("the proxy sent the path packets %v", w.network.packets)
+		sut.vendors.network.mu.Lock()
+		defer sut.vendors.network.mu.Unlock()
+		if len(sut.vendors.network.packets) > 0 {
+			return failf("the proxy sent the path packets %v", sut.vendors.network.packets)
 		}
 		return nil
 	})
 	sc.Step(`^no TCP or UDP path packet crossed more than (\d+) routers$`, func(most int) error {
 		// The probe runs after the call; its record says it has ended.
-		if _, err := w.onlyProbe(); err != nil {
+		if _, err := sut.onlyProbe(); err != nil {
 			return err
 		}
-		w.network.mu.Lock()
-		defer w.network.mu.Unlock()
-		for _, p := range w.network.packets {
+		sut.vendors.network.mu.Lock()
+		defer sut.vendors.network.mu.Unlock()
+		for _, p := range sut.vendors.network.packets {
 			if p.Transport != "ping" && p.TTL > most {
 				return failf("the proxy sent %s", fmt.Sprint(p))
 			}
 		}
-		if len(w.network.packets) == 0 {
+		if len(sut.vendors.network.packets) == 0 {
 			return failf("the proxy sent no path packets")
 		}
 		return nil

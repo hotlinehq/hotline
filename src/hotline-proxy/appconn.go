@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/tls"
+	"hotline-proxy/internal/onetime"
 	"log/slog"
 	"net"
 	"net/http"
@@ -102,18 +103,18 @@ type tunnels struct {
 	ready chan net.Conn
 	// closed fires when the proxy stops taking tunnels; tunnels still
 	// being set up are cut short.
-	closed *oneTimeEvent
+	closed *onetime.Event
 }
 
 func newTunnels() *tunnels {
-	return &tunnels{ready: make(chan net.Conn), closed: newOneTimeEvent()}
+	return &tunnels{ready: make(chan net.Conn), closed: onetime.NewEvent()}
 }
 
 func (t *tunnels) Accept() (net.Conn, error) {
 	select {
 	case c := <-t.ready:
 		return c, nil
-	case <-t.closed.fired():
+	case <-t.closed.Fired():
 		return nil, net.ErrClosed
 	}
 }
@@ -121,14 +122,14 @@ func (t *tunnels) Accept() (net.Conn, error) {
 // handshake times the TLS setup inside a tunnel, which the proxy no longer
 // taking tunnels cuts short.
 func (t *tunnels) handshake(conn *tls.Conn, clock Clock) ([2]time.Time, error) {
-	ctx, cancel := t.closed.context(context.Background())
+	ctx, cancel := t.closed.Context(context.Background())
 	defer cancel()
 	return timeHandshake(ctx, conn, clock)
 }
 
 // Close stops taking tunnels. The listeners are closed by their own servers.
 func (t *tunnels) Close() error {
-	t.closed.fire()
+	t.closed.Fire()
 	return nil
 }
 
@@ -137,7 +138,7 @@ func (t *tunnels) Close() error {
 func (t *tunnels) hand(c net.Conn) {
 	select {
 	case t.ready <- c:
-	case <-t.closed.fired():
+	case <-t.closed.Fired():
 		_ = c.Close()
 	}
 }

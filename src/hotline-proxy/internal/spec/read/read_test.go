@@ -35,28 +35,18 @@ var _ = Describe("Reading a path value", func() {
 })
 
 var _ = Describe("Reading XML", func() {
+	sut := xmlReadSUT{}
+
 	It("says which root element the schema names", func() {
-		_, err := (&read.XMLBody{Root: "Order"}).Read([]byte("<Cart/>"))
+		sut.forRoot("Order")
+		_, err := sut.Read("<Cart/>")
 		Expect(err).To(MatchError("the root element is not Order"))
 	})
 
-	text := &read.XMLShape{Kind: read.Text}
-	order := &read.XMLShape{Kind: read.Object, Props: []read.XMLProp{
-		{Key: "id", Name: "id", Attribute: true, Shape: text},
-		{Key: "count", Name: "count", Shape: text},
-		{Key: "total", Name: "Sum", Shape: text},
-		{Key: "lines", Name: "lines", Shape: &read.XMLShape{Kind: read.Array, Wrapped: true, ItemName: "line", Item: text}},
-		{Key: "tags", Name: "tags", Shape: &read.XMLShape{Kind: read.Array, ItemName: "tag", Item: text}},
-		{Key: "notes", Name: "note", Shape: &read.XMLShape{Kind: read.Array, Item: text}},
-		{Key: "box", Name: "box", Shape: &read.XMLShape{Kind: read.Any}},
-	}}
-	readXML := func(shape *read.XMLShape, body string) (any, error) {
-		return (&read.XMLBody{Shape: shape}).Read([]byte(body))
-	}
-
 	DescribeTable("reads an element by its shape into the data a JSON body would give",
 		func(body string, want map[string]any) {
-			got, err := readXML(order, body)
+			sut.forOrder()
+			got, err := sut.Read(body)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).To(Equal(want))
 		},
@@ -93,26 +83,30 @@ var _ = Describe("Reading XML", func() {
 	)
 
 	It("reads text in pieces as one, and only the element's own text", func() {
-		got, err := readXML(text, `<a>x<!-- note -->y<![CDATA[<z>]]><b>not mine</b></a>`)
+		sut.forText()
+		got, err := sut.Read(`<a>x<!-- note -->y<![CDATA[<z>]]><b>not mine</b></a>`)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(Equal("xy<z>"))
 	})
 
 	It("reads a list with no item name as all its elements", func() {
-		got, err := readXML(&read.XMLShape{Kind: read.Array, Wrapped: true, Item: text}, `<a><b>1</b><c>2</c></a>`)
+		sut.forListWithNoItemName()
+		got, err := sut.Read(`<a><b>1</b><c>2</c></a>`)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(Equal([]any{"1", "2"}))
 	})
 
 	It("reads a body with no shape as no value", func() {
-		got, err := readXML(nil, `<a><b>1</b></a>`)
+		sut.forShape(nil)
+		got, err := sut.Read(`<a><b>1</b></a>`)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(BeNil())
 	})
 
 	DescribeTable("refuses a body that is not one XML document",
 		func(body string) {
-			_, err := readXML(order, body)
+			sut.forOrder()
+			_, err := sut.Read(body)
 			Expect(err).To(MatchError(read.ErrNotXML))
 		},
 		Entry("empty", ``),
@@ -133,18 +127,20 @@ var _ = Describe("Reading XML", func() {
 
 	DescribeTable("refuses a body that ends inside an element of any shape",
 		func(shape *read.XMLShape, body string) {
-			_, err := readXML(shape, body)
+			sut.forShape(shape)
+			_, err := sut.Read(body)
 			Expect(err).To(MatchError(read.ErrNotXML))
 		},
 		Entry("of no shape", nil, `<a><b>`),
-		Entry("of text", text, `<a>x`),
-		Entry("of text, inside a child", text, `<a>x<b>`),
+		Entry("of text", textShape(), `<a>x`),
+		Entry("of text, inside a child", textShape(), `<a>x<b>`),
 		Entry("of no type", &read.XMLShape{Kind: read.Any}, `<a>x`),
 		Entry("of no type, inside a child", &read.XMLShape{Kind: read.Any}, `<a><b>1`),
 	)
 
 	It("takes space around the root", func() {
-		got, err := readXML(order, "<?xml version=\"1.0\"?>\n<Order><count>1</count></Order>\n")
+		sut.forOrder()
+		got, err := sut.Read("<?xml version=\"1.0\"?>\n<Order><count>1</count></Order>\n")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got).To(Equal(map[string]any{"count": "1"}))
 	})
@@ -185,8 +181,50 @@ var _ = Describe("Turning a copied value into a record's value", func() {
 		Entry("an object", map[string]any{}, []string{"string"}, nil, false),
 	)
 
+	// A record keeps 256 characters of a copied text.
 	It("cuts long text", func() {
 		got, _ := read.Plain(strings.Repeat("é", 300), []string{"string"})
-		Expect([]rune(got.(string))).To(HaveLen(read.LongestText))
+		Expect([]rune(got.(string))).To(HaveLen(256))
 	})
 })
+
+// textShape is an element read as text.
+func textShape() *read.XMLShape { return &read.XMLShape{Kind: read.Text} }
+
+// xmlReadSUT is an XML body of one shape, read into the data a JSON body
+// would give.
+type xmlReadSUT struct{ body read.XMLBody }
+
+// forRoot is a body whose root element must be named root.
+func (s *xmlReadSUT) forRoot(root string) { s.body = read.XMLBody{Root: root} }
+
+// forShape is a body of this shape.
+func (s *xmlReadSUT) forShape(shape *read.XMLShape) { s.body = read.XMLBody{Shape: shape} }
+
+// forText is an element read as text.
+func (s *xmlReadSUT) forText() { s.forShape(textShape()) }
+
+// forListWithNoItemName is a wrapped list of text whose items have no
+// name of their own.
+func (s *xmlReadSUT) forListWithNoItemName() {
+	s.forShape(&read.XMLShape{Kind: read.Array, Wrapped: true, Item: textShape()})
+}
+
+// forOrder is an order: an id attribute, a count, a total written as Sum,
+// a wrapped list of lines, unwrapped lists of tags and notes, and a box
+// of no type.
+func (s *xmlReadSUT) forOrder() {
+	text := textShape()
+	s.forShape(&read.XMLShape{Kind: read.Object, Props: []read.XMLProp{
+		{Key: "id", Name: "id", Attribute: true, Shape: text},
+		{Key: "count", Name: "count", Shape: text},
+		{Key: "total", Name: "Sum", Shape: text},
+		{Key: "lines", Name: "lines", Shape: &read.XMLShape{Kind: read.Array, Wrapped: true, ItemName: "line", Item: text}},
+		{Key: "tags", Name: "tags", Shape: &read.XMLShape{Kind: read.Array, ItemName: "tag", Item: text}},
+		{Key: "notes", Name: "note", Shape: &read.XMLShape{Kind: read.Array, Item: text}},
+		{Key: "box", Name: "box", Shape: &read.XMLShape{Kind: read.Any}},
+	}})
+}
+
+// Read reads body, and says why it could not.
+func (s *xmlReadSUT) Read(body string) (any, error) { return s.body.Read([]byte(body)) }

@@ -253,7 +253,7 @@ func (h *handler) serveSource(conn net.Conn, reader *bufio.Reader, src *source, 
 // itself, never using the address the program chose. The record is made
 // when the relay ends.
 func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, reason string) {
-	ctx, stopWaiting := h.tunnels.closed.context(context.Background())
+	ctx, stopWaiting := h.tunnels.closed.Context(context.Background())
 	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	vendor, err := h.relays.dial(ctx, "tcp", net.JoinHostPort(host, src.port))
 	cancel()
@@ -274,7 +274,7 @@ func (h *handler) relay(src *source, app *bufferedConn, start time.Time, host, r
 	_ = app.SetDeadline(time.Time{})
 	// A stop lets the relay run until it ends, or until the stop cuts what
 	// is still open.
-	stop := h.cutOpenConnections.afterFire(func() { _ = app.Close(); _ = vendor.Close() })
+	stop := h.cutOpenConnections.AfterFire(func() { _ = app.Close(); _ = vendor.Close() })
 	defer stop()
 	done := make(chan struct{})
 	go func() {

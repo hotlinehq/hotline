@@ -22,66 +22,66 @@ actions:
     remove: true
 `
 
-func reloadSteps(sc *godog.ScenarioContext, w *world) {
+func reloadSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 	sc.Step(`^a config with integration talon-shop-a for Talon\.One$`, func() error {
-		w.vendor("api.talon.one")
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("")))
+		sut.vendors.vendor("api.talon.one")
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("")))
 		return nil
 	})
 	sc.Step(`^an app calls Talon\.One as (\S+)$`, func(id string) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		w.appID = id
-		return w.defaultCall()
+		sut.app.appID = id
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^the config file changes so that ([^,]+)$`, func(change string) error {
-		return w.changeConfig(change)
+		return sut.changeConfig(change)
 	})
 	sc.Step(`^the config file changes so that ([^,]+), and talon-shop-b also uses Talon\.One$`, func(change string) error {
-		w.addIntegration(integration("talon-shop-b", w.talonAPI("")))
-		return w.changeConfig(change)
+		sut.apis.addIntegration(integration("talon-shop-b", sut.apis.talonAPI("")))
+		return sut.changeConfig(change)
 	})
 	sc.Step(`^the Talon\.One spec file changes so that it has no paths$`, func() error {
-		w.writeFile("specs/talon-one.openapi.yaml", noPathsSpec)
+		sut.proxy.writeFile("specs/talon-one.openapi.yaml", noPathsSpec)
 		return nil
 	})
 	sc.Step(`^the overlay file no-paths\.yaml arrives, removing every path$`, func() error {
-		w.writeFile("overlays/no-paths.yaml", noPathsOverlay)
+		sut.proxy.writeFile("overlays/no-paths.yaml", noPathsOverlay)
 		return nil
 	})
 	sc.Step(`^the proxy checks its files$`, func() error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		w.proxy.CheckFiles()
+		sut.proxy.running.CheckFiles()
 		return nil
 	})
 	sc.Step(`^the proxy is told to reload$`, func() error {
-		w.proxy.Reload()
+		sut.proxy.running.Reload()
 		return nil
 	})
 
 	sc.Step(`^record (\d+) has no url\.template$`, func(n int) error {
-		record, err := w.nth(n)
+		record, err := sut.nth(n)
 		if err != nil {
 			return err
 		}
 		return hasNo(record, "url.template")
 	})
 	sc.Step(`^record (\d+) has url\.template (\S+)$`, func(n int, template string) error {
-		record, err := w.nth(n)
+		record, err := sut.nth(n)
 		if err != nil {
 			return err
 		}
 		return has(record, "url.template", template)
 	})
 	sc.Step(`^record (\d+) and record (\d+) carry (the same|different) (\S+)$`, func(a, b int, same, key string) error {
-		first, err := w.nth(a)
+		first, err := sut.nth(a)
 		if err != nil {
 			return err
 		}
-		second, err := w.nth(b)
+		second, err := sut.nth(b)
 		if err != nil {
 			return err
 		}
@@ -94,82 +94,82 @@ func reloadSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the proxy (logs|does not log) that the config was reloaded$`, func(logs string) error {
-		if strings.Contains(w.logs.String(), `msg="config reloaded"`) != (logs == "logs") {
-			return failf("the proxy %s that the config was reloaded; the log is %s", logs, w.logs.String())
+		if strings.Contains(sut.proxy.logs.String(), `msg="config reloaded"`) != (logs == "logs") {
+			return failf("the proxy %s that the config was reloaded; the log is %s", logs, sut.proxy.logs.String())
 		}
 		return nil
 	})
 	sc.Step(`^the proxy does not log that a new TLS certificate is in use$`, func() error {
-		if strings.Contains(w.logs.String(), "new TLS certificate in use") {
-			return failf("the proxy logged a new TLS certificate; the log is %s", w.logs.String())
+		if strings.Contains(sut.proxy.logs.String(), "new TLS certificate in use") {
+			return failf("the proxy logged a new TLS certificate; the log is %s", sut.proxy.logs.String())
 		}
 		return nil
 	})
 	sc.Step(`^the proxy logs a warning that the reload failed, naming (.+)$`, func(name string) error {
-		return w.warned("config reload failed", name)
+		return sut.proxy.warned("config reload failed", name)
 	})
 	sc.Step(`^the proxy logs a warning that (.+) needs a restart$`, func(setting string) error {
-		return w.warned(setting, "needs a restart")
+		return sut.proxy.warned(setting, "needs a restart")
 	})
 }
 
 // changeConfig rewrites the config file with one change.
-func (w *world) changeConfig(change string) error {
-	if err := w.start(); err != nil {
+func (sut *configFileSUT) changeConfig(change string) error {
+	if err := sut.proxy.start(); err != nil {
 		return err
 	}
 	switch change {
 	case "talon-shop-b also uses Talon.One":
-		w.addIntegration(integration("talon-shop-b", w.talonAPI("")))
+		sut.apis.addIntegration(integration("talon-shop-b", sut.apis.talonAPI("")))
 	case "it is not valid YAML":
-		w.writeFile("hotline-proxy.yaml", "listen: [proxy\n")
+		sut.proxy.writeFile("hotline-proxy.yaml", "listen: [proxy\n")
 		return nil
 	case "talon-shop-a's spec file is missing":
-		w.apis[0].yaml = strings.Replace(w.apis[0].yaml, "talon-one.openapi.yaml", "missing.yaml", 1)
+		sut.apis.entries[0].yaml = strings.Replace(sut.apis.entries[0].yaml, "talon-one.openapi.yaml", "missing.yaml", 1)
 	case "talon-shop-a's spec says OpenAPI 3.1":
-		w.apis[0].yaml = strings.Replace(w.apis[0].yaml, "talon-one.openapi.yaml", "talon-one-3.1.openapi.yaml", 1)
-		w.writeFile("specs/talon-one-3.1.openapi.yaml", "openapi: 3.1.0\npaths: {}\n")
+		sut.apis.entries[0].yaml = strings.Replace(sut.apis.entries[0].yaml, "talon-one.openapi.yaml", "talon-one-3.1.openapi.yaml", 1)
+		sut.proxy.writeFile("specs/talon-one-3.1.openapi.yaml", "openapi: 3.1.0\npaths: {}\n")
 	case "Talon.One has the overlay no-paths.yaml":
-		w.apis[0].yaml += "    overlays: [./overlays/no-paths.yaml]\n"
+		sut.apis.entries[0].yaml += "    overlays: [./overlays/no-paths.yaml]\n"
 	case "the proxy listener moves to another port":
-		addr := w.addr
-		w.addr = w.ports.take()
-		defer func() { w.addr = addr }()
+		addr := sut.proxy.addr
+		sut.proxy.addr = sut.proxy.ports.take()
+		defer func() { sut.proxy.addr = addr }()
 	case "the admin section is removed":
-		w.noAdmin = true
+		sut.listeners.noAdmin = true
 	case "the admin port moves to another port":
-		w.adminAddr = w.ports.take()
+		sut.listeners.adminAddr = sut.proxy.ports.take()
 	case "there is one more exporter":
-		w.downEndpoints = append(w.downEndpoints, "http://"+w.ports.take())
+		sut.otlp.downEndpoints = append(sut.otlp.downEndpoints, "http://"+sut.proxy.ports.take())
 	case "the records labels change":
-		w.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
+		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
 	case "the tls part is added":
-		cert := w.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
-		w.writeKeyPair(cert, cert)
-		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
+		cert := sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
+		sut.tlsIngress.writeKeyPair(cert, cert)
+		sut.tlsIngress.useAppCertificate()
 	case "the telemetry section turns off go.*":
-		w.telemetryDisable = append(w.telemetryDisable, "go.*")
+		sut.telemetry.telemetryDisable = append(sut.telemetry.telemetryDisable, "go.*")
 	case "telemetry.pprof is turned on":
-		w.telemetryPprof = true
+		sut.telemetry.telemetryPprof = true
 	case "the transparent listener is added":
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer"}
+		sut.certs.useAuthority(newAuthority())
+		sut.transparent.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "customer"}
 	case "the connect part is added":
-		w.useInterceptionAuthority(newAuthority())
+		sut.connect.useInterceptionAuthority(newAuthority())
 	case "the capture listener is added":
-		w.useInterceptionAuthority(newAuthority())
-		w.captureFile = filepath.Join(w.dir, "capture.sock")
+		sut.connect.useInterceptionAuthority(newAuthority())
+		sut.capture.captureFile = filepath.Join(sut.proxy.dir, "capture.sock")
 	default:
 		return godog.ErrPending
 	}
-	w.writeFile("hotline-proxy.yaml", w.config())
+	sut.proxy.writeFile("hotline-proxy.yaml", sut.proxy.configText())
 	return nil
 }
 
 // nth is the scenario's record number n, counted from 1, once the proxy
 // has sent everything.
-func (w *world) nth(n int) (map[string]any, error) {
-	records := w.records()
+func (sut *configFileSUT) nth(n int) (map[string]any, error) {
+	records := sut.otlp.records()
 	if n > len(records) {
 		return nil, failf("there are %d records, not %d", len(records), n)
 	}
@@ -177,8 +177,8 @@ func (w *world) nth(n int) (map[string]any, error) {
 }
 
 // warned checks that one warning in the log holds every part.
-func (w *world) warned(parts ...string) error {
-	for _, line := range strings.Split(w.logs.String(), "\n") {
+func (sut *proxySUT) warned(parts ...string) error {
+	for _, line := range strings.Split(sut.logs.String(), "\n") {
 		if !strings.Contains(line, "level=WARN") {
 			continue
 		}
@@ -190,5 +190,5 @@ func (w *world) warned(parts ...string) error {
 			return nil
 		}
 	}
-	return failf("no warning says %q; the log is %s", parts, w.logs.String())
+	return failf("no warning says %q; the log is %s", parts, sut.logs.String())
 }

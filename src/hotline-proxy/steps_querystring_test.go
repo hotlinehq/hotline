@@ -40,24 +40,24 @@ paths:
 `, param)
 }
 
-func querystringSteps(sc *godog.ScenarioContext, w *world) {
+func querystringSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^the querystring spec with form content$`, func() error {
-		w.useSpec(querystringSpec("application/x-www-form-urlencoded", formQuery, ""))
+		sut.apis.useSpec(querystringSpec("application/x-www-form-urlencoded", formQuery, ""))
 		return nil
 	})
 	sc.Step(`^the querystring spec with form content and a login key named key in the query$`, func() error {
-		w.useSpec(querystringSpec("application/x-www-form-urlencoded", formQuery, `components:
+		sut.apis.useSpec(querystringSpec("application/x-www-form-urlencoded", formQuery, `components:
   securitySchemes:
     query_key: { type: apiKey, in: query, name: key }
 `))
 		return nil
 	})
 	sc.Step(`^the querystring spec with json content$`, func() error {
-		w.useSpec(querystringSpec("application/json", "{ type: object, properties: { limit: { type: integer } } }", ""))
+		sut.apis.useSpec(querystringSpec("application/json", "{ type: object, properties: { limit: { type: integer } } }", ""))
 		return nil
 	})
 	sc.Step(`^the querystring spec with text content$`, func() error {
-		w.useSpec(querystringSpec("text/plain", "{ type: string, maxLength: 3 }", ""))
+		sut.apis.useSpec(querystringSpec("text/plain", "{ type: string, maxLength: 3 }", ""))
 		return nil
 	})
 	sc.Step(`^a querystring spec with (.+)$`, func(shape string) error {
@@ -68,26 +68,26 @@ func querystringSteps(sc *godog.ScenarioContext, w *world) {
 			"a redact mark":               "{ name: a, in: querystring, x-hotline-redact: false, content: { application/json: {} } }",
 			"two media types":             "{ name: a, in: querystring, content: { application/json: {}, text/plain: {} } }",
 		}[shape]
-		w.useSpec(cookieSpec(param))
+		sut.apis.useSpec(cookieSpec(param))
 		return nil
 	})
 	sc.Step(`^the cookie spec with theme of (style form|style cookie|no style)$`, func(style string) error {
 		written := map[string]string{"style form": "style: form, ", "style cookie": "style: cookie, ", "no style": ""}[style]
-		w.useSpec(cookieSpec(fmt.Sprintf("{ name: theme, in: cookie, %sschema: { enum: [dark mode] } }", written)))
+		sut.apis.useSpec(cookieSpec(fmt.Sprintf("{ name: theme, in: cookie, %sschema: { enum: [dark mode] } }", written)))
 		return nil
 	})
 	sc.Step(`^the cookie spec with ids as (an exploded list|a list not exploded)$`, func(how string) error {
 		explode := how == "an exploded list"
-		w.useSpec(cookieSpec(fmt.Sprintf("{ name: ids, in: cookie, explode: %t, schema: { type: array, items: { type: integer } } }", explode)))
+		sut.apis.useSpec(cookieSpec(fmt.Sprintf("{ name: ids, in: cookie, explode: %t, schema: { type: array, items: { type: integer } } }", explode)))
 		return nil
 	})
 	sc.Step(`^the cookie spec with prefs as an exploded object with no properties$`, func() error {
-		w.useSpec(cookieSpec("{ name: prefs, in: cookie, schema: { type: object, additionalProperties: { type: integer } } }"))
+		sut.apis.useSpec(cookieSpec("{ name: prefs, in: cookie, schema: { type: object, additionalProperties: { type: integer } } }"))
 		return nil
 	})
 	sc.Step(`^the cookie spec with prefs as (an exploded object|an object not exploded)$`, func(how string) error {
 		explode := how == "an exploded object"
-		w.useSpec(cookieSpec(fmt.Sprintf("{ name: prefs, in: cookie, explode: %t, schema: { type: object, additionalProperties: false, properties: { size: { type: integer } } } }", explode)))
+		sut.apis.useSpec(cookieSpec(fmt.Sprintf("{ name: prefs, in: cookie, explode: %t, schema: { type: object, additionalProperties: false, properties: { size: { type: integer } } } }", explode)))
 		return nil
 	})
 }

@@ -63,7 +63,7 @@ func newConsole(e *config.ConsoleExporter, out Console, setup QueueSetup) *conso
 		c.columns.Store(int64(c.width(out.Terminal())))
 		return err
 	}
-	c.queue = NewQueue(setup)
+	c.queue = newMemoryQueue(setup)
 	c.up, c.place = setup.ExporterUp, attribute.NewSet(attribute.String("hotline.exporter", "console"))
 	return c
 }

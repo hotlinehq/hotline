@@ -54,17 +54,17 @@ type scriptedVendor struct {
 // krakenSpec is the shared Kraken spec, as the repository holds it.
 const krakenSpec = "../../specs/kraken/spot-websocket/v2.openapi.yaml"
 
-func websocketMessageSteps(sc *godog.ScenarioContext, w *world) {
+func websocketMessageSteps(sc *godog.ScenarioContext, sut *webSocketSUT) {
 	sc.Step(`^the Kraken spec$`, func() error {
 		spec, err := os.ReadFile(filepath.FromSlash(krakenSpec))
 		if err != nil {
 			return err
 		}
-		w.useScripted(&scriptedVendor{spec: string(spec), id: "trading-bot", host: "ws-auth.kraken.test", path: "/v2"})
+		sut.useScripted(&scriptedVendor{spec: string(spec), id: "trading-bot", host: "ws-auth.kraken.test", path: "/v2"})
 		return nil
 	})
 	sc.Step(`^the tool spec$`, func() error {
-		w.useScripted(&scriptedVendor{spec: toolSpec, id: "talon-shop-a", host: "api.shop.test", path: "/live"})
+		sut.useScripted(&scriptedVendor{spec: toolSpec, id: "talon-shop-a", host: "api.shop.test", path: "/live"})
 		return nil
 	})
 	sc.Step(`^the Kraken spec, where (.+)$`, func(change string) error {
@@ -72,48 +72,48 @@ func websocketMessageSteps(sc *godog.ScenarioContext, w *world) {
 		if !known {
 			return failf("no change %q to the Kraken spec", change)
 		}
-		spec, err := editSpec(w.scripted.spec, edits)
+		spec, err := editSpec(sut.scripted.spec, edits)
 		if err != nil {
 			return err
 		}
-		w.scripted.spec = spec
-		w.writeScriptedSpec()
+		sut.scripted.spec = spec
+		sut.writeScriptedSpec()
 		return nil
 	})
 	sc.Step(`^the Kraken spec, checking only messages$`, func() error {
-		w.scripted.extra = "    checks: [messages]\n"
-		w.writeScriptedSpec()
+		sut.scripted.extra = "    checks: [messages]\n"
+		sut.writeScriptedSpec()
 		return nil
 	})
 	sc.Step(`^the Kraken spec, checking only headers and status$`, func() error {
-		w.scripted.extra = "    checks: [headers, status]\n"
-		w.writeScriptedSpec()
+		sut.scripted.extra = "    checks: [headers, status]\n"
+		sut.writeScriptedSpec()
 		return nil
 	})
 	sc.Step(`^the Kraken spec with an overlay that adds cl_ord_id to add_order's required params$`, func() error {
-		w.writeFile("specs/cl-ord-id.overlay.yaml", `overlay: 1.1.0
+		sut.proxy.writeFile("specs/cl-ord-id.overlay.yaml", `overlay: 1.1.0
 info: { title: cl_ord_id required, version: "1" }
 actions:
   - target: $.components.schemas.addOrder.properties.params
     update: { required: [cl_ord_id] }
 `)
-		w.scripted.extra = "    overlays: [./specs/cl-ord-id.overlay.yaml]\n"
-		w.writeScriptedSpec()
+		sut.scripted.extra = "    overlays: [./specs/cl-ord-id.overlay.yaml]\n"
+		sut.writeScriptedSpec()
 		return nil
 	})
 	sc.Step(`^the (?:Kraken|tool) vendor sends (.+)$`, func(messages string) error {
-		return w.scripted.script(&w.scripted.send, messages)
+		return sut.scripted.script(&sut.scripted.send, messages)
 	})
 	sc.Step(`^the Kraken vendor answers the app's first message with (.+)$`, func(messages string) error {
-		return w.scripted.script(&w.scripted.answer, messages)
+		return sut.scripted.script(&sut.scripted.answer, messages)
 	})
 	sc.Step(`^the Kraken vendor closes with (\d+) "([^"]*)"$`, func(code int, reason string) error {
-		w.scripted.closeCode, w.scripted.closeReason = uint16(code), reason //nolint:gosec // a close code the scenario writes
+		sut.scripted.closeCode, sut.scripted.closeReason = uint16(code), reason //nolint:gosec // a close code the scenario writes
 		return nil
 	})
 	sc.Step(`^the Kraken vendor agrees to (.*permessage-deflate.*)$`, func(extensions string) error {
-		w.scripted.deflate = extensions
-		w.scripted.packer = &packer{alone: strings.Contains(extensions, "client_no_context_takeover")}
+		sut.scripted.deflate = extensions
+		sut.scripted.packer = &packer{alone: strings.Contains(extensions, "client_no_context_takeover")}
 		return nil
 	})
 	sc.Step(`^the Kraken vendor answers each ping with a pong$`, func() error {
@@ -122,31 +122,31 @@ actions:
 	})
 	sc.Step(`^an app opens the (?:Kraken|tool) WebSocket$`, func() error {
 		var extra []string
-		if w.scripted.deflate != "" {
+		if sut.scripted.deflate != "" {
 			extra = append(extra, "Sec-WebSocket-Extensions: permessage-deflate")
 		}
-		return w.openSocketTo("forward_proxy", w.scripted.host, w.scripted.path, w.scripted.id, extra...)
+		return sut.openSocketTo("forward_proxy", sut.scripted.host, sut.scripted.path, sut.scripted.id, extra...)
 	})
 	sc.Step(`^an app opens a WebSocket to the tool spec's /other and sends "(\w+)"$`, func(text string) error {
-		if err := w.openSocketTo("forward_proxy", w.scripted.host, "/other", w.scripted.id); err != nil {
+		if err := sut.openSocketTo("forward_proxy", sut.scripted.host, "/other", sut.scripted.id); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(w.socket.conn, text); err != nil {
+		if _, err := io.WriteString(sut.socket.conn, text); err != nil {
 			return err
 		}
-		return w.socket.conn.Close()
+		return sut.socket.conn.Close()
 	})
 	sc.Step(`^the app reads (a|\d+) messages?$`, func(count string) error {
 		n, _ := strconv.Atoi(count)
 		for range max(n, 1) {
-			if op, _, err := readFrame(w.socket.reader); err != nil || op != 0x1 {
+			if op, _, err := readFrame(sut.socket.reader); err != nil || op != 0x1 {
 				return failf("the app read a frame %x, %v; want a text message", op, err)
 			}
 		}
 		return nil
 	})
 	sc.Step(`^the app sends an empty message$`, func() error {
-		return w.appWrite(frameOf(0x1, true, false, nil, true))
+		return sut.appWrite(frameOf(0x1, true, false, nil, true))
 	})
 	sc.Step(`^the app sends only (.+)$`, func(what string) error {
 		first := frameOf(0x1, false, false, []byte(`{"a":`), true)
@@ -167,27 +167,27 @@ actions:
 		if frames == nil {
 			return failf("no frames %q", what)
 		}
-		return w.appWrite(frames)
+		return sut.appWrite(frames)
 	})
-	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|add_order)|a (?:packed )?batch_add|a toolResponse|add_order |toolResponse |\{).+)$`, w.appSends)
+	sc.Step(`^the app sends ((?:\d+ (?:pings|bytes|add_order)|a (?:packed )?batch_add|a toolResponse|add_order |toolResponse |\{).+)$`, sut.appSends)
 	sc.Step(`^the app closes the (?:Kraken|tool) WebSocket$`, func() error {
-		if err := w.appWrite(frameOf(0x8, true, false, []byte{0x03, 0xe8}, true)); err != nil {
+		if err := sut.appWrite(frameOf(0x8, true, false, []byte{0x03, 0xe8}, true)); err != nil {
 			return err
 		}
-		return w.untilClose()
+		return sut.untilClose()
 	})
-	sc.Step(`^the app waits for the vendor to close$`, w.untilClose)
+	sc.Step(`^the app waits for the vendor to close$`, sut.untilClose)
 	sc.Step(`^the app drops its connection without a close message$`, func() error {
-		return w.socket.conn.Close()
+		return sut.socket.conn.Close()
 	})
 	sc.Step(`^there are (\d+) message records$`, func(n int) error {
-		if got := w.messageRecords(); len(got) != n {
+		if got := sut.messageRecords(); len(got) != n {
 			return failf("there are %d message records, want %d", len(got), n)
 		}
 		return nil
 	})
 	sc.Step(`^there are (\d+) message records, each (.+)$`, func(n int, pairs string) error {
-		got := w.messageRecords()
+		got := sut.messageRecords()
 		if len(got) != n {
 			return failf("there are %d message records, want %d", len(got), n)
 		}
@@ -200,18 +200,18 @@ actions:
 		return errors.Join(errs...)
 	})
 	sc.Step(`^message record (\d+) says (.+)$`, func(n int, pairs string) error {
-		r, err := w.messageRecord(n)
+		r, err := sut.messageRecord(n)
 		if err != nil {
 			return err
 		}
 		return says(r.attrs, pairs)
 	})
 	sc.Step(`^message record (\d+) and its span say (.+)$`, func(n int, pairs string) error {
-		r, err := w.messageRecord(n)
+		r, err := sut.messageRecord(n)
 		if err != nil {
 			return err
 		}
-		spans := w.receivers[0].spans()
+		spans := sut.otlp.receivers[0].spans()
 		i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == r.spanID })
 		if i < 0 {
 			return failf("no span has message record %d's span id", n)
@@ -221,7 +221,7 @@ actions:
 	sc.Step(`^message records (\d+) to (\d+) say (.+)$`, func(from, to int, pairs string) error {
 		var errs []error
 		for n := from; n <= to; n++ {
-			r, err := w.messageRecord(n)
+			r, err := sut.messageRecord(n)
 			if err == nil {
 				err = says(r.attrs, pairs)
 			}
@@ -232,14 +232,14 @@ actions:
 		return errors.Join(errs...)
 	})
 	sc.Step(`^message record (\d+) has no (.+)$`, func(n int, keys string) error {
-		r, err := w.messageRecord(n)
+		r, err := sut.messageRecord(n)
 		if err != nil {
 			return err
 		}
 		return hasNo(r.attrs, regexp.MustCompile(`, | or `).Split(keys, -1)...)
 	})
 	sc.Step(`^message record (\d+)'s request results are (.+)$`, func(n int, want string) error {
-		r, err := w.messageRecord(n)
+		r, err := sut.messageRecord(n)
 		if err != nil {
 			return err
 		}
@@ -253,23 +253,23 @@ actions:
 		return nil
 	})
 	sc.Step(`^the Kraken vendor got all (\d+) bytes of the message unchanged$`, func(size int) error {
-		r, err := w.messageRecord(1)
+		r, err := sut.messageRecord(1)
 		if err != nil {
 			return err
 		}
-		return errors.Join(has(r.attrs, "hotline.websocket.message.size", size), w.scripted.unchanged())
+		return errors.Join(has(r.attrs, "hotline.websocket.message.size", size), sut.scripted.unchanged())
 	})
 	sc.Step(`^the Kraken vendor got every byte as the app sent it$`, func() error {
-		w.settle()
-		return w.scripted.unchanged()
+		sut.proxy.settle()
+		return sut.scripted.unchanged()
 	})
 	sc.Step(`^each message record's span is a "websocket message" span under the "websocket session" span$`, func() error {
-		messages := w.messageRecords()
-		sessions := w.receivers[0].sessionRecords()
+		messages := sut.messageRecords()
+		sessions := sut.otlp.receivers[0].sessionRecords()
 		if len(sessions) != 1 || len(messages) == 0 {
 			return failf("there are %d session records and %d message records", len(sessions), len(messages))
 		}
-		spans := w.receivers[0].spans()
+		spans := sut.otlp.receivers[0].spans()
 		for _, m := range messages {
 			i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == m.spanID })
 			switch {
@@ -282,8 +282,8 @@ actions:
 		return nil
 	})
 	sc.Step(`^each "websocket message" span has a "message spec check" span under it, with a "wait for check worker" span under that$`, func() error {
-		w.settle()
-		spans := w.receivers[0].spans()
+		sut.proxy.settle()
+		spans := sut.otlp.receivers[0].spans()
 		under := func(parent, name string) (receivedSpan, bool) {
 			i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.parent == parent && s.name == name })
 			if i < 0 {
@@ -306,11 +306,11 @@ actions:
 		return nil
 	})
 	sc.Step(`^a message record and a "websocket message" span arrive while the WebSocket is open$`, func() error {
-		defer func() { _ = w.socket.conn.Close() }()
+		defer func() { _ = sut.socket.conn.Close() }()
 		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
-			spans := w.receivers[0].spans()
-			if len(w.receivers[0].messageRecords()) > 0 && slices.ContainsFunc(spans, func(s receivedSpan) bool { return s.name == "websocket message" }) {
-				if sessions := w.receivers[0].sessionRecords(); len(sessions) > 0 {
+			spans := sut.otlp.receivers[0].spans()
+			if len(sut.otlp.receivers[0].messageRecords()) > 0 && slices.ContainsFunc(spans, func(s receivedSpan) bool { return s.name == "websocket message" }) {
+				if sessions := sut.otlp.receivers[0].sessionRecords(); len(sessions) > 0 {
 					return failf("the session ended before its message was sent")
 				}
 				return nil
@@ -319,11 +319,11 @@ actions:
 		return failf("no message record and span arrived while the WebSocket was open")
 	})
 	sc.Step(`^the session record and the websocket session span say (.+)$`, func(pairs string) error {
-		_, session, err := w.callAndSession()
+		_, session, err := sut.callAndSession()
 		if err != nil {
 			return err
 		}
-		spans := w.receivers[0].spans()
+		spans := sut.otlp.receivers[0].spans()
 		i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == session.spanID })
 		if i < 0 {
 			return failf("no span has the session record's span id")
@@ -331,7 +331,7 @@ actions:
 		return errors.Join(says(session.attrs, pairs), says(spans[i].attrs, pairs))
 	})
 	sc.Step(`^the session record has no (\S+)$`, func(key string) error {
-		_, session, err := w.callAndSession()
+		_, session, err := sut.callAndSession()
 		if err != nil {
 			return err
 		}
@@ -462,19 +462,19 @@ func setAt(node *yaml.Node, path []string, value *yaml.Node) error {
 
 // useScripted makes v the scenario's WebSocket vendor, with its
 // integration and spec.
-func (w *world) useScripted(v *scriptedVendor) {
-	v.at = len(w.integrations)
-	w.scripted = v
-	w.addIntegration("")
-	w.writeScriptedSpec()
-	w.vendor(v.host).setAnswer(w.scriptedVendor)
+func (sut *webSocketSUT) useScripted(v *scriptedVendor) {
+	v.at = len(sut.apis.integrations)
+	sut.scripted = v
+	sut.apis.addIntegration("")
+	sut.writeScriptedSpec()
+	sut.vendors.vendor(v.host).setAnswer(sut.scriptedVendor)
 }
 
 // writeScriptedSpec writes the vendor's spec and puts its integration in
 // its place.
-func (w *world) writeScriptedSpec() {
-	v := w.scripted
-	w.integrations[v.at] = integration(v.id, w.specAPI(v.host, v.spec, v.extra))
+func (sut *webSocketSUT) writeScriptedSpec() {
+	v := sut.scripted
+	sut.apis.integrations[v.at] = integration(v.id, sut.apis.specAPI(v.host, v.spec, v.extra))
 }
 
 // script adds the messages, joined with ", then ", to a list of what the
@@ -493,8 +493,8 @@ func (v *scriptedVendor) script(list *[][]byte, messages string) error {
 // scriptedVendor switches to a WebSocket, sends its messages, answers the
 // app's first message, pings and close messages, and keeps every byte the
 // app sent.
-func (w *world) scriptedVendor(rw http.ResponseWriter, r *http.Request) {
-	v := w.scripted
+func (sut *webSocketSUT) scriptedVendor(rw http.ResponseWriter, r *http.Request) {
+	v := sut.scripted
 	rw.Header().Set("Connection", "Upgrade")
 	rw.Header().Set("Upgrade", "websocket")
 	if v.deflate != "" {
@@ -560,20 +560,20 @@ func (v *scriptedVendor) unchanged() error {
 }
 
 // appWrite sends bytes from the app, and keeps them.
-func (w *world) appWrite(b []byte) error {
-	w.scripted.mu.Lock()
-	w.scripted.sent.Write(b)
-	w.scripted.mu.Unlock()
-	_, err := w.socket.conn.Write(b)
+func (sut *webSocketSUT) appWrite(b []byte) error {
+	sut.scripted.mu.Lock()
+	sut.scripted.sent.Write(b)
+	sut.scripted.mu.Unlock()
+	_, err := sut.socket.conn.Write(b)
 	return err
 }
 
 // untilClose reads until the vendor's close message, or the end, and
 // closes the app's side.
-func (w *world) untilClose() error {
-	defer func() { _ = w.socket.conn.Close() }()
+func (sut *webSocketSUT) untilClose() error {
+	defer func() { _ = sut.socket.conn.Close() }()
 	for {
-		op, _, err := readFrame(w.socket.reader)
+		op, _, err := readFrame(sut.socket.reader)
 		if err != nil || op == 0x8 {
 			return nil
 		}
@@ -582,7 +582,7 @@ func (w *world) untilClose() error {
 
 // appSends sends what the app sends: messages, pings, or large messages,
 // joined with ", then ".
-func (w *world) appSends(what string) error {
+func (sut *webSocketSUT) appSends(what string) error {
 	pings := regexp.MustCompile(`^(\d+) pings and reads (\d+) pongs$`)
 	audio := regexp.MustCompile(`^(\d+) bytes of audio as a binary frame$`)
 	large := regexp.MustCompile(`^a (packed )?batch_add (?:of|that unpacks to) (\d+) MiB(?: with req_id (\d+))?$`)
@@ -595,31 +595,31 @@ func (w *world) appSends(what string) error {
 		case pings.MatchString(part):
 			n, _ := strconv.Atoi(pings.FindStringSubmatch(part)[1])
 			for range n {
-				if err = w.appWrite(frameOf(0x9, true, false, []byte("hi"), true)); err != nil {
+				if err = sut.appWrite(frameOf(0x9, true, false, []byte("hi"), true)); err != nil {
 					return err
 				}
 			}
 			for range n {
-				if op, _, err := readFrame(w.socket.reader); err != nil || op != 0xa {
+				if op, _, err := readFrame(sut.socket.reader); err != nil || op != 0xa {
 					return failf("the app read a frame %x, %v; want a pong", op, err)
 				}
 			}
 		case audio.MatchString(part):
 			n, _ := strconv.Atoi(audio.FindStringSubmatch(part)[1])
-			err = w.appWrite(frameOf(0x2, true, false, bytes.Repeat([]byte{0x7f}, n), true))
+			err = sut.appWrite(frameOf(0x2, true, false, bytes.Repeat([]byte{0x7f}, n), true))
 		case large.MatchString(part):
 			m := large.FindStringSubmatch(part)
 			mib, _ := strconv.Atoi(m[2])
 			reqID, _ := strconv.Atoi(m[3])
-			err = w.appMessage(bigBatchAdd(mib<<20, max(reqID, 1)), m[1] != "")
+			err = sut.appMessage(bigBatchAdd(mib<<20, max(reqID, 1)), m[1] != "")
 		case tool.MatchString(part):
 			m := tool.FindStringSubmatch(part)
 			mib, _ := strconv.Atoi(m[1])
-			err = w.appMessage(bigToolResponse(mib<<20, m[2]), false)
+			err = sut.appMessage(bigToolResponse(mib<<20, m[2]), false)
 		case packed.MatchString(part):
 			n, _ := strconv.Atoi(packed.FindStringSubmatch(part)[1])
 			for i := range n {
-				if err = w.appMessage(addOrder(i+1), true); err != nil {
+				if err = sut.appMessage(addOrder(i+1), true); err != nil {
 					return err
 				}
 			}
@@ -631,12 +631,12 @@ func (w *world) appSends(what string) error {
 			}
 			switch {
 			case m[2] == "binary":
-				err = w.appWrite(frameOf(0x2, true, false, message, true))
+				err = sut.appWrite(frameOf(0x2, true, false, message, true))
 			case m[3] != "":
 				n, _ := strconv.Atoi(m[3])
-				err = w.appWrite(split(message, n))
+				err = sut.appWrite(split(message, n))
 			default:
-				err = w.appWrite(frameOf(0x1, true, false, message, true))
+				err = sut.appWrite(frameOf(0x1, true, false, message, true))
 			}
 			if err != nil {
 				return err
@@ -650,18 +650,18 @@ func (w *world) appSends(what string) error {
 }
 
 // appMessage sends one text message from the app, packed when asked.
-func (w *world) appMessage(message []byte, pack bool) error {
+func (sut *webSocketSUT) appMessage(message []byte, pack bool) error {
 	if !pack {
-		return w.appWrite(frameOf(0x1, true, false, message, true))
+		return sut.appWrite(frameOf(0x1, true, false, message, true))
 	}
-	return w.appWrite(frameOf(0x1, true, true, w.scripted.packer.pack(message), true))
+	return sut.appWrite(frameOf(0x1, true, true, sut.scripted.packer.pack(message), true))
 }
 
 // messageRecords are the message records, by their index, once the proxy
 // has sent everything.
-func (w *world) messageRecords() []receivedRecord {
-	w.settle()
-	records := w.receivers[0].messageRecords()
+func (sut *webSocketSUT) messageRecords() []receivedRecord {
+	sut.proxy.settle()
+	records := sut.otlp.receivers[0].messageRecords()
 	slices.SortFunc(records, func(a, b receivedRecord) int {
 		return strings.Compare(fmt.Sprintf("%09v", a.attrs["hotline.websocket.message.index"]), fmt.Sprintf("%09v", b.attrs["hotline.websocket.message.index"]))
 	})
@@ -669,8 +669,8 @@ func (w *world) messageRecords() []receivedRecord {
 }
 
 // messageRecord is the message record with index n.
-func (w *world) messageRecord(n int) (receivedRecord, error) {
-	records := w.messageRecords()
+func (sut *webSocketSUT) messageRecord(n int) (receivedRecord, error) {
+	records := sut.messageRecords()
 	if n < 1 || n > len(records) {
 		return receivedRecord{}, failf("there are %d message records, want a record %d", len(records), n)
 	}

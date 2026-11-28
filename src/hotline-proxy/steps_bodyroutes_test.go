@@ -58,27 +58,27 @@ components:
         Message: { type: string }
 `
 
-func bodyRouteSteps(sc *godog.ScenarioContext, w *world) {
+func bodyRouteSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^the SNS-like spec$`, func() error {
-		w.addIntegration(integration("talon-shop-a", w.specAPI(snsHost, snsLikeSpec, "")))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(snsHost, snsLikeSpec, "")))
 		return nil
 	})
 	sc.Step(`^the app sends the (form|json|text) body (.*)$`, func(kind, body string) error {
-		return w.snsCall(kind, body)
+		return sut.snsCall(kind, body)
 	})
 	sc.Step(`^the app sends a form body of (\d+) MiB that starts with Action=Publish$`, func(mib int) error {
 		body := "Action=Publish&TopicArn=order-paid&Message=" + strings.Repeat("a", mib<<20)
-		return w.snsCall("form", body)
+		return sut.snsCall("form", body)
 	})
 	sc.Step(`^SNS answers 200 with the xml body (.*)$`, func(body string) error {
-		w.vendor(snsHost).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor(snsHost).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Content-Type", "text/xml")
 			_, _ = rw.Write([]byte(body))
 		})
 		return nil
 	})
 	sc.Step(`^SNS got the body (.*)$`, func(body string) error {
-		calls := w.vendor(snsHost).received()
+		calls := sut.vendors.vendor(snsHost).received()
 		if len(calls) == 0 {
 			return failf("SNS got no call")
 		}
@@ -94,7 +94,7 @@ func bodyRouteSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		spec := "openapi: 3.2.0\ninfo: { title: SNS, version: '1' }\n" + lines +
 			"paths:\n  " + route + ":\n    post:\n      responses:\n        '200': { description: done }\n"
-		w.addIntegration(integration("talon-shop-a", w.specAPI(snsHost, spec, "")))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(snsHost, spec, "")))
 		return nil
 	})
 	sc.Step(`^the app sends SendMessage to the invoices queue with a message of (\d+) MiB$`, func(mib int) error {
@@ -102,23 +102,23 @@ func bodyRouteSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		return w.sqsCall(w.appID, []string{"X-Amz-Target: AmazonSQS.SendMessage"}, string(body))
+		return sut.aws.sqsCall(sut.app.appID, []string{"X-Amz-Target: AmazonSQS.SendMessage"}, string(body))
 	})
 }
 
 // snsCall sends one call to the fake SNS, the way the AWS SDK does: POST /
 // with the action in the body.
-func (w *world) snsCall(kind, body string) error {
+func (sut *specChecksSUT) snsCall(kind, body string) error {
 	contentType := map[string]string{
 		"form": "application/x-www-form-urlencoded",
 		"json": "application/json",
 		"text": "text/plain",
 	}[kind]
 	lines := []string{"Content-Type: " + contentType}
-	if w.appID != "" {
-		lines = append([]string{basic(w.appID + ":x")}, lines...)
+	if sut.app.appID != "" {
+		lines = append([]string{basic(sut.app.appID + ":x")}, lines...)
 	}
-	return w.send(request{
+	return sut.app.send(request{
 		method:  http.MethodPost,
 		target:  "http://" + snsHost + "/",
 		headers: lines,

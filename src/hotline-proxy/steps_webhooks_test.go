@@ -36,36 +36,36 @@ const newWebhookEndpoint = `{"id":"we_1Mr5","object":"webhook_endpoint","api_ver
 // deletedWebhookEndpoint is Stripe's answer to deleting one.
 const deletedWebhookEndpoint = `{"id":"we_1Mr5","object":"webhook_endpoint","deleted":true}`
 
-func webhookSteps(sc *godog.ScenarioContext, w *world) {
+func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^the Stripe spec from specs, with Stripe answering (a new|a deleted) webhook endpoint(, content full and a file exporter)?$`, func(which, full string) error {
 		body := map[string]string{"a new": newWebhookEndpoint, "a deleted": deletedWebhookEndpoint}[which]
 		extra := ""
 		if full != "" {
 			extra = "    content: full\n"
-			w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+			sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 		}
-		return w.useRepositorySpec("api.stripe.com", stripeSpec, http.StatusOK, "application/json", body, extra)
+		return sut.apis.useRepositorySpec("api.stripe.com", stripeSpec, http.StatusOK, "application/json", body, extra)
 	})
 	sc.Step(`^the Slack spec from specs, with Slack answering (\d+) "([^"]*)"(, content full, a file exporter and a console exporter)?$`, func(status int, text, full string) error {
 		extra := ""
 		if full != "" {
 			extra = "    content: full\n"
-			w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
-			w.consoleExporter = "  - console: {}\n"
+			sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+			sut.console.consoleExporter = "  - console: {}\n"
 		}
-		return w.useRepositorySpec("hooks.slack.com", slackSpec, status, "text/html", text, extra)
+		return sut.apis.useRepositorySpec("hooks.slack.com", slackSpec, status, "text/html", text, extra)
 	})
 	sc.Step(`^the app posts to Stripe's (/\S+) the form "([^"]*)"$`, func(path, form string) error {
-		return w.post("https://api.stripe.com"+path, "application/x-www-form-urlencoded", form, stripeLogin)
+		return sut.app.post("https://api.stripe.com"+path, "application/x-www-form-urlencoded", form, stripeLogin)
 	})
 	sc.Step(`^the app deletes Stripe's (/\S+)$`, func(path string) error {
-		return w.call("DELETE", "https://api.stripe.com"+path, stripeLogin)
+		return sut.app.call("DELETE", "https://api.stripe.com"+path, stripeLogin)
 	})
 	sc.Step(`^the app posts the message (.+) to its Slack webhook$`, func(message string) error {
-		return w.post("https://hooks.slack.com/services/"+slackTeam+"/"+slackBot+"/"+slackToken, "application/json", message)
+		return sut.app.post("https://hooks.slack.com/services/"+slackTeam+"/"+slackBot+"/"+slackToken, "application/json", message)
 	})
 	sc.Step(`^the one request result is body (\S+) enum, with Stripe's (\d+) event names$`, func(place string, count int) error {
-		got, err := w.results("request")
+		got, err := sut.results("request")
 		if err != nil {
 			return err
 		}
@@ -80,9 +80,9 @@ func webhookSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no record, span, log, console line or file line holds any part of the webhook address$`, func() error {
-		w.settle()
+		sut.proxy.settle()
 		var all strings.Builder
-		for _, r := range w.receivers {
+		for _, r := range sut.otlp.receivers {
 			for _, record := range r.got() {
 				all.WriteString(sprint(record.attrs))
 			}
@@ -90,9 +90,9 @@ func webhookSteps(sc *godog.ScenarioContext, w *world) {
 				all.WriteString(sprint(s.attrs))
 			}
 		}
-		all.WriteString(w.logs.String())
-		all.WriteString(w.console.String())
-		file, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+		all.WriteString(sut.proxy.logs.String())
+		all.WriteString(sut.console.printed.String())
+		file, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
 		if err != nil {
 			return err
 		}

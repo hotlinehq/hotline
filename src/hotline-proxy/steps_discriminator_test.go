@@ -66,7 +66,7 @@ const blocksMapping = `      discriminator:
           image: ImageBlock
 `
 
-func discriminatorSteps(sc *godog.ScenarioContext, w *world) {
+func discriminatorSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	specs := map[string]string{
 		"with a mapping": blocksSpec(blocksChoice+blocksMapping, ""),
 		// Without a mapping, the value is the schema's name (OpenAPI's
@@ -121,14 +121,14 @@ func discriminatorSteps(sc *godog.ScenarioContext, w *world) {
 		if !ok {
 			return failf("no content blocks spec %q", variant)
 		}
-		w.useSpec(spec)
+		sut.apis.useSpec(spec)
 		return nil
 	})
 	sc.Step(`^the app asks for a message with the content (.+)$`, func(content string) error {
-		return w.send(anthropicMessage(false, content))
+		return sut.app.send(anthropicMessage(false, content))
 	})
 	sc.Step(`^no result holds the value (\S+)$`, func(value string) error {
-		results, err := w.results("request")
+		results, err := sut.results("request")
 		if err != nil {
 			return err
 		}

@@ -19,21 +19,21 @@ const (
 	invoicesQueue = "https://sqs.eu-west-1.amazonaws.com/192325781350/invoices"
 )
 
-func awsSteps(sc *godog.ScenarioContext, w *world) {
-	signedSteps(sc, w)
+func awsSteps(sc *godog.ScenarioContext, sut *awsSUT) {
+	signedSteps(sc, sut)
 	sc.Step(`^the SQS spec$`, func() error {
-		return w.sqsAPI("talon-shop-a", "aws-sqs", "")
+		return sut.sqsAPI("talon-shop-a", "aws-sqs", "")
 	})
 	sc.Step(`^the SQS spec with the invoices overlay$`, func() error {
 		overlay, err := os.ReadFile(filepath.Join("testdata", "aws", "invoices.overlay.yaml"))
-		w.writeFile("specs/invoices.overlay.yaml", string(overlay))
+		sut.proxy.writeFile("specs/invoices.overlay.yaml", string(overlay))
 		if err != nil {
 			return err
 		}
-		return w.sqsAPI("talon-shop-a", "aws-sqs-invoices", "    overlays: [./specs/invoices.overlay.yaml]\n")
+		return sut.sqsAPI("talon-shop-a", "aws-sqs-invoices", "    overlays: [./specs/invoices.overlay.yaml]\n")
 	})
 	sc.Step(`^the integration (\S+) with the plain SQS spec$`, func(id string) error {
-		return w.sqsAPI(id, "aws-sqs", "")
+		return sut.sqsAPI(id, "aws-sqs", "")
 	})
 	sc.Step(`^the SQS api with a spec whose route is (\S+) and (no x-hotline-action-header|x-hotline-action-header: \S+)$`, func(route, mark string) error {
 		header := ""
@@ -42,7 +42,7 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		spec := "openapi: 3.2.0\ninfo: { title: SQS, version: '1' }\n" + header +
 			"paths:\n  " + route + ":\n    post:\n      responses:\n        '200': { description: done }\n"
-		w.addIntegration(integration("talon-shop-a", w.specAPI(sqsHost, spec, "")))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(sqsHost, spec, "")))
 		return nil
 	})
 	sc.Step(`^the SQS api with a spec whose SendMessage body is (\S+) with (no x-hotline-body|x-hotline-body: \S+)$`, func(mediaType, mark string) error {
@@ -54,37 +54,37 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 			"      requestBody:\n        content:\n          " + mediaType + ":\n            " + mark + "\n" +
 			"            schema: { type: object, properties: { DelaySeconds: { type: integer } } }\n" +
 			"      responses:\n        '200': { description: done }\n"
-		w.addIntegration(integration("talon-shop-a", w.specAPI(sqsHost, spec, "")))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(sqsHost, spec, "")))
 		return nil
 	})
 	sc.Step(`^SQS answers (\d+)(?: with "([^"]*)")? and the json body (.*)$`, func(status int, headers, body string) error {
-		w.sqsAnswers(status, headers, body)
+		sut.sqsAnswers(status, headers, body)
 		return nil
 	})
 	sc.Step(`^SQS answers 200 with the json body (.*)$`, func(body string) error {
-		w.sqsAnswers(http.StatusOK, "", body)
+		sut.sqsAnswers(http.StatusOK, "", body)
 		return nil
 	})
 	sc.Step(`^SQS answers 200 with one received message (.*)$`, func(message string) error {
 		response, err := json.Marshal(map[string]any{"Messages": []any{map[string]any{
 			"MessageId": "m-1", "ReceiptHandle": "r-1", "MD5OfBody": "x", "Body": message,
 		}}})
-		w.sqsAnswers(http.StatusOK, "", string(response))
+		sut.sqsAnswers(http.StatusOK, "", string(response))
 		return err
 	})
 	sc.Step(`^the app sends (\w+) with the json body (.*)$`, func(action, body string) error {
-		return w.sqsCall(w.appID, []string{"X-Amz-Target: AmazonSQS." + action}, body)
+		return sut.sqsCall(sut.app.appID, []string{"X-Amz-Target: AmazonSQS." + action}, body)
 	})
 	sc.Step(`^the app sends POST / (without X-Amz-Target|with "([^"]*)") with the json body (.*)$`, func(_, header, body string) error {
 		var headers []string
 		if header != "" {
 			headers = append(headers, header)
 		}
-		return w.sqsCall(w.appID, headers, body)
+		return sut.sqsCall(sut.app.appID, headers, body)
 	})
 	sc.Step(`^(?:the app|(\S+)) sends SendMessage to (the invoices queue|\S+) with the message (.*)$`, func(id, queue, message string) error {
 		if id == "" {
-			id = w.appID
+			id = sut.app.appID
 		}
 		if queue == "the invoices queue" {
 			queue = invoicesQueue
@@ -93,10 +93,10 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		return w.sqsCall(id, []string{"X-Amz-Target: AmazonSQS.SendMessage"}, string(body))
+		return sut.sqsCall(id, []string{"X-Amz-Target: AmazonSQS.SendMessage"}, string(body))
 	})
 	sc.Step(`^no result holds (\S+)$`, func(value string) error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the record keeps the response headers (\S+) and (\S+)$`, func(first, second string) error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
@@ -117,17 +117,17 @@ func awsSteps(sc *godog.ScenarioContext, w *world) {
 
 // sqsAPI adds an api for SQS with the stable spec from the specs folder,
 // and the integration id that uses it.
-func (w *world) sqsAPI(id, name, extra string) error {
+func (sut *awsSUT) sqsAPI(id, name, extra string) error {
 	spec, err := os.ReadFile(filepath.Join("..", "..", "specs", "aws", "sqs", "2012-11-05.openapi.yaml"))
-	w.writeFile("specs/aws-sqs.openapi.yaml", string(spec))
-	line := w.api(name, "    hosts: ["+sqsHost+"]\n    spec: ./specs/aws-sqs.openapi.yaml\n"+extra)
-	w.addIntegration(integration(id, line))
+	sut.proxy.writeFile("specs/aws-sqs.openapi.yaml", string(spec))
+	line := sut.apis.api(name, "    hosts: ["+sqsHost+"]\n    spec: ./specs/aws-sqs.openapi.yaml\n"+extra)
+	sut.apis.addIntegration(integration(id, line))
 	return err
 }
 
 // sqsAnswers makes the fake SQS answer every call the way SQS does.
-func (w *world) sqsAnswers(status int, headers, body string) {
-	w.vendor(sqsHost).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+func (sut *awsSUT) sqsAnswers(status int, headers, body string) {
+	sut.vendors.vendor(sqsHost).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		rw.Header().Set("Content-Type", "application/x-amz-json-1.0")
 		for _, h := range splitHeaders(headers) {
@@ -141,7 +141,7 @@ func (w *world) sqsAnswers(status int, headers, body string) {
 
 // sqsCall sends an SQS call through the forward proxy, the way the AWS SDK
 // does after the app's client turned https into http.
-func (w *world) sqsCall(id string, headers []string, body string) error {
+func (sut *awsSUT) sqsCall(id string, headers []string, body string) error {
 	lines := []string{
 		"Content-Type: application/x-amz-json-1.0",
 		"Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261030/eu-west-1/sqs/aws4_request, SignedHeaders=host;x-amz-date;x-amz-target, Signature=0",
@@ -150,7 +150,7 @@ func (w *world) sqsCall(id string, headers []string, body string) error {
 	if id != "" {
 		lines = append([]string{basic(id + ":x")}, lines...)
 	}
-	return w.send(request{
+	return sut.app.send(request{
 		method:  http.MethodPost,
 		target:  "http://" + sqsHost + "/",
 		headers: append(lines, headers...),
@@ -191,12 +191,12 @@ func (c signedCall) signedHeaders() []string {
 	return strings.Split(list, ";")
 }
 
-func signedSteps(sc *godog.ScenarioContext, w *world) {
+func signedSteps(sc *godog.ScenarioContext, sut *awsSUT) {
 	var call signedCall
 	sc.Step(`^the recorded signed SQS call from the fixture, with Proxy-Authorization added after signing$`, func() error {
 		var err error
 		call, err = readSignedCall()
-		call.header.Set("Proxy-Authorization", strings.TrimPrefix(basic(w.appID+":x"), "Proxy-Authorization: "))
+		call.header.Set("Proxy-Authorization", strings.TrimPrefix(basic(sut.app.appID+":x"), "Proxy-Authorization: "))
 		return err
 	})
 	sc.Step(`^the app sends it to the proxy over (the forward proxy|the Host header) with (HTTP/1.1|plain HTTP/2)$`, func(ingress, protocol string) error {
@@ -205,7 +205,7 @@ func signedSteps(sc *godog.ScenarioContext, w *world) {
 			target = "http://" + call.host + "/"
 		}
 		if protocol == "plain HTTP/2" {
-			return w.sendHTTP2Body(call)
+			return sut.sendHTTP2Body(call)
 		}
 		var lines []string
 		for name, values := range call.header {
@@ -215,10 +215,10 @@ func signedSteps(sc *godog.ScenarioContext, w *world) {
 				}
 			}
 		}
-		return w.send(request{method: http.MethodPost, target: target, headers: lines, body: strings.NewReader(call.body), length: len(call.body)})
+		return sut.app.send(request{method: http.MethodPost, target: target, headers: lines, body: strings.NewReader(call.body), length: len(call.body)})
 	})
 	sc.Step(`^every signed part reaches the vendor exactly as in the fixture$`, func() error {
-		got, err := w.lastVendorCall(sqsHost)
+		got, err := sut.lastVendorCall(sqsHost)
 		if err != nil {
 			return err
 		}
@@ -237,7 +237,7 @@ func signedSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^SQS never sees Proxy-Authorization$`, func() error {
-		got, err := w.lastVendorCall(sqsHost)
+		got, err := sut.lastVendorCall(sqsHost)
 		if err != nil {
 			return err
 		}
@@ -247,7 +247,7 @@ func signedSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the vendor receives Content-Length with the body's length, not a body in chunks$`, func() error {
-		got, err := w.lastVendorCall(sqsHost)
+		got, err := sut.lastVendorCall(sqsHost)
 		if err != nil {
 			return err
 		}
@@ -258,28 +258,28 @@ func signedSteps(sc *godog.ScenarioContext, w *world) {
 	})
 }
 
-func (w *world) lastVendorCall(host string) (vendorCall, error) {
-	calls := w.vendor(host).received()
+func (sut *awsSUT) lastVendorCall(host string) (vendorCall, error) {
+	calls := sut.vendors.vendor(host).received()
 	if len(calls) == 0 {
-		return vendorCall{}, failf("the vendor %s got no call; the app got %v %v %s", host, w.resp, w.respErr, w.respBody)
+		return vendorCall{}, failf("the vendor %s got no call; the app got %v %v %s", host, sut.app.resp, sut.app.respErr, sut.app.respBody)
 	}
 	return calls[len(calls)-1], nil
 }
 
 // sendHTTP2Body sends the signed call over plain HTTP/2 from the first
 // byte, as a Host header call.
-func (w *world) sendHTTP2Body(c signedCall) error {
-	if err := w.start(); err != nil {
+func (sut *awsSUT) sendHTTP2Body(c signedCall) error {
+	if err := sut.proxy.start(); err != nil {
 		return err
 	}
-	w.vendor(c.host)
+	sut.vendors.vendor(c.host)
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
 	transport := &http.Transport{Protocols: protocols}
 	defer transport.CloseIdleConnections()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+w.addr+"/", strings.NewReader(c.body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+sut.proxy.addr+"/", strings.NewReader(c.body))
 	if err != nil {
 		return err
 	}
@@ -292,10 +292,33 @@ func (w *world) sendHTTP2Body(c signedCall) error {
 		}
 	}
 	resp, err := (&http.Client{Transport: transport}).Do(req)
-	w.resp, w.respErr = resp, err
+	sut.app.resp, sut.app.respErr = resp, err
 	if err != nil {
 		return nil
 	}
-	w.respBody, w.respErr = io.ReadAll(resp.Body)
+	sut.app.respBody, sut.app.respErr = io.ReadAll(resp.Body)
 	return resp.Body.Close()
+}
+
+// awsSUT is calls to AWS: signed calls to SQS, SNS and S3, and the shop that
+// makes them.
+type awsSUT struct {
+	proxy   *proxySUT
+	vendors *vendorsSUT
+	app     *appSUT
+	apis    *apisSUT
+	otlp    *otlpSUT
+	// example is the example app the S3 scenarios run.
+	example *exampleApp
+}
+
+func newAWSSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, example *exampleApp) *awsSUT {
+	return &awsSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp, example: example}
+}
+
+// AddSteps adds the steps of AWS calls.
+func (sut *awsSUT) AddSteps(sc *godog.ScenarioContext) {
+	awsSteps(sc, sut)
+	shopSteps(sc, sut)
+	s3Steps(sc, sut, sut.example)
 }

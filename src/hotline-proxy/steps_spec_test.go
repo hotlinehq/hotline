@@ -7,37 +7,37 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func specSteps(sc *godog.ScenarioContext, w *world) {
+func specSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^a call is ([A-Za-z]+) (/\S*)$`, func(method, path string) error {
-		return w.call(method, "https://"+hostOf(w.target)+path)
+		return sut.app.call(method, "https://"+hostOf(sut.app.target)+path)
 	})
 	sc.Step(`^the route template is (\S+)$`, func(template string) error {
-		return w.lastHas("url.template", template)
+		return sut.otlp.lastHas("url.template", template)
 	})
 	sc.Step(`^url.template is (\S+)$`, func(template string) error {
-		return w.lastHas("url.template", template)
+		return sut.otlp.lastHas("url.template", template)
 	})
 	sc.Step(`^there is no route(?:, because the spec only lists PUT)?$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return hasNo(record, "url.template")
 	})
 	sc.Step(`^a spec with the route (\S+)$`, func(route string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n", route))
+		sut.apis.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n", route))
 		return nil
 	})
 	sc.Step(`^a spec whose servers address is (\S+) with the route (\S+)$`, func(server, route string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.2.0\nservers:\n  - url: \"%s\"\npaths:\n  %s:\n    get: {}\n", server, route))
+		sut.apis.useSpec(fmt.Sprintf("openapi: 3.2.0\nservers:\n  - url: \"%s\"\npaths:\n  %s:\n    get: {}\n", server, route))
 		return nil
 	})
 	sc.Step(`^a spec saying openapi (\S+) with the route (\S+)$`, func(version, route string) error {
-		w.useSpec(fmt.Sprintf("openapi: %s\npaths:\n  %s:\n    get: {}\n", version, route))
+		sut.apis.useSpec(fmt.Sprintf("openapi: %s\npaths:\n  %s:\n    get: {}\n", version, route))
 		return nil
 	})
 	sc.Step(`^a spec with the route (\S+), a webhook (\S+) and a callback (\S+)$`, func(route, webhook, callback string) error {
-		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
+		sut.apis.useSpec(fmt.Sprintf(`openapi: 3.2.0
 paths:
   %s:
     get:
@@ -52,7 +52,7 @@ webhooks:
 		return nil
 	})
 	sc.Step(`^a spec with the route (\S+) that also uses query, additionalOperations, in querystring and itemSchema$`, func(route string) error {
-		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
+		sut.apis.useSpec(fmt.Sprintf(`openapi: 3.2.0
 paths:
   %s:
     get:
@@ -75,7 +75,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^a spec with the routes (\S+) and (\S+)$`, func(first, second string) error {
-		w.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n  %s:\n    get: {}\n", first, second))
+		sut.apis.useSpec(fmt.Sprintf("openapi: 3.2.0\npaths:\n  %s:\n    get: {}\n  %s:\n    get: {}\n", first, second))
 		return nil
 	})
 
@@ -85,8 +85,8 @@ paths:
 			"marked x-hotline-redact false": ", x-hotline-redact: false",
 			"not marked":                    "",
 		}[marked]
-		w.parameter = parameter
-		w.useSpec(fmt.Sprintf(`openapi: 3.2.0
+		sut.parameter = parameter
+		sut.apis.useSpec(fmt.Sprintf(`openapi: 3.2.0
 paths:
   /v1/things/{thing}:
     get:
@@ -104,18 +104,18 @@ paths:
 		return nil
 	})
 	sc.Step(`^the spec is read$`, func() error {
-		w.vendor("api.x.com").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor("api.x.com").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("X-Response", "R-1")
 		})
-		return w.call("GET", "https://api.x.com/v1/things/T-1?q=Q-1&key=K-1",
+		return sut.app.call("GET", "https://api.x.com/v1/things/T-1?q=Q-1&key=K-1",
 			"X-Param: H-1", "X-Op-Key: O-1", "Authorization: Bearer A-1", "Cookie: sid=C-1")
 	})
 	sc.Step(`^its value is to be kept$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
-		switch w.parameter {
+		switch sut.parameter {
 		case "a path parameter":
 			return has(record, "url.full", "https://api.x.com/v1/things/T-1?q=REDACTED&key=REDACTED")
 		case "a query parameter":
@@ -126,10 +126,10 @@ paths:
 		return has(record, "http.response.header.x-response", []string{"R-1"})
 	})
 	sc.Step(`^its name is kept and its value redacted$`, func() error {
-		return w.lastHas("http.request.header.x-param", []string{"REDACTED"})
+		return sut.otlp.lastHas("http.request.header.x-param", []string{"REDACTED"})
 	})
 	sc.Step(`^it counts as not marked$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ paths:
 		return nil
 	})
 	sc.Step(`^lists page again for GET, marked x-hotline-redact false$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 paths:
   /v1/things:
     parameters:
@@ -154,16 +154,16 @@ paths:
 		return nil
 	})
 	sc.Step(`^the spec is read for GET$`, func() error {
-		return w.call("GET", "https://api.x.com/v1/things?page=2")
+		return sut.app.call("GET", "https://api.x.com/v1/things?page=2")
 	})
 	sc.Step(`^page is to be kept$`, func() error {
-		return w.lastHas("url.full", "https://api.x.com/v1/things?page=2")
+		return sut.otlp.lastHas("url.full", "https://api.x.com/v1/things?page=2")
 	})
 	sc.Step(`^a call sends x-debug-token$`, func() error {
-		return w.defaultCall("x-debug-token: abc")
+		return sut.app.defaultCall("x-debug-token: abc")
 	})
 	sc.Step(`^the mark applies$`, func() error {
-		return w.lastHas("http.request.header.x-debug-token", []string{"REDACTED"})
+		return sut.otlp.lastHas("http.request.header.x-debug-token", []string{"REDACTED"})
 	})
 
 	sc.Step(`^a spec whose security section has (.+)$`, func(scheme string) error {
@@ -174,7 +174,7 @@ paths:
 			"an apiKey scheme in the query named key":                        "{ type: apiKey, in: query, name: key }",
 			"an apiKey scheme in a cookie named sid":                         "{ type: apiKey, in: cookie, name: sid }",
 		}[scheme]
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 security:
   - auth: []
 paths:
@@ -191,7 +191,7 @@ components:
 		return nil
 	})
 	sc.Step(`^(the Authorization header|the query parameter key|the cookie sid) is a secret$`, func(secret string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -199,12 +199,12 @@ components:
 		case "the query parameter key":
 			return has(record, "url.full", "https://api.x.com/v1/things/T-1?q=REDACTED&key=REDACTED")
 		case "the cookie sid":
-			return w.nowhere("C-1")
+			return sut.otlp.nowhere("C-1")
 		}
-		return w.nowhere("A-1")
+		return sut.otlp.nowhere("A-1")
 	})
 	sc.Step(`^a spec where one operation has its own security section with an apiKey header X-Op-Key$`, func() error {
-		w.useSpec(`openapi: 3.2.0
+		sut.apis.useSpec(`openapi: 3.2.0
 security:
   - bearer: []
 paths:
@@ -223,7 +223,7 @@ components:
 		return nil
 	})
 	sc.Step(`^X-Op-Key is a secret as well as the global ones$`, func() error {
-		return w.nowhere("O-1", "A-1")
+		return sut.otlp.nowhere("O-1", "A-1")
 	})
 }
 

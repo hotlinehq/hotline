@@ -26,7 +26,7 @@ func s3Templates() map[string]string {
 	}
 }
 
-func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
+func s3Steps(sc *godog.ScenarioContext, sut *awsSUT, app *exampleApp) {
 	var (
 		s3          *fakeS3
 		sqs         *fakeSQS
@@ -45,7 +45,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 			return err
 		}
 		cmd := exec.CommandContext(context.Background(), binary, args...) //nolint:gosec // the example app
-		cmd.Dir = w.dir
+		cmd.Dir = sut.proxy.dir
 		cmd.Env = []string{
 			"AWS_REGION=eu-west-1",
 			"AWS_ACCESS_KEY_ID=AKIDEXAMPLE",
@@ -53,8 +53,8 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 			"AWS_EC2_METADATA_DISABLED=true",
 			"INVOICES_QUEUE_URL=" + invoicesQueue,
 			"INVOICES_BUCKET=shop-invoices-192325781350",
-			"HOTLINE_PROXY=http://" + w.addr,
-			"HOME=" + w.dir,
+			"HOTLINE_PROXY=http://" + sut.proxy.addr,
+			"HOME=" + sut.proxy.dir,
 			"MAIL_FROM=" + mailFrom,
 		}
 		out, err := cmd.CombinedOutput()
@@ -66,32 +66,32 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 			return err
 		}
 		if appErr != nil {
-			return failf("the example app %v failed: %v\n%s\nthe proxy said:\n%s", args, appErr, output, w.logs.String())
+			return failf("the example app %v failed: %v\n%s\nthe proxy said:\n%s", args, appErr, output, sut.proxy.logs.String())
 		}
 		return nil
 	}
 	sc.Step(`^a fake AWS for the shop, with the bucket (\S+)$`, func(bucket string) error {
 		s3 = newFakeS3(bucket)
 		sqs = &fakeSQS{}
-		w.vendor(sqsHost).setAnswer(sqs.ServeHTTP)
-		w.vendor(bucket + ".s3.eu-west-1.amazonaws.com").setAnswer(s3.ServeHTTP)
+		sut.vendors.vendor(sqsHost).setAnswer(sqs.ServeHTTP)
+		sut.vendors.vendor(bucket + ".s3.eu-west-1.amazonaws.com").setAnswer(s3.ServeHTTP)
 		apis = newFakeShopAWS(sqs)
 		for _, host := range shopHosts() {
-			w.vendor(host).setAnswer(apis.ServeHTTP)
+			sut.vendors.vendor(host).setAnswer(apis.ServeHTTP)
 		}
 		return nil
 	})
 	sc.Step(`^the proxy runs with the shop's hotline-proxy.yaml$`, func() error {
-		w.addr = w.ports.take()
+		sut.proxy.addr = sut.proxy.ports.take()
 		config, err := shopConfig(
-			[2]string{"tcp://:8080", "tcp://" + w.addr},
-			[2]string{"http://localhost:4318", w.receivers[0].endpoint},
+			[2]string{"tcp://:8080", "tcp://" + sut.proxy.addr},
+			[2]string{"http://localhost:4318", sut.otlp.receivers[0].endpoint},
 		)
-		w.rawConfig = config
+		sut.proxy.rawConfig = config
 		if err != nil {
 			return err
 		}
-		return w.start()
+		return sut.proxy.start()
 	})
 	sc.Step(`^checkout takes the payment for order (\S+)$`, func(order string) error {
 		return succeed("checkout", "pay", "--order", order, "--language", "en", "--template", "invoice-standard-v2", "--send-to", "customer@example.com")
@@ -100,7 +100,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return succeed("invoices", "work", "--once")
 	})
 	sc.Step(`^the mailer works through its queue once$`, func() error {
-		return succeed("mailer", "work", "--once", "--out", filepath.Join(w.dir, "mail"))
+		return succeed("mailer", "work", "--once", "--out", filepath.Join(sut.proxy.dir, "mail"))
 	})
 	sc.Step(`^checkout takes the payment for order (\S+), sending the invoice to (\S+)$`, func(order, to string) error {
 		return succeed("checkout", "pay", "--order", order, "--language", "en", "--template", "invoice-standard-v2", "--send-to", to)
@@ -132,7 +132,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return succeed("refunds", "start", "--order", order, "--amount", amount, "--reason", "returned")
 	})
 	sc.Step(`^the invoices app fetches the invoice for (\S+)$`, func(order string) error {
-		fetchedFile = filepath.Join(w.dir, order+".pdf")
+		fetchedFile = filepath.Join(sut.proxy.dir, order+".pdf")
 		return example("invoices", "fetch", "--order", order, "--out", fetchedFile)
 	})
 	sc.Step(`^the invoices app lists the invoices$`, func() error {
@@ -142,7 +142,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return succeed("invoices", "cleanup", "--before", day)
 	})
 	sc.Step(`^the mailer wrote (\S+) with the PDF attached$`, func(name string) error {
-		mail, err := os.ReadFile(filepath.Join(w.dir, "mail", name)) //nolint:gosec // the test's own folder
+		mail, err := os.ReadFile(filepath.Join(sut.proxy.dir, "mail", name)) //nolint:gosec // the test's own folder
 		if err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return nil
 	})
 	sc.Step(`^every record has no results$`, func() error {
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			if err := hasNo(r.attrs, "hotline.schema.request.errors", "hotline.schema.response.errors"); err != nil {
 				return fmt.Errorf("the record for %v %v: %w", r.attrs["server.address"], r.attrs["url.template"], err)
 			}
@@ -167,7 +167,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 	})
 	sc.Step(`^the records come from the integrations (.+)$`, func(list string) error {
 		seen := map[string]bool{}
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			seen[fmt.Sprint(r.attrs["hotline.integration.id"])] = true
 		}
 		got := make([]string, 0, len(seen))
@@ -233,7 +233,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return failf("no upload came as wanted; the fake S3 got %+v", s3.received())
 	})
 	sc.Step(`^the S3 records are PutObject with url.template (\S+) and GetObject with url.template (\S+), with no results$`, func(put, get string) error {
-		records := w.s3Records()
+		records := sut.s3Records()
 		var templates []string
 		for _, r := range records {
 			templates = append(templates, fmt.Sprint(r["url.template"]))
@@ -247,7 +247,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return nil
 	})
 	sc.Step(`^the S3 record for (\w+) has status (\d+) and no results$`, func(action, status string) error {
-		r, err := w.s3Record(action)
+		r, err := sut.s3Record(action)
 		if err != nil {
 			return err
 		}
@@ -257,7 +257,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return hasNo(r, "hotline.schema.request.errors", "hotline.schema.response.errors")
 	})
 	sc.Step(`^the S3 record for (\w+) has url.template (\S+) and (?:no results|the (request|response) results (.+))$`, func(action, template, side, want string) error {
-		r, err := w.s3Record(action)
+		r, err := sut.s3Record(action)
 		if err != nil {
 			return err
 		}
@@ -277,7 +277,7 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 		return nil
 	})
 	sc.Step(`^no record holds the text of the PDF$`, func() error {
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			if text := fmt.Sprint(r.attrs); strings.Contains(text, "Jana Novak") || strings.Contains(text, "%PDF") {
 				return failf("a record holds the PDF's text: %v", r.attrs)
 			}
@@ -290,9 +290,9 @@ func s3Steps(sc *godog.ScenarioContext, w *world, app *exampleApp) {
 }
 
 // s3Records are the records of calls to the invoices bucket, in order.
-func (w *world) s3Records() []map[string]any {
+func (sut *awsSUT) s3Records() []map[string]any {
 	var out []map[string]any
-	for _, r := range w.records() {
+	for _, r := range sut.otlp.records() {
 		if r.attrs["server.address"] == invoicesBucketHost {
 			out = append(out, r.attrs)
 		}
@@ -301,9 +301,9 @@ func (w *world) s3Records() []map[string]any {
 }
 
 // s3Record is the one record of an S3 action.
-func (w *world) s3Record(action string) (map[string]any, error) {
+func (sut *awsSUT) s3Record(action string) (map[string]any, error) {
 	var found []map[string]any
-	for _, r := range w.s3Records() {
+	for _, r := range sut.s3Records() {
 		if r["url.template"] == s3Templates()[action] {
 			found = append(found, r)
 		}
