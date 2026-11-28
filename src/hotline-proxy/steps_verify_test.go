@@ -35,36 +35,36 @@ type verified struct {
 
 // exporterLedgerSteps are the steps about what each exporter does with the
 // ledger: the records it dropped, and batch records that wait.
-func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
+func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	sc.Step(`^an OTLP exporter and a file exporter$`, func() error {
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full for one record$`, func() error {
-		w.fileExporterOnce()
-		w.fullForEveryThird()
+		sut.fileExporterOnce()
+		sut.fullForEveryThird()
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full(?: for 1,025 records)?$`, func() error {
-		w.fileExporterOnce()
-		w.files[0].extra = "      queueMemory: 1\n"
+		sut.fileExporterOnce()
+		sut.fileExport.exporters[0].extra = "      queueMemory: 1\n"
 		return nil
 	})
 	sc.Step(`^the queue has room again$`, func() error { return nil })
 	sc.Step(`^each exporter got one batch record, at level INFO, naming itself in hotline.exporter$`, func() error {
-		file, err := w.fileBatches()
+		file, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
 		// The stop that settles the run sends one more, empty, last batch.
-		otlp := w.receivers[0].ledger()
+		otlp := sut.otlp.receivers[0].ledger()
 		if len(file) == 0 || len(file) != len(otlp) {
 			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
 		}
 		for _, b := range []struct {
 			got  receivedRecord
 			name string
-		}{{file[0], w.files[0].path}, {otlp[0], w.receivers[0].endpoint}} {
+		}{{file[0], sut.fileExport.exporters[0].path}, {otlp[0], sut.otlp.receivers[0].endpoint}} {
 			if b.got.severityText != "INFO" {
 				return failf("the batch record of %s is at level %s", b.name, b.got.severityText)
 			}
@@ -75,11 +75,11 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^both batch records have an empty hotline.batch.dropped_records$`, func() error {
-		file, err := w.fileBatches()
+		file, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
-		for _, b := range append(file, w.receivers[0].ledger()...) {
+		for _, b := range append(file, sut.otlp.receivers[0].ledger()...) {
 			if got, ok := b.attrs["hotline.batch.dropped_records"].([]any); !ok || len(got) != 0 {
 				return failf("hotline.batch.dropped_records is %v", b.attrs["hotline.batch.dropped_records"])
 			}
@@ -87,11 +87,11 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^both batch records have the same hotline.batch.id, hotline.batch.root and hotline.batch.certificate$`, func() error {
-		file, err := w.fileBatches()
+		file, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
-		otlp := w.receivers[0].ledger()
+		otlp := sut.otlp.receivers[0].ledger()
 		if len(file) == 0 || len(otlp) == 0 {
 			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
 		}
@@ -103,11 +103,11 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^each batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
-		file, err := w.fileBatches()
+		file, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
-		for _, b := range append(file, w.receivers[0].ledger()...) {
+		for _, b := range append(file, sut.otlp.receivers[0].ledger()...) {
 			if err := checkSigned(b); err != nil {
 				return err
 			}
@@ -115,11 +115,11 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the file got 2 records and a batch record at level WARN whose hotline.batch.dropped_records lists the index and hash of the third$`, func() error {
-		records, _, err := w.fileLedger()
+		records, _, err := sut.fileLedger()
 		if err != nil {
 			return err
 		}
-		batches, err := w.fileBatches()
+		batches, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
@@ -129,7 +129,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		if batches[0].severityText != "WARN" {
 			return failf("the batch record is at level %s", batches[0].severityText)
 		}
-		otlp := w.receivers[0].got()
+		otlp := sut.otlp.receivers[0].got()
 		third := otlp[len(otlp)-1].attrs
 		want := []any{map[string]any{"index": int64(2), "hash": third["hotline.record.hash"]}}
 		if got := batches[0].attrs["hotline.batch.dropped_records"]; fmt.Sprint(got) != fmt.Sprint(want) {
@@ -138,18 +138,18 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the file's batch record's hotline.batch.signature checks out with the key of its hotline.batch.certificate$`, func() error {
-		batches, err := w.fileBatches()
+		batches, err := sut.fileBatches()
 		if err != nil || len(batches) == 0 {
 			return failf("the file has no batch record: %v", err)
 		}
 		return checkSigned(batches[0])
 	})
 	sc.Step(`^the root rebuilds from the 2 records and the dropped hash$`, func() error {
-		records, _, err := w.fileLedger()
+		records, _, err := sut.fileLedger()
 		if err != nil {
 			return err
 		}
-		batches, err := w.fileBatches()
+		batches, err := sut.fileBatches()
 		if err != nil || len(batches) == 0 {
 			return failf("the file has no batch record: %v", err)
 		}
@@ -166,7 +166,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the OTLP exporter's batch record lists no dropped record$`, func() error {
-		otlp := w.receivers[0].ledger()
+		otlp := sut.otlp.receivers[0].ledger()
 		if len(otlp) == 0 {
 			return failf("the OTLP exporter got no batch record")
 		}
@@ -176,7 +176,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no exporter got a record with event.name hotline.ledger.dropped$`, func() error {
-		lines, err := w.folderLines()
+		lines, err := sut.fileExport.folderLines()
 		if err != nil {
 			return err
 		}
@@ -185,13 +185,13 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 				return failf("the file got a drop record")
 			}
 		}
-		if drops := w.receivers[0].dropRecords(); len(drops) > 0 {
+		if drops := sut.otlp.receivers[0].dropRecords(); len(drops) > 0 {
 			return failf("the OTLP exporter got %d drop records", len(drops))
 		}
 		return nil
 	})
 	sc.Step(`^the file's batch record has hotline.batch.dropped_count 1025 and no hotline.batch.dropped_records$`, func() error {
-		batches, err := w.fileBatches()
+		batches, err := sut.fileBatches()
 		if err != nil {
 			return err
 		}
@@ -204,14 +204,14 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return hasNo(batches[0].attrs, "hotline.batch.dropped_records")
 	})
 	sc.Step(`^that batch cannot be rebuilt from the file's copy$`, func() error {
-		result := w.verify(proxy.VerifyOptions{Folder: w.files[0].path})
+		result := sut.verify(proxy.VerifyOptions{Folder: sut.fileExport.exporters[0].path})
 		if result.code != 1 || !strings.Contains(result.out, "cannot be proven from this copy") {
 			return failf("verify gave %d: %s", result.code, result.out)
 		}
 		return nil
 	})
 	sc.Step(`^the file got the batch record$`, func() error {
-		_, batches, err := w.fileLedger()
+		_, batches, err := sut.fileLedger()
 		if err != nil {
 			return err
 		}
@@ -221,18 +221,18 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the OTLP exporter's collector is busy$`, func() error {
-		w.receivers[0].setBusy(true)
+		sut.otlp.receivers[0].setBusy(true)
 		return nil
 	})
 	sc.Step(`^the collector is no longer busy$`, func() error {
-		w.receivers[0].setBusy(false)
+		sut.otlp.receivers[0].setBusy(false)
 		return nil
 	})
 	sc.Step(`^the collector got all (\d+) batch records, in order$`, func(n int) error {
-		if _, err := w.waitBatches(n); err != nil {
+		if _, err := sut.waitBatches(n); err != nil {
 			return err
 		}
-		for i, b := range w.receivers[0].ledger()[:n] {
+		for i, b := range sut.otlp.receivers[0].ledger()[:n] {
 			if err := has(b.attrs, "hotline.batch.sequence", int64(i)); err != nil {
 				return err
 			}
@@ -240,20 +240,20 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^none of them has hotline.batch.lost_batches$`, func() error {
-		for _, b := range w.receivers[0].ledger() {
+		for _, b := range sut.otlp.receivers[0].ledger() {
 			if err := hasNo(b.attrs, "hotline.batch.lost_batches"); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	verifySteps(sc, w)
+	verifySteps(sc, sut)
 }
 
 // fileExporterOnce adds a file exporter when the scenario has none yet.
-func (w *world) fileExporterOnce() {
-	if len(w.files) == 0 {
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+func (sut *ledgerSUT) fileExporterOnce() {
+	if len(sut.fileExport.exporters) == 0 {
+		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 	}
 }
 
@@ -261,10 +261,10 @@ func (w *world) fileExporterOnce() {
 // queue holds 10KiB, and the vendor's third, sixth and later such responses
 // have a header of 20KiB, which the record keeps, so that record alone does
 // not fit.
-func (w *world) fullForEveryThird() {
-	w.files[0].extra = "      queueMemory: 10KiB\n"
+func (sut *ledgerSUT) fullForEveryThird() {
+	sut.fileExport.exporters[0].extra = "      queueMemory: 10KiB\n"
 	var n atomic.Int64
-	w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+	sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		id := "r1"
 		if n.Add(1)%3 == 0 {
@@ -279,29 +279,29 @@ func (w *world) fullForEveryThird() {
 // twoFilesDropping sends three calls in each of the given batch windows to
 // two file exporters. The second always drops the third call of each batch;
 // the first drops it too when both is set.
-func (w *world) twoFilesDropping(both bool, batches int) error {
-	w.fullForEveryThird()
+func (sut *ledgerSUT) twoFilesDropping(both bool, batches int) error {
+	sut.fullForEveryThird()
 	if !both {
-		w.files[0].extra = ""
+		sut.fileExport.exporters[0].extra = ""
 	}
-	w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
+	sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
 	for i := range batches {
 		if i > 0 {
-			w.clock.pass(10 * time.Second)
+			sut.proxy.clock.pass(10 * time.Second)
 		}
-		if err := w.ordersTimes(3); err != nil {
+		if err := sut.ordersTimes(3); err != nil {
 			return err
 		}
 	}
-	w.settle()
+	sut.proxy.settle()
 	return nil
 }
 
 // fileLedger are the attributes of the file exporter's call lines and of
 // its batch lines, once the proxy has stopped.
-func (w *world) fileLedger() ([]map[string]any, []map[string]any, error) {
-	w.settle()
-	data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+func (sut *ledgerSUT) fileLedger() ([]map[string]any, []map[string]any, error) {
+	sut.proxy.settle()
+	data, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -325,71 +325,71 @@ func (w *world) fileLedger() ([]map[string]any, []map[string]any, error) {
 }
 
 // verify runs hotline-proxy verify.
-func (w *world) verify(o proxy.VerifyOptions) verified {
+func (sut *ledgerSUT) verify(o proxy.VerifyOptions) verified {
 	var out bytes.Buffer
 	code := proxy.Verify(&out, o)
 	return verified{out: out.String(), code: code}
 }
 
 // verifySteps are the steps of verify.feature.
-func verifySteps(sc *godog.ScenarioContext, w *world) {
+func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	var result verified
 	// changedSpan is the span id of the record a step changed.
 	var changedSpan string
-	signingSteps(sc, w, &result)
+	signingSteps(sc, sut, &result)
 	sc.Step(`^a file exporter writing to the folder calls$`, func() error {
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
-		if len(w.integrations) == 0 {
+		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+		if len(sut.apis.integrations) == 0 {
 			// The folder's calls are checkout's, with the shop spec.
-			line, err := w.shopAPI("", "")
+			line, err := sut.apis.shopAPI("", "")
 			if err != nil {
 				return err
 			}
-			w.addIntegration(integration("checkout", line))
-			w.appID = "checkout"
+			sut.apis.addIntegration(integration("checkout", line))
+			sut.app.appID = "checkout"
 		}
 		return nil
 	})
 	sc.Step(`^the file exporter starts a new file past 1 KiB and compresses the old ones$`, func() error {
-		w.files[0].extra = "      maxFileSize: 1KiB\n      maxFiles: 200\n"
+		sut.fileExport.exporters[0].extra = "      maxFileSize: 1KiB\n      maxFiles: 200\n"
 		return nil
 	})
 	sc.Step(`^the folder calls from a stopped proxy(?:, with (\d+) calls)?(, with calls in 3 batch windows)?$`, func(calls, windows string) error {
 		switch {
 		case windows != "":
 			for range 3 {
-				if err := w.ordersTimes(1); err != nil {
+				if err := sut.ordersTimes(1); err != nil {
 					return err
 				}
-				w.clock.pass(10 * time.Second)
+				sut.proxy.clock.pass(10 * time.Second)
 			}
 		default:
 			n := 1
 			_, _ = fmt.Sscan(calls, &n)
-			if err := w.ordersTimes(n); err != nil {
+			if err := sut.ordersTimes(n); err != nil {
 				return err
 			}
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the folder calls from a proxy that was killed$`, func() error {
 		// What a killed proxy leaves is its folder as it was while it ran:
 		// the folder is copied then, and the proxy writes on elsewhere.
-		w.files[0].path = filepath.Join(w.dir, "running")
-		if err := w.ordersTimes(2); err != nil {
+		sut.fileExport.exporters[0].path = filepath.Join(sut.proxy.dir, "running")
+		if err := sut.ordersTimes(2); err != nil {
 			return err
 		}
-		w.clock.pass(10 * time.Second)
-		if err := w.ordersTimes(1); err != nil {
+		sut.proxy.clock.pass(10 * time.Second)
+		if err := sut.ordersTimes(1); err != nil {
 			return err
 		}
-		running := filepath.Join(w.dir, "running", "calls.jsonl")
+		running := filepath.Join(sut.proxy.dir, "running", "calls.jsonl")
 		for deadline := time.Now().Add(waitLimit); ; pause(10 * time.Millisecond) {
 			data, _ := os.ReadFile(running) //nolint:gosec // the scenario's own folder
 			if bytes.Count(data, []byte("\n")) >= 4 {
-				_ = os.MkdirAll(filepath.Join(w.dir, "calls"), 0o750)
-				return os.WriteFile(filepath.Join(w.dir, "calls", "calls.jsonl"), data, 0o600) //nolint:gosec // the scenario's own folder
+				_ = os.MkdirAll(filepath.Join(sut.proxy.dir, "calls"), 0o750)
+				return os.WriteFile(filepath.Join(sut.proxy.dir, "calls", "calls.jsonl"), data, 0o600) //nolint:gosec // the scenario's own folder
 			}
 			if time.Now().After(deadline) {
 				return failf("the running proxy wrote %d lines", bytes.Count(data, []byte("\n")))
@@ -398,18 +398,18 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^I run hotline-proxy verify (.+)$`, func(command string) error {
 		// The proxy needs no config and no network to verify a folder.
-		o, err := w.verifyOptions(strings.TrimSuffix(command, " with no config and no network"))
+		o, err := sut.verifyOptions(strings.TrimSuffix(command, " with no config and no network"))
 		if err != nil {
 			return err
 		}
-		if len(w.files) == 0 || !strings.Contains(w.files[0].path, "running") {
-			w.settle()
+		if len(sut.fileExport.exporters) == 0 || !strings.Contains(sut.fileExport.exporters[0].path, "running") {
+			sut.proxy.settle()
 		}
-		result = w.verify(o)
+		result = sut.verify(o)
 		return nil
 	})
 	sc.Step(`^the file writes hotline.recorded.shop.order.weight as 2.0 and as 1.5$`, func() error {
-		data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+		data, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
 		if err != nil {
 			return err
 		}
@@ -430,7 +430,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("checkout's 5 records and their traces in 2 batches check out", "the run ended with a clean stop")
 	})
 	sc.Step(`^it read every file in the folder, in order$`, func() error {
-		entries, _ := os.ReadDir(w.files[0].path)
+		entries, _ := os.ReadDir(sut.fileExport.exporters[0].path)
 		gz := 0
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".gz") {
@@ -455,20 +455,20 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the app sends GET /orders as checkout (\d+) times and GET /refunds as refunds (\d+) times$`, func(a, b int) error {
-		w.appID = "checkout"
-		if err := w.ordersTimes(a); err != nil {
+		sut.app.appID = "checkout"
+		if err := sut.ordersTimes(a); err != nil {
 			return err
 		}
-		w.appID = "refunds"
+		sut.app.appID = "refunds"
 		for range b {
-			if err := w.shopCall("GET", "/refunds", true, "", "", ""); err != nil {
+			if err := sut.app.shopCall("GET", "/refunds", true, "", "", ""); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	sc.Step(`^only the checkout records and batch records are kept in the folder$`, func() error {
-		return w.keepLines(func(line map[string]any) bool {
+		return sut.keepLines(func(line map[string]any) bool {
 			attrs, _ := line["attributes"].(map[string]any)
 			return attrs["hotline.integration.id"] == "checkout" || attrs["hotline.batch.integration"] == "checkout"
 		})
@@ -486,7 +486,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^(http.response.status_code is changed|http.response.status_code is changed and hotline.record.hash recomputed) in the second record$`, func(change string) error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			attrs := line["attributes"].(map[string]any)
 			attrs["http.response.status_code"] = json.Number("599")
 			changedSpan = sprint(line["span_id"])
@@ -496,10 +496,10 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^the second record is deleted$`, func() error {
-		return w.changeLine(2, nil)
+		return sut.changeLine(2, nil)
 	})
 	sc.Step(`^a copy of the second record with a new span id and recomputed hash is added$`, func() error {
-		lines, err := w.folderLines()
+		lines, err := sut.fileExport.folderLines()
 		if err != nil {
 			return err
 		}
@@ -516,10 +516,10 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 				}
 			}
 		}
-		return w.writeLines(lines)
+		return sut.writeLines(lines)
 	})
 	sc.Step(`^one span is removed from the second line's spans$`, func() error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			attrs := line["attributes"].(map[string]any)
 			spans := attrs["hotline.trace.spans"].([]any)
 			changedSpan = sprint(line["span_id"])
@@ -527,14 +527,14 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^the end of a span is changed in the second line's spans$`, func() error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			spans := line["attributes"].(map[string]any)["hotline.trace.spans"].([]any)
 			changedSpan = sprint(line["span_id"])
 			spans[len(spans)-1].(map[string]any)["end_time"] = "2001-01-01T00:00:00.000000Z"
 		})
 	})
 	sc.Step(`^the (span_id|parent_span_id) of the last span in the second line's spans is changed to (the same id in capital letters|zeros, which stand for no span)$`, func(field, id string) error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			spans := line["attributes"].(map[string]any)["hotline.trace.spans"].([]any)
 			changedSpan = sprint(line["span_id"])
 			last := spans[len(spans)-1].(map[string]any)
@@ -552,20 +552,20 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^hotline.batch.records is changed in the first batch record$`, func() error {
-		return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
+		return sut.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
 	})
 	sc.Step(`^the batch record with sequence 1 is deleted$`, func() error {
-		return w.keepLines(func(line map[string]any) bool {
+		return sut.keepLines(func(line map[string]any) bool {
 			attrs, _ := line["attributes"].(map[string]any)
 			return line["event"] != "hotline.ledger.batch" || fmt.Sprint(attrs["hotline.batch.sequence"]) != "1"
 		})
 	})
 	sc.Step(`^batch 2's hotline.batch.previous is changed to the root of batch 0$`, func() error {
 		var root any
-		if err := w.changeBatch(0, func(attrs map[string]any) { root = attrs["hotline.batch.root"] }); err != nil {
+		if err := sut.changeBatch(0, func(attrs map[string]any) { root = attrs["hotline.batch.root"] }); err != nil {
 			return err
 		}
-		return w.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
+		return sut.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
 	})
 	sc.Step(`^it prints that the record with that span id does not match its hotline.record.hash$`, func() error {
 		return result.prints("the record with span id " + changedSpan + " does not match its hotline.record.hash")
@@ -598,27 +598,27 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("the run has no last batch: it crashed, or its end is missing")
 	})
 	sc.Step(`^the file exporter's queue was full for one record of batch 0$`, func() error {
-		w.fullForEveryThird()
-		if err := w.ordersTimes(3); err != nil {
+		sut.fullForEveryThird()
+		if err := sut.ordersTimes(3); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the file exporter dropped one record of batch 0$`, func() error {
-		w.fullForEveryThird()
-		if err := w.ordersTimes(3); err != nil {
+		sut.fullForEveryThird()
+		if err := sut.ordersTimes(3); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the file exporter's queue was full for 1,025 records of batch 0$`, func() error {
-		w.files[0].extra = "      queueMemory: 1\n"
-		if err := w.ordersTimes(1025); err != nil {
+		sut.fileExport.exporters[0].extra = "      queueMemory: 1\n"
+		if err := sut.ordersTimes(1025); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^it prints that batch 0 rebuilds from 2 records and 1 dropped hash$`, func() error {
@@ -631,39 +631,39 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("batch 0 cannot be proven from this copy: 1,025 records were dropped by this exporter")
 	})
 	sc.Step(`^the (time|observed_time|severity|event|trace_id|span_id|flags|body|resource's service.name) of the second record's line is changed$`, func(field string) error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			changeField(line, field)
 			changedSpan = sprint(line["span_id"])
 		})
 	})
 	sc.Step(`^two file exporters, (both|only the second) of them dropped one record of batch 0(, of batch 1 and of batch 2)?$`, func(which, more string) error {
-		return w.twoFilesDropping(which == "both", map[bool]int{false: 1, true: 3}[more != ""])
+		return sut.twoFilesDropping(which == "both", map[bool]int{false: 1, true: 3}[more != ""])
 	})
 	sc.Step(`^the first folder's record 2 of batch 0 is deleted and its batch record of batch 0 is swapped for the second folder's$`, func() error {
-		if err := w.changeLine(3, nil); err != nil {
+		if err := sut.changeLine(3, nil); err != nil {
 			return err
 		}
-		return w.swapBatch0()
+		return sut.swapBatch0()
 	})
 	sc.Step(`^the first folder's batch record is swapped for the second folder's$`, func() error {
-		return w.swapBatch0()
+		return sut.swapBatch0()
 	})
 	sc.Step(`^the second folder's batch record is added to the first folder$`, func() error {
-		theirs, err := w.batch0Of("calls2")
+		theirs, err := sut.batch0Of("calls2")
 		if err != nil {
 			return err
 		}
-		lines, err := w.folderLines()
+		lines, err := sut.fileExport.folderLines()
 		if err != nil {
 			return err
 		}
-		return w.writeLines(append(lines, theirs))
+		return sut.writeLines(append(lines, theirs))
 	})
 	sc.Step(`^it prints that the batch record of batch 0 is from the exporter calls2, and this copy's other batch records from calls$`, func() error {
-		return result.prints(fmt.Sprintf("the batch record of batch 0 is from the exporter %s, and this copy's other batch records from %s", w.files[1].path, w.files[0].path))
+		return result.prints(fmt.Sprintf("the batch record of batch 0 is from the exporter %s, and this copy's other batch records from %s", sut.fileExport.exporters[1].path, sut.fileExport.exporters[0].path))
 	})
 	sc.Step(`^it prints that batch 0 has more than one batch record in this copy: one is from the exporter calls2$`, func() error {
-		return result.prints("batch 0 has more than one batch record in this copy: one is from the exporter " + w.files[1].path)
+		return result.prints("batch 0 has more than one batch record in this copy: one is from the exporter " + sut.fileExport.exporters[1].path)
 	})
 	sc.Step(`^it prints that 1 problem was found$`, func() error {
 		return result.prints("1 problem found")
@@ -672,7 +672,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("the batch record of batch 0 lists index 2, which this copy holds")
 	})
 	sc.Step(`^it prints that the folder is the copy of the exporter calls$`, func() error {
-		return result.prints("the folder is the copy of the exporter " + w.files[0].path)
+		return result.prints("the folder is the copy of the exporter " + sut.fileExport.exporters[0].path)
 	})
 	sc.Step(`^its summary names the exporter calls$`, func() error {
 		report, err := result.json()
@@ -680,13 +680,13 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		summary, _ := report["summary"].(map[string]any)
-		if summary["exporter"] != w.files[0].path {
+		if summary["exporter"] != sut.fileExport.exporters[0].path {
 			return failf("the summary names the exporter %v", summary["exporter"])
 		}
 		return nil
 	})
 	sc.Step(`^the first batch record's (certificate is cut short|certificate is signed by another key|certificate is swapped for one of another key|record is signed again with a certificate naming the service another-proxy|record is signed again with a certificate whose hour ended before it)$`, func(change string) error {
-		return w.changeBatchLine(0, func(line map[string]any) {
+		return sut.changeBatchLine(0, func(line map[string]any) {
 			attrs := line["attributes"].(map[string]any)
 			at, _ := time.Parse(time.RFC3339Nano, sprint(line["time"]))
 			name := "hotline-proxy"
@@ -715,7 +715,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints(message)
 	})
 	sc.Step(`^the flags of the first span in the second line's spans are changed$`, func() error {
-		return w.changeLine(2, func(line map[string]any) {
+		return sut.changeLine(2, func(line map[string]any) {
 			spans := line["attributes"].(map[string]any)["hotline.trace.spans"].([]any)
 			changedSpan = sprint(line["span_id"])
 			first := spans[0].(map[string]any)
@@ -723,31 +723,31 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^the (time|observed_time|severity|resource's service.name|hotline.exporter|hotline.batch.dropped_records) of the first batch record's line is changed$`, func(field string) error {
-		return w.changeBatchLine(0, func(line map[string]any) { changeField(line, field) })
+		return sut.changeBatchLine(0, func(line map[string]any) { changeField(line, field) })
 	})
 	sc.Step(`^the first batch record's hotline.batch.format is changed to (hotline.batch.v\d)$`, func(format string) error {
-		return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.format"] = format })
+		return sut.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.format"] = format })
 	})
 	sc.Step(`^it prints that the folder was written by an older edge build \((hotline.batch.v\d)\), which this verify cannot check$`, func(format string) error {
 		return result.prints("was written by an older edge build (" + format + "), which this verify cannot check")
 	})
 	sc.Step(`^the second record is deleted and listed in the batch record's hotline.batch.dropped_records, (with the signature left as it was|signed with a key of its own, keeping the batch's key)$`, func(how string) error {
-		return w.fakeDrop(how != "with the signature left as it was")
+		return sut.fakeDrop(how != "with the signature left as it was")
 	})
 	sc.Step(`^the vendor answered GET /orders with the json body (.+)$`, func(body string) error {
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", "application/json")
 			_, _ = rw.Write([]byte(body))
 		})
-		if err := w.shopCall("GET", "/orders", true, "", "", ""); err != nil {
+		if err := sut.app.shopCall("GET", "/orders", true, "", "", ""); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the body was saved as (\S+)$`, func(name string) error {
-		w.writeFile(name, string(w.respBody))
+		sut.proxy.writeFile(name, string(sut.app.respBody))
 		return nil
 	})
 	sc.Step(`^it prints that the response body matches the record's hotline.response.body.hash$`, func() error {
@@ -757,17 +757,17 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return result.prints("the response body does not match")
 	})
 	sc.Step(`^the integration has content full and maxBodySize (\S+)$`, func(size string) error {
-		line, err := w.shopAPI("", "")
+		line, err := sut.apis.shopAPI("", "")
 		if err != nil {
 			return err
 		}
-		w.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: " + size + "\n"}
-		w.appID = "checkout"
+		sut.apis.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: " + size + "\n"}
+		sut.app.appID = "checkout"
 		return nil
 	})
 	sc.Step(`^the app sends POST /orders with a json body of 3 KiB$`, func() error {
 		body := `{"item":"` + strings.Repeat("A", 3<<10) + `","quantity":2}`
-		return w.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", body)
+		return sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", body)
 	})
 	sc.Step(`^it prints that 1 kept body matches its hash$`, func() error {
 		if result.code != 0 {
@@ -808,44 +808,44 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^(http.response.status_code is changed in a record|a span's end is changed in a record's trace|a record is changed and its hash recomputed|a record is deleted|hotline.batch.records is changed in a batch record|batch 2's hotline.batch.previous is changed|a record's hotline.batch.index is changed to 99|a changed batch 0 is in the file twice|a changed record is in the file twice|batch 0 names a batch before it)$`, func(change string) error {
 		switch change {
 		case "a record's hotline.batch.index is changed to 99":
-			return w.changeLine(2, func(line map[string]any) {
+			return sut.changeLine(2, func(line map[string]any) {
 				line["attributes"].(map[string]any)["hotline.batch.index"] = json.Number("99")
 			})
 		case "a changed batch 0 is in the file twice":
-			return w.twiceBatch0(func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
+			return sut.twiceBatch0(func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
 		case "a changed record is in the file twice":
-			return w.twiceRecord(func(attrs map[string]any) { attrs["http.response.status_code"] = json.Number("599") })
+			return sut.twiceRecord(func(attrs map[string]any) { attrs["http.response.status_code"] = json.Number("599") })
 		case "batch 0 names a batch before it":
-			return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.previous"] = "sha256:" + strings.Repeat("0", 64) })
+			return sut.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.previous"] = "sha256:" + strings.Repeat("0", 64) })
 		case "http.response.status_code is changed in a record":
-			return w.changeLine(2, func(line map[string]any) {
+			return sut.changeLine(2, func(line map[string]any) {
 				line["attributes"].(map[string]any)["http.response.status_code"] = json.Number("599")
 			})
 		case "a span's end is changed in a record's trace":
-			return w.changeLine(2, func(line map[string]any) {
+			return sut.changeLine(2, func(line map[string]any) {
 				spans := line["attributes"].(map[string]any)["hotline.trace.spans"].([]any)
 				spans[len(spans)-1].(map[string]any)["end_time"] = "2001-01-01T00:00:00.000000Z"
 			})
 		case "a record is changed and its hash recomputed":
-			return w.changeLine(2, func(line map[string]any) {
+			return sut.changeLine(2, func(line map[string]any) {
 				attrs := line["attributes"].(map[string]any)
 				attrs["http.response.status_code"] = json.Number("599")
 				attrs["hotline.record.hash"] = lineRecordHash(line)
 			})
 		case "a record is deleted":
-			return w.changeLine(2, nil)
+			return sut.changeLine(2, nil)
 		case "hotline.batch.records is changed in a batch record":
-			return w.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
+			return sut.changeBatch(0, func(attrs map[string]any) { attrs["hotline.batch.records"] = json.Number("99") })
 		default:
 			var root any
-			if err := w.changeBatch(0, func(attrs map[string]any) { root = attrs["hotline.batch.root"] }); err != nil {
+			if err := sut.changeBatch(0, func(attrs map[string]any) { root = attrs["hotline.batch.root"] }); err != nil {
 				return err
 			}
-			return w.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
+			return sut.changeBatch(2, func(attrs map[string]any) { attrs["hotline.batch.previous"] = root })
 		}
 	})
 	sc.Step(`^the kept (url.full|request body) is changed(?: in the record)?$`, func(what string) error {
-		return w.changeLine(1, func(line map[string]any) {
+		return sut.changeLine(1, func(line map[string]any) {
 			attrs := line["attributes"].(map[string]any)
 			if what == "url.full" {
 				attrs["hotline.content.url.full"] = "https://changed.example/"
@@ -855,13 +855,13 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		})
 	})
 	sc.Step(`^the checkout integration's shop spec has the overlay (\S+)$`, func(name string) error {
-		line, err := w.shopAPI("", "    overlays: [./specs/"+name+"]\n")
-		w.integrations = []string{integration("checkout", line)}
+		line, err := sut.apis.shopAPI("", "    overlays: [./specs/"+name+"]\n")
+		sut.apis.integrations = []string{integration("checkout", line)}
 		return err
 	})
 	var namedBatch string
 	sc.Step(`^the first batch record loses its hotline.batch.sequence$`, func() error {
-		lines, err := w.folderLines()
+		lines, err := sut.fileExport.folderLines()
 		if err != nil {
 			return err
 		}
@@ -870,7 +870,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 				attrs := line["attributes"].(map[string]any)
 				namedBatch = sprint(attrs["hotline.batch.id"])
 				delete(attrs, "hotline.batch.sequence")
-				return w.writeLines(lines)
+				return sut.writeLines(lines)
 			}
 		}
 		return failf("the folder has no batch line")
@@ -905,27 +905,27 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no problem with code %s, a batch, a file and a line: %s", code, result.out)
 	})
 	sc.Step(`^a kept body was cut short by maxBodySize$`, func() error {
-		line, err := w.shopAPI("", "")
+		line, err := sut.apis.shopAPI("", "")
 		if err != nil {
 			return err
 		}
-		w.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: 1KiB\n"}
+		sut.apis.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: 1KiB\n"}
 		body := `{"item":"` + strings.Repeat("A", 3<<10) + `","quantity":2}`
-		if err := w.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", body); err != nil {
+		if err := sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", body); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^the folder calls holds (a record|batch 0) twice$`, func(what string) error {
-		if err := w.ordersTimes(3); err != nil {
+		if err := sut.ordersTimes(3); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		if what == "batch 0" {
-			return w.twiceBatch0(func(map[string]any) {})
+			return sut.twiceBatch0(func(map[string]any) {})
 		}
-		return w.twiceRecord(func(map[string]any) {})
+		return sut.twiceRecord(func(map[string]any) {})
 	})
 	sc.Step(`^the run or batch has the note (\S+)$`, func(code string) error {
 		report, err := result.json()
@@ -941,14 +941,14 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no note %s: %s", code, result.out)
 	})
 	sc.Step(`^a record whose url.full holds a quote, a newline and the character U\+009B$`, func() error {
-		if err := w.ordersTimes(1); err != nil {
+		if err := sut.ordersTimes(1); err != nil {
 			return err
 		}
-		w.settle()
+		sut.proxy.settle()
 		return nil
 	})
 	sc.Step(`^that record was changed$`, func() error {
-		return w.changeLine(1, func(line map[string]any) {
+		return sut.changeLine(1, func(line map[string]any) {
 			line["attributes"].(map[string]any)["url.full"] = "https://api.shop.test/\"\n\u009b"
 			line["span_id"] = "\"\n\u009b"
 		})
@@ -966,7 +966,7 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		body, _ := report["body"].(map[string]any)
-		if body["side"] != "response" || body["matches"] != true || body["span_id"] != w.lastSpanID() {
+		if body["side"] != "response" || body["matches"] != true || body["span_id"] != sut.lastSpanID() {
 			return failf("the body entry is %v", body)
 		}
 		return nil
@@ -1005,20 +1005,20 @@ func verifySteps(sc *godog.ScenarioContext, w *world) {
 // verifyOptions reads a verify command line from a step: the folder, or
 // a description of bad input, then the flags. A --span stands for the span
 // id of the call the scenario made, which is new on every run.
-func (w *world) verifyOptions(command string) (proxy.VerifyOptions, error) {
+func (sut *ledgerSUT) verifyOptions(command string) (proxy.VerifyOptions, error) {
 	var o proxy.VerifyOptions
 	rest := command
 	for _, bad := range []string{"a folder that does not exist", "a file that is not JSON lines", "a batch record of format v9",
 		"a line with no time", "a compressed file that is not gzip", "a cut-off compressed file", "a rotated file that is a folder"} {
 		if after, found := strings.CutPrefix(command, bad); found {
 			rest = "calls" + after
-			if err := w.badInput(bad); err != nil {
+			if err := sut.badInput(bad); err != nil {
 				return o, err
 			}
 		}
 	}
 	words := strings.Fields(rest)
-	o.Folder = filepath.Join(w.dir, words[0])
+	o.Folder = filepath.Join(sut.proxy.dir, words[0])
 	for i := 1; i < len(words); i++ {
 		next := ""
 		if i+1 < len(words) {
@@ -1030,31 +1030,31 @@ func (w *world) verifyOptions(command string) (proxy.VerifyOptions, error) {
 		case "--integration":
 			o.Integration, i = next, i+1
 		case "--body":
-			o.Body, i = filepath.Join(w.dir, next), i+1
+			o.Body, i = filepath.Join(sut.proxy.dir, next), i+1
 			if _, err := os.Stat(o.Body); err != nil {
-				w.writeFile(next, `{"orders":["another"]}`)
+				sut.proxy.writeFile(next, `{"orders":["another"]}`)
 			}
 		case "--span":
 			// The zero span id stands for one no call has.
-			o.Span, i = w.lastSpanID(), i+1
+			o.Span, i = sut.lastSpanID(), i+1
 			if next == "0000000000000000" {
 				o.Span = next
 			}
 		case "--side":
 			o.Side, i = next, i+1
 		case "--root-authority":
-			o.RootAuthorities, i = append(o.RootAuthorities, filepath.Join(w.dir, next)), i+1
+			o.RootAuthorities, i = append(o.RootAuthorities, filepath.Join(sut.proxy.dir, next)), i+1
 		}
 	}
 	return o, nil
 }
 
 // badInput makes the folder calls hold input verify cannot read.
-func (w *world) badInput(what string) error {
-	folder := filepath.Join(w.dir, "calls")
+func (sut *ledgerSUT) badInput(what string) error {
+	folder := filepath.Join(sut.proxy.dir, "calls")
 	switch what {
 	case "a folder that does not exist":
-		w.files = nil
+		sut.fileExport.exporters = nil
 		return os.RemoveAll(folder)
 	case "a line with no time":
 		_ = os.MkdirAll(folder, 0o750)
@@ -1081,8 +1081,8 @@ func (w *world) badInput(what string) error {
 }
 
 // lastSpanID is the span id of the last call line in the folder calls.
-func (w *world) lastSpanID() string {
-	lines, _ := w.folderLines()
+func (sut *ledgerSUT) lastSpanID() string {
+	lines, _ := sut.fileExport.folderLines()
 	id := ""
 	for _, line := range lines {
 		if line["event"] == "hotline.request" {
@@ -1093,14 +1093,14 @@ func (w *world) lastSpanID() string {
 }
 
 // folderLines are the lines of calls/calls.jsonl, numbers kept as written.
-func (w *world) folderLines() ([]map[string]any, error) { return w.linesIn("calls") }
+func (sut *fileExportSUT) folderLines() ([]map[string]any, error) { return sut.linesIn("calls") }
 
 // linesIn are the lines of calls.jsonl in a folder of the scenario's,
 // numbers kept as written.
-func (w *world) linesIn(folder string) ([]map[string]any, error) {
+func (sut *fileExportSUT) linesIn(folder string) ([]map[string]any, error) {
 	// The folder is read through a root, so the name cannot leave the
 	// scenario's own folder.
-	root, err := os.OpenRoot(w.dir)
+	root, err := os.OpenRoot(sut.proxy.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -1123,7 +1123,7 @@ func (w *world) linesIn(folder string) ([]map[string]any, error) {
 }
 
 // writeLines writes lines back to calls/calls.jsonl, numbers as they were.
-func (w *world) writeLines(lines []map[string]any) error {
+func (sut *ledgerSUT) writeLines(lines []map[string]any) error {
 	var out bytes.Buffer
 	for _, line := range lines {
 		data, err := json.Marshal(line)
@@ -1133,12 +1133,12 @@ func (w *world) writeLines(lines []map[string]any) error {
 		out.Write(data)
 		out.WriteByte('\n')
 	}
-	return os.WriteFile(filepath.Join(w.dir, "calls", "calls.jsonl"), out.Bytes(), 0o600)
+	return os.WriteFile(filepath.Join(sut.proxy.dir, "calls", "calls.jsonl"), out.Bytes(), 0o600)
 }
 
 // keepLines keeps only the lines keep says yes to.
-func (w *world) keepLines(keep func(map[string]any) bool) error {
-	lines, err := w.folderLines()
+func (sut *ledgerSUT) keepLines(keep func(map[string]any) bool) error {
+	lines, err := sut.fileExport.folderLines()
 	if err != nil {
 		return err
 	}
@@ -1148,13 +1148,13 @@ func (w *world) keepLines(keep func(map[string]any) bool) error {
 			kept = append(kept, line)
 		}
 	}
-	return w.writeLines(kept)
+	return sut.writeLines(kept)
 }
 
 // changeLine changes the nth call line, counted from 1, or deletes it when
 // change is nil.
-func (w *world) changeLine(n int, change func(map[string]any)) error {
-	lines, err := w.folderLines()
+func (sut *ledgerSUT) changeLine(n int, change func(map[string]any)) error {
+	lines, err := sut.fileExport.folderLines()
 	if err != nil {
 		return err
 	}
@@ -1165,23 +1165,23 @@ func (w *world) changeLine(n int, change func(map[string]any)) error {
 		}
 		if calls++; calls == n {
 			if change == nil {
-				return w.writeLines(append(lines[:i:i], lines[i+1:]...))
+				return sut.writeLines(append(lines[:i:i], lines[i+1:]...))
 			}
 			change(line)
-			return w.writeLines(lines)
+			return sut.writeLines(lines)
 		}
 	}
 	return failf("the folder has %d call lines", calls)
 }
 
 // changeBatch changes the attributes of the batch line with a sequence.
-func (w *world) changeBatch(sequence int, change func(map[string]any)) error {
-	return w.changeBatchLine(sequence, func(line map[string]any) { change(line["attributes"].(map[string]any)) })
+func (sut *ledgerSUT) changeBatch(sequence int, change func(map[string]any)) error {
+	return sut.changeBatchLine(sequence, func(line map[string]any) { change(line["attributes"].(map[string]any)) })
 }
 
 // changeBatchLine changes the whole batch line with a sequence.
-func (w *world) changeBatchLine(sequence int, change func(map[string]any)) error {
-	lines, err := w.folderLines()
+func (sut *ledgerSUT) changeBatchLine(sequence int, change func(map[string]any)) error {
+	lines, err := sut.fileExport.folderLines()
 	if err != nil {
 		return err
 	}
@@ -1189,7 +1189,7 @@ func (w *world) changeBatchLine(sequence int, change func(map[string]any)) error
 		attrs, _ := line["attributes"].(map[string]any)
 		if line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == strconv.Itoa(sequence) {
 			change(line)
-			return w.writeLines(lines)
+			return sut.writeLines(lines)
 		}
 	}
 	return failf("no batch line has the sequence %d", sequence)
@@ -1197,22 +1197,22 @@ func (w *world) changeBatchLine(sequence int, change func(map[string]any)) error
 
 // twiceBatch0 writes the batch line with sequence 0 a second time, right
 // after itself, with change made to the copy's attributes.
-func (w *world) twiceBatch0(change func(attrs map[string]any)) error {
-	return w.twice(func(line map[string]any, attrs map[string]any) bool {
+func (sut *ledgerSUT) twiceBatch0(change func(attrs map[string]any)) error {
+	return sut.twice(func(line map[string]any, attrs map[string]any) bool {
 		return line["event"] == "hotline.ledger.batch" && fmt.Sprint(attrs["hotline.batch.sequence"]) == "0"
 	}, change)
 }
 
 // twiceRecord writes the first call line a second time, right after
 // itself, with change made to the copy's attributes.
-func (w *world) twiceRecord(change func(attrs map[string]any)) error {
-	return w.twice(func(line map[string]any, _ map[string]any) bool { return line["event"] == "hotline.request" }, change)
+func (sut *ledgerSUT) twiceRecord(change func(attrs map[string]any)) error {
+	return sut.twice(func(line map[string]any, _ map[string]any) bool { return line["event"] == "hotline.request" }, change)
 }
 
 // twice writes the first line that is wanted a second time, right after
 // itself, with change made to the copy's attributes.
-func (w *world) twice(wanted func(line, attrs map[string]any) bool, change func(attrs map[string]any)) error {
-	lines, err := w.folderLines()
+func (sut *ledgerSUT) twice(wanted func(line, attrs map[string]any) bool, change func(attrs map[string]any)) error {
+	lines, err := sut.fileExport.folderLines()
 	if err != nil {
 		return err
 	}
@@ -1222,7 +1222,7 @@ func (w *world) twice(wanted func(line, attrs map[string]any) bool, change func(
 			copied := cloneLine(line)
 			change(copied["attributes"].(map[string]any))
 			lines = slices.Insert(lines, i+1, copied)
-			return w.writeLines(lines)
+			return sut.writeLines(lines)
 		}
 	}
 	return failf("no line to copy")
@@ -1299,9 +1299,9 @@ func changeField(line map[string]any, field string) {
 }
 
 // fileBatches are the batch records of the file exporter's folder.
-func (w *world) fileBatches() ([]receivedRecord, error) {
-	w.settle()
-	lines, err := w.folderLines()
+func (sut *ledgerSUT) fileBatches() ([]receivedRecord, error) {
+	sut.proxy.settle()
+	lines, err := sut.fileExport.folderLines()
 	if err != nil {
 		return nil, err
 	}
@@ -1315,8 +1315,8 @@ func (w *world) fileBatches() ([]receivedRecord, error) {
 }
 
 // batch0Of is the batch line with sequence 0 in a folder of the scenario's.
-func (w *world) batch0Of(folder string) (map[string]any, error) {
-	lines, err := w.linesIn(folder)
+func (sut *ledgerSUT) batch0Of(folder string) (map[string]any, error) {
+	lines, err := sut.fileExport.linesIn(folder)
 	if err != nil {
 		return nil, err
 	}
@@ -1331,12 +1331,12 @@ func (w *world) batch0Of(folder string) (map[string]any, error) {
 
 // swapBatch0 puts the second folder's batch line of batch 0 in place of the
 // first folder's.
-func (w *world) swapBatch0() error {
-	theirs, err := w.batch0Of("calls2")
+func (sut *ledgerSUT) swapBatch0() error {
+	theirs, err := sut.batch0Of("calls2")
 	if err != nil {
 		return err
 	}
-	return w.changeBatchLine(0, func(line map[string]any) {
+	return sut.changeBatchLine(0, func(line map[string]any) {
 		clear(line)
 		maps.Copy(line, theirs)
 	})
@@ -1346,16 +1346,16 @@ func (w *world) swapBatch0() error {
 // hotline.batch.dropped_records, as someone who wants the deletion to pass
 // would: with the signature left as it was, or signed again with a key of
 // their own while the batch record still names the proxy's key.
-func (w *world) fakeDrop(ownKey bool) error {
+func (sut *ledgerSUT) fakeDrop(ownKey bool) error {
 	var record map[string]any
-	if err := w.changeLine(2, func(line map[string]any) { record = line }); err != nil {
+	if err := sut.changeLine(2, func(line map[string]any) { record = line }); err != nil {
 		return err
 	}
-	if err := w.changeLine(2, nil); err != nil {
+	if err := sut.changeLine(2, nil); err != nil {
 		return err
 	}
 	attrs := record["attributes"].(map[string]any)
-	return w.changeBatchLine(0, func(batch map[string]any) {
+	return sut.changeBatchLine(0, func(batch map[string]any) {
 		batchAttrs := batch["attributes"].(map[string]any)
 		batchAttrs["hotline.batch.dropped_records"] = []any{map[string]any{"index": attrs["hotline.batch.index"], "hash": attrs["hotline.record.hash"]}}
 		if ownKey {

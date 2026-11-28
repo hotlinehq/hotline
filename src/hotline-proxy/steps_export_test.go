@@ -2,9 +2,9 @@ package proxy_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,11 +13,11 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func exportSteps(sc *godog.ScenarioContext, w *world) {
+func exportSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	sc.Step(`^a fake OTLP receiver$`, func() error { return nil })
-	sc.Step(`^the proxy sends any signal$`, func() error { return w.defaultCall() })
+	sc.Step(`^the proxy sends any signal$`, func() error { return sut.app.defaultCall() })
 	sc.Step(`^its resource has service.name hotline-proxy, service.version and service.instance.id$`, func() error {
-		records := w.records()
+		records := sut.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
@@ -31,67 +31,34 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return has(res, "service.instance.id", "proxy-test-1")
 	})
 	sc.Step(`^the records transform labels service.name invoices-proxy, service.instance.id from the env POD_NAME and deployment.environment.name from the file env-name$`, func() error {
-		w.env = map[string]string{"POD_NAME": "invoices-proxy-7d9f"}
-		file := w.writeFile("env-name", "production\n")
-		w.topExtra += "records:\n  transform:\n    - labels:\n" +
+		sut.proxy.env = map[string]string{"POD_NAME": "invoices-proxy-7d9f"}
+		file := sut.proxy.writeFile("env-name", "production\n")
+		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n" +
 			"        service.name: invoices-proxy\n" +
 			"        service.instance.id: { env: POD_NAME }\n" +
 			"        deployment.environment.name: { file: " + file + " }\n"
 		return nil
 	})
 	sc.Step(`^the records transform labels deployment.environment.name staging(, then deployment.environment.name production)?$`, func(then string) error {
-		w.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
+		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
 		if then != "" {
-			w.topExtra += "    - labels:\n        deployment.environment.name: production\n"
+			sut.proxy.topExtra += "    - labels:\n        deployment.environment.name: production\n"
 		}
 		return nil
 	})
 	sc.Step(`^the records transform labels service.name shop-proxy$`, func() error {
-		w.topExtra += "records:\n  transform:\n    - labels:\n        service.name: shop-proxy\n"
+		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        service.name: shop-proxy\n"
 		return nil
-	})
-	sc.Step(`^two OTLP exporters and a file exporter$`, func() error {
-		w.receivers = append(w.receivers, newReceiver())
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
-		return nil
-	})
-	sc.Step(`^both exporters get deployment.environment.name staging$`, func() error {
-		w.settle()
-		for i, r := range w.receivers {
-			records := r.got()
-			if len(records) != 1 {
-				return failf("exporter %d got %d records", i+1, len(records))
-			}
-			if err := has(records[0].resource, "deployment.environment.name", "staging"); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	sc.Step(`^the file line has the same resource$`, func() error {
-		lines, err := w.folderLines()
-		if err != nil {
-			return err
-		}
-		for _, line := range lines {
-			if line["event"] == "hotline.request" {
-				if got, want := fmt.Sprint(lineAsReceived(line).resource), fmt.Sprint(w.records()[0].resource); got != want {
-					return failf("the file line's resource is %s, the exporter's %s", got, want)
-				}
-				return nil
-			}
-		}
-		return failf("the file has no call line")
 	})
 	sc.Step(`^its resource has deployment.environment.name production$`, func() error {
-		records := w.records()
+		records := sut.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
 		return has(records[0].resource, "deployment.environment.name", "production")
 	})
 	sc.Step(`^its resource has service.name invoices-proxy, service.instance.id from POD_NAME and deployment.environment.name from the file$`, func() error {
-		records := w.records()
+		records := sut.records()
 		if len(records) == 0 {
 			return failf("no record arrived")
 		}
@@ -105,12 +72,12 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return has(res, "deployment.environment.name", "production")
 	})
 	sc.Step(`^service.version is still the proxy's own$`, func() error {
-		return has(w.records()[0].resource, "service.version", "1.0.0-test")
+		return has(sut.records()[0].resource, "service.version", "1.0.0-test")
 	})
 	sc.Step(`^the record's level is (INFO|WARN|ERROR)$`, func(level string) error {
-		records := w.records()
+		records := sut.records()
 		if len(records) == 0 {
-			return failf("no record arrived; the app got %v %q", w.resp, w.respBody)
+			return failf("no record arrived; the app got %v %q", sut.app.resp, sut.app.respBody)
 		}
 		last := records[len(records)-1]
 		numbers := map[string]int32{"INFO": 9, "WARN": 13, "ERROR": 17}
@@ -120,7 +87,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the receiver gets one OTLP log record with all of the record's attributes$`, func() error {
-		record, err := w.record()
+		record, err := sut.record()
 		if err != nil {
 			return err
 		}
@@ -128,12 +95,12 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			"http.response.status_code", "hotline.timing.total_us", "hotline.config.version")
 	})
 	sc.Step(`^standard names come from the semconv constants, such as http.request.method and url.full$`, func() error {
-		return w.lastHasAll("http.request.method", "url.full", "url.scheme", "client.address", "server.address", "server.port",
+		return sut.lastHasAll("http.request.method", "url.full", "url.scheme", "client.address", "server.address", "server.port",
 			"network.peer.address", "network.protocol.version", "http.request.body.size", "http.response.body.size",
 			"tls.protocol.version", "tls.server.not_after")
 	})
 	sc.Step(`^every other field has the exact hotline. name from the spec$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -158,7 +125,7 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^numbers are numbers, true and false are booleans and header values are lists of strings$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -176,8 +143,8 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^the receiver gets nothing on /v1/metrics$`, func() error {
-		w.settle()
-		for _, seen := range w.receivers[0].requests() {
+		sut.proxy.settle()
+		for _, seen := range sut.receivers[0].requests() {
 			if strings.HasSuffix(seen.path, "/v1/metrics") {
 				return failf("the receiver got a send on %s", seen.path)
 			}
@@ -185,11 +152,11 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an exporter that sets metricInterval to 0s and temporality to weekly$`, func() error {
-		w.exporterExtra = []string{"      metricInterval: 0s\n      temporality: weekly\n"}
+		sut.exporterExtra = []string{"      metricInterval: 0s\n      temporality: weekly\n"}
 		return nil
 	})
 	sc.Step(`^the proxy logs no warning about metricInterval or temporality$`, func() error {
-		for _, line := range strings.Split(w.logs.String(), "\n") {
+		for _, line := range strings.Split(sut.proxy.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && (strings.Contains(line, "metricInterval") || strings.Contains(line, "temporality")) {
 				return failf("the proxy warned: %s", line)
 			}
@@ -197,30 +164,30 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an exporter that sets no intervals$`, func() error {
-		w.unsetIntervals = true
+		sut.unsetIntervals = true
 		return nil
 	})
 	sc.Step(`^an exporter that sets (logInterval|traceInterval) to 1h$`, func(name string) error {
-		w.exporterExtra = []string{"      " + name + ": 1h\n"}
+		sut.exporterExtra = []string{"      " + name + ": 1h\n"}
 		return nil
 	})
 	sc.Step(`^nothing arrives within a second$`, func() error {
 		pause(time.Second)
-		if got := w.arrived(); len(got) > 0 {
+		if got := sut.arrived(); len(got) > 0 {
 			return failf("got %v within a second", got)
 		}
 		return nil
 	})
 	sc.Step(`^the record and its spans arrive when the proxy stops$`, func() error {
-		w.settle()
-		if got := w.arrived(); len(got) != 2 {
+		sut.proxy.settle()
+		if got := sut.arrived(); len(got) != 2 {
 			return failf("got only %v", got)
 		}
 		return nil
 	})
 	sc.Step(`^no (record|span) arrives within a second, but the others do$`, func(signal string) error {
-		err := w.eventually(func() error {
-			if got := w.arrived(); len(got) < 1 {
+		err := sut.proxy.eventually(func() error {
+			if got := sut.arrived(); len(got) < 1 {
 				return failf("got only %v", got)
 			}
 			return nil
@@ -229,21 +196,21 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		pause(time.Second)
-		if got := w.arrived(); slices.Contains(got, signal) {
+		if got := sut.arrived(); slices.Contains(got, signal) {
 			return failf("the %s arrived within a second", signal)
 		}
 		return nil
 	})
 	sc.Step(`^the (record|span) arrives when the proxy stops$`, func(signal string) error {
-		w.settle()
-		if got := w.arrived(); !slices.Contains(got, signal) {
+		sut.proxy.settle()
+		if got := sut.arrived(); !slices.Contains(got, signal) {
 			return failf("no %s arrived, got %v", signal, got)
 		}
 		return nil
 	})
 	sc.Step(`^calls end$`, func() error {
 		for range 2 {
-			if err := w.defaultCall(); err != nil {
+			if err := sut.app.defaultCall(); err != nil {
 				return err
 			}
 			pause(50 * time.Millisecond)
@@ -251,38 +218,38 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^two exporters$`, func() error {
-		w.receivers = append(w.receivers, newReceiver())
+		sut.receivers = append(sut.receivers, newReceiver())
 		return nil
 	})
 	sc.Step(`^both get the same record and spans$`, func() error {
-		w.settle()
-		first, second := w.receivers[0].got(), w.receivers[1].got()
+		sut.proxy.settle()
+		first, second := sut.receivers[0].got(), sut.receivers[1].got()
 		if len(first) != 1 || len(second) != 1 || fmt.Sprint(first[0].attrs) != fmt.Sprint(second[0].attrs) ||
-			len(w.receivers[0].spans()) == 0 || len(w.receivers[0].spans()) != len(w.receivers[1].spans()) {
+			len(sut.receivers[0].spans()) == 0 || len(sut.receivers[0].spans()) != len(sut.receivers[1].spans()) {
 			return failf("the exporters got %v and %v", first, second)
 		}
 		return nil
 	})
 	sc.Step(`^two exporters, one of them down$`, func() error {
-		w.downEndpoints = []string{"http://" + w.ports.take()}
+		sut.downEndpoints = []string{"http://" + sut.proxy.ports.take()}
 		// The down exporter retries until a send times out, which holds up
 		// the proxy's shutdown at the end of the scenario.
-		w.exportTimeout = 300 * time.Millisecond
+		sut.proxy.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
-	sc.Step(`^the other keeps receiving$`, func() error { return w.waitForRecords(2) })
+	sc.Step(`^the other keeps receiving$`, func() error { return sut.waitForRecords(2) })
 
 	sc.Step(`^an exporter with no queue size set$`, func() error {
-		w.receivers[0].hold = make(chan struct{})
-		w.exportTimeout = time.Minute
-		w.appID = ""
+		sut.receivers[0].hold = make(chan struct{})
+		sut.proxy.exportTimeout = time.Minute
+		sut.app.appID = ""
 		return nil
 	})
-	sc.Step(`^the proxy starts$`, w.start)
+	sc.Step(`^the proxy starts$`, sut.proxy.start)
 	sc.Step(`^its queue holds 10 000 records$`, func() error {
-		w.vendor("api.x.com")
+		sut.vendors.vendor("api.x.com")
 		client := &http.Client{Transport: &http.Transport{
-			Proxy:               http.ProxyURL(mustURL("http://" + w.addr)),
+			Proxy:               http.ProxyURL(mustURL("http://" + sut.proxy.addr)),
 			MaxIdleConnsPerHost: 16,
 		}}
 		defer client.CloseIdleConnections()
@@ -307,39 +274,39 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		// Connections the client opened but never used would keep the
 		// proxy's shutdown waiting.
 		client.CloseIdleConnections()
-		w.receivers[0].release()
-		if got := len(w.records()); got != 10_000 {
+		sut.receivers[0].release()
+		if got := len(sut.records()); got != 10_000 {
 			return failf("the receiver got %d records, want all 10 000", got)
 		}
 		return nil
 	})
 
 	sc.Step(`^an exporter with queueSize 3 whose exporter is busy with the first record$`, func() error {
-		w.exporterExtra = []string{"      queueSize: 3\n"}
-		w.receivers[0].hold = make(chan struct{})
-		w.exportTimeout = time.Minute
-		if err := w.call("GET", "https://api.stripe.com/v1/payment_intents/pi_1"); err != nil {
+		sut.exporterExtra = []string{"      queueSize: 3\n"}
+		sut.receivers[0].hold = make(chan struct{})
+		sut.proxy.exportTimeout = time.Minute
+		if err := sut.app.call("GET", "https://api.stripe.com/v1/payment_intents/pi_1"); err != nil {
 			return err
 		}
-		return w.receivers[0].waitForLogsHeld()
+		return sut.receivers[0].waitForLogsHeld()
 	})
 	sc.Step(`^(\d+) more calls end$`, func(n int) error {
 		for i := 2; i <= n+1; i++ {
 			started := time.Now()
-			if err := w.call("GET", fmt.Sprintf("https://api.stripe.com/v1/payment_intents/pi_%d", i)); err != nil {
+			if err := sut.app.call("GET", fmt.Sprintf("https://api.stripe.com/v1/payment_intents/pi_%d", i)); err != nil {
 				return err
 			}
-			w.appTook = max(w.appTook, time.Since(started))
+			sut.app.appTook = max(sut.app.appTook, time.Since(started))
 			// A record is queued just after its response has gone back, so
 			// give it time to be queued before the next call.
 			pause(50 * time.Millisecond)
 		}
-		w.receivers[0].release()
+		sut.receivers[0].release()
 		return nil
 	})
 	sc.Step(`^the exporter gets records 1, 2 and 3$`, func() error {
 		var got []string
-		for _, r := range w.records() {
+		for _, r := range sut.records() {
 			got = append(got, sprint(r.attrs["url.full"]))
 		}
 		want := []string{
@@ -352,24 +319,24 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an exporter with queueSize (\d+) that sends only on shutdown$`, func(size int) error {
-		w.exporterExtra = []string{fmt.Sprintf("      queueSize: %d\n", size), "      logInterval: 1h\n", "      traceInterval: 1h\n"}
+		sut.exporterExtra = []string{fmt.Sprintf("      queueSize: %d\n", size), "      logInterval: 1h\n", "      traceInterval: 1h\n"}
 		return nil
 	})
 	sc.Step(`^2 calls end$`, func() error {
 		for range 2 {
-			if err := w.defaultCall("Content-Type: application/json"); err != nil {
+			if err := sut.app.defaultCall("Content-Type: application/json"); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	sc.Step(`^the exporter gets every span of the first call$`, func() error {
-		records := w.receivers[0].got()
+		records := sut.receivers[0].got()
 		if len(records) != 2 {
 			return failf("the exporter got %d records, want 2", len(records))
 		}
 		first := records[0].traceID
-		spans := w.receivers[0].spans()
+		spans := sut.receivers[0].spans()
 		ids := map[string]bool{}
 		for _, s := range spans {
 			if s.traceID == first {
@@ -390,9 +357,9 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^it gets no span of the second call$`, func() error {
-		records := w.receivers[0].got()
+		records := sut.receivers[0].got()
 		second := records[1].traceID
-		for _, s := range w.receivers[0].spans() {
+		for _, s := range sut.receivers[0].spans() {
 			if s.traceID == second {
 				return failf("the exporter got span %q of the second call", s.name)
 			}
@@ -400,72 +367,166 @@ func exportSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the proxy logs a warning that spans of 1 call were dropped for that exporter$`, func() error {
-		for _, line := range strings.Split(w.logs.String(), "\n") {
+		for _, line := range strings.Split(sut.proxy.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line, "spans") && strings.Contains(line, "calls=1") &&
-				strings.Contains(line, w.receivers[0].endpoint) {
+				strings.Contains(line, sut.receivers[0].endpoint) {
 				return nil
 			}
 		}
-		return failf("no warning about the dropped call; the log is %s", w.logs.String())
+		return failf("no warning about the dropped call; the log is %s", sut.proxy.logs.String())
 	})
 	sc.Step(`^the exporter gets no span$`, func() error {
-		if spans := w.receivers[0].spans(); len(spans) != 0 {
+		if spans := sut.receivers[0].spans(); len(spans) != 0 {
 			return failf("the exporter got %d spans", len(spans))
 		}
 		return nil
 	})
 	sc.Step(`^the proxy logs a warning that (1 record was|2 records were) dropped for that exporter$`, func(how string) error {
 		dropped := "dropped=" + how[:1] + " "
-		for _, line := range strings.Split(w.logs.String(), "\n") {
+		for _, line := range strings.Split(sut.proxy.logs.String(), "\n") {
 			if strings.Contains(line, "level=WARN") && strings.Contains(line+" ", dropped) &&
-				strings.Contains(line, w.receivers[0].endpoint) {
+				strings.Contains(line, sut.receivers[0].endpoint) {
 				return nil
 			}
 		}
-		return failf("no warning about the dropped record; the log is %s", w.logs.String())
+		return failf("no warning about the dropped record; the log is %s", sut.proxy.logs.String())
 	})
 	sc.Step(`^no call was blocked or slowed$`, func() error {
-		if w.appTook > time.Second {
-			return failf("a call took %v", w.appTook)
+		if sut.app.appTook > time.Second {
+			return failf("a call took %v", sut.app.appTook)
 		}
 		return nil
 	})
 
-	sc.Step(`^the proxy runs$`, func() error {
-		if w.telemetry == nil {
-			w.telemetry = newReceiver()
-		}
-		return w.defaultCall()
-	})
 	sc.Step(`^records waiting in the queue$`, func() error {
-		w.exporterExtra = []string{"      logInterval: 1h\n"}
-		return w.defaultCall()
+		sut.exporterExtra = []string{"      logInterval: 1h\n"}
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^the proxy shuts down$`, func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		started := time.Now()
-		err := w.proxy.Shutdown(ctx)
-		w.proxy = nil
-		w.appTook = time.Since(started)
+		err := sut.proxy.running.Shutdown(ctx)
+		sut.proxy.running = nil
+		sut.app.appTook = time.Since(started)
 		return err
 	})
 	sc.Step(`^they are sent first, within a time limit$`, func() error {
-		if records := w.receivers[0].got(); len(records) != 1 || w.appTook > 5*time.Second {
-			return failf("got %d records after %v", len(records), w.appTook)
+		if records := sut.receivers[0].got(); len(records) != 1 || sut.app.appTook > 5*time.Second {
+			return failf("got %d records after %v", len(records), sut.app.appTook)
 		}
 		return nil
 	})
 }
 
 // arrived names what the first receiver has got so far: record and span.
-func (w *world) arrived() []string {
+func (sut *otlpSUT) arrived() []string {
 	var got []string
-	if len(w.receivers[0].got()) > 0 {
+	if len(sut.receivers[0].got()) > 0 {
 		got = append(got, "record")
 	}
-	if len(w.receivers[0].spans()) > 0 {
+	if len(sut.receivers[0].spans()) > 0 {
 		got = append(got, "span")
 	}
 	return got
+}
+
+var errNoRecord = errors.New("no record arrived")
+
+// otlpSUT is the OTLP exporters of the config, each with the fake
+// receiver it sends to, and the records they got.
+type otlpSUT struct {
+	proxy   *proxySUT
+	app     *appSUT
+	vendors *vendorsSUT
+	apis    *apisSUT
+	// receivers are the OTLP exporters, in the order of the config; the
+	// first is made by Open.
+	receivers []*receiver
+	// downEndpoints are exporter endpoints where nothing listens.
+	downEndpoints []string
+	// exporterExtra are more lines for the exporter of each receiver.
+	exporterExtra []string
+	// unsetIntervals leaves the intervals out of the exporters, so the
+	// defaults apply. Otherwise everything is sent every 20ms, to keep
+	// tests quick.
+	unsetIntervals bool
+	// sentRecords are the records that arrived while the proxy runs.
+	sentRecords []receivedRecord
+}
+
+func newOTLPSUT(root *proxySUT, app *appSUT, vendors *vendorsSUT, apis *apisSUT) *otlpSUT {
+	sut := &otlpSUT{proxy: root, app: app, vendors: vendors, apis: apis}
+	root.addConfig(configExporters, sut.exporters)
+	return sut
+}
+
+// Open starts the receiver of the first exporter.
+func (sut *otlpSUT) Open() {
+	sut.receivers = []*receiver{newReceiver()}
+}
+
+// Close stops the receivers.
+func (sut *otlpSUT) Close() {
+	for _, r := range sut.receivers {
+		r.stop()
+	}
+}
+
+// AddSteps adds the steps of the OTLP exporters and their records.
+func (sut *otlpSUT) AddSteps(sc *godog.ScenarioContext) {
+	exportSteps(sc, sut)
+	diskQueueSteps(sc, sut)
+	recordSteps(sc, sut)
+	traceSteps(sc, sut)
+	protocolSteps(sc, sut)
+}
+
+// exporters are the config's OTLP exporters.
+func (sut *otlpSUT) exporters() string {
+	var b strings.Builder
+	for i, r := range sut.receivers {
+		b.WriteString("  - otlp:\n")
+		fmt.Fprintf(&b, "      endpoint: %s\n", r.endpoint)
+		extra := ""
+		if i < len(sut.exporterExtra) {
+			extra = sut.exporterExtra[i]
+		}
+		b.WriteString(extra)
+		for _, name := range []string{"logInterval", "traceInterval"} {
+			if !sut.unsetIntervals && !strings.Contains(extra, name) {
+				b.WriteString("      " + name + ": 20ms\n")
+			}
+		}
+	}
+	for _, e := range sut.downEndpoints {
+		fmt.Fprintf(&b, "  - otlp:\n      endpoint: %s\n", e)
+	}
+	return b.String()
+}
+
+// records are the hotline.request records the first receiver got, once the
+// proxy has sent everything.
+func (sut *otlpSUT) records() []receivedRecord {
+	sut.proxy.settle()
+	records := sut.receivers[0].got()
+	return records
+}
+
+// record is the only record of the scenario.
+func (sut *otlpSUT) record() (map[string]any, error) {
+	records := sut.records()
+	if len(records) != 1 {
+		return nil, fmt.Errorf("%w: want exactly one record, got %d", errNoRecord, len(records))
+	}
+	return records[0].attrs, nil
+}
+
+// waitForRecords waits until the first receiver has n records, while the
+// proxy keeps running.
+func (sut *otlpSUT) waitForRecords(n int) error {
+	if !eventually(waitLimit, func() bool { return len(sut.receivers[0].got()) >= n }) {
+		return failf("%d records did not arrive", n)
+	}
+	return nil
 }

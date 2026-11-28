@@ -14,28 +14,28 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func timingSteps(sc *godog.ScenarioContext, w *world) {
+func timingSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 	sc.Step(`^a vendor reached over a new https connection$`, func() error {
-		w.network.lookupTime = 20 * time.Millisecond
+		sut.vendors.network.lookupTime = 20 * time.Millisecond
 		return nil
 	})
-	sc.Step(`^a call ends$`, func() error { return w.defaultCall("Content-Type: application/json") })
-	sc.Step(`^a call ends with "([^"]+)"$`, func(header string) error { return w.defaultCall(header) })
+	sc.Step(`^a call ends$`, func() error { return sut.app.defaultCall("Content-Type: application/json") })
+	sc.Step(`^a call ends with "([^"]+)"$`, func(header string) error { return sut.app.defaultCall(header) })
 	sc.Step(`^the call ends$`, func() error {
-		if w.resp != nil || w.respErr != nil {
+		if sut.app.resp != nil || sut.app.respErr != nil {
 			return nil //nolint:nilerr // the call already ended; a broken response is what some scenarios check
 		}
-		if w.pending != nil {
-			return w.send(*w.pending)
+		if sut.app.pending != nil {
+			return sut.app.send(*sut.app.pending)
 		}
-		return w.defaultCall()
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^network.peer.address holds the vendor IP$`, func() error {
-		return w.lastHas("network.peer.address", w.vendor("api.talon.one").ip.String())
+		return sut.otlp.lastHas("network.peer.address", sut.vendors.vendor("api.talon.one").ip.String())
 	})
 
 	sc.Step(`^the trace has (?:the spans|only the span) (.+?)(, with status error)?$`, func(list, failed string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^(.+) are under "([^"]+)", one after another$`, func(list, parent string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^every span( but the spec checks)? is within its parent$`, func(except string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -100,7 +100,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^"([^"]+)" starts when "([^"]+)" ends(?:, under "([^"]+)")?$`, func(later, earlier, parent string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^"hotline call" is a server span, "vendor call" a client span, and the others internal$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -144,7 +144,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^"([^"]+)" has ([a-z_]+\.[a-z_.]+) (\S+)$`, func(name, key, value string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return has(s.attrs, key, value)
 	})
 	sc.Step(`^no other span has an attribute$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -170,7 +170,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the record's hotline.timing.total_us is the length of "hotline call"$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -178,7 +178,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return has(t.record.attrs, "hotline.timing.total_us", (call.end-call.start)/1000)
 	})
 	sc.Step(`^the record has no other hotline.timing attribute$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -190,7 +190,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the record has no hotline.connection.reused or dns.question.name$`, func() error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -198,19 +198,19 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^the last byte of the response has gone to the app$`, func() error {
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(rw, "first part ")
 			rw.(http.Flusher).Flush()
 			pause(150 * time.Millisecond)
 			_, _ = io.WriteString(rw, "last part")
 		})
 		started := time.Now()
-		err := w.defaultCall()
-		w.appTook = time.Since(started)
+		err := sut.app.defaultCall()
+		sut.app.appTook = time.Since(started)
 		return err
 	})
 	sc.Step(`^"hotline call" ends at that moment$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -219,45 +219,45 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		if call.end < response.start+int64(140*time.Millisecond) || time.Duration(call.end-call.start) > w.appTook {
+		if call.end < response.start+int64(140*time.Millisecond) || time.Duration(call.end-call.start) > sut.app.appTook {
 			return failf("the call span ends %v after the response started, and lasts %v; want it after the last part and within the app's %v",
-				time.Duration(call.end-response.start), time.Duration(call.end-call.start), w.appTook)
+				time.Duration(call.end-response.start), time.Duration(call.end-call.start), sut.app.appTook)
 		}
 		return nil
 	})
 	sc.Step(`^"receive response" lasts at least as long as the vendor took to send the rest$`, func() error {
-		return w.lasts("receive response", 140*time.Millisecond, time.Hour)
+		return sut.lasts("receive response", 140*time.Millisecond, time.Hour)
 	})
 
 	sc.Step(`^a vendor reached over plain http$`, func() error {
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("    tlsOrigination: false\n")))
-		w.target = "http://api.talon.one/v2/customer_sessions/sess-8812"
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("    tlsOrigination: false\n")))
+		sut.app.target = "http://api.talon.one/v2/customer_sessions/sess-8812"
 		return nil
 	})
 	sc.Step(`^the trace has no (.+) span$`, func(list string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
 		return t.hasNone(quoted(list)...)
 	})
 	sc.Step(`^a vendor whose host is an IP address$`, func() error {
-		w.appID = ""
-		w.target = "http://" + w.vendor("api.talon.one").ip.String() + "/v2/x"
+		sut.app.appID = ""
+		sut.app.target = "http://" + sut.vendors.vendor("api.talon.one").ip.String() + "/v2/x"
 		return nil
 	})
 
 	sc.Step(`^a connection to the vendor that is already open$`, func() error {
-		if err := w.defaultCall(); err != nil {
+		if err := sut.app.defaultCall(); err != nil {
 			return err
 		}
-		return w.waitForRecords(1)
+		return sut.otlp.waitForRecords(1)
 	})
 	sc.Step(`^a call that waits for a new connection while another call holds the only open one$`, func() error {
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("    tlsOrigination: false\n")))
-		w.freed = make(chan struct{})
-		freed := w.freed
-		w.vendor("api.talon.one").setAnswer(func(_ http.ResponseWriter, r *http.Request) {
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("    tlsOrigination: false\n")))
+		sut.app.freed = make(chan struct{})
+		freed := sut.app.freed
+		sut.vendors.vendor("api.talon.one").setAnswer(func(_ http.ResponseWriter, r *http.Request) {
 			if strings.HasSuffix(r.URL.Path, "/first") {
 				<-freed
 				return
@@ -265,10 +265,10 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 			// Long enough for the background connection to finish opening.
 			pause(300 * time.Millisecond)
 		})
-		return w.start()
+		return sut.proxy.start()
 	})
 	sc.Step(`^the other call ends first and frees its connection$`, func() error {
-		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(mustURL("http://" + w.addr))}}
+		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(mustURL("http://" + sut.proxy.addr))}}
 		defer client.CloseIdleConnections()
 		get := func(path string) error {
 			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://api.talon.one/v2/"+path, nil)
@@ -281,32 +281,32 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		first := make(chan error, 1)
 		go func() { first <- get("first") }()
-		if err := w.waitForVendorCalls("api.talon.one", 1); err != nil {
+		if err := sut.vendors.waitForVendorCalls("api.talon.one", 1); err != nil {
 			return err
 		}
 		// The waiting call's own connection takes 150ms to look up.
-		w.network.mu.Lock()
-		w.network.lookupTime = 150 * time.Millisecond
-		w.network.mu.Unlock()
+		sut.vendors.network.mu.Lock()
+		sut.vendors.network.lookupTime = 150 * time.Millisecond
+		sut.vendors.network.mu.Unlock()
 		second := make(chan error, 1)
 		go func() { second <- get("second") }()
 		pause(50 * time.Millisecond)
-		close(w.freed)
+		close(sut.app.freed)
 		return errors.Join(<-first, <-second)
 	})
 	sc.Step(`^the waiting call's trace says hotline.connection.reused true, with no "dns lookup", "tcp connect" or "vendor tls handshake" span$`, func() error {
-		for _, r := range w.records() {
-			t := w.traceOf(r)
+		for _, r := range sut.otlp.records() {
+			t := sut.otlp.traceOf(r)
 			if vendor, err := t.one("vendor call"); err == nil && vendor.attrs["hotline.connection.reused"] == true {
 				return t.hasNone("dns lookup", "tcp connect", "vendor tls handshake")
 			}
 		}
 		return failf("no call reused a connection")
 	})
-	sc.Step(`^a call reuses it$`, func() error { return w.defaultCall() })
+	sc.Step(`^a call reuses it$`, func() error { return sut.app.defaultCall() })
 
 	sc.Step(`^a vendor that sends half of its response, and the rest (\d+) milliseconds later$`, func(after int) error {
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			rw.Header().Set("Content-Length", "100")
 			_, _ = io.WriteString(rw, strings.Repeat("a", 50))
 			rw.(http.Flusher).Flush()
@@ -316,25 +316,25 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a call where the app's body breaks off$`, func() error {
-		w.pending = &request{
-			method: "PUT", target: w.target, headers: []string{basic(w.appID + ":x"), "Content-Type: application/json"},
+		sut.app.pending = &request{
+			method: "PUT", target: sut.app.target, headers: []string{basic(sut.app.appID + ":x"), "Content-Type: application/json"},
 			body: strings.NewReader(`{"half":`), length: 100, hangUp: true,
 		}
 		return nil
 	})
 	sc.Step(`^a call where (DNS fails|the TLS handshake fails|the vendor never answers)$`, func(failure string) error {
-		return w.situation(map[string]string{
+		return sut.situation(map[string]string{
 			"DNS fails":                "a vendor host that does not exist",
 			"the TLS handshake fails":  "a TLS handshake that fails for a reason other than the certificate",
 			"the vendor never answers": "a vendor slower than vendorTimeout",
 		}[failure])
 	})
-	sc.Step(`^the "([^"]+)" span ends with status (error|unset|ok)$`, w.spanStatus)
+	sc.Step(`^the "([^"]+)" span ends with status (error|unset|ok)$`, sut.spanStatus)
 	sc.Step(`^"vendor call" and "hotline call" end with status error$`, func() error {
-		return errors.Join(w.spanStatus("vendor call", "error"), w.spanStatus("hotline call", "error"))
+		return errors.Join(sut.spanStatus("vendor call", "error"), sut.spanStatus("hotline call", "error"))
 	})
 	sc.Step(`^no span has an error.type$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -347,40 +347,40 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^a vendor whose IPv6 address cannot be reached and whose IPv4 address can$`, func() error {
-		v := w.vendor("api.talon.one")
+		v := sut.vendors.vendor("api.talon.one")
 		v6 := netip.MustParseAddr("2001:db8::10")
-		w.network.mu.Lock()
-		w.network.names["api.talon.one"] = []netip.Addr{v6, v.ip}
-		w.network.mu.Unlock()
-		w.network.setUnreachable("[2001:db8::10]:443")
+		sut.vendors.network.mu.Lock()
+		sut.vendors.network.names["api.talon.one"] = []netip.Addr{v6, v.ip}
+		sut.vendors.network.mu.Unlock()
+		sut.vendors.network.setUnreachable("[2001:db8::10]:443")
 		return nil
 	})
 	sc.Step(`^a vendor whose first address never answers, with a vendorTimeout of 10 seconds$`, func() error {
-		w.clock = &fakeClock{}
-		w.network.stuck = w.clock.passToNext
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("    vendorTimeout: 10s\n")))
-		v := w.vendor("api.talon.one")
+		sut.proxy.clock = &fakeClock{}
+		sut.vendors.network.stuck = sut.proxy.clock.passToNext
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("    vendorTimeout: 10s\n")))
+		v := sut.vendors.vendor("api.talon.one")
 		dead := netip.MustParseAddr("192.0.2.77")
-		w.network.mu.Lock()
-		w.network.names["api.talon.one"] = []netip.Addr{dead, v.ip}
-		w.network.mu.Unlock()
-		w.network.setHang("192.0.2.77:443")
+		sut.vendors.network.mu.Lock()
+		sut.vendors.network.names["api.talon.one"] = []netip.Addr{dead, v.ip}
+		sut.vendors.network.mu.Unlock()
+		sut.vendors.network.setHang("192.0.2.77:443")
 		return nil
 	})
 	sc.Step(`^the call goes to its second address$`, func() error {
-		if w.resp == nil || w.resp.StatusCode != http.StatusOK {
-			return failf("the app got %v", w.resp)
+		if sut.app.resp == nil || sut.app.resp.StatusCode != http.StatusOK {
+			return failf("the app got %v", sut.app.resp)
 		}
-		return w.lastHas("network.peer.address", w.vendor("api.talon.one").ip.String())
+		return sut.otlp.lastHas("network.peer.address", sut.vendors.vendor("api.talon.one").ip.String())
 	})
 	sc.Step(`^"tcp connect" lasts just over 5 seconds, the first address's share of the wait$`, func() error {
-		return w.lasts("tcp connect", 5*time.Second, 6*time.Second)
+		return sut.lasts("tcp connect", 5*time.Second, 6*time.Second)
 	})
 	sc.Step(`^the call goes to the IPv4 address$`, func() error {
-		return w.lastHas("network.peer.address", w.vendor("api.talon.one").ip.String())
+		return sut.otlp.lastHas("network.peer.address", sut.vendors.vendor("api.talon.one").ip.String())
 	})
 	sc.Step(`^there is one "tcp connect" span, from the first try until connected$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -395,7 +395,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^"hotline call" has the record's trace_id and span_id$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -405,7 +405,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^every span has the record's trace_id$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -417,7 +417,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^"hotline call" has the trace_id (\w+) and the parent (\w+)$`, func(traceID, parent string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -427,7 +427,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^"hotline call" has no parent$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -447,7 +447,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return s.flags&isRemote != 0, nil
 	}
 	sc.Step(`^"hotline call" says its parent is (remote|not remote)$`, func(want string) error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -461,7 +461,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^every other span says its parent is not remote$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -481,7 +481,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^the receiver gets the spans at /v1/traces, with the exporter's resource labels$`, func() error {
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -490,19 +490,19 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 				return failf("%q has the resource %v", s.name, s.resource)
 			}
 		}
-		for _, seen := range w.receivers[0].requests() {
+		for _, seen := range sut.otlp.receivers[0].requests() {
 			if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
 				return nil
 			}
 		}
-		return failf("no export came to /v1/traces; the receiver got %v", w.receivers[0].requests())
+		return failf("no export came to /v1/traces; the receiver got %v", sut.otlp.receivers[0].requests())
 	})
 	sc.Step(`^a second exporter$`, func() error {
-		w.receivers = append(w.receivers, newReceiver())
+		sut.otlp.receivers = append(sut.otlp.receivers, newReceiver())
 		return nil
 	})
 	sc.Step(`^both receivers get the same spans$`, func() error {
-		w.settle()
+		sut.proxy.settle()
 		ids := func(r *receiver) string {
 			var list []string
 			for _, s := range r.spans() {
@@ -511,7 +511,7 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 			sort.Strings(list)
 			return strings.Join(list, ", ")
 		}
-		first, second := ids(w.receivers[0]), ids(w.receivers[1])
+		first, second := ids(sut.otlp.receivers[0]), ids(sut.otlp.receivers[1])
 		if first == "" || first != second {
 			return failf("the receivers got %q and %q", first, second)
 		}
@@ -519,11 +519,11 @@ func timingSteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^the (first|second) call's trace has (?:an|no) "app tls handshake" span(?: at the start of "hotline call")?$`, func(which string) error {
-		if len(w.sentRecords) != 2 {
-			return failf("got %d records, want two", len(w.sentRecords))
+		if len(sut.otlp.sentRecords) != 2 {
+			return failf("got %d records, want two", len(sut.otlp.sentRecords))
 		}
-		w.settle()
-		t := w.traceOf(w.sentRecords[map[string]int{"first": 0, "second": 1}[which]])
+		sut.proxy.settle()
+		t := sut.otlp.traceOf(sut.otlp.sentRecords[map[string]int{"first": 0, "second": 1}[which]])
 		if which == "second" {
 			return t.hasNone("app tls handshake")
 		}
@@ -594,8 +594,8 @@ func (t callTrace) hasNone(names ...string) error {
 }
 
 // traceOf is the trace of one record, once the proxy has sent everything.
-func (w *world) traceOf(r receivedRecord) callTrace {
-	all := w.receivers[0].spans()
+func (sut *otlpSUT) traceOf(r receivedRecord) callTrace {
+	all := sut.receivers[0].spans()
 	t := callTrace{record: r}
 	in := map[string]bool{r.spanID: true}
 	for grew := true; grew; {
@@ -615,21 +615,21 @@ func (w *world) traceOf(r receivedRecord) callTrace {
 }
 
 // lastTrace is the trace of the last record.
-func (w *world) lastTrace() (callTrace, error) {
-	records := w.records()
+func (sut *otlpSUT) lastTrace() (callTrace, error) {
+	records := sut.records()
 	if len(records) == 0 {
-		return callTrace{}, failf("no record arrived; the app got %v %q", w.resp, w.respBody)
+		return callTrace{}, failf("no record arrived; the app got %v %q", sut.app.resp, sut.app.respBody)
 	}
-	t := w.traceOf(records[len(records)-1])
+	t := sut.traceOf(records[len(records)-1])
 	if len(t.spans) == 0 {
-		return t, failf("the record's trace has no spans; the receiver got %d spans", len(w.receivers[0].spans()))
+		return t, failf("the record's trace has no spans; the receiver got %d spans", len(sut.receivers[0].spans()))
 	}
 	return t, nil
 }
 
 // lasts checks that the span with the name lasts from least to most.
-func (w *world) lasts(name string, least, most time.Duration) error {
-	t, err := w.lastTrace()
+func (sut *forwardSUT) lasts(name string, least, most time.Duration) error {
+	t, err := sut.otlp.lastTrace()
 	if err != nil {
 		return err
 	}
@@ -643,8 +643,8 @@ func (w *world) lasts(name string, least, most time.Duration) error {
 	return nil
 }
 
-func (w *world) spanStatus(name, status string) error {
-	t, err := w.lastTrace()
+func (sut *forwardSUT) spanStatus(name, status string) error {
+	t, err := sut.otlp.lastTrace()
 	if err != nil {
 		return err
 	}
@@ -658,24 +658,24 @@ func (w *world) spanStatus(name, status string) error {
 	return nil
 }
 
-func (w *world) lastRecord() (map[string]any, error) {
-	records := w.records()
+func (sut *otlpSUT) lastRecord() (map[string]any, error) {
+	records := sut.records()
 	if len(records) == 0 {
-		return nil, failf("no record arrived; the app got %v %q", w.resp, w.respBody)
+		return nil, failf("no record arrived; the app got %v %q", sut.app.resp, sut.app.respBody)
 	}
 	return records[len(records)-1].attrs, nil
 }
 
-func (w *world) lastHas(key string, value any) error {
-	record, err := w.lastRecord()
+func (sut *otlpSUT) lastHas(key string, value any) error {
+	record, err := sut.lastRecord()
 	if err != nil {
 		return err
 	}
 	return has(record, key, value)
 }
 
-func (w *world) lastHasAll(keys ...string) error {
-	record, err := w.lastRecord()
+func (sut *otlpSUT) lastHasAll(keys ...string) error {
+	record, err := sut.lastRecord()
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"hotline-proxy/internal/queuefiles"
 )
 
 // unwrittenMemory is the most bytes that wait in memory to be written to the
@@ -17,13 +19,19 @@ import (
 // as a full queue refuses.
 const unwrittenMemory = 4 << 20
 
+// syncEvery is how often what was written is synced to disk at most,
+// fixed, as in Vector: a power cut loses at most about this much (Peter,
+// 2026-11-27).
+const syncEvery = 500 * time.Millisecond
+
 // diskQueue is the disk queue behind one memory queue. It takes what no
 // longer fits in memory, and once it holds anything it takes every new
 // item too, until the sender has emptied it, so the order is kept. Its
 // own writer writes and syncs; the sender reads (Peter, 2026-11-27).
 type diskQueue struct {
-	files  *queueFiles
-	kind   itemKind
+	files  *queuefiles.Folder
+	budget *queuefiles.Budget
+	kind   queuefiles.Kind
 	logger *slog.Logger
 	name   string
 	// dropped counts items lost on disk, with labels naming the
@@ -36,7 +44,7 @@ type diskQueue struct {
 	mu sync.Mutex
 	// unwritten waits to be written, unwrittenBytes its size; writing counts
 	// items the writer took and has not written yet.
-	unwritten      []frame
+	unwritten      []queuefiles.Item
 	unwrittenBytes int64
 	writing        int
 	// inUse is set from the first item that goes to disk until the
@@ -54,7 +62,7 @@ type diskQueue struct {
 
 // diskQueueSetup is what a diskQueue needs besides its folder.
 type diskQueueSetup struct {
-	kind    itemKind
+	kind    queuefiles.Kind
 	logger  *slog.Logger
 	name    string
 	dropped metric.Int64Counter
@@ -64,16 +72,16 @@ type diskQueueSetup struct {
 
 // newDiskQueue opens the disk queue in dir and starts its writer. Items
 // left from an earlier run are sent first.
-func newDiskQueue(dir string, budget *diskBudget, s diskQueueSetup) (*diskQueue, error) {
-	files, lost, err := openQueueFiles(dir, budget)
+func newDiskQueue(dir string, budget *queuefiles.Budget, s diskQueueSetup) (*diskQueue, error) {
+	files, lost, err := queuefiles.Open(dir, budget)
 	if err != nil {
 		return nil, err
 	}
 	o := &diskQueue{
-		files: files, kind: s.kind, logger: s.logger, name: s.name, dropped: s.dropped, labels: s.labels, kick: s.kick,
+		files: files, budget: budget, kind: s.kind, logger: s.logger, name: s.name, dropped: s.dropped, labels: s.labels, kick: s.kick,
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), stopped: make(chan struct{}),
 	}
-	o.inUse = !files.empty()
+	o.inUse = !files.Empty()
 	o.countUnreadable(lost)
 	go o.write()
 	return o, nil
@@ -92,22 +100,22 @@ func (o *diskQueue) goesToDisk(fitsMemory bool) bool {
 // call's spans, or each record on its own. It says whether they fit in
 // the disk queue's budget and in the memory waiting to be written.
 func (o *diskQueue) add(items [][]byte) bool {
-	var batch []frame
+	var batch []queuefiles.Item
 	now := time.Now()
-	if o.kind == kindSpans {
-		batch = []frame{{kind: kindSpans, payload: joinSpans(items), queued: now}}
+	if o.kind == queuefiles.Spans {
+		batch = []queuefiles.Item{{Kind: queuefiles.Spans, Parts: items, Queued: now}}
 	} else {
 		for _, item := range items {
-			batch = append(batch, frame{kind: o.kind, payload: item, queued: now})
+			batch = append(batch, queuefiles.Item{Kind: o.kind, Parts: [][]byte{item}, Queued: now})
 		}
 	}
 	size := int64(0)
 	for _, s := range batch {
-		size += frameSize(s.payload)
+		size += s.Size()
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.unwrittenBytes+size > unwrittenMemory || !o.files.budget.take(size) {
+	if o.unwrittenBytes+size > unwrittenMemory || !o.budget.Take(size) {
 		return false
 	}
 	o.unwritten = append(o.unwritten, batch...)
@@ -126,9 +134,10 @@ func (o *diskQueue) add(items [][]byte) bool {
 func (o *diskQueue) addBatchRecord(item []byte) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	size := frameSize(item)
-	o.files.budget.used.Add(size)
-	o.unwritten = append(o.unwritten, frame{kind: kindBatchRecord, payload: item, queued: time.Now()})
+	record := queuefiles.Item{Kind: queuefiles.BatchRecord, Parts: [][]byte{item}, Queued: time.Now()}
+	size := record.Size()
+	o.budget.TakeAnyway(size)
+	o.unwritten = append(o.unwritten, record)
 	o.unwrittenBytes += size
 	o.markInUse()
 	select {
@@ -157,7 +166,7 @@ func (o *diskQueue) write() {
 		case <-o.wake:
 			o.writeWaiting()
 		case <-ticker.C:
-			o.warnIf(o.files.sync())
+			o.warnIf(o.files.Sync())
 		case <-o.stop:
 			o.writeWaiting()
 			return
@@ -175,11 +184,11 @@ func (o *diskQueue) writeWaiting() {
 	if len(batch) == 0 {
 		return
 	}
-	written, err := o.files.write(batch)
+	written, err := o.files.Write(batch)
 	// What could not be written is lost: its bytes go back to the budget,
 	// and it is counted as lost on disk.
 	for _, s := range batch[written:] {
-		o.files.budget.used.Add(-frameSize(s.payload))
+		o.budget.GiveBack(s.Size())
 	}
 	o.countUnreadable(len(batch) - written)
 	o.mu.Lock()
@@ -193,38 +202,38 @@ func (o *diskQueue) writeWaiting() {
 // Items that could not be written were counted as lost on disk.
 func (o *diskQueue) warnIf(err error) {
 	if err != nil {
-		o.logger.Warn("the disk queue could not be written", "endpoint", o.name, "folder", o.files.dir, "error", err.Error())
+		o.logger.Warn("the disk queue could not be written", "endpoint", o.name, "folder", o.files.Path(), "error", err.Error())
 	}
 }
 
 // read reads up to limit items from disk for the sender, counting those
 // it could not read.
-func (o *diskQueue) read(limit int) ([]diskItem, position) {
-	items, at, lost := o.files.read(limit)
+func (o *diskQueue) read(limit int) ([]queuefiles.Item, queuefiles.Position) {
+	items, at, lost := o.files.Read(limit)
 	o.countUnreadable(lost)
 	return items, at
 }
 
 // taken moves the sender past what the collector took, and once the disk
 // holds nothing more, lets new items go to memory again.
-func (o *diskQueue) taken(at position) {
-	o.files.taken(at)
+func (o *diskQueue) taken(at queuefiles.Position) {
+	o.files.Taken(at)
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if len(o.unwritten) == 0 && o.writing == 0 && o.files.empty() {
+	if len(o.unwritten) == 0 && o.writing == 0 && o.files.Empty() {
 		o.inUse = false
 	}
 }
 
 // empty says the disk holds nothing the sender has not handed on.
-func (o *diskQueue) empty() bool { return o.files.empty() }
+func (o *diskQueue) empty() bool { return o.files.Empty() }
 
 // fileBytes is the bytes the queue files take.
-func (o *diskQueue) fileBytes() int64 { return o.files.fileBytes() }
+func (o *diskQueue) fileBytes() int64 { return o.files.FileBytes() }
 
 // oldestQueued is when the oldest item on disk was queued, once the
 // sender has read it; zero otherwise.
-func (o *diskQueue) oldestQueued() time.Time { return o.files.oldestQueued() }
+func (o *diskQueue) oldestQueued() time.Time { return o.files.OldestQueued() }
 
 // lost counts n items that could not be read from disk.
 func (o *diskQueue) countUnreadable(n int) {
@@ -244,11 +253,11 @@ func (o *diskQueue) warn(last bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.started.due(last) {
-		o.logger.Warn("the export queue was full, new items go to the disk queue until it is empty", "endpoint", o.name, "folder", o.files.dir, "times", o.started.count)
+		o.logger.Warn("the export queue was full, new items go to the disk queue until it is empty", "endpoint", o.name, "folder", o.files.Path(), "times", o.started.count)
 		o.started.count = 0
 	}
 	if o.unreadable.due(last) {
-		o.logger.Warn("the disk queue held items that could not be read, they were skipped", "endpoint", o.name, "folder", o.files.dir, "dropped", o.unreadable.count)
+		o.logger.Warn("the disk queue held items that could not be read, they were skipped", "endpoint", o.name, "folder", o.files.Path(), "dropped", o.unreadable.count)
 		o.unreadable.count = 0
 	}
 }
@@ -259,16 +268,13 @@ func (o *diskQueue) warn(last bool) {
 func (o *diskQueue) close(front [][]byte, queued []time.Time) error {
 	close(o.stop)
 	<-o.stopped
-	var batch []frame
+	// The memory queue does not keep calls apart, so its spans go back one
+	// by one, each as a call of its own.
+	batch := make([]queuefiles.Item, len(front))
 	for i, item := range front {
-		if o.kind == kindSpans {
-			// The memory queue does not keep calls apart, so its spans go
-			// back one by one.
-			item = joinSpans([][]byte{item})
-		}
-		batch = append(batch, frame{kind: o.kind, payload: item, queued: queued[i]})
+		batch[i] = queuefiles.Item{Kind: o.kind, Parts: [][]byte{item}, Queued: queued[i]}
 	}
-	err := o.files.writeFront(batch)
+	err := o.files.WriteFront(batch)
 	o.warn(true)
-	return errors.Join(err, o.files.close())
+	return errors.Join(err, o.files.Close())
 }

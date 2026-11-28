@@ -1,4 +1,8 @@
-package export
+// Package queuefiles keeps the items of one signal of an exporter's
+// queue as files in a folder: numbered queue files written one after
+// another, and a position file saying where the sender is. The export
+// queue uses it for what does not fit in memory (Peter, 2026-11-27).
+package queuefiles
 
 import (
 	"encoding/binary"
@@ -20,9 +24,8 @@ import (
 
 // The disk queue is the part of an OTLP exporter's queue kept as files in
 // its queueFolder, used once the memory queue is full and until it is
-// empty again (Peter, 2026-11-27). Each signal has its own subfolder:
-// numbered queue files written one after another, and a position file
-// saying where the sender is. The design follows Vector's disk buffer:
+// Empty again (Peter, 2026-11-27). Each signal has its own subfolder, a
+// Folder here. The design follows Vector's disk buffer:
 // items as opaque bytes, each framed with its length and a CRC32C, whole
 // files deleted once every item in them was taken, and a sync to disk at
 // most every 500 ms.
@@ -44,27 +47,23 @@ const (
 	// positionSize is the position file: the queue file's number, the
 	// offset and number of the next item there, and a crc of the three.
 	positionSize = 4 + 8 + 8 + 4
-	// syncEvery is how often what was written is synced to disk at most,
-	// fixed, as in Vector: a power cut loses at most about this much
-	// (Peter, 2026-11-27).
-	syncEvery = 500 * time.Millisecond
 	// The numbers start high, so a stop can put the items still in
 	// memory in a file before the oldest one, in order.
 	firstFileNumber = 1 << 20
 	firstItemNumber = 1 << 40
-	// queueLockFile is held while a proxy uses the folder.
-	queueLockFile = "hotline.lock"
-	positionFile  = "position"
+	positionFile    = "position"
 )
 
-// itemKind says what an item on disk holds.
-type itemKind byte
+// Kind says what an item on disk holds.
+type Kind byte
 
 const (
-	kindRecord      itemKind = 1
-	kindBatchRecord itemKind = 2
-	// kindSpans is one call's spans, kept together.
-	kindSpans itemKind = 3
+	// Record is one log record.
+	Record Kind = 1
+	// BatchRecord is one of the ledger's batch records.
+	BatchRecord Kind = 2
+	// Spans is one call's spans, kept together.
+	Spans Kind = 3
 )
 
 // checksum is the CRC32C of b. The library makes the Castagnoli table once
@@ -73,24 +72,34 @@ func checksum(b []byte) uint32 { return crc32.Checksum(b, crc32.MakeTable(crc32.
 
 // errQueueFile is an item on disk that cannot be read: a wrong crc, or
 // cut short.
-var errQueueFile = errors.New("export: a queue file item cannot be read")
+var errQueueFile = errors.New("queuefiles: a queue file item cannot be read")
 
-// diskBudget is the bytes one exporter's disk queues may hold in all,
+// Budget is the bytes one exporter's disk queues may hold in all,
 // records and spans together: what waits to be written and what the
-// queue files hold.
-type diskBudget struct {
+// queue files hold. Every Folder of the exporter shares it.
+type Budget struct {
 	limit int64
 	used  atomic.Int64
 }
 
-// take reserves n bytes, and says whether they fit.
-func (b *diskBudget) take(n int64) bool {
+// NewBudget is a budget of limit bytes, none of them used.
+func NewBudget(limit int64) *Budget { return &Budget{limit: limit} }
+
+// Take reserves n bytes, and says whether they fit.
+func (b *Budget) Take(n int64) bool {
 	if b.used.Add(n) > b.limit {
 		b.used.Add(-n)
 		return false
 	}
 	return true
 }
+
+// TakeAnyway reserves n bytes even past the limit, for an item that is
+// never refused.
+func (b *Budget) TakeAnyway(n int64) { b.used.Add(n) }
+
+// GiveBack frees n bytes reserved for an item that was not written.
+func (b *Budget) GiveBack(n int64) { b.used.Add(-n) }
 
 // queueFile is one queue file: its number, the number of its first item,
 // and its size in bytes, all of it written.
@@ -100,9 +109,10 @@ type queueFile struct {
 	size   int64
 }
 
-// position is where the sender is: a queue file, the offset of its next
-// item there and that item's number.
-type position struct {
+// Position is where the sender is: a queue file, the offset of its next
+// item there and that item's number. Read gives one; Taken moves the
+// sender there.
+type Position struct {
 	number uint32
 	offset int64
 	item   uint64
@@ -111,26 +121,53 @@ type position struct {
 // frame is one item waiting to be written to disk, and the time it was
 // first queued, in memory or on disk.
 type frame struct {
-	kind    itemKind
+	kind    Kind
 	payload []byte
 	queued  time.Time
 }
 
-// diskItem is one item read from disk: a record, a batch record, or one
-// call's spans.
-type diskItem struct {
-	kind  itemKind
-	items [][]byte
+// Item is one item on disk: a record or a batch record, as its one part,
+// or one call's spans, each span a part. Queued is when it was first
+// queued, in memory or on disk.
+type Item struct {
+	Kind   Kind
+	Parts  [][]byte
+	Queued time.Time
 }
 
-// queueFiles is the queue files of one signal. One writer appends and syncs;
-// the sender reads, and moves its position once the collector took what
+// Size is the bytes the item takes on disk, which a Budget must hold
+// before the item is written.
+func (it Item) Size() int64 { return frameSize(it.payload()) }
+
+// payload is the bytes written for the item: one call's spans joined, or
+// the one part of a record.
+func (it Item) payload() []byte {
+	if it.Kind == Spans {
+		return joinSpans(it.Parts)
+	}
+	if len(it.Parts) == 0 {
+		return nil
+	}
+	return it.Parts[0]
+}
+
+// frames are items as they are written.
+func frames(items []Item) []frame {
+	out := make([]frame, len(items))
+	for i, it := range items {
+		out[i] = frame{kind: it.Kind, payload: it.payload(), queued: it.Queued}
+	}
+	return out
+}
+
+// Folder is the queue files of one signal. One writer appends and syncs;
+// the sender reads, and moves its Position once the collector took what
 // it read. mu guards files and next; each side owns its own file handles.
-type queueFiles struct {
+type Folder struct {
 	dir string
 	// root opens the files inside dir only.
 	root   *os.Root
-	budget *diskBudget
+	budget *Budget
 
 	mu sync.Mutex
 	// files are the queue files, oldest first; the last is being written.
@@ -138,7 +175,7 @@ type queueFiles struct {
 	// next is the number of the next item written.
 	next uint64
 	// lastReadQueued is when the sender's next item was queued, as it last
-	// read it; zero once the sender has handed on everything.
+	// Read it; zero once the sender has handed on everything.
 	lastReadQueued time.Time
 
 	// The writer's side.
@@ -146,7 +183,7 @@ type queueFiles struct {
 	dirty bool
 
 	// The sender's side.
-	at       position
+	at       Position
 	r        *os.File
 	rNumber  uint32
 	pos      *os.File
@@ -157,24 +194,23 @@ type queueFiles struct {
 // the oldest first.
 func queueFileName(number uint32) string { return fmt.Sprintf("%08d.queue", number) }
 
-// openQueueFiles opens the queue files in dir, or starts them. It reads the
+// Open opens the queue files in dir, or starts them. It reads the
 // position file; when that cannot be read the sender starts at the oldest
 // file, and the collector may get some items twice. A cut-off item at the
 // end of the newest file, from a crash while it was written, is cut away
 // and counted in lost, as is a file with no readable header. New items
 // always go to a new file.
-func openQueueFiles(dir string, budget *diskBudget) (*queueFiles, int, error) {
+func Open(dir string, budget *Budget) (folder *Folder, lost int, err error) {
 	var root *os.Root
-	err := os.MkdirAll(dir, 0o700)
+	err = os.MkdirAll(dir, 0o700)
 	if err == nil {
 		root, err = os.OpenRoot(dir)
 	}
 	if err != nil {
 		return nil, 0, err
 	}
-	d := &queueFiles{dir: dir, root: root, budget: budget}
+	d := &Folder{dir: dir, root: root, budget: budget}
 	at, known := readPosition(root)
-	lost := 0
 	for _, number := range listQueueFiles(root) {
 		f, err := statQueueFile(root, number)
 		switch {
@@ -201,7 +237,7 @@ func openQueueFiles(dir string, budget *diskBudget) (*queueFiles, int, error) {
 		return nil, 0, err
 	}
 	if !known || !slices.ContainsFunc(d.files, func(f queueFile) bool { return f.number == at.number }) {
-		at = position{number: d.files[0].number, offset: queueHeaderSize, item: d.files[0].first}
+		at = Position{number: d.files[0].number, offset: queueHeaderSize, item: d.files[0].first}
 	}
 	// The folder could be written to just now, so the position file can
 	// be made.
@@ -213,7 +249,7 @@ func openQueueFiles(dir string, budget *diskBudget) (*queueFiles, int, error) {
 // cutTail finds where the newest queue file's last whole item ends, and
 // cuts away anything after it: an item a crash cut short. It counts that
 // item as lost, and sets the number of the next item.
-func (d *queueFiles) cutTail() int {
+func (d *Folder) cutTail() int {
 	last := &d.files[len(d.files)-1]
 	name := queueFileName(last.number)
 	// statQueueFile has just read the file.
@@ -237,13 +273,13 @@ func (d *queueFiles) cutTail() int {
 		_ = f.Truncate(offset)
 		_ = f.Close()
 	}
-	d.budget.used.Add(offset - last.size)
+	d.budget.TakeAnyway(offset - last.size)
 	last.size = offset
 	return 1
 }
 
 // listQueueFiles are the numbers of the queue files in root, oldest
-// first. openQueueFiles has just opened it, so it can be read.
+// first. Open has just opened it, so it can be read.
 func listQueueFiles(root *os.Root) []uint32 {
 	entries, _ := fs.ReadDir(root.FS(), ".")
 	var numbers []uint32
@@ -292,7 +328,7 @@ func readFrame(data []byte) (frame, int64, error) {
 	// A time past the year 2262 cannot be written, so it cannot be read.
 	nanos, _ := fits.Int64(binary.LittleEndian.Uint64(body[1:]))
 	queued := time.Unix(0, nanos)
-	return frame{kind: itemKind(body[0]), payload: body[9:], queued: queued}, frameHeaderSize + length, nil
+	return frame{kind: Kind(body[0]), payload: body[9:], queued: queued}, frameHeaderSize + length, nil
 }
 
 // appendFrame writes one item: length, crc, kind, the time it was queued
@@ -316,16 +352,16 @@ func appendFrame(b []byte, item frame) []byte {
 func frameSize(payload []byte) int64 { return frameHeaderSize + int64(len(payload)) }
 
 // readPosition reads the position file, and says whether it could.
-func readPosition(root *os.Root) (position, bool) {
+func readPosition(root *os.Root) (Position, bool) {
 	data, err := root.ReadFile(positionFile)
 	if err != nil || len(data) != positionSize {
-		return position{}, false
+		return Position{}, false
 	}
 	if checksum(data[:positionSize-4]) != binary.LittleEndian.Uint32(data[positionSize-4:]) {
-		return position{}, false
+		return Position{}, false
 	}
 	offset, fit := fits.Int64(binary.LittleEndian.Uint64(data[4:]))
-	return position{
+	return Position{
 		number: binary.LittleEndian.Uint32(data),
 		offset: offset,
 		item:   binary.LittleEndian.Uint64(data[12:]),
@@ -334,7 +370,7 @@ func readPosition(root *os.Root) (position, bool) {
 
 // writePosition moves the sender to at, and writes it in place. The
 // writer syncs it.
-func (d *queueFiles) writePosition(at position) {
+func (d *Folder) writePosition(at Position) {
 	d.mu.Lock()
 	d.at = at
 	d.mu.Unlock()
@@ -345,7 +381,7 @@ func (d *queueFiles) writePosition(at position) {
 	binary.LittleEndian.PutUint64(data[4:], offset)
 	binary.LittleEndian.PutUint64(data[12:], at.item)
 	binary.LittleEndian.PutUint32(data[20:], checksum(data[:20]))
-	// A position that was not written makes the sender start further
+	// A Position that was not written makes the sender start further
 	// back, and send some items twice, which is allowed.
 	_, _ = d.pos.WriteAt(data[:], 0)
 	d.posDirty.Store(true)
@@ -353,12 +389,12 @@ func (d *queueFiles) writePosition(at position) {
 
 // startFile starts queue file number, whose first item is first, and
 // syncs it, so it is on disk before anything is written to it.
-func (d *queueFiles) startFile(number uint32, first uint64) error {
+func (d *Folder) startFile(number uint32, first uint64) error {
 	w, err := createQueueFile(d.root, queueFileName(number), os.O_EXCL, first, nil)
 	if err != nil {
 		return err
 	}
-	d.budget.used.Add(queueHeaderSize)
+	d.budget.TakeAnyway(queueHeaderSize)
 	d.w = w
 	d.mu.Lock()
 	d.files = append(d.files, queueFile{number: number, first: first, size: queueHeaderSize})
@@ -382,12 +418,13 @@ func createQueueFile(root *os.Root, name string, flag int, first uint64, frames 
 	return w, nil
 }
 
-// write appends items to the newest queue file, starting the next one when
+// Write appends items to the newest queue file, starting the next one when
 // it is full, and says how many it wrote. The items' bytes were reserved
 // in the budget when they were queued. A write that fails starts the next
 // file, so the next write has a whole file to go to. Only the writer
 // calls it.
-func (d *queueFiles) write(items []frame) (int, error) {
+func (d *Folder) Write(queued []Item) (int, error) {
+	items := frames(queued)
 	var buf []byte
 	written := 0
 	for len(items) > 0 {
@@ -430,7 +467,7 @@ func (d *queueFiles) write(items []frame) (int, error) {
 // nextFile syncs and closes the newest queue file, and starts the next.
 // A file that could not be synced or closed is still left for the next,
 // so one broken file does not stop every later write.
-func (d *queueFiles) nextFile() error {
+func (d *Folder) nextFile() error {
 	err := errors.Join(d.w.Sync(), d.w.Close())
 	d.dirty = false
 	d.mu.Lock()
@@ -440,9 +477,9 @@ func (d *queueFiles) nextFile() error {
 	return errors.Join(err, d.startFile(last.number+1, next))
 }
 
-// sync syncs the newest queue file and the position file to disk, when
+// Sync syncs the newest queue file and the position file to disk, when
 // anything was written since the last sync. Only the writer calls it.
-func (d *queueFiles) sync() error {
+func (d *Folder) Sync() error {
 	var errs []error
 	if d.dirty {
 		errs = append(errs, d.w.Sync())
@@ -454,12 +491,12 @@ func (d *queueFiles) sync() error {
 	return errors.Join(errs...)
 }
 
-// read reads up to limit records or spans from where the sender is, and
-// gives the position after them. What it cannot read, an item or the rest
+// Read reads up to limit records or spans from where the sender is, and
+// gives the Position after them. What it cannot read, an item or the rest
 // of a file, is skipped to the next file and counted in lost; in the file
 // being written that cannot happen, as only whole items are written there.
 // Only the sender calls it.
-func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
+func (d *Folder) Read(limit int) ([]Item, Position, int) {
 	d.mu.Lock()
 	files := slices.Clone(d.files)
 	d.mu.Unlock()
@@ -468,7 +505,7 @@ func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
 	// at a stop is followed by the file the sender was in, whose items
 	// before reached were already sent.
 	reached := at.item
-	var items []diskItem
+	var items []Item
 	var oldest time.Time
 	count := 0
 	// The sender's file is always one of the files: only those before it
@@ -492,12 +529,12 @@ func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
 			if len(items) == 0 {
 				oldest = got.queued
 			}
-			item := diskItem{kind: got.kind, items: [][]byte{slices.Clone(got.payload)}}
-			if got.kind == kindSpans {
-				item.items = splitSpans(got.payload)
+			item := Item{Kind: got.kind, Parts: [][]byte{slices.Clone(got.payload)}, Queued: got.queued}
+			if got.kind == Spans {
+				item.Parts = splitSpans(got.payload)
 			}
 			items = append(items, item)
-			count += len(item.items)
+			count += len(item.Parts)
 		}
 		if i == len(files)-1 {
 			if !ok {
@@ -520,7 +557,7 @@ func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
 		// A file read to its end is passed, so taken can delete it.
 		reached = max(reached, at.item)
 		i++
-		at = position{number: files[i].number, offset: queueHeaderSize, item: files[i].first}
+		at = Position{number: files[i].number, offset: queueHeaderSize, item: files[i].first}
 	}
 	d.mu.Lock()
 	d.lastReadQueued = oldest
@@ -530,7 +567,7 @@ func (d *queueFiles) read(limit int) ([]diskItem, position, int) {
 
 // readAt reads queue file f from offset to its end as written, through
 // the sender's own handle, and says whether it could.
-func (d *queueFiles) readAt(f queueFile, offset int64) ([]byte, bool) {
+func (d *Folder) readAt(f queueFile, offset int64) ([]byte, bool) {
 	if d.r == nil || d.rNumber != f.number {
 		if d.r != nil {
 			_ = d.r.Close()
@@ -547,10 +584,10 @@ func (d *queueFiles) readAt(f queueFile, offset int64) ([]byte, bool) {
 	return data, err == nil
 }
 
-// taken moves the sender to at, past items the collector took or refused
+// Taken moves the sender to at, past items the collector took or refused
 // for good, and deletes the queue files it is past. Only the sender calls
 // it.
-func (d *queueFiles) taken(at position) {
+func (d *Folder) Taken(at Position) {
 	d.writePosition(at)
 	d.mu.Lock()
 	var gone []queueFile
@@ -569,26 +606,26 @@ func (d *queueFiles) taken(at position) {
 		}
 		// A file not deleted now is deleted at the next start.
 		_ = d.root.Remove(queueFileName(f.number))
-		d.budget.used.Add(-f.size)
+		d.budget.GiveBack(f.size)
 	}
 }
 
-// empty says the sender has read and handed on everything written.
-func (d *queueFiles) empty() bool {
+// Empty says the sender has read and handed on everything written.
+func (d *Folder) Empty() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.emptyLocked()
 }
 
 // emptyLocked is empty, for a caller that holds mu.
-func (d *queueFiles) emptyLocked() bool {
+func (d *Folder) emptyLocked() bool {
 	last := d.files[len(d.files)-1]
 	return d.at.number == last.number && d.at.offset >= last.size
 }
 
-// fileBytes is the bytes the queue files take, what was sent included
+// FileBytes is the bytes the queue files take, what was sent included
 // until a whole file is.
-func (d *queueFiles) fileBytes() int64 {
+func (d *Folder) FileBytes() int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	size := int64(0)
@@ -598,19 +635,20 @@ func (d *queueFiles) fileBytes() int64 {
 	return size
 }
 
-// oldestQueued is when the sender's next item was queued: zero when it
+// OldestQueued is when the sender's next item was queued: zero when it
 // has not read it yet, or nothing waits.
-func (d *queueFiles) oldestQueued() time.Time {
+func (d *Folder) OldestQueued() time.Time {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.lastReadQueued
 }
 
-// writeFront puts items before everything else on disk, in a new queue
+// WriteFront puts items before everything else on disk, in a new queue
 // file numbered before the oldest one, and moves the sender there. A stop
 // uses it for the items still in memory, which are older than those on
 // disk. The writer has stopped.
-func (d *queueFiles) writeFront(items []frame) error {
+func (d *Folder) WriteFront(front []Item) error {
+	items := frames(front)
 	if len(items) == 0 {
 		return nil
 	}
@@ -626,19 +664,19 @@ func (d *queueFiles) writeFront(items []frame) error {
 	// The file is written and synced, so closing it loses nothing.
 	_ = w.Close()
 	size := int64(queueHeaderSize + len(buf))
-	d.budget.used.Add(size)
+	d.budget.TakeAnyway(size)
 	d.mu.Lock()
 	d.files = append([]queueFile{{number: number, first: first, size: size}}, d.files...)
 	d.mu.Unlock()
-	d.writePosition(position{number: number, offset: queueHeaderSize, item: first})
+	d.writePosition(Position{number: number, offset: queueHeaderSize, item: first})
 	return nil
 }
 
-// close syncs what was written and closes the files.
-func (d *queueFiles) close() error {
+// Close syncs what was written and closes the files.
+func (d *Folder) Close() error {
 	d.posDirty.Store(true)
 	d.dirty = true
-	err := d.sync()
+	err := d.Sync()
 	err = errors.Join(err, d.w.Close(), d.pos.Close(), d.root.Close())
 	if d.r != nil {
 		err = errors.Join(err, d.r.Close())
@@ -676,3 +714,6 @@ func splitSpans(payload []byte) [][]byte {
 	}
 	return spans
 }
+
+// Path is the folder the queue files are in.
+func (d *Folder) Path() string { return d.dir }

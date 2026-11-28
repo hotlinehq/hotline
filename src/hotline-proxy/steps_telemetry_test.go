@@ -16,29 +16,35 @@ import (
 	metrics "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
-func telemetrySteps(sc *godog.ScenarioContext, w *world) {
+func telemetrySteps(sc *godog.ScenarioContext, sut *telemetrySUT) {
+	sc.Step(`^the proxy runs$`, func() error {
+		if sut.receiver == nil {
+			sut.receiver = newReceiver()
+		}
+		return sut.app.defaultCall()
+	})
 	sc.Step(`^a fake OTLP receiver for the proxy's own telemetry$`, func() error {
-		w.telemetry = newReceiver()
+		sut.receiver = newReceiver()
 		return nil
 	})
 	sc.Step(`^the telemetry section does not set metricInterval$`, func() error {
-		w.unsetOwnInterval = true
+		sut.unsetOwnInterval = true
 		return nil
 	})
 	sc.Step(`^the telemetry section sets (logInterval|traceInterval)$`, func(name string) error {
-		w.telemetryExtra = "    " + name + ": 5s\n"
+		sut.telemetryExtra = "    " + name + ": 5s\n"
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets no metric within a second$`, func() error {
 		pause(time.Second)
-		if points := w.telemetry.metricPoints(); len(points) > 0 {
+		if points := sut.receiver.metricPoints(); len(points) > 0 {
 			return failf("got %d data points within a second, the first %s", len(points), points[0].name)
 		}
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets the metric (\S+) once the proxy stops$`, func(name string) error {
-		w.settle()
-		for _, p := range w.telemetry.metricPoints() {
+		sut.proxy.settle()
+		for _, p := range sut.receiver.metricPoints() {
 			if p.name == name {
 				return nil
 			}
@@ -46,32 +52,32 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return failf("the telemetry receiver got no %s", name)
 	})
 	sc.Step(`^a config with no telemetry section$`, func() error {
-		w.telemetry.stop()
-		w.telemetry = nil
+		sut.receiver.stop()
+		sut.receiver = nil
 		return nil
 	})
 	sc.Step(`^the telemetry section turns on the profile pages$`, func() error {
-		w.telemetryPprof = true
+		sut.telemetryPprof = true
 		return nil
 	})
 	sc.Step(`^the telemetry section turns off (\S+)$`, func(name string) error {
-		w.telemetryDisable = append(w.telemetryDisable, name)
+		sut.telemetryDisable = append(sut.telemetryDisable, name)
 		return nil
 	})
 
 	sc.Step(`^the telemetry receiver gets the (?:metric|histogram) (\S+)$`, func(name string) error {
-		_, err := w.ownPoints(name)
+		_, err := sut.ownPoints(name)
 		return err
 	})
 	sc.Step(`^the telemetry receiver gets the metrics (\S+) and (\S+)$`, func(a, b string) error {
-		if _, err := w.ownPoints(a); err != nil {
+		if _, err := sut.ownPoints(a); err != nil {
 			return err
 		}
-		_, err := w.ownPoints(b)
+		_, err := sut.ownPoints(b)
 		return err
 	})
 	sc.Step(`^the telemetry receiver gets the histogram (\S+) with unit (\S+)$`, func(name, unit string) error {
-		points, err := w.ownPoints(name)
+		points, err := sut.ownPoints(name)
 		if err != nil {
 			return err
 		}
@@ -81,7 +87,7 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets (\S+) with unit "([^"]*)" and a description$`, func(name, unit string) error {
-		points, err := w.ownPoints(name)
+		points, err := sut.ownPoints(name)
 		if err != nil {
 			return err
 		}
@@ -91,37 +97,37 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets no log records$`, func() error {
-		w.settle()
-		if records := w.telemetry.got(); len(records) > 0 {
+		sut.proxy.settle()
+		if records := sut.receiver.got(); len(records) > 0 {
 			return failf("the telemetry receiver got %d records", len(records))
 		}
 		return nil
 	})
 	sc.Step(`^the product receiver gets no metric$`, func() error {
-		w.settle()
-		if points := w.receivers[0].metricPoints(); len(points) > 0 {
+		sut.proxy.settle()
+		if points := sut.otlp.receivers[0].metricPoints(); len(points) > 0 {
 			return failf("the product receiver got %s", points[0].name)
 		}
 		return nil
 	})
 	sc.Step(`^the telemetry section (does not set temporality|sets temporality to delta)$`, func(sets string) error {
 		if sets == "sets temporality to delta" {
-			w.telemetryExtra = "    temporality: delta\n"
+			sut.telemetryExtra = "    temporality: delta\n"
 		}
 		return nil
 	})
 	sc.Step(`^the telemetry receiver is plain and offers h2c$`, func() error {
-		w.telemetry.stop()
-		w.telemetry = newReceiverWith(receiverSetup{h2c: true})
+		sut.receiver.stop()
+		sut.receiver = newReceiverWith(receiverSetup{h2c: true})
 		return nil
 	})
 	sc.Step(`^the telemetry section sets h2c to true$`, func() error {
-		w.telemetryExtra = "    h2c: true\n"
+		sut.telemetryExtra = "    h2c: true\n"
 		return nil
 	})
 	sc.Step(`^every request to the telemetry receiver came over HTTP/2.0$`, func() error {
-		w.settle()
-		seen := w.telemetry.requests()
+		sut.proxy.settle()
+		seen := sut.receiver.requests()
 		if len(seen) == 0 {
 			return failf("the telemetry receiver got no request")
 		}
@@ -133,13 +139,13 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the telemetry sums are (cumulative|delta)$`, func(kind string) error {
-		w.settle()
+		sut.proxy.settle()
 		want := map[string]metrics.AggregationTemporality{
 			"cumulative": metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
 			"delta":      metrics.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
 		}[kind]
 		sums := 0
-		for _, p := range w.telemetry.metricPoints() {
+		for _, p := range sut.receiver.metricPoints() {
 			if p.kind != "sum" {
 				continue
 			}
@@ -154,63 +160,63 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the telemetry receiver gets no metric (\S+)$`, func(name string) error {
-		return w.noOwnMetric(func(got string) bool { return got == name })
+		return sut.noOwnMetric(func(got string) bool { return got == name })
 	})
 	sc.Step(`^the telemetry receiver gets no metric starting with (\S+)$`, func(prefix string) error {
-		return w.noOwnMetric(func(got string) bool { return strings.HasPrefix(got, prefix) })
+		return sut.noOwnMetric(func(got string) bool { return strings.HasPrefix(got, prefix) })
 	})
 
 	sc.Step(`^a vendor that keeps the call waiting$`, func() error {
-		w.freed = make(chan struct{})
-		freed := w.freed
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.app.freed = make(chan struct{})
+		freed := sut.app.freed
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			<-freed
 			rw.WriteHeader(http.StatusOK)
 		})
 		return nil
 	})
 	sc.Step(`^an app starts a forward proxy GET call over http$`, func() error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
 		done := make(chan error, 1)
-		w.callDone = done
-		go func() { done <- w.call(http.MethodGet, "http://api.talon.one/v2/customer_sessions/sess-8812") }()
-		return w.waitForVendorCalls("api.talon.one", 1)
+		sut.app.callDone = done
+		go func() { done <- sut.app.call(http.MethodGet, "http://api.talon.one/v2/customer_sessions/sess-8812") }()
+		return sut.vendors.waitForVendorCalls("api.talon.one", 1)
 	})
 	sc.Step(`^once the call ends it is 0$`, func() error {
-		close(w.freed)
-		if err := <-w.callDone; err != nil {
+		close(sut.app.freed)
+		if err := <-sut.app.callDone; err != nil {
 			return err
 		}
-		return w.ownValue("http.server.active_requests", "hotline.ingress forward_proxy", 0)
+		return sut.ownValue("http.server.active_requests", "hotline.ingress forward_proxy", 0)
 	})
 	sc.Step(`^an app makes a forward proxy GET call over http(?: and the vendor answers 200)?$`, func() error {
-		return w.call(http.MethodGet, "http://api.talon.one/v2/customer_sessions/sess-8812")
+		return sut.app.call(http.MethodGet, "http://api.talon.one/v2/customer_sessions/sess-8812")
 	})
 	sc.Step(`^the vendor's name does not resolve$`, func() error {
-		w.missing["api.talon.one"] = true
+		sut.vendors.missing["api.talon.one"] = true
 		return nil
 	})
 	sc.Step(`^an app makes a forward proxy call with the method (\S+)$`, func(method string) error {
-		return w.call(method, "http://api.talon.one/v2/customer_sessions/sess-8812")
+		return sut.app.call(method, "http://api.talon.one/v2/customer_sessions/sess-8812")
 	})
 
 	sc.Step(`^(\S+) (?:is|turns) (\d+) for (.+)$`, func(name string, want int, labels string) error {
 		if labels == "that exporter" {
-			labels = w.exporterLabels()
+			labels = sut.exporterLabels()
 		}
-		w.lastMetric = name
-		return w.ownValue(name, labels, float64(want))
+		sut.lastMetric = name
+		return sut.ownValue(name, labels, float64(want))
 	})
 	sc.Step(`^(\S+) counts (\d+) calls? (?:for|with) (.+)$`, func(name string, want uint64, labels string) error {
 		if name == "it" {
-			name = w.lastMetric
+			name = sut.lastMetric
 		}
-		return w.ownCount(name, labels, want)
+		return sut.ownCount(name, labels, want)
 	})
 	sc.Step(`^its range limits are (.+)$`, func(list string) error {
-		points, err := w.ownPoints(w.lastMetric)
+		points, err := sut.ownPoints(sut.lastMetric)
 		if err != nil {
 			return err
 		}
@@ -220,27 +226,27 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 			want = append(want, f)
 		}
 		if !slices.Equal(points[0].bounds, want) {
-			return failf("%s has the range limits %v, want %v", w.lastMetric, points[0].bounds, want)
+			return failf("%s has the range limits %v, want %v", sut.lastMetric, points[0].bounds, want)
 		}
 		return nil
 	})
 	sc.Step(`^it has no label but (.+)$`, func(list string) error {
 		allowed := splitList(list)
-		points, err := w.ownPoints(w.lastMetric)
+		points, err := sut.ownPoints(sut.lastMetric)
 		if err != nil {
 			return err
 		}
 		for _, p := range points {
 			for key := range p.attrs {
 				if !slices.Contains(allowed, key) {
-					return failf("%s has the label %s", w.lastMetric, key)
+					return failf("%s has the label %s", sut.lastMetric, key)
 				}
 			}
 		}
 		return nil
 	})
 	sc.Step(`^(\S+) has no numbers for (.+)$`, func(name, labels string) error {
-		points, err := w.ownPoints(name)
+		points, err := sut.ownPoints(name)
 		if err != nil {
 			return err
 		}
@@ -253,122 +259,122 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^(\S+) is sent for that exporter and hotline.signal (\S+)$`, func(name, signal string) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		return w.eventually(func() error {
-			if _, ok := w.latest(name, parseLabels(w.exporterLabels()+" and hotline.signal "+signal)); !ok {
-				return failf("no %s for that exporter and %s; got %v", name, signal, w.lastPoints(name))
+		return sut.proxy.eventually(func() error {
+			if _, ok := sut.latest(name, parseLabels(sut.exporterLabels()+" and hotline.signal "+signal)); !ok {
+				return failf("no %s for that exporter and %s; got %v", name, signal, sut.lastPoints(name))
 			}
 			return nil
 		})
 	})
 	sc.Step(`^(\S+) counts (\d+|some) for that exporter(?:,| and) (.+)$`, func(name, want, labels string) error {
 		labels = strings.Replace(labels, " and ", ", ", 1)
-		labels = w.exporterLabels() + ", " + labels
-		if err := w.start(); err != nil {
+		labels = sut.exporterLabels() + ", " + labels
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		return w.eventually(func() error {
-			p, ok := w.latest(name, parseLabels(labels))
+		return sut.proxy.eventually(func() error {
+			p, ok := sut.latest(name, parseLabels(labels))
 			n, _ := strconv.Atoi(want)
 			if !ok || want == "some" && p.value <= 0 || want != "some" && p.value != float64(n) {
-				return failf("%s is %v for %q, want %s; got %v", name, p.value, labels, want, w.lastPoints(name))
+				return failf("%s is %v for %q, want %s; got %v", name, p.value, labels, want, sut.lastPoints(name))
 			}
 			return nil
 		})
 	})
 	sc.Step(`^3 calls end$`, func() error {
 		for range 3 {
-			if err := w.defaultCall(); err != nil {
+			if err := sut.app.defaultCall(); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	sc.Step(`^a product exporter over HTTP that refuses every log export with 400$`, func() error {
-		w.receivers[0].stop()
-		w.receivers[0] = newReceiverWith(receiverSetup{})
+		sut.otlp.receivers[0].stop()
+		sut.otlp.receivers[0] = newReceiverWith(receiverSetup{})
 		for range 100 {
-			w.receivers[0].answers = append(w.receivers[0].answers, answer{status: http.StatusBadRequest})
+			sut.otlp.receivers[0].answers = append(sut.otlp.receivers[0].answers, answer{status: http.StatusBadRequest})
 		}
 		return nil
 	})
 	sc.Step(`^a product exporter that is down$`, func() error {
-		w.receivers[0].stop()
+		sut.otlp.receivers[0].stop()
 		// Nothing listens there yet.
-		w.receivers[0] = &receiver{endpoint: "http://" + w.ports.take()}
+		sut.otlp.receivers[0] = &receiver{endpoint: "http://" + sut.proxy.ports.take()}
 		return nil
 	})
 	sc.Step(`^the exporter comes back and another call ends$`, func() error {
-		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(w.receivers[0].endpoint, "http://"))
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(sut.otlp.receivers[0].endpoint, "http://"))
 		if err != nil {
 			return err
 		}
-		w.receivers[0] = newReceiverWith(receiverSetup{listener: l})
-		return w.defaultCall()
+		sut.otlp.receivers[0] = newReceiverWith(receiverSetup{listener: l})
+		return sut.app.defaultCall()
 	})
 
 	sc.Step(`^(hotline\.config\.\S+) (?:is|turns) (\d+)$`, func(name string, want int) error {
-		return w.ownValue(name, "", float64(want))
+		return sut.ownValue(name, "", float64(want))
 	})
 	sc.Step(`^the config file is put back as it was$`, func() error {
-		w.writeFile("hotline-proxy.yaml", w.config())
+		sut.proxy.writeFile("hotline-proxy.yaml", sut.proxy.configText())
 		return nil
 	})
 
 	sc.Step(`^the proxy port takes TLS(?: with a certificate that expires in (\d+) days)?$`, func(days string) error {
 		n, _ := strconv.Atoi(days)
-		w.proxyCert = w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
-		w.writeKeyPair(w.proxyCert, w.proxyCert)
-		w.listenTLS, w.tlsCert = "  tls: { cert: app }\n", "  app: { cert: ./tls/cert.pem, key: ./tls/key.pem }\n"
-		w.appTLS = w.appTLSConfig()
+		sut.tlsIngress.proxyCert = sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
+		sut.tlsIngress.writeKeyPair(sut.tlsIngress.proxyCert, sut.tlsIngress.proxyCert)
+		sut.tlsIngress.useAppCertificate()
+		sut.app.appTLS = sut.tlsIngress.appTLSConfig()
 		return nil
 	})
 	sc.Step(`^the cert and key files are replaced with a certificate that expires in (\d+) days$`, func(days int) error {
-		renewed := w.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
-		w.renewed = &renewed
-		w.replaceKeyPair(renewed, renewed)
+		renewed := sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
+		sut.tlsIngress.renewed = &renewed
+		sut.tlsIngress.replaceKeyPair(renewed, renewed)
 		return nil
 	})
 	sc.Step(`^hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(w.proxyCert))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(sut.tlsIngress.proxyCert))
 	})
 	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*w.renewed))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*sut.tlsIngress.renewed))
 	})
 	sc.Step(`^CONNECT is an ingress with a certificate authority that expires in (\d+) days$`, func(days int) error {
-		w.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
+		sut.connect.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
 		return nil
 	})
 	sc.Step(`^hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(w.interception.cert.NotAfter.Unix()))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(sut.certs.interception.cert.NotAfter.Unix()))
 	})
 
 	sc.Step(`^an app that does not trust the proxy opens TLS$`, func() error {
-		w.appTLS = &tls.Config{RootCAs: x509.NewCertPool(), ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
-		return w.tryTLS()
+		sut.app.appTLS = &tls.Config{RootCAs: x509.NewCertPool(), ServerName: "hotline-proxy", MinVersion: tls.VersionTLS12}
+		return sut.tryTLS()
 	})
 	sc.Step(`^an app that allows only TLS 1.1 opens TLS$`, func() error {
-		w.appTLS.MinVersion, w.appTLS.MaxVersion = tls.VersionTLS10, tls.VersionTLS11
-		return w.tryTLS()
+		sut.app.appTLS.MinVersion, sut.app.appTLS.MaxVersion = tls.VersionTLS10, tls.VersionTLS11
+		return sut.tryTLS()
 	})
 	sc.Step(`^an app sends plain HTTP to the TLS port$`, func() error {
-		w.appTLS = nil
-		return w.defaultCall()
+		sut.app.appTLS = nil
+		return sut.app.defaultCall()
 	})
 	sc.Step(`^an app that does not trust the certificate authority opens a tunnel$`, func() error {
-		w.useInterceptionAuthority(newAuthority())
-		w.tunnelRoots = x509.NewCertPool()
-		return w.openTunnel("api.talon.one", "443", "talon-shop-a")
+		sut.connect.useInterceptionAuthority(newAuthority())
+		sut.app.tunnelRoots = x509.NewCertPool()
+		return sut.connect.openTunnel("api.talon.one", "443", "talon-shop-a")
 	})
 	sc.Step(`^hotline.app_tls.failures counts (\d+) with error.type (\S+) and hotline.ingress (\S+)$`, func(want int, errorType, ingress string) error {
 		labels := "error.type " + errorType
 		if ingress != "none" {
 			labels += " and hotline.ingress " + ingress
 		}
-		return w.eventually(func() error {
-			p, ok := w.latest("hotline.app_tls.failures", parseLabels(labels))
+		return sut.proxy.eventually(func() error {
+			p, ok := sut.latest("hotline.app_tls.failures", parseLabels(labels))
 			_, hasIngress := p.attrs["hotline.ingress"]
 			if !ok || p.value != float64(want) || hasIngress != (ingress != "none") {
 				return failf("hotline.app_tls.failures is %v for %s", p.value, labels)
@@ -378,26 +384,26 @@ func telemetrySteps(sc *godog.ScenarioContext, w *world) {
 	})
 
 	sc.Step(`^the proxy logs a warning naming (\S+)$`, func(name string) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		return w.warned(name)
+		return sut.proxy.warned(name)
 	})
 	sc.Step(`^the proxy logs a warning that its own telemetry is not sent$`, func() error {
-		return w.warned("telemetry is not sent")
+		return sut.proxy.warned("telemetry is not sent")
 	})
 }
 
 // ownPoints waits until the telemetry receiver has data points of a metric,
 // and returns the latest of each set of labels.
-func (w *world) ownPoints(name string) ([]receivedPoint, error) {
-	w.lastMetric = name
-	if err := w.start(); err != nil {
+func (sut *telemetrySUT) ownPoints(name string) ([]receivedPoint, error) {
+	sut.lastMetric = name
+	if err := sut.proxy.start(); err != nil {
 		return nil, err
 	}
 	var points []receivedPoint
-	err := w.eventually(func() error {
-		points = w.lastPoints(name)
+	err := sut.proxy.eventually(func() error {
+		points = sut.lastPoints(name)
 		if len(points) == 0 {
 			return failf("the telemetry receiver got no %s", name)
 		}
@@ -408,10 +414,10 @@ func (w *world) ownPoints(name string) ([]receivedPoint, error) {
 
 // lastPoints are the latest data points of a metric, one for each set of
 // labels, as the telemetry receiver got them.
-func (w *world) lastPoints(name string) []receivedPoint {
+func (sut *telemetrySUT) lastPoints(name string) []receivedPoint {
 	latest := map[string]receivedPoint{}
 	var order []string
-	for _, p := range w.telemetry.metricPoints() {
+	for _, p := range sut.receiver.metricPoints() {
 		if p.name != name {
 			continue
 		}
@@ -429,8 +435,8 @@ func (w *world) lastPoints(name string) []receivedPoint {
 }
 
 // latest is the latest data point of a metric with every label given.
-func (w *world) latest(name string, labels map[string]string) (receivedPoint, bool) {
-	for _, p := range w.lastPoints(name) {
+func (sut *telemetrySUT) latest(name string, labels map[string]string) (receivedPoint, bool) {
+	for _, p := range sut.lastPoints(name) {
 		if matches(p, labels) {
 			return p, true
 		}
@@ -439,26 +445,26 @@ func (w *world) latest(name string, labels map[string]string) (receivedPoint, bo
 }
 
 // ownValue waits until a metric's latest value with the labels is want.
-func (w *world) ownValue(name, labels string, want float64) error {
-	if err := w.start(); err != nil {
+func (sut *telemetrySUT) ownValue(name, labels string, want float64) error {
+	if err := sut.proxy.start(); err != nil {
 		return err
 	}
-	return w.eventually(func() error {
-		p, ok := w.latest(name, parseLabels(labels))
+	return sut.proxy.eventually(func() error {
+		p, ok := sut.latest(name, parseLabels(labels))
 		if !ok || p.value != want {
-			return failf("%s is %v for %q, want %v; got %v", name, p.value, labels, want, w.lastPoints(name))
+			return failf("%s is %v for %q, want %v; got %v", name, p.value, labels, want, sut.lastPoints(name))
 		}
 		return nil
 	})
 }
 
 // ownCount waits until a histogram has counted want calls with the labels.
-func (w *world) ownCount(name, labels string, want uint64) error {
-	w.lastMetric = name
-	return w.eventually(func() error {
-		p, ok := w.latest(name, parseLabels(labels))
+func (sut *telemetrySUT) ownCount(name, labels string, want uint64) error {
+	sut.lastMetric = name
+	return sut.proxy.eventually(func() error {
+		p, ok := sut.latest(name, parseLabels(labels))
 		if !ok || p.count != want {
-			return failf("%s counts %d for %q, want %d; got %v", name, p.count, labels, want, w.lastPoints(name))
+			return failf("%s counts %d for %q, want %d; got %v", name, p.count, labels, want, sut.lastPoints(name))
 		}
 		return nil
 	})
@@ -466,11 +472,11 @@ func (w *world) ownCount(name, labels string, want uint64) error {
 
 // noOwnMetric checks that no metric the test names arrived, once the
 // proxy's own numbers have been sent at least once.
-func (w *world) noOwnMetric(unwanted func(string) bool) error {
-	if _, err := w.ownPoints("hotline.config.restart_needed"); err != nil {
+func (sut *telemetrySUT) noOwnMetric(unwanted func(string) bool) error {
+	if _, err := sut.ownPoints("hotline.config.restart_needed"); err != nil {
 		return err
 	}
-	for _, p := range w.telemetry.metricPoints() {
+	for _, p := range sut.receiver.metricPoints() {
 		if unwanted(p.name) {
 			return failf("the telemetry receiver got %s", p.name)
 		}
@@ -479,7 +485,7 @@ func (w *world) noOwnMetric(unwanted func(string) bool) error {
 }
 
 // eventually tries a check until it passes, for up to 10 seconds.
-func (w *world) eventually(check func() error) error {
+func (sut *proxySUT) eventually(check func() error) error {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		err := check()
@@ -492,16 +498,16 @@ func (w *world) eventually(check func() error) error {
 
 // exporterLabels name the first product exporter, by its endpoint as the
 // config writes it.
-func (w *world) exporterLabels() string {
-	return "hotline.exporter " + w.receivers[0].endpoint
+func (sut *telemetrySUT) exporterLabels() string {
+	return "hotline.exporter " + sut.otlp.receivers[0].endpoint
 }
 
 // tryTLS opens TLS to the proxy, which may fail.
-func (w *world) tryTLS() error {
-	if err := w.start(); err != nil {
+func (sut *telemetrySUT) tryTLS() error {
+	if err := sut.proxy.start(); err != nil {
 		return err
 	}
-	conn, err := w.dialProxy()
+	conn, err := sut.app.dialProxy()
 	if err == nil {
 		_ = conn.Close()
 	}
@@ -538,4 +544,73 @@ func matches(p receivedPoint, labels map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// telemetrySUT is the proxy's own health data: its metrics, the receiver
+// they go to, and the profile pages.
+type telemetrySUT struct {
+	proxy      *proxySUT
+	vendors    *vendorsSUT
+	certs      *certsSUT
+	app        *appSUT
+	otlp       *otlpSUT
+	tlsIngress *tlsIngressSUT
+	connect    *connectSUT
+	// receiver, when set, is where the proxy's own health data goes.
+	receiver *receiver
+	// telemetryDisable are the metrics the telemetry section turns off.
+	telemetryDisable []string
+	// lastMetric is the proxy's own metric a scenario last looked at.
+	lastMetric string
+	// telemetryExtra are more lines for the telemetry section's otlp.
+	telemetryExtra string
+	// telemetryPprof turns on the profile pages in the telemetry section.
+	telemetryPprof bool
+	// unsetOwnInterval leaves the interval out of the telemetry section, so
+	// the default applies. Otherwise it is 20ms, to keep tests quick.
+	unsetOwnInterval bool
+}
+
+func newTelemetrySUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *appSUT, otlp *otlpSUT, tlsIngress *tlsIngressSUT, connect *connectSUT) *telemetrySUT {
+	sut := &telemetrySUT{proxy: root, vendors: vendors, certs: certs, app: app, otlp: otlp, tlsIngress: tlsIngress, connect: connect}
+	root.addConfig(configTelemetry, sut.section)
+	return sut
+}
+
+// AddSteps adds the steps of the proxy's own telemetry.
+func (sut *telemetrySUT) AddSteps(sc *godog.ScenarioContext) {
+	telemetrySteps(sc, sut)
+}
+
+// Close stops what the proxy's own telemetry left running.
+func (sut *telemetrySUT) Close() {
+	if sut.receiver != nil {
+		sut.receiver.stop()
+	}
+}
+
+// section is the config's telemetry section.
+func (sut *telemetrySUT) section() string {
+	if sut.receiver == nil {
+		if sut.telemetryPprof {
+			return "telemetry:\n  pprof: true\n"
+		}
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "telemetry:\n  otlp:\n    endpoint: %s\n", sut.receiver.endpoint)
+	if !sut.unsetOwnInterval {
+		b.WriteString("    metricInterval: 20ms\n")
+	}
+	b.WriteString(sut.telemetryExtra)
+	for i, name := range sut.telemetryDisable {
+		if i == 0 {
+			b.WriteString("  disable:\n")
+		}
+		fmt.Fprintf(&b, "    - %q\n", name)
+	}
+	if sut.telemetryPprof {
+		b.WriteString("  pprof: true\n")
+	}
+	return b.String()
 }

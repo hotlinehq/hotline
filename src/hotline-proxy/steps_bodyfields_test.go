@@ -7,17 +7,17 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func bodyFieldSteps(sc *godog.ScenarioContext, w *world) {
+func bodyFieldSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	var item string
 	sc.Step(`^the record holds (\S+) = (\S+)$`, func(key, value string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return has(record, key, value)
 	})
 	sc.Step(`^the record holds (\S+) = "([^"]*)"$`, func(key, value string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -25,10 +25,10 @@ func bodyFieldSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the app sends POST /orders with an Idempotency-Key (\d+) characters long$`, func(n int) error {
 		item = strings.Repeat("ab", n/2+1)[:n]
-		return w.shopCall("POST", "/orders", true, "Idempotency-Key: "+item, "json", `{"item":"A1","quantity":1}`)
+		return sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: "+item, "json", `{"item":"A1","quantity":1}`)
 	})
 	sc.Step(`^the record holds (\S+) = (\S+) as a (true or false|number|whole number)$`, func(key, value, kind string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -48,7 +48,7 @@ func bodyFieldSteps(sc *godog.ScenarioContext, w *world) {
 		return has(record, key, value)
 	})
 	sc.Step(`^the record has no attribute (\S+)$`, func(key string) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -56,18 +56,18 @@ func bodyFieldSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the app sends POST /orders with "([^"]*)" and an order whose item is (\d+) characters long$`, func(headers string, n int) error {
 		item = strings.Repeat("ab", n/2+1)[:n]
-		return w.shopCall("POST", "/orders", true, headers, "json", fmt.Sprintf(`{"item":%q,"quantity":1}`, item))
+		return sut.app.shopCall("POST", "/orders", true, headers, "json", fmt.Sprintf(`{"item":%q,"quantity":1}`, item))
 	})
 	sc.Step(`^the record holds (\S+) with its first (\d+) characters$`, func(key string, n int) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
 		return has(record, key, item[:n])
 	})
 	sc.Step(`^the shop spec with x-hotline-record: (.+) on (.+)$`, func(mark, field string) error {
-		w.writeFile("specs/mark.overlay.yaml", "overlay: 1.1.0\ninfo: { title: Mark, version: \"1\" }\nactions:\n"+
+		sut.proxy.writeFile("specs/mark.overlay.yaml", "overlay: 1.1.0\ninfo: { title: Mark, version: \"1\" }\nactions:\n"+
 			"  - target: "+field+"\n    update: { x-hotline-record: "+mark+" }\n")
-		return w.shopSpec("talon-shop-a", "", "    overlays: [./specs/mark.overlay.yaml]\n")
+		return sut.apis.shopSpec("talon-shop-a", "", "    overlays: [./specs/mark.overlay.yaml]\n")
 	})
 }

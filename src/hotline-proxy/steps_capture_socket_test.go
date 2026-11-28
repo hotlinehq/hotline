@@ -17,21 +17,21 @@ import (
 
 // captureSocketSteps are the steps about the capture listener, the socket file
 // the capture extension sends its CONNECT to (Peter, 2026-11-12).
-func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
+func captureSocketSteps(sc *godog.ScenarioContext, sut *captureSUT) {
 	sc.Step(`^the capture listener is a socket file, whose certificate authority is customer too$`, func() error {
-		w.captureFile = filepath.Join(w.dir, "capture.sock")
+		sut.captureFile = filepath.Join(sut.proxy.dir, "capture.sock")
 		return nil
 	})
 	sc.Step(`^a program sends GET http://api.talon.one/ on the capture socket$`, func() error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		w.vendor("api.talon.one")
-		conn, err := w.dialCapture()
+		sut.vendors.vendor("api.talon.one")
+		conn, err := sut.dialCapture()
 		if err != nil {
 			return err
 		}
-		w.tunnels = append(w.tunnels, conn)
+		sut.app.tunnels = append(sut.app.tunnels, conn)
 		if _, err := io.WriteString(conn, "GET http://api.talon.one/ HTTP/1.1\r\nHost: api.talon.one\r\n\r\n"); err != nil {
 			return err
 		}
@@ -41,11 +41,11 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 			return err
 		}
 		_ = resp.Body.Close()
-		w.resp = resp
+		sut.app.resp = resp
 		return nil
 	})
 	sc.Step(`^the capture socket file can be read and written by its owner only$`, func() error {
-		info, err := os.Stat(w.captureFile)
+		info, err := os.Stat(sut.captureFile)
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a socket file nobody listens on is left at the capture path$`, func() error {
-		l, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", w.captureFile)
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", sut.captureFile)
 		if err != nil {
 			return err
 		}
@@ -64,31 +64,31 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 		return l.Close()
 	})
 	sc.Step(`^another program listens on the capture path$`, func() error {
-		l, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", w.captureFile)
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", sut.captureFile)
 		if err != nil {
 			return err
 		}
-		w.listeners = append(w.listeners, l)
-		w.busy = w.captureFile
+		sut.proxy.opened = append(sut.proxy.opened, l)
+		sut.proxy.busy = sut.captureFile
 		return nil
 	})
 	sc.Step(`^a plain file is at the capture path$`, func() error {
-		return os.WriteFile(w.captureFile, []byte("notes"), 0o600)
+		return os.WriteFile(sut.captureFile, []byte("notes"), 0o600)
 	})
 	sc.Step(`^a plain file is where the capture path's folder should be$`, func() error {
-		folder := filepath.Join(w.dir, "folder")
-		w.captureFile = filepath.Join(folder, "capture.sock")
+		folder := filepath.Join(sut.proxy.dir, "folder")
+		sut.captureFile = filepath.Join(folder, "capture.sock")
 		return os.WriteFile(folder, []byte("notes"), 0o600)
 	})
 	sc.Step(`^the plain file at the capture path is unchanged$`, func() error {
-		data, err := os.ReadFile(w.captureFile)
+		data, err := os.ReadFile(sut.captureFile)
 		if err != nil || string(data) != "notes" {
 			return failf("the file at the capture path is %q: %v", data, err)
 		}
 		return nil
 	})
 	sc.Step(`^there is no file at the capture path$`, func() error {
-		if _, err := os.Stat(w.captureFile); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(sut.captureFile); !errors.Is(err, os.ErrNotExist) {
 			return failf("the capture path holds a file: %v", err)
 		}
 		return nil
@@ -96,55 +96,55 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the capture listener (names no cert|names a cert that is not in certs|lists a passthrough pattern that is not a name|is a path of 120 bytes|is a relative path|is ~/hotline/capture.sock)$`, func(setting string) error {
 		switch setting {
 		case "names no cert":
-			w.captureAuthority = " "
+			sut.captureAuthority = " "
 		case "names a cert that is not in certs":
-			w.captureAuthority = "cert: gone, "
+			sut.captureAuthority = "cert: gone, "
 		case "lists a passthrough pattern that is not a name":
-			w.capturePassthrough = []string{"api.*.com"}
+			sut.capturePassthrough = []string{"api.*.com"}
 		case "is a path of 120 bytes":
-			w.capturePath = "/" + strings.Repeat("a", 119)
+			sut.capturePath = "/" + strings.Repeat("a", 119)
 		case "is a relative path":
-			w.capturePath = "capture.sock"
+			sut.capturePath = "capture.sock"
 		default:
-			if w.env == nil {
-				w.env = map[string]string{}
+			if sut.proxy.env == nil {
+				sut.proxy.env = map[string]string{}
 			}
-			w.env["HOME"] = w.dir
-			w.capturePath = "~/hotline/capture.sock"
-			w.captureFile = filepath.Join(w.dir, "hotline", "capture.sock")
+			sut.proxy.env["HOME"] = sut.proxy.dir
+			sut.capturePath = "~/hotline/capture.sock"
+			sut.captureFile = filepath.Join(sut.proxy.dir, "hotline", "capture.sock")
 		}
 		return nil
 	})
 	sc.Step(`^the capture listener has http ports ([\d, and]+)$`, func(ports string) error {
-		w.captureHTTP = "[" + strings.ReplaceAll(strings.ReplaceAll(ports, " and ", ", "), " ", "") + "]"
+		sut.captureHTTP = "[" + strings.ReplaceAll(strings.ReplaceAll(ports, " and ", ", "), " ", "") + "]"
 		return nil
 	})
 	sc.Step(`^the capture listener has no http ports$`, func() error {
-		w.captureHTTP = "[]"
+		sut.captureHTTP = "[]"
 		return nil
 	})
 	sc.Step(`^the capture listener lists (\S+) in passthrough$`, func(name string) error {
-		w.capturePassthrough = []string{name}
+		sut.capturePassthrough = []string{name}
 		return nil
 	})
 	sc.Step(`^the config has no proxy listener$`, func() error {
-		w.noProxyPort, w.listenConnect = true, ""
+		sut.proxy.noProxyPort, sut.connect.listenConnect = true, ""
 		return nil
 	})
 	sc.Step(`^nothing listens on the proxy port$`, func() error {
-		if conn, err := w.dialProxy(); err == nil {
+		if conn, err := sut.app.dialProxy(); err == nil {
 			_ = conn.Close()
-			return failf("something listens on the proxy port %s", w.addr)
+			return failf("something listens on the proxy port %s", sut.proxy.addr)
 		}
 		return nil
 	})
 	sc.Step(`^the config file drops the capture listener$`, func() error {
-		w.captureDropped = true
-		w.writeFile("hotline-proxy.yaml", w.config())
+		sut.captureDropped = true
+		sut.proxy.writeFile("hotline-proxy.yaml", sut.proxy.configText())
 		return nil
 	})
 	sc.Step(`^the capture socket is at hotline/capture.sock in the home folder$`, func() error {
-		info, err := os.Stat(filepath.Join(w.dir, "hotline", "capture.sock"))
+		info, err := os.Stat(filepath.Join(sut.proxy.dir, "hotline", "capture.sock"))
 		if err != nil {
 			return err
 		}
@@ -156,6 +156,6 @@ func captureSocketSteps(sc *godog.ScenarioContext, w *world) {
 }
 
 // dialCapture opens a connection to the capture socket file.
-func (w *world) dialCapture() (net.Conn, error) {
-	return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "unix", w.captureFile)
+func (sut *captureSUT) dialCapture() (net.Conn, error) {
+	return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "unix", sut.captureFile)
 }

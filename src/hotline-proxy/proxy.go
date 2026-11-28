@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"expvar"
+	"hotline-proxy/internal/onetime"
 	"io"
 	"log"
 	"log/slog"
@@ -173,7 +174,7 @@ func Start(ctx context.Context, o Options) (*Proxy, error) {
 		return nil, err
 	}
 	h := &handler{
-		cutOpenConnections: newOneTimeEvent(),
+		cutOpenConnections: onetime.NewEvent(),
 		clock:              o.Clock,
 		logger:             o.Logger,
 		exporters:          exporters,
@@ -330,7 +331,7 @@ func (p *Proxy) Shutdown(ctx context.Context) error {
 	// them (Peter, 2026-11-23, as HAProxy's hard-stop-after does).
 	cutAt, cancel := cutContext(ctx)
 	defer cancel()
-	defer context.AfterFunc(cutAt, p.handler.cutOpenConnections.fire)()
+	defer context.AfterFunc(cutAt, p.handler.cutOpenConnections.Fire)()
 	// Every server stops at once: a tunnel opened over HTTP/2 is a call on
 	// a listener that lasts until the tunnels' server closes the tunnel.
 	// Tunnels still being set up are cut short.

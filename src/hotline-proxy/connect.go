@@ -86,7 +86,7 @@ func (h *handler) connect(w http.ResponseWriter, r *http.Request, start time.Tim
 	// The app's first byte tells TLS, which starts with a handshake
 	// record, from plain HTTP. An app that leaves, or the proxy stopping,
 	// ends the wait.
-	stop := h.tunnels.closed.afterFire(func() { _ = conn.SetReadDeadline(time.Now()) })
+	stop := h.tunnels.closed.AfterFire(func() { _ = conn.SetReadDeadline(time.Now()) })
 	first, _ := reader.Peek(1)
 	stop()
 	a := &appConn{Conn: inner, tunnel: t}

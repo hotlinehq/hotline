@@ -1,8 +1,10 @@
 package fits_test
 
 import (
+	"context"
 	"math"
 	"os/exec"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -95,11 +97,37 @@ var _ = Describe("Fitting a number into a smaller type", func() {
 	// The helpers sit on paths that run for every exported record, so a
 	// call must cost no more than the check written out by hand. The Go
 	// compiler says which functions it can copy into their callers.
-	It("is inlined by the compiler, so a call costs nothing extra", func() {
-		out, err := exec.Command("go", "build", "-gcflags=-m", ".").CombinedOutput()
-		Expect(err).NotTo(HaveOccurred(), string(out))
-		for _, name := range []string{"Uint8", "Uint16", "Uint32", "Int32", "Uint64", "Int64", "Int"} {
-			Expect(string(out)).To(ContainSubstring("can inline "+name), name)
-		}
+	Context("built by the compiler", func() {
+		sut := compilerSUT{}
+
+		It("is inlined, so a call costs nothing extra", func() {
+			sut.forBuiltPackage()
+			for _, name := range []string{"Uint8", "Uint16", "Uint32", "Int32", "Uint64", "Int64", "Int"} {
+				Expect(sut.Inlined()).To(ContainElement(name))
+			}
+		})
 	})
 })
+
+// compilerSUT is this package built by the Go compiler, and what the
+// compiler said it did.
+type compilerSUT struct{ said string }
+
+// forBuiltPackage builds the package, asking the compiler what it inlines.
+func (s *compilerSUT) forBuiltPackage() {
+	out, err := exec.CommandContext(context.Background(), "go", "build", "-gcflags=-m", ".").CombinedOutput()
+	Expect(err).WithOffset(1).NotTo(HaveOccurred(), string(out))
+	s.said = string(out)
+}
+
+// Inlined are the functions the compiler said it can inline.
+func (s *compilerSUT) Inlined() []string {
+	var names []string
+	for _, line := range strings.Split(s.said, "\n") {
+		if _, after, ok := strings.Cut(line, "can inline "); ok {
+			name, _, _ := strings.Cut(after, " ")
+			names = append(names, name)
+		}
+	}
+	return names
+}

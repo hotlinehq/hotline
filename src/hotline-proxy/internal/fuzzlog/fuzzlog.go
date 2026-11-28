@@ -13,16 +13,16 @@ import (
 	"strings"
 )
 
-// DirVariable names the environment variable that holds the folder for
+// dirVariable names the environment variable that holds the folder for
 // the workers' files. Unset, Capture does nothing.
-const DirVariable = "HOTLINE_FUZZ_LOGS"
+const dirVariable = "HOTLINE_FUZZ_LOGS"
 
 // Capture sends this process's standard error to a file in the folder
-// DirVariable names, when the process is a fuzz worker. Call it first in
+// dirVariable names, when the process is a fuzz worker. Call it first in
 // each Fuzz function. Any failure leaves the output where it was: a fuzz
 // run must not stop over its logs.
 func Capture() {
-	path, ok := Path(os.Args, os.Getenv(DirVariable), os.Getpid())
+	path, ok := Path(os.Args, os.Getenv(dirVariable), os.Getpid())
 	if !ok {
 		return
 	}

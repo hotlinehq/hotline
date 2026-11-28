@@ -27,6 +27,11 @@ const (
 	spans
 )
 
+// ErrBusy is what a queue's Send returns, wrapped or as it is, when the
+// collector was too busy or could not be reached: the queue keeps the
+// items and tries again later. Any other error refuses them for good.
+var ErrBusy = errors.New("export: the collector is busy")
+
 // busy is a refusal worth trying again, after at least wait.
 type busy struct {
 	wait time.Duration
@@ -34,6 +39,9 @@ type busy struct {
 }
 
 func (b busy) Error() string { return b.err.Error() }
+
+// Is says a busy refusal is an ErrBusy.
+func (busy) Is(target error) bool { return target == ErrBusy }
 
 // sendWithRetry sends body, and tries again while the collector is busy and
 // the send's time allows: first after about a second, then at most every

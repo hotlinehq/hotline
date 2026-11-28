@@ -12,7 +12,7 @@ import (
 // ledgerReloadSteps are the steps of the ledger scenarios where a reload
 // comes while a call is in flight: the vendor holds its answer to one
 // call, the config is reloaded, then the vendor answers.
-func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
+func ledgerReloadSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	// arrived closes when the held call reaches the vendor, release lets
 	// the vendor answer it, and sent gives the app's side of the call
 	// once it ended.
@@ -20,15 +20,15 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 	var sent chan error
 
 	sc.Step(`^the vendor holds its answer to the next call$`, func() error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
 		// Calls already made join their batches first.
-		w.waitCalls(w.sent)
+		sut.otlp.waitCalls(sut.app.sent)
 		arrived, release = make(chan struct{}), make(chan struct{})
 		var once sync.Once
 		held, freed := arrived, release
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			first := false
 			once.Do(func() { first = true })
 			if first {
@@ -44,9 +44,9 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 		if arrived == nil {
 			return failf("no vendor holds its answer")
 		}
-		w.appID = id
+		sut.app.appID = id
 		sent = make(chan error, 1)
-		go func() { sent <- w.shopCall("GET", "/"+path, true, "", "", "") }()
+		go func() { sent <- sut.app.shopCall("GET", "/"+path, true, "", "", "") }()
 		select {
 		case <-arrived:
 			return nil
@@ -66,11 +66,11 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 		}
 	})
 	sc.Step(`^the two records are in two batches of the checkout chain, one after the other$`, func() error {
-		batches, err := w.chain("checkout", 2)
+		batches, err := sut.otlp.chain("checkout", 2)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(2)
+		records, err := sut.otlp.waitRecords(2)
 		if err != nil {
 			return err
 		}
@@ -88,11 +88,11 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 		return checkChain(batches)
 	})
 	sc.Step(`^each batch's hotline.batch.config is the config of the record in it$`, func() error {
-		batches, err := w.chain("checkout", 2)
+		batches, err := sut.otlp.chain("checkout", 2)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(2)
+		records, err := sut.otlp.waitRecords(2)
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the refunds chain goes on unbroken after its last batch$`, func() error {
-		batches, err := w.chain("refunds", 2)
+		batches, err := sut.otlp.chain("refunds", 2)
 		if err != nil {
 			return err
 		}
@@ -122,11 +122,11 @@ func ledgerReloadSteps(sc *godog.ScenarioContext, w *world) {
 		return checkChain(batches)
 	})
 	sc.Step(`^the held call's record is in the refunds chain, after the last batch$`, func() error {
-		batches, err := w.chain("refunds", 2)
+		batches, err := sut.otlp.chain("refunds", 2)
 		if err != nil {
 			return err
 		}
-		records, err := w.waitRecords(2)
+		records, err := sut.otlp.waitRecords(2)
 		if err != nil {
 			return err
 		}

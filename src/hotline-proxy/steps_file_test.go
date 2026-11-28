@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -33,53 +34,86 @@ type fileExporter struct {
 	raw string
 }
 
-func fileSteps(sc *godog.ScenarioContext, w *world) {
+func fileSteps(sc *godog.ScenarioContext, sut *fileExportSUT) {
+	sc.Step(`^two OTLP exporters and a file exporter$`, func() error {
+		sut.otlp.receivers = append(sut.otlp.receivers, newReceiver())
+		sut.exporters = append(sut.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+		return nil
+	})
+	sc.Step(`^both exporters get deployment.environment.name staging$`, func() error {
+		sut.proxy.settle()
+		for i, r := range sut.otlp.receivers {
+			records := r.got()
+			if len(records) != 1 {
+				return failf("exporter %d got %d records", i+1, len(records))
+			}
+			if err := has(records[0].resource, "deployment.environment.name", "staging"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	sc.Step(`^the file line has the same resource$`, func() error {
+		lines, err := sut.folderLines()
+		if err != nil {
+			return err
+		}
+		for _, line := range lines {
+			if line["event"] == "hotline.request" {
+				if got, want := fmt.Sprint(lineAsReceived(line).resource), fmt.Sprint(sut.otlp.records()[0].resource); got != want {
+					return failf("the file line's resource is %s, the exporter's %s", got, want)
+				}
+				return nil
+			}
+		}
+		return failf("the file has no call line")
+	})
 	var secondErr error
 	sc.Step(`^a file exporter$`, func() error {
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+		sut.exporters = append(sut.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 		return nil
 	})
 	sc.Step(`^no file exporter$`, func() error {
-		w.files = nil
+		sut.exporters = nil
 		return nil
 	})
 	sc.Step(`^no OTLP exporter$`, func() error {
-		for _, r := range w.receivers {
+		for _, r := range sut.otlp.receivers {
 			r.stop()
 		}
-		w.receivers = nil
+		sut.otlp.receivers = nil
 		return nil
 	})
 	sc.Step(`^the file exporter has maxFileSize (\S+) and maxFiles (\d+)$`, func(size, count string) error {
-		w.files[0].extra = "      maxFileSize: " + size + "\n      maxFiles: " + count + "\n"
+		sut.exporters[0].extra = "      maxFileSize: " + size + "\n      maxFiles: " + count + "\n"
 		return nil
 	})
 	sc.Step(`^the file exporter has maxFileSize (\S+), maxFiles (\d+) and compression none$`, func(size, count string) error {
-		w.files[0].extra = "      maxFileSize: " + size + "\n      maxFiles: " + count + "\n      compression: none\n"
+		sut.exporters[0].extra = "      maxFileSize: " + size + "\n      maxFiles: " + count + "\n      compression: none\n"
 		return nil
 	})
 	sc.Step(`^the file exporter has queueMemory (\S+)$`, func(size string) error {
-		w.files[0].extra = "      queueMemory: " + size + "\n"
+		sut.exporters[0].extra = "      queueMemory: " + size + "\n"
 		return nil
 	})
 	sc.Step(`^the file exporter's path is a file, not a folder$`, func() error {
-		w.files[0].path = w.writeFile("calls", "not a folder\n")
+		sut.exporters[0].path = sut.proxy.writeFile("calls", "not a folder\n")
 		return nil
 	})
 	sc.Step(`^a second file exporter on the same folder$`, func() error {
-		w.files = append(w.files, w.files[0])
+		sut.exporters = append(sut.exporters, sut.exporters[0])
 		return nil
 	})
 	sc.Step(`^a second file exporter in its own folder$`, func() error {
-		w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls-2")})
+		sut.exporters = append(sut.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls-2")})
 		return nil
 	})
 	sc.Step(`^the integration has (content|maxBodySize) (\S+)$`, func(name, value string) error {
-		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")) + "    " + name + ": " + value + "\n")
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI(""), sut.apis.stripeAPI("")) + "    " + name + ": " + value + "\n")
 		return nil
 	})
 	sc.Step(`^the integration has content full with maxBodySize (\S+)$`, func(size string) error {
-		w.addIntegration(integration("talon-shop-a", w.talonAPI(""), w.stripeAPI("")) + "    content: full\n    maxBodySize: " + size + "\n")
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI(""), sut.apis.stripeAPI("")) + "    content: full\n    maxBodySize: " + size + "\n")
 		return nil
 	})
 	sc.Step(`^the integration has content full and a spec whose (.+)$`, func(which string) error {
@@ -87,23 +121,23 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		if !ok {
 			return failf("no spec whose %s", which)
 		}
-		w.addIntegration(integration("talon-shop-a", w.specAPI("api.x.com", spec, "")) + "    content: full\n")
-		w.method, w.target = "GET", "https://api.x.com/v1/things"
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI("api.x.com", spec, "")) + "    content: full\n")
+		sut.app.method, sut.app.target = "GET", "https://api.x.com/v1/things"
 		return nil
 	})
 	sc.Step(`^a call to a host without an api carries "([^"]+)" and "([^"]+)"$`, func(first, second string) error {
-		w.target = "https://api.other.test/v1/things"
-		return w.defaultCall(first, second)
+		sut.app.target = "https://api.other.test/v1/things"
+		return sut.app.defaultCall(first, second)
 	})
 	sc.Step(`^the line's hotline.content.url.full is "([^"]+)"$`, func(full string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
 		return has(attrs, "hotline.content.url.full", full)
 	})
 	sc.Step(`^the vendor responds with a 5KiB body$`, func() error {
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", "text/plain")
 			_, _ = rw.Write(longResponse())
@@ -112,48 +146,48 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^10 calls end$`, func() error {
 		for range 10 {
-			if err := w.defaultCall("Content-Type: application/json"); err != nil {
+			if err := sut.app.defaultCall("Content-Type: application/json"); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	sc.Step(`^a call with a 4KiB request body ends$`, func() error {
-		return w.callWithBody(strings.Repeat("x", 4096), "Content-Type: text/plain")
+		return sut.app.callWithBody(strings.Repeat("x", 4096), "Content-Type: text/plain")
 	})
 	sc.Step(`^a call with a JSON body and an Authorization header ends$`, func() error {
-		return w.callWithBody(`{"name":"Ana \"A\"","items":[1,2]}`, "Content-Type: application/json", "Authorization: Bearer secret-token-1")
+		return sut.app.callWithBody(`{"name":"Ana \"A\"","items":[1,2]}`, "Content-Type: application/json", "Authorization: Bearer secret-token-1")
 	})
 	sc.Step(`^a call with a Proxy-Trace header ends$`, func() error {
-		return w.defaultCall("Content-Type: application/json", "Proxy-Trace: trace-7")
+		return sut.app.defaultCall("Content-Type: application/json", "Proxy-Trace: trace-7")
 	})
 	sc.Step(`^a call to a host without an api ends$`, func() error {
-		w.target = "https://api.other.test/v1/things?q=1"
-		return w.callWithBody(`{"thing":1}`, "Content-Type: application/json")
+		sut.app.target = "https://api.other.test/v1/things?q=1"
+		return sut.app.callWithBody(`{"thing":1}`, "Content-Type: application/json")
 	})
 	sc.Step(`^the proxy runs and a call ended$`, func() error {
-		if err := w.defaultCall("Content-Type: application/json"); err != nil {
+		if err := sut.app.defaultCall("Content-Type: application/json"); err != nil {
 			return err
 		}
-		return w.waitForLines(1)
+		return sut.waitForLines(1)
 	})
 	sc.Step(`^the folder is deleted and another call ends$`, func() error {
-		if err := os.RemoveAll(w.files[0].path); err != nil {
+		if err := os.RemoveAll(sut.exporters[0].path); err != nil {
 			return err
 		}
-		return w.defaultCall("Content-Type: application/json")
+		return sut.app.defaultCall("Content-Type: application/json")
 	})
 	sc.Step(`^a second proxy starts with a file exporter on the same folder$`, func() error {
 		// Its first file exporter has a folder of its own, so the proxy
 		// must let go of that one when the second folder is taken.
-		config := strings.Replace(w.config(), w.addr, w.ports.take(), 1)
-		config = strings.Replace(config, "exporters:\n", "exporters:\n  - file:\n      path: "+filepath.Join(w.dir, "calls-other")+"\n", 1)
+		config := strings.Replace(sut.proxy.configText(), sut.proxy.addr, sut.proxy.ports.take(), 1)
+		config = strings.Replace(config, "exporters:\n", "exporters:\n  - file:\n      path: "+filepath.Join(sut.proxy.dir, "calls-other")+"\n", 1)
 		second, err := proxy.Start(context.Background(), proxy.Options{
-			ConfigPath:    w.writeFile("second.yaml", config),
-			Resolver:      w.network,
-			Dialer:        w.network,
-			Packets:       w.network,
-			RootCAs:       w.authority.pool,
+			ConfigPath:    sut.proxy.writeFile("second.yaml", config),
+			Resolver:      sut.vendors.network,
+			Dialer:        sut.vendors.network,
+			Packets:       sut.vendors.network,
+			RootCAs:       sut.vendors.authority.pool,
 			Clock:         proxy.SystemClock{},
 			Logger:        slog.New(slog.DiscardHandler),
 			ExportTimeout: time.Second,
@@ -173,43 +207,43 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the file exporter is set with (.+)$`, func(setting string) error {
 		switch setting {
 		case "no path":
-			w.files[0].path = ""
+			sut.exporters[0].path = ""
 		case "an otlp endpoint as well":
-			w.files[0].extra = "    otlp:\n      endpoint: http://127.0.0.1:4318\n"
+			sut.exporters[0].extra = "    otlp:\n      endpoint: http://127.0.0.1:4318\n"
 		case "nothing in it":
-			w.files[0].raw = "  - {}\n"
+			sut.exporters[0].raw = "  - {}\n"
 		default:
 			name, value, _ := strings.Cut(setting, " ")
-			w.files[0].extra = "      " + name + ": " + value + "\n"
+			sut.exporters[0].extra = "      " + name + ": " + value + "\n"
 		}
 		return nil
 	})
 	sc.Step(`^the folder is replaced by a file and another call ends$`, func() error {
-		if err := os.RemoveAll(w.files[0].path); err != nil {
+		if err := os.RemoveAll(sut.exporters[0].path); err != nil {
 			return err
 		}
-		if err := os.WriteFile(w.files[0].path, []byte("not a folder\n"), 0o600); err != nil {
+		if err := os.WriteFile(sut.exporters[0].path, []byte("not a folder\n"), 0o600); err != nil {
 			return err
 		}
-		return w.defaultCall("Content-Type: application/json")
+		return sut.app.defaultCall("Content-Type: application/json")
 	})
 	sc.Step(`^a call with a JSON body to a vendor that cannot be reached ends$`, func() error {
-		w.missing["api.talon.one"] = true
-		return w.callWithBody(`{"name":"Ana"}`, "Content-Type: application/json")
+		sut.vendors.missing["api.talon.one"] = true
+		return sut.app.callWithBody(`{"name":"Ana"}`, "Content-Type: application/json")
 	})
 	sc.Step(`^the proxy warns that the export failed$`, func() error {
-		w.settle()
-		if !strings.Contains(w.logs.String(), "export failed") {
-			return failf("the proxy did not warn: %s", w.logs.String())
+		sut.proxy.settle()
+		if !strings.Contains(sut.proxy.logs.String(), "export failed") {
+			return failf("the proxy did not warn: %s", sut.proxy.logs.String())
 		}
 		return nil
 	})
 	sc.Step(`^calls.jsonl has one line$`, func() error {
-		_, err := w.fileLine(0)
+		_, err := sut.fileLine(0)
 		return err
 	})
 	sc.Step(`^calls.jsonl has no line$`, func() error {
-		lines, err := w.fileLines(0)
+		lines, err := sut.fileLines(0)
 		if errors.Is(err, fs.ErrNotExist) {
 			// Nothing was ever written, so there is no file yet.
 			return nil
@@ -223,7 +257,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the line has the time, a severity, event hotline.request, the trace and span ID, and the resource service.name hotline-proxy$`, func() error {
-		line, err := w.fileLine(0)
+		line, err := sut.fileLine(0)
 		if err != nil {
 			return err
 		}
@@ -246,7 +280,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(resource, "service.name", "hotline-proxy")
 	})
 	sc.Step(`^the line's attributes have http.request.method PUT and http.response.status_code 200 as a number$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -259,7 +293,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(attrs, "http.response.status_code", 200)
 	})
 	sc.Step(`^the line's hotline.trace.spans has hotline call with no parent, and vendor call under it$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -282,11 +316,11 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(vendor, "kind", "client")
 	})
 	sc.Step(`^each span in the line has the status the OTLP receiver got, and one is ok$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
-		t, err := w.lastTrace()
+		t, err := sut.otlp.lastTrace()
 		if err != nil {
 			return err
 		}
@@ -310,11 +344,11 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the line's hotline.content.request.body holds the first 1KiB of the body sent$`, func() error {
-		return w.lineBody("hotline.content.request.body", w.sentBody[:1024])
+		return sut.lineBody("hotline.content.request.body", sut.app.sentBody[:1024])
 	})
 	sc.Step(`^the folder holds no other file than calls.jsonl$`, func() error {
-		w.settle()
-		entries, err := os.ReadDir(w.files[0].path)
+		sut.proxy.settle()
+		entries, err := os.ReadDir(sut.exporters[0].path)
 		if err != nil {
 			return err
 		}
@@ -326,11 +360,11 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^every attribute the OTLP receiver got is in the line with the same value$`, func() error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -344,7 +378,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^calls.jsonl has the line within a second, while the proxy runs$`, func() error {
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) {
-			if data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl")); err == nil && bytes.Count(data, []byte("\n")) == 1 {
+			if data, err := os.ReadFile(filepath.Join(sut.exporters[0].path, "calls.jsonl")); err == nil && bytes.Count(data, []byte("\n")) == 1 {
 				return nil
 			}
 			pause(10 * time.Millisecond)
@@ -352,8 +386,8 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return failf("no line was written within a second")
 	})
 	sc.Step(`^calls.jsonl is plain text$`, func() error {
-		w.settle()
-		data, err := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+		sut.proxy.settle()
+		data, err := os.ReadFile(filepath.Join(sut.exporters[0].path, "calls.jsonl"))
 		if err != nil {
 			return err
 		}
@@ -361,8 +395,8 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return err
 	})
 	sc.Step(`^there are (\d+) rotated files, each ending in (\S+) and holding only whole lines$`, func(count int, ending string) error {
-		w.settle()
-		rotated, _ := filepath.Glob(filepath.Join(w.files[0].path, "calls-*"))
+		sut.proxy.settle()
+		rotated, _ := filepath.Glob(filepath.Join(sut.exporters[0].path, "calls-*"))
 		if len(rotated) != count {
 			return failf("there are %d rotated files: %v", len(rotated), rotated)
 		}
@@ -394,14 +428,14 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the proxy refuses the config, naming the file exporter$`, func() error {
-		return w.refusedWith("file exporter", "cannot be written to")
+		return sut.proxy.refusedWith("file exporter", "cannot be written to")
 	})
 	sc.Step(`^the proxy refuses the config, saying (.+)$`, func(problem string) error {
-		return w.refusedWith(problem)
+		return sut.proxy.refusedWith(problem)
 	})
 	sc.Step(`^both folders hold the call's line$`, func() error {
-		for i := range w.files {
-			if _, err := w.fileLine(i); err != nil {
+		for i := range sut.exporters {
+			if _, err := sut.fileLine(i); err != nil {
 				return err
 			}
 		}
@@ -411,46 +445,46 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		if secondErr == nil {
 			return failf("the second proxy started")
 		}
-		if !strings.Contains(secondErr.Error(), w.files[0].path) || !strings.Contains(secondErr.Error(), "in use") {
+		if !strings.Contains(secondErr.Error(), sut.exporters[0].path) || !strings.Contains(secondErr.Error(), "in use") {
 			return failf("the second proxy said %q", secondErr)
 		}
 		return nil
 	})
 	sc.Step(`^the call succeeds$`, func() error {
-		if w.resp == nil || w.resp.StatusCode != http.StatusOK {
-			return failf("the app got %v (%v)", w.resp, w.respErr)
+		if sut.app.resp == nil || sut.app.resp.StatusCode != http.StatusOK {
+			return failf("the app got %v (%v)", sut.app.resp, sut.app.respErr)
 		}
 		return nil
 	})
 	sc.Step(`^calls.jsonl is back in the folder with the new call's line$`, func() error {
-		_, err := w.fileLine(0)
+		_, err := sut.fileLine(0)
 		return err
 	})
 	sc.Step(`^the proxy warns that the queue was full$`, func() error {
-		w.settle()
-		if !strings.Contains(w.logs.String(), "export queue full") {
-			return failf("the proxy did not warn: %s", w.logs.String())
+		sut.proxy.settle()
+		if !strings.Contains(sut.proxy.logs.String(), "export queue full") {
+			return failf("the proxy did not warn: %s", sut.proxy.logs.String())
 		}
 		return nil
 	})
 	sc.Step(`^the line's (\S+) decodes to the exact body sent$`, func(key string) error {
-		return w.lineBody(key, w.sentBody)
+		return sut.lineBody(key, sut.app.sentBody)
 	})
 	sc.Step(`^the line's (\S+) decodes to the vendor's response$`, func(key string) error {
-		return w.lineBody(key, `{"ok":true}`)
+		return sut.lineBody(key, `{"ok":true}`)
 	})
 	sc.Step(`^the line's hotline.content.response.body holds the first 1KiB$`, func() error {
-		return w.lineBody("hotline.content.response.body", string(longResponse()[:1024]))
+		return sut.lineBody("hotline.content.response.body", string(longResponse()[:1024]))
 	})
 	sc.Step(`^the line has hotline.content.request.header.(\S+) as sent$`, func(name string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
-		return has(attrs, "hotline.content.request.header."+name, []any{headerValue(w.lastSent, name)})
+		return has(attrs, "hotline.content.request.header."+name, []any{headerValue(sut.app.lastSent, name)})
 	})
 	sc.Step(`^the line has ([a-z][\w-]*\.[\w.-]+) (\S+)$`, func(key, value string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -460,7 +494,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(attrs, key, value)
 	})
 	sc.Step(`^the line has hotline.content.response.body.truncated true and http.response.body.size 5120$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -470,34 +504,34 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(attrs, "http.response.body.size", 5120)
 	})
 	sc.Step(`^the line has no (\S+)$`, func(key string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
 		return hasNo(attrs, key)
 	})
 	sc.Step(`^the line's hotline.content.url.full is the address as sent$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
-		return has(attrs, "hotline.content.url.full", w.target)
+		return has(attrs, "hotline.content.url.full", sut.app.target)
 	})
 	sc.Step(`^the app gets all 5KiB$`, func() error {
-		if len(w.respBody) != 5120 {
-			return failf("the app got %d bytes (%v)", len(w.respBody), w.respErr)
+		if len(sut.app.respBody) != 5120 {
+			return failf("the app got %d bytes (%v)", len(sut.app.respBody), sut.app.respErr)
 		}
 		return nil
 	})
 	sc.Step(`^the OTLP record has no hotline.content.request.body and no hotline.content.request.header.authorization$`, func() error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
 		return hasNo(record, "hotline.content.request.body", "hotline.content.request.header.authorization", "http.request.header.authorization")
 	})
 	sc.Step(`^the line's hotline.request.body.hash is the body hash of the saved body, with the line's trace id and span id$`, func() error {
-		line, err := w.fileLine(0)
+		line, err := sut.fileLine(0)
 		if err != nil {
 			return err
 		}
@@ -509,7 +543,7 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 		return has(attrs, "hotline.request.body.hash", bodyHash("request", sprint(line["trace_id"]), sprint(line["span_id"]), saved))
 	})
 	sc.Step(`^the line has the request and response headers and the response body$`, func() error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -521,26 +555,26 @@ func fileSteps(sc *godog.ScenarioContext, w *world) {
 				return err
 			}
 		}
-		return w.lineBody("hotline.content.response.body", `{"ok":true}`)
+		return sut.lineBody("hotline.content.response.body", `{"ok":true}`)
 	})
 	sc.Step(`^the proxy warns that integration talon-shop-a has content full but there is no file exporter$`, func() error {
-		if w.startErr != nil {
-			return w.startErr
+		if sut.proxy.startErr != nil {
+			return sut.proxy.startErr
 		}
-		if !strings.Contains(w.logs.String(), "integration talon-shop-a has content: full but there is no file exporter") {
-			return failf("the proxy did not warn: %s", w.logs.String())
+		if !strings.Contains(sut.proxy.logs.String(), "integration talon-shop-a has content: full but there is no file exporter") {
+			return failf("the proxy did not warn: %s", sut.proxy.logs.String())
 		}
 		return nil
 	})
 }
 
 // callWithBody makes the world's call with a body.
-func (w *world) callWithBody(body string, headers ...string) error {
-	w.sentBody = body
-	if w.appID != "" {
-		headers = append([]string{basic(w.appID + ":x")}, headers...)
+func (sut *appSUT) callWithBody(body string, headers ...string) error {
+	sut.sentBody = body
+	if sut.appID != "" {
+		headers = append([]string{basic(sut.appID + ":x")}, headers...)
 	}
-	return w.send(request{method: w.method, target: w.target, headers: headers, body: strings.NewReader(body), length: len(body)})
+	return sut.send(request{method: sut.method, target: sut.target, headers: headers, body: strings.NewReader(body), length: len(body)})
 }
 
 // longResponse is a response of 5 KiB that is not the same all along, so a cut
@@ -555,8 +589,8 @@ func longResponse() []byte {
 
 // fileLines are the lines of a file exporter's calls.jsonl, once the proxy
 // has written everything.
-func (w *world) fileLines(i int) ([]map[string]any, error) {
-	all, err := w.allFileLines(i)
+func (sut *fileExportSUT) fileLines(i int) ([]map[string]any, error) {
+	all, err := sut.allFileLines(i)
 	if err != nil {
 		return nil, err
 	}
@@ -573,9 +607,9 @@ func (w *world) fileLines(i int) ([]map[string]any, error) {
 
 // allFileLines are every line of a file exporter's calls.jsonl, the
 // ledger's batch lines among them, once the proxy has stopped.
-func (w *world) allFileLines(i int) ([]map[string]any, error) {
-	w.settle()
-	data, err := os.ReadFile(filepath.Join(w.files[i].path, "calls.jsonl"))
+func (sut *fileExportSUT) allFileLines(i int) ([]map[string]any, error) {
+	sut.proxy.settle()
+	data, err := os.ReadFile(filepath.Join(sut.exporters[i].path, "calls.jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -583,8 +617,8 @@ func (w *world) allFileLines(i int) ([]map[string]any, error) {
 }
 
 // fileLine is the only line of a file exporter.
-func (w *world) fileLine(i int) (map[string]any, error) {
-	lines, err := w.fileLines(i)
+func (sut *fileExportSUT) fileLine(i int) (map[string]any, error) {
+	lines, err := sut.fileLines(i)
 	if err != nil {
 		return nil, err
 	}
@@ -595,8 +629,8 @@ func (w *world) fileLine(i int) (map[string]any, error) {
 }
 
 // lineAttrs are the attributes of the first file exporter's only line.
-func (w *world) lineAttrs() (map[string]any, error) {
-	line, err := w.fileLine(0)
+func (sut *fileExportSUT) lineAttrs() (map[string]any, error) {
+	line, err := sut.fileLine(0)
 	if err != nil {
 		return nil, err
 	}
@@ -605,8 +639,8 @@ func (w *world) lineAttrs() (map[string]any, error) {
 }
 
 // lineBody checks that an attribute of the line is want, base64 encoded.
-func (w *world) lineBody(key, want string) error {
-	attrs, err := w.lineAttrs()
+func (sut *fileExportSUT) lineBody(key, want string) error {
+	attrs, err := sut.lineAttrs()
 	if err != nil {
 		return err
 	}
@@ -621,9 +655,9 @@ func (w *world) lineBody(key, want string) error {
 }
 
 // waitForLines waits until calls.jsonl has n lines, while the proxy runs.
-func (w *world) waitForLines(n int) error {
+func (sut *fileExportSUT) waitForLines(n int) error {
 	written := eventually(waitLimit, func() bool {
-		data, _ := os.ReadFile(filepath.Join(w.files[0].path, "calls.jsonl"))
+		data, _ := os.ReadFile(filepath.Join(sut.exporters[0].path, "calls.jsonl"))
 		return bytes.Count(data, []byte("\n")) >= n
 	})
 	if !written {
@@ -698,4 +732,39 @@ components:
     query_key: { type: apiKey, in: query, name: key }
 `,
 	}
+}
+
+// fileExportSUT is the file exporters: the folders they write their lines to.
+type fileExportSUT struct {
+	proxy   *proxySUT
+	vendors *vendorsSUT
+	app     *appSUT
+	apis    *apisSUT
+	otlp    *otlpSUT
+	// exporters are the file exporters: each one's folder and more lines.
+	exporters []fileExporter
+}
+
+func newFileExportSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT) *fileExportSUT {
+	sut := &fileExportSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp}
+	root.addConfig(configExporters, sut.section)
+	return sut
+}
+
+// AddSteps adds the steps of the file exporters.
+func (sut *fileExportSUT) AddSteps(sc *godog.ScenarioContext) {
+	fileSteps(sc, sut)
+}
+
+// section is the config's file exporters.
+func (sut *fileExportSUT) section() string {
+	var b strings.Builder
+	for _, f := range sut.exporters {
+		if f.raw != "" {
+			b.WriteString(f.raw)
+			continue
+		}
+		fmt.Fprintf(&b, "  - file:\n      path: %s\n%s", f.path, f.extra)
+	}
+	return b.String()
 }

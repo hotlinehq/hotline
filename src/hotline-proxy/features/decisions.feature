@@ -74,7 +74,7 @@ Feature: The code still follows the decision log
 
     Scenario: program. No context kept in a struct, and long-lived signals close once
       Then the linter containedctx is on in .golangci.yaml
-      And the proxy code in onetimeevent.go holds "oneTimeEvent"
+      And the proxy code in internal/onetime/event.go holds "type Event struct"
 
   Rule: Rules about the repository's other files
 

@@ -113,24 +113,12 @@ func (c toldResponse) Body(contentIndex spec.ContentIndex, reads spec.Reads, bod
 	return c.t.body(int(contentIndex), reads, body)
 }
 
-// tell parses a spec with a told engine.
-func tell(doc string) (*told, *spec.Spec) {
-	t := &told{}
-	s, err := spec.Parse("test.yaml", []byte(doc), t.start)
-	Expect(err).NotTo(HaveOccurred())
-	return t, s
-}
-
-func parsed(doc string) *spec.Spec {
-	s, err := spec.Parse("test.yaml", []byte(doc), acceptAll)
-	Expect(err).NotTo(HaveOccurred())
-	return s
-}
-
 var _ = Describe("Checking a body", func() {
+	sut := specSUT{}
+
 	It("leaves out a body larger than the copy", func() {
-		s := parsed(spectest.Route("requestBody:\n  content:\n    application/x-www-form-urlencoded:\n      schema: { type: object }\nresponses: {}\n"))
-		got := s.Check(spec.Exchange{
+		sut.forSpec(spectest.Route("requestBody:\n  content:\n    application/x-www-form-urlencoded:\n      schema: { type: object }\nresponses: {}\n"))
+		got := sut.Check(spec.Exchange{
 			Method: "GET", EscapedPath: "/a",
 			Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}},
 			Body:   spec.Body{Data: []byte("a=1"), TooLarge: true},
@@ -140,8 +128,8 @@ var _ = Describe("Checking a body", func() {
 	})
 
 	It("reports a content type that cannot be read", func() {
-		s := parsed(spectest.Route("requestBody:\n  content:\n    application/json: {}\nresponses: {}\n"))
-		got := s.Check(spec.Exchange{
+		sut.forSpec(spectest.Route("requestBody:\n  content:\n    application/json: {}\nresponses: {}\n"))
+		got := sut.Check(spec.Exchange{
 			Method: "GET", EscapedPath: "/a",
 			Header: http.Header{"Content-Type": {";;"}},
 			Body:   spec.Body{Data: []byte(`1`)},
@@ -151,15 +139,17 @@ var _ = Describe("Checking a body", func() {
 })
 
 var _ = Describe("What spec tells the schema engine", func() {
+	sut := specSUT{}
+
 	It("hands over the shared schemas, each $ref named under $defs", func() {
-		t, _ := tell(spectest.Route("responses: {}\n") + `components:
+		sut.forToldSpec(spectest.Route("responses: {}\n") + `components:
   schemas:
     Count: { type: integer }
     Box: { properties: { count: { $ref: "#/components/schemas/Count" }, size: { $ref: "#/components/schemas/Box/properties/count" } } }
     Anything: true
     Nothing: false
 `)
-		Expect(t.defs).To(Equal(map[string]spec.Schema{
+		Expect(sut.SharedSchemas()).To(Equal(map[string]spec.Schema{
 			"Count": {"type": "integer"},
 			"Box": {"properties": map[string]any{
 				"count": map[string]any{"$ref": "#/$defs/Count"},
@@ -171,7 +161,7 @@ var _ = Describe("What spec tells the schema engine", func() {
 	})
 
 	It("describes each parameter, with where its value is", func() {
-		t, _ := tell(`openapi: 3.2.0
+		sut.forToldSpec(`openapi: 3.2.0
 paths:
   /a/{id}/{rest+}:
     get:
@@ -187,8 +177,8 @@ components:
   schemas:
     Id: { type: integer }
 `)
-		Expect(t.requests).To(HaveLen(1))
-		Expect(t.requests[0].Params).To(Equal([]spec.Param{
+		Expect(sut.RoutesTold()).To(HaveLen(1))
+		Expect(sut.RoutesTold()[0].Params).To(Equal([]spec.Param{
 			{Name: "id", In: "path", Required: true, Segment: 2, ItemSeparator: ",", Schema: spec.Schema{"$ref": "#/$defs/Id"}, Label: "path id"},
 			{Name: "rest", In: "path", Required: true, Segment: 3, Rest: true, ItemSeparator: ",", Label: "path rest"},
 			{Name: "tags", In: "query", Segment: -1, ItemSeparator: ",", Schema: spec.Schema{"type": "array"}, Label: "query tags"},
@@ -199,16 +189,16 @@ components:
 	})
 
 	It("describes a cookie of style cookie as taken as written", func() {
-		t, _ := tell(spectest.Route("parameters:\n  - { name: sid, in: cookie, style: cookie }\nresponses: {}\n"))
-		Expect(t.requests[0].Params).To(Equal([]spec.Param{
+		sut.forToldSpec(spectest.Route("parameters:\n  - { name: sid, in: cookie, style: cookie }\nresponses: {}\n"))
+		Expect(sut.RoutesTold()[0].Params).To(Equal([]spec.Param{
 			{Name: "sid", In: "cookie", Segment: -1, Explode: true, Spread: true, Label: "cookie sid"},
 		}))
 	})
 
 	DescribeTable("describes the whole query string as a query parameter read by its media type",
 		func(mediaType string, reads spec.Reads) {
-			t, _ := tell(spectest.Route("parameters:\n  - { name: q, in: querystring, content: { " + mediaType + ": { schema: { type: object } } } }\nresponses: {}\n"))
-			Expect(t.requests[0].Params).To(Equal([]spec.Param{
+			sut.forToldSpec(spectest.Route("parameters:\n  - { name: q, in: querystring, content: { " + mediaType + ": { schema: { type: object } } } }\nresponses: {}\n"))
+			Expect(sut.RoutesTold()[0].Params).To(Equal([]spec.Param{
 				{Name: "q", In: "query", Segment: -1, WholeQuery: reads, Schema: spec.Schema{"type": "object"}, Label: "querystring q"},
 			}))
 		},
@@ -218,24 +208,24 @@ components:
 	)
 
 	It("leaves out header parameters OpenAPI describes elsewhere", func() {
-		t, _ := tell(spectest.Route("parameters:\n  - { name: Accept, in: header, required: true }\n  - { in: header }\nresponses: {}\n"))
-		Expect(t.requests[0].Params).To(BeEmpty())
+		sut.forToldSpec(spectest.Route("parameters:\n  - { name: Accept, in: header, required: true }\n  - { in: header }\nresponses: {}\n"))
+		Expect(sut.RoutesTold()[0].Params).To(BeEmpty())
 	})
 
 	It("lets a method's parameter win over the path's", func() {
-		t, _ := tell("openapi: 3.2.0\npaths:\n  /a:\n    parameters:\n      - { name: q, in: query, required: true }\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n")
-		Expect(t.requests[0].Params).To(HaveLen(1))
-		Expect(t.requests[0].Params[0].Required).To(BeFalse())
+		sut.forToldSpec("openapi: 3.2.0\npaths:\n  /a:\n    parameters:\n      - { name: q, in: query, required: true }\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n")
+		Expect(sut.RoutesTold()[0].Params).To(HaveLen(1))
+		Expect(sut.RoutesTold()[0].Params[0].Required).To(BeFalse())
 	})
 
 	It("follows a $ref to a parameter, also one inside a list", func() {
-		t, _ := tell(spectest.Route("parameters:\n  - { name: q, in: query, required: true }\n  - { $ref: \"#/paths/~1a/get/parameters/0\" }\nresponses: {}\n"))
-		Expect(t.requests[0].Params).To(HaveLen(1))
-		Expect(t.requests[0].Params[0].Required).To(BeTrue())
+		sut.forToldSpec(spectest.Route("parameters:\n  - { name: q, in: query, required: true }\n  - { $ref: \"#/paths/~1a/get/parameters/0\" }\nresponses: {}\n"))
+		Expect(sut.RoutesTold()[0].Params).To(HaveLen(1))
+		Expect(sut.RoutesTold()[0].Params[0].Required).To(BeTrue())
 	})
 
 	It("describes each content, its marked fields and its XML", func() {
-		t, _ := tell(spectest.Route(`requestBody:
+		sut.forToldSpec(spectest.Route(`requestBody:
   content:
     application/json:
       schema:
@@ -252,7 +242,7 @@ responses:
     headers:
       X-Count: { required: true, schema: { type: integer } }
 `))
-		body := t.requests[0].Body
+		body := sut.RoutesTold()[0].Body
 		Expect(body).To(HaveLen(3))
 		Expect(body[0].Marked).To(Equal([]spec.Marked{
 			{Path: []string{"box", "count"}, Name: "shop.count", Types: []string{"integer"}},
@@ -262,15 +252,15 @@ responses:
 		Expect(body[0].XML).To(BeNil())
 		Expect(body[1].XML.Root).To(Equal("Order"))
 		Expect(body[2].Schema).To(BeNil())
-		Expect(t.responses).To(HaveLen(1))
-		Expect(t.responses[0].Headers).To(Equal([]spec.Param{
+		Expect(sut.ResponsesTold()).To(HaveLen(1))
+		Expect(sut.ResponsesTold()[0].Headers).To(Equal([]spec.Param{
 			{Name: "X-Count", In: "header", Required: true, Segment: -1, ItemSeparator: ",", Schema: spec.Schema{"type": "integer"}, Label: "the 200 response header X-Count"},
 		}))
 	})
 
 	DescribeTable("asks to check a body as the content it was sent as, read the way that content is",
 		func(contentType, want string) {
-			t, s := tell(spectest.Route(`requestBody:
+			sut.forToldSpec(spectest.Route(`requestBody:
   content:
     application/json: {}
     application/xml: {}
@@ -278,8 +268,8 @@ responses:
     text/plain: { x-hotline-body: json }
 responses: {}
 `))
-			got := s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: http.Header{"Content-Type": {contentType}}, Body: spec.Body{Data: []byte("x")}})
-			Expect(t.bodies).To(Equal([]string{want}))
+			got := sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: http.Header{"Content-Type": {contentType}}, Body: spec.Body{Data: []byte("x")}})
+			Expect(sut.BodiesTold()).To(Equal([]string{want}))
 			Expect(got.Copied).To(HaveLen(1))
 		},
 		Entry("JSON", "application/json; charset=utf-8", fmt.Sprintf("0 %d x", spec.ReadsJSON)),
@@ -290,23 +280,27 @@ responses: {}
 })
 
 var _ = Describe("Logging in", func() {
+	sut := specSUT{}
+
 	It("is open to all when one way needs nothing", func() {
 		doc := spectest.Route("security: [{ key: [] }, {}]\nresponses: {}\n") +
 			"components:\n  securitySchemes:\n    key: { type: apiKey, in: query, name: key }\n"
-		Expect(parsed(doc).Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request).To(BeEmpty())
+		Expect(sut.CheckWith(doc, spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request).To(BeEmpty())
 	})
 
 	It("is enough with any one complete way", func() {
 		doc := spectest.Route("security: [{ key: [] }, { session: [] }]\nresponses: {}\n") +
 			"components:\n  securitySchemes:\n    key: { type: apiKey, in: query, name: key }\n    session: { type: apiKey, in: cookie, name: sid }\n"
-		s := parsed(doc)
-		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: http.Header{"Cookie": {"sid=1"}}}).Request).To(BeEmpty())
-		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", RawQuery: "key=1"}).Request).To(BeEmpty())
-		Expect(spectest.Written(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request)).To(Equal("query key required"))
+		sut.forSpec(doc)
+		Expect(sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Header: http.Header{"Cookie": {"sid=1"}}}).Request).To(BeEmpty())
+		Expect(sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", RawQuery: "key=1"}).Request).To(BeEmpty())
+		Expect(spectest.Written(sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request)).To(Equal("query key required"))
 	})
 })
 
 var _ = Describe("Checking the response", func() {
+	sut := specSUT{}
+
 	doc := spectest.Route(`responses:
   2XX:
     description: Fine
@@ -315,7 +309,7 @@ var _ = Describe("Checking the response", func() {
 `)
 
 	It("reports a response body where the spec lists none", func() {
-		got := parsed(doc).Check(spec.Exchange{
+		got := sut.CheckWith(doc, spec.Exchange{
 			Method: "GET", EscapedPath: "/a", Status: 200,
 			ResponseHeader: http.Header{"Content-Type": {"application/json"}},
 			ResponseBody:   spec.Body{Data: []byte(`{}`)},
@@ -324,8 +318,8 @@ var _ = Describe("Checking the response", func() {
 	})
 
 	It("keeps the request's reason when both sides are skipped", func() {
-		s := parsed(spectest.Route("requestBody:\n  content:\n    application/json: {}\nresponses:\n  \"200\":\n    content:\n      application/json: {}\n"))
-		got := s.Check(spec.Exchange{
+		sut.forSpec(spectest.Route("requestBody:\n  content:\n    application/json: {}\nresponses:\n  \"200\":\n    content:\n      application/json: {}\n"))
+		got := sut.Check(spec.Exchange{
 			Method: "GET", EscapedPath: "/a", Header: http.Header{"Content-Type": {"application/json"}},
 			Body: spec.Body{TooLarge: true}, Status: 200,
 			ResponseHeader: http.Header{"Content-Type": {"text/event-stream"}},
@@ -334,15 +328,18 @@ var _ = Describe("Checking the response", func() {
 	})
 
 	It("does not check the response when the spec lists no responses", func() {
-		got := parsed("openapi: 3.2.0\npaths:\n  /a:\n    get: {}\n").Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 500})
+		sut.forSpec("openapi: 3.2.0\npaths:\n  /a:\n    get: {}\n")
+		got := sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 500})
 		Expect(got.Response).To(BeEmpty())
 	})
 })
 
 var _ = Describe("Specs the proxy cannot use", func() {
+	sut := specSUT{}
+
 	DescribeTable("are refused with the problem named",
 		func(doc, problem string) {
-			_, err := spec.Parse("test.yaml", []byte(doc), acceptAll)
+			err := sut.ParseError(doc)
 			Expect(err).To(MatchError(ContainSubstring(problem)))
 		},
 		Entry("a $ref to a parameter in another file",
@@ -360,42 +357,118 @@ var _ = Describe("Specs the proxy cannot use", func() {
 	)
 
 	It("reads responses written with plain numbers", func() {
-		s := parsed(spectest.Route("responses:\n  200:\n    description: Fine\n"))
-		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 200}).Response).To(BeEmpty())
+		sut.forSpec(spectest.Route("responses:\n  200:\n    description: Fine\n"))
+		Expect(sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a", Status: 200}).Response).To(BeEmpty())
 	})
 
 	It("is refused when the schema engine cannot start", func() {
-		_, err := spec.Parse("test.yaml", []byte(spectest.Route("responses:\n  \"200\": { description: Fine }\n")), failToStart)
+		err := sut.ParseErrorWithEngine(spectest.Route("responses:\n  \"200\": { description: Fine }\n"), failToStart)
 		Expect(err).To(MatchError(ContainSubstring("cannot be read as JSON Schema: the engine cannot start")))
 	})
 
 	It("skips a request body that is not an object", func() {
-		s := parsed(spectest.Route("requestBody: just text\nresponses: {}\n"))
-		Expect(s.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request).To(BeEmpty())
+		sut.forSpec(spectest.Route("requestBody: just text\nresponses: {}\n"))
+		Expect(sut.Check(spec.Exchange{Method: "GET", EscapedPath: "/a"}).Request).To(BeEmpty())
 	})
 })
 
 var _ = Describe("A route found once", func() {
+	sut := specSUT{}
+
 	doc := "openapi: 3.2.0\npaths:\n" +
 		"  /a/{id}:\n    get:\n      parameters:\n        - { name: id, in: path, x-hotline-redact: false }\n      responses: {}\n" +
 		"  /b/{id}:\n    get:\n      parameters:\n        - { name: q, in: query }\n      responses: {}\n"
 
 	It("is the one each check and the redaction use, without looking again", func() {
-		s := parsed(doc)
-		b := s.Find(spec.Exchange{Method: "GET", EscapedPath: "/b/1"})
+		sut.forSpec(doc)
+		b := sut.Find(spec.Exchange{Method: "GET", EscapedPath: "/b/1"})
 		e := spec.Exchange{Method: "GET", EscapedPath: "/a/1", RawQuery: "q=1"}
-		Expect(spectest.Written(s.CheckRequest(s.Find(e), e).Request)).To(Equal("query q not_in_spec"))
-		Expect(s.CheckRequest(b, e).Request).To(BeEmpty())
-		Expect(s.CheckResponse(b, e).Skipped).To(BeEmpty())
-		redacted := s.Redact(b, spec.Call{Origin: "https://x", EscapedPath: "/a/1"})
+		Expect(spectest.Written(sut.CheckRequest(sut.Find(e), e).Request)).To(Equal("query q not_in_spec"))
+		Expect(sut.CheckRequest(b, e).Request).To(BeEmpty())
+		Expect(sut.CheckResponse(b, e).Skipped).To(BeEmpty())
+		redacted := sut.Redact(b, spec.Call{Origin: "https://x", EscapedPath: "/a/1"})
 		Expect(redacted.Template).To(Equal("/b/{id}"))
 		Expect(redacted.URLFull).To(Equal("https://x/a/REDACTED"))
 	})
 
 	It("is none for a call the spec has no route for", func() {
-		s := parsed(doc)
-		none := s.Find(spec.Exchange{Method: "GET", EscapedPath: "/c"})
-		Expect(s.CheckRequest(none, spec.Exchange{Method: "GET", EscapedPath: "/a/1"}).Skipped).To(Equal("no_spec_route"))
-		Expect(s.Redact(none, spec.Call{Origin: "https://x", EscapedPath: "/a/1"}).Template).To(BeEmpty())
+		sut.forSpec(doc)
+		none := sut.Find(spec.Exchange{Method: "GET", EscapedPath: "/c"})
+		Expect(sut.CheckRequest(none, spec.Exchange{Method: "GET", EscapedPath: "/a/1"}).Skipped).To(Equal("no_spec_route"))
+		Expect(sut.Redact(none, spec.Call{Origin: "https://x", EscapedPath: "/a/1"}).Template).To(BeEmpty())
 	})
 })
+
+// specSUT is one spec parsed with a schema engine: one that lets
+// everything through, or one that keeps what spec tells it.
+type specSUT struct {
+	spec *spec.Spec
+	told *told
+}
+
+// forSpec parses doc with an engine that lets everything through.
+func (s *specSUT) forSpec(doc string) {
+	var err error
+	s.spec, err = spec.Parse("test.yaml", []byte(doc), acceptAll)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+}
+
+// forToldSpec parses doc with an engine that keeps what spec tells it.
+func (s *specSUT) forToldSpec(doc string) {
+	var err error
+	s.told = &told{}
+	s.spec, err = spec.Parse("test.yaml", []byte(doc), s.told.start)
+	Expect(err).WithOffset(1).NotTo(HaveOccurred())
+}
+
+// ParseError is why doc cannot be parsed with an engine that lets
+// everything through.
+func (s *specSUT) ParseError(doc string) error {
+	return s.ParseErrorWithEngine(doc, acceptAll)
+}
+
+// ParseErrorWithEngine is why doc cannot be parsed with this engine.
+func (*specSUT) ParseErrorWithEngine(doc string, engine spec.NewEngine) error {
+	_, err := spec.Parse("test.yaml", []byte(doc), engine)
+	return err
+}
+
+// Check checks one exchange against the spec.
+func (s *specSUT) Check(e spec.Exchange) spec.Checked { return s.spec.Check(e) }
+
+// CheckWith parses doc with an engine that lets everything through, and
+// checks one exchange against it.
+func (s *specSUT) CheckWith(doc string, e spec.Exchange) spec.Checked {
+	s.forSpec(doc)
+	return s.Check(e)
+}
+
+// Find is the route the spec has for an exchange.
+func (s *specSUT) Find(e spec.Exchange) spec.Route { return s.spec.Find(e) }
+
+// CheckRequest checks the request of an exchange on a route found before.
+func (s *specSUT) CheckRequest(r spec.Route, e spec.Exchange) spec.Checked {
+	return s.spec.CheckRequest(r, e)
+}
+
+// CheckResponse checks the response of an exchange on a route found
+// before.
+func (s *specSUT) CheckResponse(r spec.Route, e spec.Exchange) spec.Checked {
+	return s.spec.CheckResponse(r, e)
+}
+
+// Redact is the call as a record holds it, by a route found before.
+func (s *specSUT) Redact(r spec.Route, c spec.Call) spec.Redacted { return s.spec.Redact(r, c) }
+
+// SharedSchemas are the shared schemas spec handed the engine.
+func (s *specSUT) SharedSchemas() map[string]spec.Schema { return s.told.defs }
+
+// RoutesTold are the request sides of the routes spec told the engine of.
+func (s *specSUT) RoutesTold() []spec.RequestSpec { return s.told.requests }
+
+// ResponsesTold are the responses spec told the engine of.
+func (s *specSUT) ResponsesTold() []spec.ResponseSpec { return s.told.responses }
+
+// BodiesTold are the bodies the engine was asked to check: the content's
+// place, how it is read, and the body.
+func (s *specSUT) BodiesTold() []string { return s.told.bodies }

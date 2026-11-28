@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	proxy "hotline-proxy"
 	"io"
 	"net"
 	"net/netip"
@@ -35,8 +36,8 @@ type transparentConf struct {
 }
 
 // transparentSection is the transparent listener of the config.
-func (w *world) transparentSection() string {
-	c := w.transparent
+func (sut *transparentSUT) transparentSection() string {
+	c := sut.setting
 	if c == nil {
 		return ""
 	}
@@ -73,173 +74,173 @@ func yamlList(names []string) string {
 	return strings.Join(items, ", ")
 }
 
-func transparentSteps(sc *godog.ScenarioContext, w *world) {
+func transparentSteps(sc *godog.ScenarioContext, sut *transparentSUT) {
 	sc.Step(`^a certificate authority named customer in certs$`, func() error {
-		w.useAuthority(newAuthority())
+		sut.certs.useAuthority(newAuthority())
 		return nil
 	})
 	sc.Step(`^the transparent listener picks it(?: with integration "([^"]*)")?$`, func(id string) error {
-		w.transparent = &transparentConf{authority: "customer", integration: id}
+		sut.setting = &transparentConf{authority: "customer", integration: id}
 		return nil
 	})
 	sc.Step(`^the connect part picks the certificate authority named customer$`, func() error {
-		w.listenConnect = "  connect: { cert: customer }\n"
+		sut.connect.listenConnect = "  connect: { cert: customer }\n"
 		return nil
 	})
 	sc.Step(`^a second certificate authority named other, which the transparent listener picks$`, func() error {
 		second := newAuthority()
-		w.second = second
-		w.writeFile("ca/other-cert.pem", authorityCertPEM(second))
-		w.writeFile("ca/other-key.pem", authorityKeyPEM(second))
-		w.certEntries += "  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
-		w.transparent = &transparentConf{authority: "other"}
-		w.tunnelRoots.AddCert(second.cert)
+		sut.certs.second = second
+		sut.proxy.writeFile("ca/other-cert.pem", authorityCertPEM(second))
+		sut.proxy.writeFile("ca/other-key.pem", authorityKeyPEM(second))
+		sut.certs.certEntries += "  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
+		sut.setting = &transparentConf{authority: "other"}
+		sut.app.tunnelRoots.AddCert(second.cert)
 		return nil
 	})
 	sc.Step(`^the transparent listener lists (\S+) in (passthrough|ech.relay)$`, func(name, list string) error {
 		if list == "passthrough" {
-			w.transparent.passthrough = append(w.transparent.passthrough, name)
+			sut.setting.passthrough = append(sut.setting.passthrough, name)
 		} else {
-			w.transparent.relay = append(w.transparent.relay, name)
+			sut.setting.relay = append(sut.setting.relay, name)
 		}
 		return nil
 	})
 	sc.Step(`^the original destination of the connection is the address of (\S+)$`, func(host string) error {
-		w.original = netip.AddrPortFrom(w.vendor(host).ip, 443)
-		w.originalKnown = true
+		sut.original = netip.AddrPortFrom(sut.vendors.vendor(host).ip, 443)
+		sut.originalKnown = true
 		return nil
 	})
 	sc.Step(`^the original destination of the connection is (\S+)$`, func(address string) error {
-		w.original, w.originalKnown = netip.MustParseAddrPort(address), true
+		sut.original, sut.originalKnown = netip.MustParseAddrPort(address), true
 		return nil
 	})
 	sc.Step(`^the original destination cannot be read$`, func() error {
-		w.originalKnown = false
+		sut.originalKnown = false
 		return nil
 	})
 
 	sc.Step(`^the app (?:connects|has connected) to the listener naming (\S+) in the handshake$`, func(host string) error {
-		return w.transparentConnect(host, "")
+		return sut.transparentConnect(host, "")
 	})
 	sc.Step(`^the app retries without ECH naming (\S+)$`, func(host string) error {
-		return w.transparentConnect(host, "")
+		return sut.transparentConnect(host, "")
 	})
 	sc.Step(`^the app connects to the listener with no name in the handshake, calling the address of (\S+)$`, func(host string) error {
-		return w.transparentConnect(w.vendor(host).ip.String(), "")
+		return sut.transparentConnect(sut.vendors.vendor(host).ip.String(), "")
 	})
 	sc.Step(`^the app connects to the listener with no name in the handshake, calling (\S+)$`, func(ip string) error {
-		return w.transparentConnect(ip, "")
+		return sut.transparentConnect(ip, "")
 	})
 	sc.Step(`^the app connects to the listener with ECH and the outer name (\S+)$`, func(outer string) error {
-		w.vendor(outer)
-		return w.transparentConnect("api.talon.one", outer)
+		sut.vendors.vendor(outer)
+		return sut.transparentConnect("api.talon.one", outer)
 	})
 	sc.Step(`^the app opens two connections to the listener naming (\S+)$`, func(host string) error {
 		for range 2 {
-			if err := w.transparentConnect(host, ""); err != nil {
+			if err := sut.transparentConnect(host, ""); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	sc.Step(`^the app opens a tunnel to (\S+):(\d+) with CONNECT$`, func(host, port string) error {
-		return w.openTunnel(host, port, "")
+		return sut.connect.openTunnel(host, port, "")
 	})
 	sc.Step(`^the app sends its call$`, func() error {
-		return w.callInTunnel("Host: "+w.transparentHost, "X-Shop: shop-a")
+		return sut.app.callInTunnel("Host: "+sut.app.transparentHost, "X-Shop: shop-a")
 	})
 	sc.Step(`^the app sends its call with the header "([^"]+)"$`, func(header string) error {
-		return w.callInTunnel(header, "X-Shop: shop-a")
+		return sut.app.callInTunnel(header, "X-Shop: shop-a")
 	})
 	sc.Step(`^the app sends its call with Proxy-Authorization for (\S+)$`, func(id string) error {
-		return w.callInTunnel("Host: "+w.transparentHost, basic(id+":x"))
+		return sut.app.callInTunnel("Host: "+sut.app.transparentHost, basic(id+":x"))
 	})
 	sc.Step(`^the app sees a certificate for the IP (\S+) signed by the interception certificate authority$`, func(host string) error {
-		if w.tunnelErr != nil {
-			return failf("TLS with the listener failed: %v", w.tunnelErr)
+		if sut.app.tunnelErr != nil {
+			return failf("TLS with the listener failed: %v", sut.app.tunnelErr)
 		}
-		leaf := w.tunnelCerts[len(w.tunnelCerts)-1]
-		ip := netip.MustParseAddr(w.vendor(host).ip.String())
+		leaf := sut.app.tunnelCerts[len(sut.app.tunnelCerts)-1]
+		ip := netip.MustParseAddr(sut.vendors.vendor(host).ip.String())
 		if !slices.ContainsFunc(leaf.IPAddresses, func(a net.IP) bool { got, _ := netip.AddrFromSlice(a); return got.Unmap() == ip }) {
 			return failf("the certificate names the IPs %v, want %s", leaf.IPAddresses, ip)
 		}
-		return leaf.CheckSignatureFrom(w.interception.cert)
+		return leaf.CheckSignatureFrom(sut.certs.interception.cert)
 	})
 	sc.Step(`^the connection is closed with no TLS set up$`, func() error {
-		if w.tunnelErr == nil {
+		if sut.app.tunnelErr == nil {
 			return failf("TLS with the listener was set up")
 		}
-		return w.waitForRecords(1)
+		return sut.otlp.waitForRecords(1)
 	})
 	sc.Step(`^the app's TLS setup fails because the proxy answered as the outer name (\S+) and offered no ECH keys$`, func(outer string) error {
 		var rejected *tls.ECHRejectionError
-		if !errors.As(w.tunnelErr, &rejected) {
-			return failf("TLS failed with %v, want the app to see ECH rejected", w.tunnelErr)
+		if !errors.As(sut.app.tunnelErr, &rejected) {
+			return failf("TLS failed with %v, want the app to see ECH rejected", sut.app.tunnelErr)
 		}
 		if len(rejected.RetryConfigList) != 0 {
 			return failf("the proxy offered ECH keys")
 		}
-		if err := w.waitForRecords(1); err != nil {
+		if err := sut.otlp.waitForRecords(1); err != nil {
 			return err
 		}
 		return nil
 	})
 	sc.Step(`^the proxy dialed (\S+) by its name, never the address the app chose$`, func(host string) error {
-		if !w.network.triedToDial(w.vendor(host).ip.String()) {
+		if !sut.vendors.network.triedToDial(sut.vendors.vendor(host).ip.String()) {
 			return failf("the proxy did not connect to %s", host)
 		}
-		if w.originalKnown && w.network.triedToDial(w.original.Addr().String()) {
-			return failf("the proxy connected to the address the app chose, %s", w.original.Addr())
+		if sut.originalKnown && sut.vendors.network.triedToDial(sut.original.Addr().String()) {
+			return failf("the proxy connected to the address the app chose, %s", sut.original.Addr())
 		}
 		return nil
 	})
 	sc.Step(`^the proxy connected to the address of (\S+)$`, func(host string) error {
-		if !w.network.triedToDial(w.vendor(host).ip.String()) {
+		if !sut.vendors.network.triedToDial(sut.vendors.vendor(host).ip.String()) {
 			return failf("the proxy did not connect to %s", host)
 		}
 		return nil
 	})
 	sc.Step(`^the vendor's own certificate reaches the app, not one from the interception certificate authority$`, func() error {
-		if w.tunnelErr != nil {
-			return failf("TLS with the vendor failed: %v", w.tunnelErr)
+		if sut.app.tunnelErr != nil {
+			return failf("TLS with the vendor failed: %v", sut.app.tunnelErr)
 		}
-		leaf := w.tunnelCerts[len(w.tunnelCerts)-1]
-		if err := leaf.CheckSignatureFrom(w.authority.cert); err != nil {
+		leaf := sut.app.tunnelCerts[len(sut.app.tunnelCerts)-1]
+		if err := leaf.CheckSignatureFrom(sut.vendors.authority.cert); err != nil {
 			return failf("the certificate is not the vendor's: %v", err)
 		}
 		return nil
 	})
 	sc.Step(`^the app closes its connections$`, func() error {
-		for _, c := range w.tunnels {
+		for _, c := range sut.app.tunnels {
 			_ = c.Close()
 		}
 		return nil
 	})
 	sc.Step(`^the first address of (\S+) never answers$`, func(host string) error {
-		w.clock = &fakeClock{}
-		v := w.vendor(host)
+		sut.proxy.clock = &fakeClock{}
+		v := sut.vendors.vendor(host)
 		// Time goes by one wait at a time until the proxy gives up on the
 		// first address: the ledger's own waits may come first.
-		w.network.stuck = func() {
+		sut.vendors.network.stuck = func() {
 			go func() {
 				for range 20 {
-					if w.network.triedToDial(v.ip.String()) {
+					if sut.vendors.network.triedToDial(v.ip.String()) {
 						return
 					}
-					w.clock.passToNext()
+					sut.proxy.clock.passToNext()
 					pause(10 * time.Millisecond)
 				}
 			}()
 		}
 		dead := netip.MustParseAddr("192.0.2.77")
-		w.network.mu.Lock()
-		w.network.names[host] = []netip.Addr{dead, v.ip}
-		w.network.mu.Unlock()
-		w.network.setHang("192.0.2.77:443")
+		sut.vendors.network.mu.Lock()
+		sut.vendors.network.names[host] = []netip.Addr{dead, v.ip}
+		sut.vendors.network.mu.Unlock()
+		sut.vendors.network.setHang("192.0.2.77:443")
 		return nil
 	})
 	sc.Step(`^the record's hotline.timing.total_us is at least (\d+) seconds, half of the relay's 30 second connect wait$`, func(seconds int) error {
-		record, err := w.lastRecord()
+		record, err := sut.otlp.lastRecord()
 		if err != nil {
 			return err
 		}
@@ -253,20 +254,20 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^both relays' records are made and (\d+) seconds pass$`, func(seconds int) error {
-		if _, err := w.waitRecords(2); err != nil {
+		if _, err := sut.otlp.waitRecords(2); err != nil {
 			return err
 		}
-		w.clock.pass(time.Duration(seconds) * time.Second)
+		sut.proxy.clock.pass(time.Duration(seconds) * time.Second)
 		return nil
 	})
 	sc.Step(`^the two relays' records are in two batches of one chain, each naming its own config$`, func() error {
-		records, err := w.waitRecords(2)
+		records, err := sut.otlp.waitRecords(2)
 		if err != nil {
 			return err
 		}
 		// ci-lint is not an integration of the config, so its calls go on
 		// the not-passed chain.
-		batches, err := w.chain("not-passed", 2)
+		batches, err := sut.otlp.chain("not-passed", 2)
 		if err != nil {
 			return err
 		}
@@ -283,19 +284,19 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 		return checkChain(batches)
 	})
 	sc.Step(`^the name (\S+) has no address$`, func(host string) error {
-		w.vendor(host)
-		w.network.forget(host)
+		sut.vendors.vendor(host)
+		sut.vendors.network.forget(host)
 		return nil
 	})
 	sc.Step(`^the app sends (.+) to the listener$`, func(kind string) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", w.transparentAddr)
+		conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", sut.transparentAddr)
 		if err != nil {
 			return err
 		}
-		w.tunnels = append(w.tunnels, conn)
+		sut.app.tunnels = append(sut.app.tunnels, conn)
 		if _, err := conn.Write(oddHello(kind)); err != nil {
 			return err
 		}
@@ -304,68 +305,68 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		_, _ = io.Copy(io.Discard, conn)
-		w.tunnelErr = errProxyClosed
+		sut.app.tunnelErr = errProxyClosed
 		return nil
 	})
 	sc.Step(`^the config file adds (\S+) to the transparent listener's passthrough$`, func(name string) error {
-		w.transparent.passthrough = append(w.transparent.passthrough, name)
-		w.writeFile("hotline-proxy.yaml", w.config())
+		sut.setting.passthrough = append(sut.setting.passthrough, name)
+		sut.proxy.writeFile("hotline-proxy.yaml", sut.proxy.configText())
 		return nil
 	})
 	sc.Step(`^the config file drops the transparent listener$`, func() error {
-		w.transparent = nil
-		w.writeFile("hotline-proxy.yaml", w.config())
+		sut.setting = nil
+		sut.proxy.writeFile("hotline-proxy.yaml", sut.proxy.configText())
 		return nil
 	})
 	sc.Step(`^the app's TLS setup fails$`, func() error {
-		if w.tunnelErr == nil {
+		if sut.app.tunnelErr == nil {
 			return failf("TLS with the listener was set up")
 		}
 		return nil
 	})
-	sc.Step(`^the (?:transparent|capture) record has (.+)$`, w.transparentRecordWith)
+	sc.Step(`^the (?:transparent|capture) record has (.+)$`, sut.transparentRecordWith)
 
 	sc.Step(`^another program listens on the transparent listener address$`, func() error {
 		l := listenLocal()
-		w.listeners = append(w.listeners, l)
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: l.Addr().String(), authority: "customer"}
-		w.busy = w.transparent.address
+		sut.proxy.opened = append(sut.proxy.opened, l)
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: l.Addr().String(), authority: "customer"}
+		sut.proxy.busy = sut.setting.address
 		return nil
 	})
 	sc.Step(`^the transparent listener is added$`, func() error {
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer"}
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "customer"}
 		return nil
 	})
 	sc.Step(`^the transparent listener lists an ech.relay name that is not a host name$`, func() error {
-		w.problem = `ech.relay "a/b" must be a host name`
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", relay: []string{"a/b"}}
+		sut.proxy.problem = `ech.relay "a/b" must be a host name`
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "customer", relay: []string{"a/b"}}
 		return nil
 	})
 	sc.Step(`^the transparent listener names a cert that is not in certs$`, func() error {
-		w.problem = "listener transparent: transparent names the cert gone, which is not in certs"
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "gone"}
+		sut.proxy.problem = "listener transparent: transparent names the cert gone, which is not in certs"
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "gone"}
 		return nil
 	})
 	sc.Step(`^the transparent listener names no cert$`, func() error {
-		w.problem = "listener transparent: transparent needs a cert"
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", without: "cert"}
+		sut.proxy.problem = "listener transparent: transparent needs a cert"
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "customer", without: "cert"}
 		return nil
 	})
 	sc.Step(`^the transparent listener has no address$`, func() error {
-		w.problem = "listener transparent needs an address"
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{authority: "customer", without: "address"}
+		sut.proxy.problem = "listener transparent needs an address"
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{authority: "customer", without: "address"}
 		return nil
 	})
 	sc.Step(`^the transparent listener lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
-		w.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{address: w.ports.take(), authority: "customer", passthrough: []string{"api.*.com"}}
+		sut.proxy.problem = `passthrough "api.*.com" must be a host name or "*." and a suffix`
+		sut.certs.useAuthority(newAuthority())
+		sut.setting = &transparentConf{address: sut.proxy.ports.take(), authority: "customer", passthrough: []string{"api.*.com"}}
 		return nil
 	})
 }
@@ -373,11 +374,11 @@ func transparentSteps(sc *godog.ScenarioContext, w *world) {
 // transparentRecordWith checks that the last record is a minimal record of a
 // connection that never became a call, with the fields listed as
 // "key value", separated by commas and "and".
-func (w *world) transparentRecordWith(fields string) error {
-	if err := w.waitForRecords(1); err != nil {
+func (sut *transparentSUT) transparentRecordWith(fields string) error {
+	if err := sut.otlp.waitForRecords(1); err != nil {
 		return err
 	}
-	record, err := w.lastRecord()
+	record, err := sut.otlp.lastRecord()
 	if err != nil {
 		return err
 	}
@@ -406,25 +407,25 @@ func (w *world) transparentRecordWith(fields string) error {
 // ECH with that outer name, as an app does that found an ECH config for
 // the real host. The result is kept like a tunnel's: w.tunnel, w.tunnelCerts
 // and w.tunnelErr.
-func (w *world) transparentConnect(host, outer string) error {
-	if err := w.start(); err != nil {
+func (sut *transparentSUT) transparentConnect(host, outer string) error {
+	if err := sut.proxy.start(); err != nil {
 		return err
 	}
-	if w.transparentAddr == "" {
+	if sut.transparentAddr == "" {
 		return failf("the scenario has no the transparent listener")
 	}
 	if net.ParseIP(host) == nil {
-		w.vendor(host)
+		sut.vendors.vendor(host)
 	}
-	w.transparentHost = host
-	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", w.transparentAddr)
+	sut.app.transparentHost = host
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(context.Background(), "tcp", sut.transparentAddr)
 	if err != nil {
 		return err
 	}
-	w.tunnels = append(w.tunnels, conn)
-	roots := w.tunnelRoots.Clone()
+	sut.app.tunnels = append(sut.app.tunnels, conn)
+	roots := sut.app.tunnelRoots.Clone()
 	// A relayed connection shows the vendor's own certificate.
-	roots.AddCert(w.authority.cert)
+	roots.AddCert(sut.vendors.authority.cert)
 	config := &tls.Config{RootCAs: roots, ServerName: host, NextProtos: []string{"http/1.1"}, MinVersion: tls.VersionTLS12}
 	if outer != "" {
 		config.MinVersion = tls.VersionTLS13
@@ -432,11 +433,11 @@ func (w *world) transparentConnect(host, outer string) error {
 	}
 	client := tls.Client(conn, config)
 	_ = client.SetDeadline(time.Now().Add(10 * time.Second))
-	w.tunnelErr = client.HandshakeContext(context.Background())
+	sut.app.tunnelErr = client.HandshakeContext(context.Background())
 	_ = client.SetDeadline(time.Time{})
 	if state := client.ConnectionState(); state.HandshakeComplete {
-		w.tunnelCerts = append(w.tunnelCerts, state.PeerCertificates[0])
-		w.tunnel = client
+		sut.app.tunnelCerts = append(sut.app.tunnelCerts, state.PeerCertificates[0])
+		sut.app.tunnel = client
 	}
 	return nil
 }
@@ -510,4 +511,50 @@ func oddHello(kind string) []byte {
 		return record(handshake(1, append(body, 0, 0, 0, 0)))
 	}
 	return nil
+}
+
+var errNoOriginal = errors.New("the original destination is not known")
+
+// transparentSUT is the transparent ingress: connections the network sends
+// to the proxy without the app knowing.
+type transparentSUT struct {
+	proxy   *proxySUT
+	vendors *vendorsSUT
+	certs   *certsSUT
+	app     *appSUT
+	otlp    *otlpSUT
+	connect *connectSUT
+	// setting is the transparent listener, when the scenario has one, and
+	// transparentAddr the address start picked for it.
+	setting         *transparentConf
+	transparentAddr string
+	// original is what the app's connection was first sent to, when
+	// originalKnown lets the proxy read it.
+	original      netip.AddrPort
+	originalKnown bool
+}
+
+func newTransparentSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *appSUT, otlp *otlpSUT, connect *connectSUT) *transparentSUT {
+	sut := &transparentSUT{proxy: root, vendors: vendors, certs: certs, app: app, otlp: otlp, connect: connect}
+	root.beforeEachStart(func() {
+		if sut.setting != nil && sut.setting.address == "" && sut.setting.without != "address" {
+			root.pick(&sut.setting.address)
+			sut.transparentAddr = sut.setting.address
+		}
+	})
+	root.addConfig(configIngressListeners, sut.transparentSection)
+	root.addOption(func(o *proxy.Options) {
+		o.OriginalDestination = func(net.Conn) (netip.AddrPort, error) {
+			if !sut.originalKnown {
+				return netip.AddrPort{}, errNoOriginal
+			}
+			return sut.original, nil
+		}
+	})
+	return sut
+}
+
+// AddSteps adds the steps of the transparent ingress.
+func (sut *transparentSUT) AddSteps(sc *godog.ScenarioContext) {
+	transparentSteps(sc, sut)
 }

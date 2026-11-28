@@ -10,6 +10,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"hotline-proxy/internal/queuefiles"
 )
 
 // batchSize is how many records or spans one send carries at most.
@@ -92,6 +94,19 @@ type QueueSetup struct {
 	// Send sends one batch; Close closes the sender once the queue stops.
 	Send  func(context.Context, [][]byte) error
 	Close func(context.Context) error
+	// Disk, when it names a folder, is where the queue keeps what does not
+	// fit in memory; what an earlier run left there is sent first.
+	Disk QueueDisk
+}
+
+// QueueDisk is the folder a queue keeps what does not fit in memory in,
+// and the budget of bytes it shares with the exporter's other queue. Spans
+// says the queue holds spans, each call's kept together, rather than
+// records.
+type QueueDisk struct {
+	Folder string
+	Budget *queuefiles.Budget
+	Spans  bool
 }
 
 // QueueCounts are the counters of what a queue sent and dropped, and the
@@ -102,8 +117,32 @@ type QueueCounts struct {
 	Labels  attribute.Set
 }
 
-// NewQueue starts a queue that sends on its own every interval.
-func NewQueue(s QueueSetup) *Queue {
+// NewQueue starts a queue that sends on its own every interval. It fails
+// only when the disk folder cannot be opened.
+func NewQueue(s QueueSetup) (*Queue, error) {
+	q := buildQueue(s)
+	if s.Disk.Folder != "" {
+		kind := queuefiles.Record
+		if s.Disk.Spans {
+			kind = queuefiles.Spans
+		}
+		o, err := newDiskQueue(s.Disk.Folder, s.Disk.Budget, diskQueueSetup{
+			kind: kind, logger: s.Logger, name: s.ExporterName, dropped: s.Counts.Dropped, labels: s.Counts.Labels, kick: q.wake,
+		})
+		if err != nil {
+			return nil, err
+		}
+		q.disk = o
+	}
+	go q.run()
+	if q.disk != nil && !q.disk.empty() {
+		q.wake()
+	}
+	return q, nil
+}
+
+// newMemoryQueue starts a queue with no disk folder, which cannot fail.
+func newMemoryQueue(s QueueSetup) *Queue {
 	q := buildQueue(s)
 	go q.run()
 	return q
@@ -296,10 +335,7 @@ func nextWait(last time.Duration) time.Duration {
 
 // busyErr says the collector was busy or could not be reached: the
 // items are kept and tried again.
-func busyErr(err error) bool {
-	var b busy
-	return errors.As(err, &b)
-}
+func busyErr(err error) bool { return errors.Is(err, ErrBusy) }
 
 // send sends what is queued, in batches: all of it when flushing, else
 // while a whole batch waits. A batch leaves the queue once the collector
@@ -355,7 +391,7 @@ func (q *Queue) sendDisk(ctx context.Context) error {
 		}
 		q.batch = q.batch[:0]
 		for _, item := range read {
-			q.batch = append(q.batch, item.items...)
+			q.batch = append(q.batch, item.Parts...)
 		}
 		n := len(q.batch)
 		err := q.export(ctx, q.batch)
@@ -529,41 +565,15 @@ func (q *Queue) flushUntil(ctx context.Context, dropLeft bool) error {
 // newItemQueue is the queue of one kind of written items for one
 // exporter. A send writes the waiting items into one request, in a
 // buffer and a zipper the queue keeps, since its sends come one at a time.
-// With a disk folder, what does not fit in memory goes there; what an
-// earlier run left there is sent first.
-func newItemQueue(k signal, t *httpTransport, resource []byte, timeout time.Duration, s QueueSetup, disk diskSetup) (*Queue, error) {
+func newItemQueue(k signal, t *httpTransport, resource []byte, timeout time.Duration, s QueueSetup) (*Queue, error) {
 	var body []byte
 	z := t.newZipper()
-	send := func(ctx context.Context, items [][]byte) error {
+	s.Send = func(ctx context.Context, items [][]byte) error {
 		body = appendBatch(body[:0], resource, items)
 		return sendWithRetry(ctx, t, k, z, body, timeout)
 	}
 	// The exporter closes the transport once both queues are done.
-	s.Send, s.Close = send, nil
-	q := buildQueue(s)
-	if disk.folder != "" {
-		kind := kindRecord
-		if k == spans {
-			kind = kindSpans
-		}
-		o, err := newDiskQueue(disk.folder, disk.budget, diskQueueSetup{
-			kind: kind, logger: s.Logger, name: s.ExporterName, dropped: s.Counts.Dropped, labels: s.Counts.Labels, kick: q.wake,
-		})
-		if err != nil {
-			return nil, err
-		}
-		q.disk = o
-	}
-	go q.run()
-	if q.disk != nil && !q.disk.empty() {
-		q.wake()
-	}
-	return q, nil
-}
-
-// diskSetup is where an exporter's queue keeps what does not fit in
-// memory, and the budget its signals share; no folder for none.
-type diskSetup struct {
-	folder string
-	budget *diskBudget
+	s.Close = nil
+	s.Disk.Spans = k == spans
+	return NewQueue(s)
 }

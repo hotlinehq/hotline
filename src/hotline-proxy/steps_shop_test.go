@@ -17,15 +17,15 @@ import (
 
 // shopSteps drive the proxy with the apis of the shop example's config,
 // testdata/aws/hotline-proxy.yaml: each its stable spec and its overlay.
-func shopSteps(sc *godog.ScenarioContext, w *world) {
+func shopSteps(sc *godog.ScenarioContext, sut *awsSUT) {
 	var host string
 	sc.Step(`^the shop api (\S+)$`, func(name string) error {
 		var err error
-		host, err = w.exampleAPI(name)
+		host, err = sut.exampleAPI(name)
 		return err
 	})
 	sc.Step(`^AWS answers (\d+) with the json body (.*)$`, func(status int, body string) error {
-		w.vendor(host).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor(host).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", r.Header.Get("Content-Type"))
 			rw.WriteHeader(status)
@@ -34,7 +34,7 @@ func shopSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the app calls (\S+) with the json body (.*)$`, func(target, body string) error {
-		return w.awsCall(host, target, body)
+		return sut.awsCall(host, target, body)
 	})
 	sc.Step(`^the app puts a Kinesis record holding (.*)$`, func(data string) error {
 		body, err := json.Marshal(map[string]string{
@@ -44,14 +44,14 @@ func shopSteps(sc *godog.ScenarioContext, w *world) {
 		if err != nil {
 			return err
 		}
-		return w.awsCall(host, "Kinesis_20131202.PutRecord", string(body))
+		return sut.awsCall(host, "Kinesis_20131202.PutRecord", string(body))
 	})
-	shopNewerSteps(sc, w, &host)
+	shopNewerSteps(sc, sut, &host)
 }
 
 // exampleAPI adds the named api of the shop example's config, with its spec and
 // overlays, used by the app's integration, and gives its host.
-func (w *world) exampleAPI(name string) (string, error) {
+func (sut *awsSUT) exampleAPI(name string) (string, error) {
 	dir := filepath.Join("testdata", "aws")
 	data, err := os.ReadFile(filepath.Join(dir, "hotline-proxy.yaml")) //nolint:gosec // the test's own file
 	if err != nil {
@@ -74,7 +74,7 @@ func (w *world) exampleAPI(name string) (string, error) {
 	copyFile := func(from string) (string, error) {
 		content, err := os.ReadFile(filepath.Join(dir, from)) //nolint:gosec // files the test's config names
 		to := "specs/" + strings.NewReplacer("/", "-", "..-", "").Replace(from)
-		w.writeFile(to, string(content))
+		sut.proxy.writeFile(to, string(content))
 		return "./" + to, err
 	}
 	spec, err := copyFile(api.Spec)
@@ -89,14 +89,14 @@ func (w *world) exampleAPI(name string) (string, error) {
 		}
 		overlays = append(overlays, path)
 	}
-	line := w.api(name, "    hosts: ["+api.Hosts[0]+"]\n    spec: "+spec+"\n    overlays: ["+strings.Join(overlays, ", ")+"]\n")
-	w.addIntegration(integration(w.appID, line))
+	line := sut.apis.api(name, "    hosts: ["+api.Hosts[0]+"]\n    spec: "+spec+"\n    overlays: ["+strings.Join(overlays, ", ")+"]\n")
+	sut.apis.addIntegration(integration(sut.app.appID, line))
 	return api.Hosts[0], nil
 }
 
 // awsCall sends one call on AWS's JSON protocol, as the SDK signs it, to
 // the host, naming the action in X-Amz-Target.
-func (w *world) awsCall(host, target, body string) error {
+func (sut *awsSUT) awsCall(host, target, body string) error {
 	// DynamoDB, SQS and Step Functions speak AWS JSON 1.0, the others 1.1.
 	version := "1.1"
 	for _, prefix := range []string{"DynamoDB_", "AmazonSQS.", "AWSStepFunctions."} {
@@ -110,10 +110,10 @@ func (w *world) awsCall(host, target, body string) error {
 		"X-Amz-Date: 20261101T100000Z",
 		"X-Amz-Target: " + target,
 	}
-	if w.appID != "" {
-		lines = append([]string{basic(w.appID + ":x")}, lines...)
+	if sut.app.appID != "" {
+		lines = append([]string{basic(sut.app.appID + ":x")}, lines...)
 	}
-	return w.send(request{
+	return sut.app.send(request{
 		method:  http.MethodPost,
 		target:  "http://" + host + "/",
 		headers: lines,
@@ -124,7 +124,7 @@ func (w *world) awsCall(host, target, body string) error {
 
 // shopNewerSteps drive the shop's apis on AWS's query protocol (SNS and
 // STS) and its REST and JSON protocol (Lambda and SES).
-func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
+func shopNewerSteps(sc *godog.ScenarioContext, sut *awsSUT, api *string) {
 	host := func() (string, error) {
 		if *api == "" {
 			return "", failf("no shop api was added")
@@ -137,7 +137,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 			return err
 		}
 		contentType := map[string]string{"xml": "text/xml", "json": "application/json"}[kind]
-		w.vendor(h).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor(h).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", contentType)
 			for _, line := range strings.Split(headers, ";") {
@@ -155,7 +155,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 		if err != nil {
 			return err
 		}
-		return w.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
+		return sut.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
 	})
 	sc.Step(`^the app publishes (.+) to the topic (\S+)$`, func(message, topic string) error {
 		h, err := host()
@@ -163,7 +163,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 			return err
 		}
 		body := url.Values{"Action": {"Publish"}, "Version": {"2010-03-31"}, "TopicArn": {topic}, "Message": {message}}.Encode()
-		return w.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
+		return sut.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
 	})
 	sc.Step(`^the app takes on the role (\S+)$`, func(role string) error {
 		h, err := host()
@@ -171,17 +171,17 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 			return err
 		}
 		body := url.Values{"Action": {"AssumeRole"}, "Version": {"2011-06-15"}, "RoleArn": {role}, "RoleSessionName": {"invoices"}}.Encode()
-		return w.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
+		return sut.restCall(h, http.MethodPost, "/", "application/x-www-form-urlencoded", body)
 	})
 	sc.Step(`^the app sends AWS POST (\S+) with the (\S+) body (.*)$`, func(path, contentType, body string) error {
 		h, err := host()
 		if err != nil {
 			return err
 		}
-		return w.restCall(h, http.MethodPost, path, contentType, body)
+		return sut.restCall(h, http.MethodPost, path, contentType, body)
 	})
 	sc.Step(`^the record's url.full ends with (\S+)$`, func(end string) error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
@@ -191,7 +191,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 		return nil
 	})
 	sc.Step(`^the record keeps the response header (\S+) as (\S+)$`, func(name, value string) error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
@@ -202,10 +202,10 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 	})
 	sc.Step(`^no record and no span holds (.+)$`, func(list string) error {
 		var all []string
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			all = append(all, fmt.Sprint(r.attrs))
 		}
-		for _, s := range w.receivers[0].spans() {
+		for _, s := range sut.otlp.receivers[0].spans() {
 			all = append(all, fmt.Sprint(s.attrs))
 		}
 		if len(all) == 0 {
@@ -221,7 +221,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 	})
 	sc.Step(`^the first invoices record is AssumeRole, and checkout made no SQS call$`, func() error {
 		var first string
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			id, template := fmt.Sprint(r.attrs["hotline.integration.id"]), fmt.Sprint(r.attrs["url.template"])
 			if id == "invoices" && first == "" {
 				first = template
@@ -236,7 +236,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 		return nil
 	})
 	sc.Step(`^the (checkout|invoices) record for (\S+) has the (request|response) results (.+)$`, func(id, template, side, want string) error {
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			if r.attrs["hotline.integration.id"] != id || r.attrs["url.template"] != template {
 				continue
 			}
@@ -254,14 +254,14 @@ func shopNewerSteps(sc *godog.ScenarioContext, w *world, api *string) {
 }
 
 // restCall sends one signed call with a body to the host.
-func (w *world) restCall(host, method, path, contentType, body string) error {
+func (sut *awsSUT) restCall(host, method, path, contentType, body string) error {
 	lines := []string{
 		"Content-Type: " + contentType,
 		"Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261101/eu-west-1/x/aws4_request, SignedHeaders=host;x-amz-date, Signature=0",
 		"X-Amz-Date: 20261101T100000Z",
 	}
-	if w.appID != "" {
-		lines = append([]string{basic(w.appID + ":x")}, lines...)
+	if sut.app.appID != "" {
+		lines = append([]string{basic(sut.app.appID + ":x")}, lines...)
 	}
-	return w.send(request{method: method, target: "http://" + host + path, headers: lines, body: strings.NewReader(body), length: len(body)})
+	return sut.app.send(request{method: method, target: "http://" + host + path, headers: lines, body: strings.NewReader(body), length: len(body)})
 }

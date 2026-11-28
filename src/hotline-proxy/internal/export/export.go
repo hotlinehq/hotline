@@ -30,6 +30,7 @@ import (
 
 	"hotline-proxy/internal/config"
 	"hotline-proxy/internal/ledger"
+	"hotline-proxy/internal/queuefiles"
 )
 
 // Timing says how long one send to an exporter may take, retries
@@ -139,6 +140,10 @@ const fileInterval = 100 * time.Millisecond
 // fileQueueSize is how many calls wait for a file exporter at most.
 const fileQueueSize = 10_000
 
+// queueLockFile is held in an exporter's queueFolder while a proxy uses
+// it.
+const queueLockFile = "hotline.lock"
+
 // Setup is what New needs: the exporters from the config, where the
 // console writes, the roots TLS trusts, and how the proxy describes and
 // times itself.
@@ -199,7 +204,7 @@ func New(setup Setup) (*Exporters, error) {
 			Close:  func(context.Context) error { return writer.close() },
 		}
 		s.files = append(s.files, fileExporter{
-			queue:  NewQueue(setup),
+			queue:  newMemoryQueue(setup),
 			writer: writer,
 			up:     up,
 			place:  attribute.NewSet(label),
@@ -220,12 +225,13 @@ func New(setup Setup) (*Exporters, error) {
 		spanSetup.Counts.Labels = signalLabels(e, "span")
 		spanSetup.Interval = e.TraceInterval
 		d := exporter{transport: t, up: up, place: attribute.NewSet(exporterLabel(e))}
-		recordDisk, spanDisk, err := d.openDisk(e)
+		var err error
+		logSetup.Disk, spanSetup.Disk, err = d.openDisk(e)
 		if err == nil {
-			d.queue, err = newItemQueue(records, t, written, timing.Timeout, logSetup, recordDisk)
+			d.queue, err = newItemQueue(records, t, written, timing.Timeout, logSetup)
 		}
 		if err == nil {
-			d.spans, err = newItemQueue(spans, t, written, timing.Timeout, spanSetup, spanDisk)
+			d.spans, err = newItemQueue(spans, t, written, timing.Timeout, spanSetup)
 		}
 		if err != nil {
 			s.exporters = append(s.exporters, d)
@@ -307,22 +313,22 @@ func (s *Exporters) closeAll() {
 // openDisk takes an exporter's queueFolder, with its lock, and gives
 // where its records and its spans go when memory is full: no folder when
 // the config names none.
-func (d *exporter) openDisk(e config.Exporter) (diskSetup, diskSetup, error) {
+func (d *exporter) openDisk(e config.Exporter) (QueueDisk, QueueDisk, error) {
 	if e.QueueFolder == "" {
-		return diskSetup{}, diskSetup{}, nil
+		return QueueDisk{}, QueueDisk{}, nil
 	}
 	lock, err := os.OpenFile(filepath.Join(e.QueueFolder, queueLockFile), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return diskSetup{}, diskSetup{}, err
+		return QueueDisk{}, QueueDisk{}, err
 	}
 	if err := lockExclusive(lock); err != nil {
 		_ = lock.Close()
-		return diskSetup{}, diskSetup{}, ErrFolderTaken
+		return QueueDisk{}, QueueDisk{}, ErrFolderTaken
 	}
 	d.lock = lock
-	budget := &diskBudget{limit: e.QueueDisk}
-	return diskSetup{folder: filepath.Join(e.QueueFolder, "records"), budget: budget},
-		diskSetup{folder: filepath.Join(e.QueueFolder, "spans"), budget: budget}, nil
+	budget := queuefiles.NewBudget(e.QueueDisk)
+	return QueueDisk{Folder: filepath.Join(e.QueueFolder, "records"), Budget: budget},
+		QueueDisk{Folder: filepath.Join(e.QueueFolder, "spans"), Budget: budget}, nil
 }
 
 // ServiceName is the service.name every exporter sends records with: the

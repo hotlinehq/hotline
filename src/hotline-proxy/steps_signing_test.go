@@ -104,20 +104,20 @@ func newSigningAuthority(kind, name string, above *signingAuthority, until time.
 
 // useSigningAuthority writes the authority's files and names it batches in
 // certs, and writes its root to root.pem, for verify's --root-authority.
-func (w *world) useSigningAuthority(a *signingAuthority) {
+func (sut *ledgerSUT) useSigningAuthority(a *signingAuthority) {
 	var certs strings.Builder
 	for _, c := range a.certs {
 		certs.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}))
 	}
 	key, _ := x509.MarshalPKCS8PrivateKey(a.key)
-	w.writeFile("batches/cert.pem", certs.String())
-	w.writeFile("batches/key.pem", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})))
-	w.writeFile("root.pem", string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.root().Raw})))
-	if w.certEntries == "" {
-		w.certEntries = "certs:\n"
+	sut.proxy.writeFile("batches/cert.pem", certs.String())
+	sut.proxy.writeFile("batches/key.pem", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})))
+	sut.proxy.writeFile("root.pem", string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.root().Raw})))
+	if sut.certs.certEntries == "" {
+		sut.certs.certEntries = "certs:\n"
 	}
-	if !strings.Contains(w.certEntries, "  batches:") {
-		w.certEntries += "  batches: { cert: ./batches/cert.pem, key: ./batches/key.pem }\n"
+	if !strings.Contains(sut.certs.certEntries, "  batches:") {
+		sut.certs.certEntries += "  batches: { cert: ./batches/cert.pem, key: ./batches/key.pem }\n"
 	}
 }
 
@@ -181,12 +181,12 @@ func keyKind(certificate *x509.Certificate) string {
 // signingSteps are the steps of signing the batches with the proxy's own
 // keys, by themselves or under an authority from certs, and of verify's
 // checks of them.
-func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
+func signingSteps(sc *godog.ScenarioContext, sut *ledgerSUT, result *verified) {
 	// authority is the scenario's authority named batches in certs, and
 	// first is the one before a reload replaced it.
 	var authority, first *signingAuthority
 	firstBatch := func() (receivedRecord, *x509.Certificate, error) {
-		batches, err := w.waitBatches(1)
+		batches, err := sut.waitBatches(1)
 		if err != nil {
 			return receivedRecord{}, nil, err
 		}
@@ -214,7 +214,7 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 		return nil
 	})
 	sc.Step(`^the config sets ledger signing hourlyKeyType (\S+)$`, func(keyType string) error {
-		w.signing += "    hourlyKeyType: " + keyType + "\n"
+		sut.signing += "    hourlyKeyType: " + keyType + "\n"
 		return nil
 	})
 	sc.Step(`^the batch record's hotline.batch.certificate is for an? (\S+) key, signed by that key$`, func(kind string) error {
@@ -243,35 +243,35 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 			root = newSigningAuthority("Ed25519", "hotline test root authority", nil, time.Now().Add(48*time.Hour), true)
 		}
 		authority = newSigningAuthority(kind, "hotline test batch authority", root, time.Now().Add(24*time.Hour), true)
-		w.useSigningAuthority(authority)
+		sut.useSigningAuthority(authority)
 		return nil
 	})
 	sc.Step(`^a certificate authority named batches in certs that expires in half an hour$`, func() error {
-		authority = newSigningAuthority("Ed25519", "hotline test batch authority", nil, w.clock.Now().Add(30*time.Minute), true)
-		w.useSigningAuthority(authority)
+		authority = newSigningAuthority("Ed25519", "hotline test batch authority", nil, sut.proxy.clock.Now().Add(30*time.Minute), true)
+		sut.useSigningAuthority(authority)
 		return nil
 	})
 	sc.Step(`^a certificate named batches in certs that is not a certificate authority$`, func() error {
 		authority = newSigningAuthority("Ed25519", "hotline test batch authority", nil, time.Now().Add(24*time.Hour), false)
-		w.useSigningAuthority(authority)
+		sut.useSigningAuthority(authority)
 		return nil
 	})
 	sc.Step(`^a certificate authority named batches in certs, followed by a root that did not sign it$`, func() error {
 		authority = newSigningAuthority("Ed25519", "hotline test batch authority", nil, time.Now().Add(24*time.Hour), true)
 		stranger := newSigningAuthority("Ed25519", "hotline test stranger", nil, time.Now().Add(24*time.Hour), true)
 		authority.certs = append(authority.certs, stranger.certs...)
-		w.useSigningAuthority(authority)
+		sut.useSigningAuthority(authority)
 		return nil
 	})
 	sc.Step(`^a cert named batches in certs whose files do not exist$`, func() error {
-		w.certEntries = "certs:\n  batches: { cert: ./batches/missing.pem, key: ./batches/missing-key.pem }\n"
+		sut.certs.certEntries = "certs:\n  batches: { cert: ./batches/missing.pem, key: ./batches/missing-key.pem }\n"
 		return nil
 	})
 	sc.Step(`^it prints that checkout's batches lead to the root authority hotline test batch authority$`, func() error {
 		return result.prints("checkout's batches lead to the root authority hotline test batch authority")
 	})
 	sc.Step(`^the config signs the hourly keys with the cert (\S+)$`, func(name string) error {
-		w.signing += "    cert: " + name + "\n"
+		sut.signing += "    cert: " + name + "\n"
 		return nil
 	})
 	sc.Step(`^the batch record's certificate is signed by the batches authority$`, func() error {
@@ -307,11 +307,11 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 	sc.Step(`^the batches cert is replaced with (another certificate authority|a certificate that is not a certificate authority) and the config reloaded$`, func(with string) error {
 		first = authority
 		authority = newSigningAuthority("Ed25519", "hotline test new batch authority", nil, time.Now().Add(24*time.Hour), with == "another certificate authority")
-		w.useSigningAuthority(authority)
-		return w.reloadConfig()
+		sut.useSigningAuthority(authority)
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the next batch's certificate is (new and signed by the new authority|the same, signed by the first authority)$`, func(which string) error {
-		batches, err := w.waitBatches(2)
+		batches, err := sut.waitBatches(2)
 		if err != nil {
 			return err
 		}
@@ -333,32 +333,32 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 		return certificate.CheckSignatureFrom(signer.certs[0])
 	})
 	sc.Step(`^the signing config is set to the cert batches and reloaded$`, func() error {
-		w.signing += "    cert: batches\n"
-		return w.reloadConfig()
+		sut.signing += "    cert: batches\n"
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^hotline.certificate.not_after is the batches authority's expiry for hotline.certificate.use ledger.signing$`, func() error {
-		return w.ownValue("hotline.certificate.not_after", "hotline.certificate.use ledger.signing", float64(authority.certs[0].NotAfter.Unix()))
+		return sut.telemetry.ownValue("hotline.certificate.not_after", "hotline.certificate.use ledger.signing", float64(authority.certs[0].NotAfter.Unix()))
 	})
 
 	// Batch records made by hand, as someone else's signer or a forger
 	// would write them, for what the proxy itself never makes.
 	sc.Step(`^the first batch record is signed again by an? (\S+) key, its certificate signed by itself$`, func(algorithm string) error {
-		return w.resignBatch0(newTestKey(algorithm), nil, false, nil)
+		return sut.resignBatch0(newTestKey(algorithm), nil, false, nil)
 	})
 	sc.Step(`^the first batch record is signed again by a key whose certificate (claims to be a certificate authority|an authority signed, with the authorities swapped for another authority's|a certificate that is not an authority signed, named as its authority)$`, func(how string) error {
 		if strings.HasPrefix(how, "claims") {
-			return w.resignBatch0(newTestKey("ed25519"), nil, true, nil)
+			return sut.resignBatch0(newTestKey("ed25519"), nil, true, nil)
 		}
 		if strings.HasPrefix(how, "a certificate that is not") {
 			plain := newSigningAuthority("Ed25519", "hotline test plain certificate", nil, time.Now().Add(24*time.Hour), false)
-			return w.resignBatch0(newTestKey("ed25519"), plain, false, nil)
+			return sut.resignBatch0(newTestKey("ed25519"), plain, false, nil)
 		}
 		signer := newSigningAuthority("Ed25519", "hotline test batch authority", nil, time.Now().Add(24*time.Hour), true)
 		stranger := newSigningAuthority("Ed25519", "hotline test stranger", nil, time.Now().Add(24*time.Hour), true)
-		return w.resignBatch0(newTestKey("ed25519"), signer, false, stranger.certs)
+		return sut.resignBatch0(newTestKey("ed25519"), signer, false, stranger.certs)
 	})
 	sc.Step(`^one byte of the first batch record's signature is changed$`, func() error {
-		return w.changeBatchLine(0, func(line map[string]any) {
+		return sut.changeBatchLine(0, func(line map[string]any) {
 			attrs := line["attributes"].(map[string]any)
 			algorithm, encoded, _ := strings.Cut(sprint(attrs["hotline.batch.signature"]), ":")
 			signature, _ := base64.StdEncoding.DecodeString(encoded)
@@ -421,8 +421,8 @@ func signingSteps(sc *godog.ScenarioContext, w *world, result *verified) {
 // signs it again with key. The certificate names the service, covers the
 // batch's close time, and is signed by key itself or by the authority;
 // authorities, when given, take the place of the authority's own.
-func (w *world) resignBatch0(key testKey, by *signingAuthority, claimsAuthority bool, authorities []*x509.Certificate) error {
-	return w.changeBatchLine(0, func(line map[string]any) {
+func (sut *ledgerSUT) resignBatch0(key testKey, by *signingAuthority, claimsAuthority bool, authorities []*x509.Certificate) error {
+	return sut.changeBatchLine(0, func(line map[string]any) {
 		attrs := line["attributes"].(map[string]any)
 		at, _ := time.Parse(time.RFC3339Nano, sprint(line["time"]))
 		from, to := at.Add(-time.Minute), at.Add(time.Hour)

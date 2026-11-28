@@ -13,21 +13,21 @@ import (
 )
 
 // trailerSteps cover what comes after a body, and early responses.
-func trailerSteps(sc *godog.ScenarioContext, w *world) {
+func trailerSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 	var vendorTrailer chan http.Header
 	sc.Step(`^a vendor that reads the trailers of the request$`, func() error {
 		vendorTrailer = make(chan http.Header, 1)
 		got := vendorTrailer
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			got <- r.Trailer.Clone()
 		})
 		return nil
 	})
 	sc.Step(`^an app sends a body in parts with the trailer "([^"]+)"$`, func(trailer string) error {
-		return w.send(request{
+		return sut.app.send(request{
 			method:   "PUT",
-			target:   w.target,
+			target:   sut.app.target,
 			headers:  []string{basic("talon-shop-a:x")},
 			body:     bytes.NewReader([]byte(`{"part":1}`)),
 			length:   -1,
@@ -44,19 +44,19 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 			}
 			return nil
 		case <-time.After(5 * time.Second):
-			return failf("the vendor got no call: the app got %v (%v)", w.resp, w.respErr)
+			return failf("the vendor got no call: the app got %v (%v)", sut.app.resp, sut.app.respErr)
 		}
 	})
 
 	sc.Step(`^a vendor that ends its response with the trailers "([^"]+)", "([^"]+)" and "([^"]+)"$`, func(a, b, c string) error {
 		// Over HTTP/1.1, as Go's HTTP/2 server will not send forbidden
 		// trailers at all.
-		v := w.vendor("api.talon.one")
+		v := sut.vendors.vendor("api.talon.one")
 		s := httptest.NewUnstartedServer(v.record("https", "443"))
-		s.TLS = w.vendorTLS("api.talon.one")
+		s.TLS = sut.vendorTLS("api.talon.one")
 		s.TLS.NextProtos = []string{"http/1.1"}
 		s.StartTLS()
-		w.routeTo("api.talon.one", "443", s.Listener)
+		sut.vendors.routeTo("api.talon.one", "443", s.Listener)
 		v.servers = append(v.servers, s)
 		v.setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(rw, "messages")
@@ -70,15 +70,15 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the app gets the trailer "([^"]+)"$`, func(trailer string) error {
 		name, value, _ := strings.Cut(trailer, ": ")
-		if w.resp == nil || w.resp.Trailer.Get(name) != value {
-			return failf("the app got %v", w.resp)
+		if sut.app.resp == nil || sut.app.resp.Trailer.Get(name) != value {
+			return failf("the app got %v", sut.app.resp)
 		}
 		return nil
 	})
 	sc.Step(`^the app gets no trailer (\S+) or (\S+)$`, func(a, b string) error {
 		for _, name := range []string{a, b} {
-			if _, ok := w.resp.Trailer[http.CanonicalHeaderKey(name)]; ok {
-				return failf("the app got the trailer %s: %v", name, w.resp.Trailer)
+			if _, ok := sut.app.resp.Trailer[http.CanonicalHeaderKey(name)]; ok {
+				return failf("the app got the trailer %s: %v", name, sut.app.resp.Trailer)
 			}
 		}
 		return nil
@@ -91,7 +91,7 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 	}
 	var responses []response
 	sc.Step(`^a vendor that sends 103 Early Hints with a Link header and Connection, X-Nominated and Keep-Alive headers, then 200$`, func() error {
-		w.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
+		sut.vendors.vendor("api.talon.one").setAnswer(func(rw http.ResponseWriter, _ *http.Request) {
 			h := rw.Header()
 			h.Set("Link", "</style.css>; rel=preload")
 			h.Set("Connection", "X-Nominated")
@@ -106,17 +106,17 @@ func trailerSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^an app calls it through the proxy and reads every response$`, func() error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		w.vendor("api.talon.one")
-		conn, err := w.dialProxy()
+		sut.vendors.vendor("api.talon.one")
+		conn, err := sut.app.dialProxy()
 		if err != nil {
 			return err
 		}
 		defer func() { _ = conn.Close() }()
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-		_, err = io.WriteString(conn, "GET "+w.target+" HTTP/1.1\r\nHost: api.talon.one\r\n"+basic("talon-shop-a:x")+"\r\n\r\n")
+		_, err = io.WriteString(conn, "GET "+sut.app.target+" HTTP/1.1\r\nHost: api.talon.one\r\n"+basic("talon-shop-a:x")+"\r\n\r\n")
 		if err != nil {
 			return err
 		}

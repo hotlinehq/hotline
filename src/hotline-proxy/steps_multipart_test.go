@@ -34,12 +34,12 @@ type upload struct {
 	got  chan []byte
 }
 
-func multipartSteps(sc *godog.ScenarioContext, w *world) {
+func multipartSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	u := &upload{got: make(chan []byte, 1)}
 	// answer answers every call with status, contentType and body, and keeps
 	// the body the vendor got.
 	answer := func(host, contentType, body string) {
-		w.vendor(host).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor(host).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			data, _ := io.ReadAll(r.Body)
 			select {
 			case u.got <- data:
@@ -52,16 +52,16 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the OpenAI audio spec from specs(, with the file property marked x-hotline-redact false)?(, with content full(?: up to (\d+) bytes)? and a file exporter)?$`, func(marked, full, limit string) error {
 		path, extra := openAIAudioSpec, ""
 		if marked != "" {
-			shown, err := markFileShown(w.dir)
+			shown, err := markFileShown(sut.proxy.dir)
 			if err != nil {
 				return err
 			}
 			path = shown
 		}
 		if full != "" {
-			extra = w.keepInFull(limit)
+			extra = sut.keepInFull(limit)
 		}
-		if err := w.useRepositorySpec("api.openai.com", path, http.StatusOK, "application/json", `{"text":"Hello."}`, extra); err != nil {
+		if err := sut.apis.useRepositorySpec("api.openai.com", path, http.StatusOK, "application/json", `{"text":"Hello."}`, extra); err != nil {
 			return err
 		}
 		answer("api.openai.com", "application/json", `{"text":"Hello."}`)
@@ -70,12 +70,12 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^OpenAI with no spec, with content full and a file exporter$`, func() error {
 		// The integration's only api is another vendor's, so OpenAI's
 		// calls pass with no spec.
-		w.addIntegration(integration("talon-shop-a", w.talonAPI("")) + w.keepInFull(""))
+		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.talonAPI("")) + sut.keepInFull(""))
 		answer("api.openai.com", "application/json", `{"text":"Hello."}`)
 		return nil
 	})
 	sc.Step(`^the Stripe spec from specs, with Stripe answering a new file$`, func() error {
-		if err := w.useRepositorySpec("files.stripe.com", stripeSpec, http.StatusOK, "application/json", newStripeFile, ""); err != nil {
+		if err := sut.apis.useRepositorySpec("files.stripe.com", stripeSpec, http.StatusOK, "application/json", newStripeFile, ""); err != nil {
 			return err
 		}
 		answer("files.stripe.com", "application/json", newStripeFile)
@@ -91,20 +91,20 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		if err := body.texts(parts); err != nil {
 			return err
 		}
-		return w.upload(u, vendor, path, body)
+		return sut.upload(u, vendor, path, body)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) only the text parts "([^"]*)"$`, func(path, parts string) error {
 		body := newMultipart()
 		if err := body.texts(parts); err != nil {
 			return err
 		}
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the app uploads (\d+) KiB of (\S+) named "([^"]*)" to OpenAI's (/\S+) with a prompt of (\d+) MiB and no model$`, func(n int, fileType, fileName, path string, mib int) error {
 		body := newMultipart()
 		body.file("file", fileName, fileType, n<<10)
 		body.text("prompt", strings.Repeat("Say it slowly. ", (mib<<20)/15+1))
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the app starts a voice call at OpenAI's (/\S+) with the session (.+?)( twice)?$`, func(path, session, twice string) error {
 		body := newMultipart()
@@ -116,18 +116,18 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 			part, _ := body.w.CreatePart(h)
 			_, _ = part.Write([]byte(session))
 		}
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) a multipart body whose boundary never comes$`, func(path string) error {
 		u.sent = []byte("model=gpt-4o-transcribe\r\n")
-		return w.post("https://api.openai.com"+path, "multipart/form-data; boundary=never-sent", string(u.sent), openAILogin)
+		return sut.app.post("https://api.openai.com"+path, "multipart/form-data; boundary=never-sent", string(u.sent), openAILogin)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) a multipart body that ends in the middle of the file$`, func(path string) error {
 		body := newMultipart()
 		body.text("model", "gpt-4o-transcribe")
 		body.file("file", "memo.mp3", "audio/mpeg", 4<<10)
 		u.sent = body.buf.Bytes()
-		return w.post("https://api.openai.com"+path, body.w.FormDataContentType(), string(u.sent), openAILogin)
+		return sut.app.post("https://api.openai.com"+path, body.w.FormDataContentType(), string(u.sent), openAILogin)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) a multipart/mixed body$`, func(path string) error {
 		body := newMultipart()
@@ -135,13 +135,13 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		body.close()
 		u.sent = body.buf.Bytes()
 		mixed := "multipart/mixed; boundary=" + body.w.Boundary()
-		return w.post("https://api.openai.com"+path, mixed, string(u.sent), openAILogin)
+		return sut.app.post("https://api.openai.com"+path, mixed, string(u.sent), openAILogin)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) the body "(.*)" as "([^"]*)"$`, func(path, written, contentType string) error {
 		// A \n written in the body is a line feed alone.
 		body := strings.ReplaceAll(strings.ReplaceAll(written, "~", "\r\n"), `\n`, "\n")
 		u.sent = []byte(body)
-		return w.post("https://api.openai.com"+path, contentType, body, openAILogin)
+		return sut.app.post("https://api.openai.com"+path, contentType, body, openAILogin)
 	})
 	sc.Step(`^the app posts to OpenAI's (/\S+) a part whose headers are over 16 KiB$`, func(path string) error {
 		body := newMultipart()
@@ -150,7 +150,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		h.Set("X-Note", strings.Repeat("n", 17<<10))
 		part, _ := body.w.CreatePart(h)
 		_, _ = part.Write([]byte("gpt-4o-transcribe"))
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the app uploads (\d+) KiB of audio sent as "([^"]*)" to OpenAI's (/\S+) with the text parts "([^"]*)"$`, func(n int, fileType, path, parts string) error {
 		body := newMultipart()
@@ -158,7 +158,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		if err := body.texts(parts); err != nil {
 			return err
 		}
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the app uploads (\d+) KiB of audio to OpenAI's (/\S+) with the text parts "([^"]*)" and (\d+) KiB after the closing boundary$`, func(n int, path, parts string, after int) error {
 		body := newMultipart()
@@ -168,7 +168,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		}
 		body.close()
 		body.buf.WriteString(strings.Repeat("epilogue ", (after<<10)/9))
-		return w.upload(u, "OpenAI", path, body)
+		return sut.upload(u, "OpenAI", path, body)
 	})
 	sc.Step(`^the vendor got the upload byte for byte$`, func() error {
 		got := <-u.got
@@ -178,7 +178,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the record lists the file part (\S+): (\d+) bytes of (\S+) named (\S+)$`, func(name, size, fileType, fileName string) error {
-		record, err := w.record()
+		record, err := sut.otlp.record()
 		if err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^no record holds "([^"]*)"$`, func(text string) error {
-		for _, r := range w.records() {
+		for _, r := range sut.otlp.records() {
 			if strings.Contains(sprint(r.attrs), text) {
 				return failf("a record holds %q: %v", text, r.attrs)
 			}
@@ -202,7 +202,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the line's request body holds the upload's parts, with the file name (REDACTED|as sent)$`, func(how string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.fileExport.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -224,7 +224,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^the line's request body is "(.*)"$`, func(written string) error {
 		if written == "" {
-			attrs, err := w.lineAttrs()
+			attrs, err := sut.fileExport.lineAttrs()
 			if err != nil {
 				return err
 			}
@@ -233,10 +233,10 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 			}
 			return nil
 		}
-		return w.lineBody("hotline.content.request.body", strings.ReplaceAll(written, "~", "\r\n"))
+		return sut.fileExport.lineBody("hotline.content.request.body", strings.ReplaceAll(written, "~", "\r\n"))
 	})
 	sc.Step(`^no line holds "([^"]*)"$`, func(text string) error {
-		lines, err := w.allFileLines(0)
+		lines, err := sut.fileExport.allFileLines(0)
 		if err != nil {
 			return err
 		}
@@ -256,7 +256,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^a byte of the line's request body is changed$`, func() error {
-		path := filepath.Join(w.files[0].path, "calls.jsonl")
+		path := filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl")
 		data, err := os.ReadFile(path) //nolint:gosec // the scenario's own folder
 		if err != nil {
 			return err
@@ -273,7 +273,7 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 		return os.WriteFile(path, data, 0o600) //nolint:gosec // the scenario's own folder
 	})
 	sc.Step(`^the line's request body holds "([^"]*)"$`, func(text string) error {
-		attrs, err := w.lineAttrs()
+		attrs, err := sut.fileExport.lineAttrs()
 		if err != nil {
 			return err
 		}
@@ -287,14 +287,14 @@ func multipartSteps(sc *godog.ScenarioContext, w *world) {
 
 // upload sends a multipart body to OpenAI or Stripe, closed, the way an SDK
 // sends it, and keeps it to compare with what the vendor got.
-func (w *world) upload(u *upload, vendor, path string, body *multipartBody) error {
+func (sut *specChecksSUT) upload(u *upload, vendor, path string, body *multipartBody) error {
 	body.close()
 	u.sent = body.buf.Bytes()
 	target, login := "https://api.openai.com"+path, openAILogin
 	if vendor == "Stripe" {
 		target, login = "https://files.stripe.com"+path, stripeLogin
 	}
-	return w.post(target, body.w.FormDataContentType(), string(u.sent), login)
+	return sut.app.post(target, body.w.FormDataContentType(), string(u.sent), login)
 }
 
 // sentPart is a part of a multipart body as Go's reader reads it.
@@ -320,8 +320,8 @@ func partsOf(body []byte, boundary string) []sentPart {
 
 // keepInFull is the integration's lines for content full, cut at limit
 // bytes when one is given, with a file exporter writing to calls.
-func (w *world) keepInFull(limit string) string {
-	w.files = append(w.files, fileExporter{path: filepath.Join(w.dir, "calls")})
+func (sut *specChecksSUT) keepInFull(limit string) string {
+	sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 	extra := "    content: full\n"
 	if limit != "" {
 		extra += "    maxBodySize: " + limit + "\n"

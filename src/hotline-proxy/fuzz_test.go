@@ -40,21 +40,21 @@ func TestMain(m *testing.M) {
 const fuzzWait = 2 * time.Second
 
 // fuzzWorld starts the proxy for one fuzz test, with what setup adds.
-func fuzzWorld(f *testing.F, setup func(w *world)) *world {
+func fuzzWorld(f *testing.F, setup func(s *scenario)) *scenario {
 	f.Helper()
-	w, err := newWorld(newReservedPorts())
-	if err != nil {
+	s := newScenario(newReservedPorts(), nil)
+	f.Cleanup(s.close)
+	if err := s.open(); err != nil {
 		setupFailed(f, err)
 	}
-	f.Cleanup(w.close)
-	w.checkWorkers = 1
-	setup(w)
-	if err := w.start(); err != nil {
+	s.proxy.checkWorkers = 1
+	setup(s)
+	if err := s.proxy.start(); err != nil {
 		setupFailed(f, err)
 	}
 	// A vendor for the normal call each input is followed by.
-	w.vendor("api.talon.one")
-	return w
+	s.vendors.vendor("api.talon.one")
+	return s
 }
 
 // setupFailed fails the fuzz test over an error in its setup. Inside a fuzz
@@ -73,33 +73,33 @@ func setupFailed(f *testing.F, err error) {
 // once more, and only fails when it is slow again: on a busy machine one
 // slow moment is not the input's fault, but an input that always takes
 // long is.
-func (w *world) tryTwice(t *testing.T, send func() time.Duration) {
+func (s *scenario) tryTwice(t *testing.T, send func() time.Duration) {
 	t.Helper()
 	took := send()
 	if took > fuzzWait {
 		took = send()
 	}
-	w.stillWell(t, took)
+	s.stillWell(t, took)
 }
 
 // stillWell checks the three rules after one input that took took.
-func (w *world) stillWell(t *testing.T, took time.Duration) {
+func (s *scenario) stillWell(t *testing.T, took time.Duration) {
 	t.Helper()
 	if took > fuzzWait {
-		t.Fatalf("the proxy took %v over the input, more than %v\n%s", took, fuzzWait, w.logs.String())
+		t.Fatalf("the proxy took %v over the input, more than %v\n%s", took, fuzzWait, s.proxy.logs.String())
 	}
 	// Go's HTTP server writes this line when it stops one call on a panic.
 	// A panic anywhere else stops the whole test. Matching only this line
 	// keeps a made-up host or path with the word "panic" in it, which the
 	// logs may repeat, from failing the test.
-	if logs := w.logs.String(); strings.Contains(logs, "http: panic serving") {
+	if logs := s.proxy.logs.String(); strings.Contains(logs, "http: panic serving") {
 		t.Fatalf("the proxy panicked over the input:\n%s", logs)
 	}
-	w.logs.Reset()
-	w.forget()
-	w.resp = nil
-	if err := w.call("GET", "https://api.talon.one/v1/status"); err != nil || w.resp == nil {
-		t.Fatalf("a normal call after the input got no answer: %v %v\n%s", err, w.respErr, w.logs.String())
+	s.proxy.logs.Reset()
+	s.forget()
+	s.app.resp = nil
+	if err := s.app.call("GET", "https://api.talon.one/v1/status"); err != nil || s.app.resp == nil {
+		t.Fatalf("a normal call after the input got no answer: %v %v\n%s", err, s.app.respErr, s.proxy.logs.String())
 	}
 }
 
@@ -107,11 +107,11 @@ func (w *world) stillWell(t *testing.T, took time.Duration) {
 // hundreds of thousands of inputs, and keeping them all filled the memory
 // until the machine slowed down so much that the proxy seemed slow
 // (fuzz run of 2026-11-18).
-func (w *world) forget() {
-	for _, v := range w.vendors {
+func (s *scenario) forget() {
+	for _, v := range s.vendors.vendors {
 		v.forget()
 	}
-	for _, r := range append(w.receivers, w.telemetry) {
+	for _, r := range append(s.otlp.receivers, s.telemetry.receiver) {
 		if r != nil {
 			r.forget()
 		}
@@ -168,29 +168,31 @@ func clientHello(host string) []byte {
 // transparent listener, and the same bytes after a capture CONNECT on the
 // capture socket file: the TLS hello, or whatever stands in its place.
 func FuzzFirstBytes(f *testing.F) {
-	w := fuzzWorld(f, func(w *world) {
-		w.useAuthority(newAuthority())
-		w.transparent = &transparentConf{authority: "customer"}
-		w.captureFile = filepath.Join(w.dir, "capture.sock")
+	s := fuzzWorld(f, func(s *scenario) {
+		s.certs.useAuthority(newAuthority())
+		s.transparent.setting = &transparentConf{authority: "customer"}
+		s.capture.captureFile = filepath.Join(s.proxy.dir, "capture.sock")
 	})
 	f.Add(clientHello("api.talon.one"))
 	f.Add(clientHello(""))
 	f.Add([]byte("GET / HTTP/1.1\r\nHost: api.talon.one\r\n\r\n"))
 	f.Add([]byte{0x16, 3, 1, 0, 0})
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.transparentAddr, data) })
+		s.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", s.transparent.transparentAddr, data) })
 		connect := "CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" +
 			"Hotline-Capture: 2\r\nHotline-Capture-Pid: 42\r\nHotline-Capture-Program: /usr/bin/app\r\n\r\n"
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "unix", w.captureFile, append([]byte(connect), data...)) })
+		s.tryTwice(t, func() time.Duration {
+			return sendRaw(t, "unix", s.capture.captureFile, append([]byte(connect), data...))
+		})
 	})
 }
 
 // FuzzRequest sends a made-up request on the proxy port: its request line,
 // Host, Proxy-Authorization and the rest, CONNECT included.
 func FuzzRequest(f *testing.F) {
-	w := fuzzWorld(f, func(w *world) {
-		w.useAuthority(newAuthority())
-		w.listenConnect = "  connect: { cert: customer }\n"
+	s := fuzzWorld(f, func(s *scenario) {
+		s.certs.useAuthority(newAuthority())
+		s.connect.listenConnect = "  connect: { cert: customer }\n"
 	})
 	login := basic("talon-shop-a:x")
 	f.Add([]byte("GET https://api.talon.one/v1/status HTTP/1.1\r\nHost: api.talon.one\r\n" + login + "\r\n\r\n"))
@@ -199,7 +201,7 @@ func FuzzRequest(f *testing.F) {
 	f.Add([]byte("CONNECT api.talon.one:443 HTTP/1.1\r\nHost: api.talon.one:443\r\n" + login + "\r\n\r\n"))
 	f.Add([]byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		w.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", w.addr, data) })
+		s.tryTwice(t, func() time.Duration { return sendRaw(t, "tcp", s.proxy.addr, data) })
 	})
 }
 
@@ -207,7 +209,7 @@ func FuzzRequest(f *testing.F) {
 // a form as Stripe writes it, or XML. The call's record must arrive in
 // time, after its check.
 func FuzzRequestBody(f *testing.F) {
-	w := fuzzWorld(f, func(w *world) {
+	s := fuzzWorld(f, func(s *scenario) {
 		shop, err := os.ReadFile(filepath.Join("testdata", "checks", "shop.openapi.yaml"))
 		if err != nil {
 			f.Fatal(err)
@@ -216,31 +218,31 @@ func FuzzRequestBody(f *testing.F) {
 		if err != nil {
 			f.Fatal(err)
 		}
-		w.addIntegration(integration("talon-shop-a",
-			w.specAPI("api.shop.test", string(shop), ""), w.specAPI(filesHost, string(files), "")))
+		s.apis.addIntegration(integration("talon-shop-a",
+			s.apis.specAPI("api.shop.test", string(shop), ""), s.apis.specAPI(filesHost, string(files), "")))
 	})
-	w.filesAnswer(200, "application/xml", "<DeleteResult/>")
+	s.specChecks.filesAnswer(200, "application/xml", "<DeleteResult/>")
 	f.Add(uint8(0), []byte(`{"item":"A1","quantity":1,"lines":[{"sku":"s"}]}`))
 	f.Add(uint8(1), []byte("amount=5&currency=eur&metadata[order]=6735&items[0][price]=p1&items[0][quantity]=2"))
 	f.Add(uint8(2), []byte(`<Delete><Quiet>true</Quiet><Object><Key>a</Key></Object></Delete>`))
 	f.Fuzz(func(t *testing.T, kind uint8, body []byte) {
-		w.tryTwice(t, func() time.Duration {
+		s.tryTwice(t, func() time.Duration {
 			start := time.Now()
-			w.sendBody(kind, body)
-			return w.recordTime(start)
+			s.sendBody(kind, body)
+			return s.recordTime(start)
 		})
 	})
 }
 
 // sendBody sends body to the api the kind picks: JSON, a form or XML.
-func (w *world) sendBody(kind uint8, body []byte) {
+func (s *scenario) sendBody(kind uint8, body []byte) {
 	switch kind % 3 {
 	case 0:
-		_ = w.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", string(body))
+		_ = s.app.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", string(body))
 	case 1:
-		_ = w.shopCall("POST", "/payments", true, "", "form", string(body))
+		_ = s.app.shopCall("POST", "/payments", true, "", "form", string(body))
 	default:
-		_ = w.send(request{
+		_ = s.app.send(request{
 			method: "POST", target: "https://" + filesHost + "/delete", headers: []string{basic("talon-shop-a:x"), "Content-Type: application/xml"},
 			body: bytes.NewReader(body), length: len(body),
 		})
@@ -250,22 +252,22 @@ func (w *world) sendBody(kind uint8, body []byte) {
 // FuzzResponse has the vendor answer with a made-up content type and body,
 // which the proxy checks against the spec. The record must arrive in time.
 func FuzzResponse(f *testing.F) {
-	w := fuzzWorld(f, func(w *world) {
+	s := fuzzWorld(f, func(s *scenario) {
 		files, err := os.ReadFile(filepath.Join("testdata", "xml", "files.openapi.yaml"))
 		if err != nil {
 			f.Fatal(err)
 		}
-		w.addIntegration(integration("talon-shop-a", w.specAPI(filesHost, string(files), "")))
+		s.apis.addIntegration(integration("talon-shop-a", s.apis.specAPI(filesHost, string(files), "")))
 	})
 	f.Add("application/xml", []byte(`<ListBucketResult><Name>shop-invoices</Name><KeyCount>1</KeyCount><Contents><Key>a.pdf</Key><Size>1</Size></Contents></ListBucketResult>`))
 	f.Add("application/xml", []byte(`<Error><Code>NoSuchBucket</Code></Error>`))
 	f.Add("application/json", []byte(`{"Name":"shop-invoices"}`))
 	f.Fuzz(func(t *testing.T, mediaType string, body []byte) {
-		w.filesAnswer(200, mediaType, string(body))
-		w.tryTwice(t, func() time.Duration {
+		s.specChecks.filesAnswer(200, mediaType, string(body))
+		s.tryTwice(t, func() time.Duration {
 			start := time.Now()
-			_ = w.send(request{method: "GET", target: "https://" + filesHost + "/?list-type=2", headers: []string{basic("talon-shop-a:x")}, length: -1})
-			return w.recordTime(start)
+			_ = s.app.send(request{method: "GET", target: "https://" + filesHost + "/?list-type=2", headers: []string{basic("talon-shop-a:x")}, length: -1})
+			return s.recordTime(start)
 		})
 	})
 }
@@ -276,15 +278,15 @@ func FuzzResponse(f *testing.F) {
 // the stream's record must arrive within fuzzWait, its items' checks
 // included.
 func FuzzStreamedResponse(f *testing.F) {
-	w := fuzzWorld(f, func(w *world) {
+	s := fuzzWorld(f, func(s *scenario) {
 		spec, err := os.ReadFile(filepath.FromSlash(anthropicSpec))
 		if err != nil {
 			f.Fatal(err)
 		}
-		w.streaming = &streamingVendor{spec: string(spec), at: len(w.integrations)}
-		w.addIntegration("")
-		w.writeStreamingSpec()
-		w.vendor(anthropicHost).setAnswer(w.streamingVendor)
+		s.streamedResponses.streaming = &streamingVendor{spec: string(spec), at: len(s.apis.integrations)}
+		s.apis.addIntegration("")
+		s.streamedResponses.writeStreamingSpec()
+		s.vendors.vendor(anthropicHost).setAnswer(s.streamedResponses.streamingVendor)
 	})
 	f.Add(bytes.Join(helloResponse(), nil), uint16(7))
 	f.Add([]byte("\xef\xbb\xbfevent: ping\r\ndata: {\"type\":\"ping\"}\r\n\r\n"), uint16(2))
@@ -294,15 +296,15 @@ func FuzzStreamedResponse(f *testing.F) {
 		if len(stream) > 0 {
 			at = int(cut) % len(stream)
 		}
-		w.streaming.mu.Lock()
-		w.streaming.events = [][]byte{stream[:at], stream[at:]}
-		w.streaming.mu.Unlock()
-		w.tryTwice(t, func() time.Duration {
+		s.streamedResponses.streaming.mu.Lock()
+		s.streamedResponses.streaming.events = [][]byte{stream[:at], stream[at:]}
+		s.streamedResponses.streaming.mu.Unlock()
+		s.tryTwice(t, func() time.Duration {
 			start := time.Now()
-			streams := len(w.receivers[0].streamRecords())
-			_ = w.send(anthropicRequest(true))
-			took := w.recordTime(start)
-			for len(w.receivers[0].streamRecords()) <= streams && time.Since(start) <= fuzzWait {
+			streams := len(s.otlp.receivers[0].streamRecords())
+			_ = s.app.send(anthropicRequest(true))
+			took := s.recordTime(start)
+			for len(s.otlp.receivers[0].streamRecords()) <= streams && time.Since(start) <= fuzzWait {
 				pause(time.Millisecond)
 			}
 			return max(took, time.Since(start))
@@ -313,9 +315,9 @@ func FuzzStreamedResponse(f *testing.F) {
 // recordTime is how long after start the record of every call sent so far
 // arrived, its spec check included, counting the records forget dropped; a
 // wait cut off at fuzzWait counts as longer.
-func (w *world) recordTime(start time.Time) time.Duration {
+func (s *scenario) recordTime(start time.Time) time.Duration {
 	for {
-		if w.receivers[0].takenCalls() >= w.sent {
+		if s.otlp.receivers[0].takenCalls() >= s.app.sent {
 			return time.Since(start)
 		}
 		if time.Since(start) > fuzzWait {

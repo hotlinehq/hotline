@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func memorySteps(sc *godog.ScenarioContext, w *world) {
+func memorySteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	var perCall uint64
 	// measure makes one call, which starts the proxy and reads its config,
 	// not part of a call's cost, then n more, and keeps the memory the
@@ -36,11 +36,11 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	}
 	sc.Step(`^an app sends (\d+) calls of "([A-Z]+) ([^"]+)"$`, func(n uint64, method, target string) error {
-		return measure(n, func() error { return w.call(method, target) })
+		return measure(n, func() error { return sut.app.call(method, target) })
 	})
 	sc.Step(`^the vendor answers 200 with a (\d+) MiB pdf body$`, func(mib int) error {
 		body := []byte(strings.Repeat("%PDF", mib<<18))
-		w.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
+		sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			rw.Header().Set("Content-Type", "application/pdf")
 			rw.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -49,15 +49,15 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 		return nil
 	})
 	sc.Step(`^the app sends GET (/orders/\S+) (\d+) times$`, func(path string, n uint64) error {
-		return measure(n, func() error { return w.shopCall("GET", path, true, "", "", "") })
+		return measure(n, func() error { return sut.app.shopCall("GET", path, true, "", "", "") })
 	})
 	sc.Step(`^apps send (\d+) orders at once, each of a different size$`, func(n int) error {
-		if err := w.start(); err != nil {
+		if err := sut.proxy.start(); err != nil {
 			return err
 		}
-		proxy := &url.URL{Scheme: "http", Host: w.addr}
-		if w.appID != "" {
-			proxy.User = url.UserPassword(w.appID, "x")
+		proxy := &url.URL{Scheme: "http", Host: sut.proxy.addr}
+		if sut.app.appID != "" {
+			proxy.User = url.UserPassword(sut.app.appID, "x")
 		}
 		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}}
 		defer client.CloseIdleConnections()
@@ -91,7 +91,7 @@ func memorySteps(sc *godog.ScenarioContext, w *world) {
 		return sent.Wait()
 	})
 	sc.Step(`^each order's record holds its own item and quantity, and its check passed$`, func() error {
-		records := w.records()
+		records := sut.otlp.records()
 		if len(records) != 40 {
 			return failf("%d records arrived, want 40", len(records))
 		}
