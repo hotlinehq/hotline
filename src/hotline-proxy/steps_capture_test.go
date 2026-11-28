@@ -160,12 +160,12 @@ func captureSteps(sc *godog.ScenarioContext, sut *captureSUT) {
 		return nil
 	})
 	sc.Step(`^the connect part lists (\S+) in passthrough$`, func(name string) error {
-		sut.connect.listenConnect = fmt.Sprintf("  connect: { cert: customer, passthrough: [%q] }\n", name)
+		sut.connect.setPart(fmt.Sprintf("  connect: { cert: customer, passthrough: [%q] }\n", name))
 		return nil
 	})
 	sc.Step(`^the connect part lists a passthrough pattern that is not a name or a \*\. suffix$`, func() error {
 		sut.proxy.problem = `listener proxy: connect: passthrough "api.*.com" must be a host name or "*." and a suffix`
-		sut.connect.listenConnect = "  connect: { cert: customer, passthrough: [\"api.*.com\"] }\n"
+		sut.connect.setPart("  connect: { cert: customer, passthrough: [\"api.*.com\"] }\n")
 		return nil
 	})
 
@@ -394,4 +394,14 @@ func (sut *captureSUT) AddSteps(sc *godog.ScenarioContext) {
 	captureSteps(sc, sut)
 	captureSocketSteps(sc, sut)
 	halfCloseSteps(sc, sut)
+}
+
+// useSocketFile turns on the capture listener at a socket file.
+func (sut *captureSUT) useSocketFile(path string) { sut.captureFile = path }
+
+// overTCPWithNoCert turns on the capture listener at a socket file, with
+// protocol tcp and no certificate authority.
+func (sut *captureSUT) overTCPWithNoCert(path string) {
+	sut.captureFile = path
+	sut.captureProtocol, sut.captureAuthority = "    protocol: tcp\n", " "
 }

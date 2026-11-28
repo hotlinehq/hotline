@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	proxy "hotline-proxy"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,20 +12,18 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func specLineSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func specLineSteps(sc *godog.ScenarioContext, sut *checkQueueSUT) {
 	sc.Step(`^the proxy checks with a single worker$`, func() error {
-		sut.proxy.checkWorkers = 1
+		sut.checkWorkers = 1
 		return nil
 	})
 	sc.Step(`^specChecks\.queueMemory is (\S+)$`, func(size string) error {
-		sut.proxy.topExtra = "specChecks:\n  queueMemory: " + size + "\n"
+		sut.queueMemory = size
 		return nil
 	})
 	sc.Step(`^specChecks\.queueMemory is changed to (\S+) and the proxy is told to reload$`, func(size string) error {
-		sut.proxy.topExtra = "specChecks:\n  queueMemory: " + size + "\n"
-		sut.proxy.replaceFile("hotline-proxy.yaml", sut.proxy.configText())
-		sut.proxy.running.Reload()
-		return nil
+		sut.queueMemory = size
+		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the proxy is stopped with no time left$`, func() error {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -75,7 +74,7 @@ func specLineSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		return nil
 	})
 	sc.Step(`^every check's trace has a "wait for check worker" step under it$`, func() error {
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		checks := 0
 		for _, check := range spans {
 			if check.name != "request spec check" && check.name != "response spec check" {
@@ -109,7 +108,7 @@ func specLineSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		if len(skipped) == 0 {
 			return failf("no check was skipped as overloaded")
 		}
-		for _, s := range sut.otlp.receivers[0].spans() {
+		for _, s := range sut.otlp.first().spans() {
 			if s.name != "wait for check worker" || !skipped[s.traceID] || !sut.underRequestCheck(s) {
 				continue
 			}
@@ -125,7 +124,7 @@ func specLineSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	})
 	sc.Step(`^the skipped checks' "request spec check" steps are neither ok nor failed$`, func() error {
 		skipped := sut.skippedTraces()
-		for _, s := range sut.otlp.receivers[0].spans() {
+		for _, s := range sut.otlp.first().spans() {
 			if s.name == "request spec check" && skipped[s.traceID] && s.status != "unset" {
 				return failf("a skipped check's step has status %s", s.status)
 			}
@@ -136,7 +135,7 @@ func specLineSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		skipped := len(sut.skippedTraces())
 		sut.proxy.settle()
 		counted := 0.0
-		for _, p := range sut.telemetry.receiver.metricPoints() {
+		for _, p := range sut.telemetry.metricPoints() {
 			if p.name == "hotline.spec_check.dropped" {
 				counted = max(counted, p.value)
 			}
@@ -157,14 +156,14 @@ func (sut *appSUT) largeOrder() error {
 }
 
 // order sends small order n, its item padded with pad.
-func (sut *specChecksSUT) order(n int, pad string) error {
+func (sut *checkQueueSUT) order(n int, pad string) error {
 	return sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: k"+strconv.Itoa(n), "json",
 		fmt.Sprintf(`{"item":"A%d%s","quantity":%d}`, n, pad, n))
 }
 
 // smallOrders are the records of the orders sent after the large one, in
 // the order they were sent.
-func (sut *specChecksSUT) smallOrders() []receivedRecord {
+func (sut *checkQueueSUT) smallOrders() []receivedRecord {
 	var small []receivedRecord
 	for _, r := range sut.otlp.records() {
 		if size, _ := r.attrs["http.request.body.size"].(int64); size < 100_000 {
@@ -177,7 +176,7 @@ func (sut *specChecksSUT) smallOrders() []receivedRecord {
 
 // skippedTraces are the traces of the calls whose checks were skipped as
 // overloaded.
-func (sut *specChecksSUT) skippedTraces() map[string]bool {
+func (sut *checkQueueSUT) skippedTraces() map[string]bool {
 	skipped := map[string]bool{}
 	for _, r := range sut.otlp.records() {
 		if r.attrs["hotline.schema.skipped"] == "overloaded" {
@@ -189,8 +188,42 @@ func (sut *specChecksSUT) skippedTraces() map[string]bool {
 
 // underRequestCheck says whether a span sits under its trace's request spec
 // check.
-func (sut *specChecksSUT) underRequestCheck(s receivedSpan) bool {
-	return slices.ContainsFunc(sut.otlp.receivers[0].spans(), func(p receivedSpan) bool {
+func (sut *checkQueueSUT) underRequestCheck(s receivedSpan) bool {
+	return slices.ContainsFunc(sut.otlp.first().spans(), func(p receivedSpan) bool {
 		return p.name == "request spec check" && p.spanID == s.parent && p.traceID == s.traceID
 	})
+}
+
+// checkQueueSUT is the line of spec checks waiting for a check worker:
+// how many workers there are, how much memory the waiting checks may hold,
+// and what is skipped when it is full.
+type checkQueueSUT struct {
+	proxy     *proxySUT
+	vendors   *vendorsSUT
+	app       *appSUT
+	otlp      *otlpSUT
+	telemetry *telemetrySUT
+	// checkWorkers is how many checks run at once; the proxy's own number
+	// when 0.
+	checkWorkers int
+	// queueMemory is the config's specChecks.queueMemory, when set.
+	queueMemory string
+}
+
+func newCheckQueueSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, otlp *otlpSUT, telemetry *telemetrySUT) *checkQueueSUT {
+	sut := &checkQueueSUT{proxy: root, vendors: vendors, app: app, otlp: otlp, telemetry: telemetry}
+	root.addConfig(configSpecChecks, func() string {
+		if sut.queueMemory == "" {
+			return ""
+		}
+		return "specChecks:\n  queueMemory: " + sut.queueMemory + "\n"
+	})
+	root.addOption(func(o *proxy.Options) { o.CheckWorkers = sut.checkWorkers })
+	return sut
+}
+
+// AddSteps adds the steps of the spec check line.
+func (sut *checkQueueSUT) AddSteps(sc *godog.ScenarioContext) {
+	memorySteps(sc, sut)
+	specLineSteps(sc, sut)
 }

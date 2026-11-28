@@ -40,7 +40,7 @@ paths:
 `, param)
 }
 
-func querystringSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func querystringSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the querystring spec with form content$`, func() error {
 		sut.apis.useSpec(querystringSpec("application/x-www-form-urlencoded", formQuery, ""))
 		return nil

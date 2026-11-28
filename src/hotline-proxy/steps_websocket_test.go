@@ -81,14 +81,14 @@ func websocketSteps(sc *godog.ScenarioContext, sut *webSocketSUT) {
 	})
 	sc.Step(`^a call record with http.response.status_code 101 arrives while the WebSocket is open$`, func() error {
 		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
-			if records := sut.otlp.receivers[0].got(); len(records) > 0 {
+			if records := sut.otlp.first().got(); len(records) > 0 {
 				return has(records[0].attrs, "http.response.status_code", 101)
 			}
 		}
 		return failf("no call record arrived while the WebSocket was open")
 	})
 	sc.Step(`^no session record has arrived yet$`, func() error {
-		if sessions := sut.otlp.receivers[0].sessionRecords(); len(sessions) > 0 {
+		if sessions := sut.otlp.first().sessionRecords(); len(sessions) > 0 {
 			return failf("a session record arrived while the WebSocket was open: %v", sessions[0].attrs)
 		}
 		return nil
@@ -178,7 +178,7 @@ func websocketSteps(sc *godog.ScenarioContext, sut *webSocketSUT) {
 			return err
 		}
 		var callSpan, sessionSpan *receivedSpan
-		for _, s := range sut.otlp.receivers[0].spans() {
+		for _, s := range sut.otlp.first().spans() {
 			switch s.spanID {
 			case call.spanID:
 				callSpan = &s
@@ -298,7 +298,7 @@ func (sut *webSocketSUT) openSocketTo(ingress, host, path, id string, extra ...s
 // scenario, once the proxy has sent everything.
 func (sut *webSocketSUT) callAndSession() (receivedRecord, receivedRecord, error) {
 	calls := sut.otlp.records()
-	sessions := sut.otlp.receivers[0].sessionRecords()
+	sessions := sut.otlp.first().sessionRecords()
 	if len(calls) != 1 || len(sessions) != 1 {
 		return receivedRecord{}, receivedRecord{}, failf("there are %d call records and %d session records, want one each", len(calls), len(sessions))
 	}

@@ -106,10 +106,7 @@ func captureSocketSteps(sc *godog.ScenarioContext, sut *captureSUT) {
 		case "is a relative path":
 			sut.capturePath = "capture.sock"
 		default:
-			if sut.proxy.env == nil {
-				sut.proxy.env = map[string]string{}
-			}
-			sut.proxy.env["HOME"] = sut.proxy.dir
+			sut.proxy.setEnv("HOME", sut.proxy.dir)
 			sut.capturePath = "~/hotline/capture.sock"
 			sut.captureFile = filepath.Join(sut.proxy.dir, "hotline", "capture.sock")
 		}
@@ -128,7 +125,8 @@ func captureSocketSteps(sc *godog.ScenarioContext, sut *captureSUT) {
 		return nil
 	})
 	sc.Step(`^the config has no proxy listener$`, func() error {
-		sut.proxy.noProxyPort, sut.connect.listenConnect = true, ""
+		sut.proxy.noProxyPort = true
+		sut.connect.setPart("")
 		return nil
 	})
 	sc.Step(`^nothing listens on the proxy port$`, func() error {

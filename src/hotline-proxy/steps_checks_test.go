@@ -11,7 +11,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func checksSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func checksSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the shop spec$`, func() error {
 		spec, err := os.ReadFile(filepath.Join("testdata", "checks", "shop.openapi.yaml"))
 		if err != nil {
@@ -92,7 +92,7 @@ func checksSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		return hasNo(record, resultsKey(side))
 	})
 	sc.Step(`^the (request|response) results are (.+)$`, func(side, want string) error {
-		got, err := sut.results(side)
+		got, err := sut.otlp.checkResults(side)
 		if err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ func checksSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		return nil
 	})
 	sc.Step(`^the record has (\d+) request results$`, func(n int) error {
-		got, err := sut.results("request")
+		got, err := sut.otlp.checkResults("request")
 		if err != nil {
 			return err
 		}
@@ -175,16 +175,6 @@ func resultsKey(side string) string {
 	}[side]
 }
 
-// results are the record's results on one side, each written as
-// "part place rule expected".
-func (sut *specChecksSUT) results(side string) ([]string, error) {
-	record, err := sut.otlp.record()
-	if err != nil {
-		return nil, err
-	}
-	return resultsOf(record, side)
-}
-
 // resultsOf are a record's results on one side, each written as
 // "part place rule expected".
 func resultsOf(record map[string]any, side string) ([]string, error) {
@@ -211,39 +201,37 @@ func resultsOf(record map[string]any, side string) ([]string, error) {
 
 // shopSpecChecks adds the shop api with a checks list, written as in the
 // config, such as [path, query].
-func (sut *specChecksSUT) shopSpecChecks(list string) error {
+func (sut *requestChecksSUT) shopSpecChecks(list string) error {
 	spec, err := os.ReadFile(filepath.Join("testdata", "checks", "shop.openapi.yaml"))
 	if err != nil {
 		return err
 	}
 	// A feature's background may have added the shop api without checks.
-	sut.apis.integrations, sut.apis.entries = nil, nil
+	sut.apis.removeIntegrationsAndAPIs()
 	sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI("api.shop.test", string(spec), "    checks: "+list+"\n")))
 	return nil
 }
 
-// specChecksSUT is the checks of calls against the vendor's spec: what the
-// proxy finds wrong in a request or response, and what it keeps of a body.
-type specChecksSUT struct {
-	proxy      *proxySUT
-	vendors    *vendorsSUT
-	app        *appSUT
-	apis       *apisSUT
-	otlp       *otlpSUT
-	fileExport *fileExportSUT
-	console    *consoleSUT
-	aws        *awsSUT
-	telemetry  *telemetrySUT
+// requestChecksSUT is the checks of calls against the vendor's spec: what
+// the proxy finds wrong in a request or response, by method, route, query,
+// parameter and body.
+type requestChecksSUT struct {
+	proxy   *proxySUT
+	vendors *vendorsSUT
+	app     *appSUT
+	apis    *apisSUT
+	otlp    *otlpSUT
+	aws     *awsSUT
 	// parameter is the spec parameter a scenario is about.
 	parameter string
 }
 
-func newSpecChecksSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, fileExport *fileExportSUT, console *consoleSUT, aws *awsSUT, telemetry *telemetrySUT) *specChecksSUT {
-	return &specChecksSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp, fileExport: fileExport, console: console, aws: aws, telemetry: telemetry}
+func newRequestChecksSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, aws *awsSUT) *requestChecksSUT {
+	return &requestChecksSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp, aws: aws}
 }
 
-// AddSteps adds the steps of spec checks.
-func (sut *specChecksSUT) AddSteps(sc *godog.ScenarioContext) {
+// AddSteps adds the steps of the request and response checks.
+func (sut *requestChecksSUT) AddSteps(sc *godog.ScenarioContext) {
 	checksSteps(sc, sut)
 	specSteps(sc, sut)
 	methodsSteps(sc, sut)
@@ -254,11 +242,4 @@ func (sut *specChecksSUT) AddSteps(sc *godog.ScenarioContext) {
 	bodyRouteSteps(sc, sut)
 	xmlSteps(sc, sut)
 	overlaySteps(sc, sut)
-	multipartSteps(sc, sut)
-	webhookSteps(sc, sut)
-	bodyFieldSteps(sc, sut)
-	memorySteps(sc, sut)
-	specLineSteps(sc, sut)
-	redactionSteps(sc, sut)
-	headerSteps(sc, sut)
 }

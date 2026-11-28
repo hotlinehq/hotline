@@ -7,7 +7,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func specSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func specSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^a call is ([A-Za-z]+) (/\S*)$`, func(method, path string) error {
 		return sut.app.call(method, "https://"+hostOf(sut.app.target)+path)
 	})

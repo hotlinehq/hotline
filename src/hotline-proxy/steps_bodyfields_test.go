@@ -7,7 +7,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func bodyFieldSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func bodyFieldSteps(sc *godog.ScenarioContext, sut *recordContentSUT) {
 	var item string
 	sc.Step(`^the record holds (\S+) = (\S+)$`, func(key, value string) error {
 		record, err := sut.otlp.lastRecord()
@@ -70,4 +70,29 @@ func bodyFieldSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 			"  - target: "+field+"\n    update: { x-hotline-record: "+mark+" }\n")
 		return sut.apis.shopSpec("talon-shop-a", "", "    overlays: [./specs/mark.overlay.yaml]\n")
 	})
+}
+
+// recordContentSUT is what a record keeps of a call: its body fields,
+// multipart parts, webhooks, headers, and what is redacted.
+type recordContentSUT struct {
+	proxy      *proxySUT
+	vendors    *vendorsSUT
+	app        *appSUT
+	apis       *apisSUT
+	otlp       *otlpSUT
+	fileExport *fileExportSUT
+	console    *consoleSUT
+}
+
+func newRecordContentSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, fileExport *fileExportSUT, console *consoleSUT) *recordContentSUT {
+	return &recordContentSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp, fileExport: fileExport, console: console}
+}
+
+// AddSteps adds the steps of what a record keeps.
+func (sut *recordContentSUT) AddSteps(sc *godog.ScenarioContext) {
+	multipartSteps(sc, sut)
+	webhookSteps(sc, sut)
+	bodyFieldSteps(sc, sut)
+	redactionSteps(sc, sut)
+	headerSteps(sc, sut)
 }

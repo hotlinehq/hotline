@@ -34,7 +34,7 @@ type upload struct {
 	got  chan []byte
 }
 
-func multipartSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func multipartSteps(sc *godog.ScenarioContext, sut *recordContentSUT) {
 	u := &upload{got: make(chan []byte, 1)}
 	// answer answers every call with status, contentType and body, and keeps
 	// the body the vendor got.
@@ -256,7 +256,7 @@ func multipartSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		return nil
 	})
 	sc.Step(`^a byte of the line's request body is changed$`, func() error {
-		path := filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl")
+		path := filepath.Join(sut.fileExport.folder(0), "calls.jsonl")
 		data, err := os.ReadFile(path) //nolint:gosec // the scenario's own folder
 		if err != nil {
 			return err
@@ -287,7 +287,7 @@ func multipartSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 
 // upload sends a multipart body to OpenAI or Stripe, closed, the way an SDK
 // sends it, and keeps it to compare with what the vendor got.
-func (sut *specChecksSUT) upload(u *upload, vendor, path string, body *multipartBody) error {
+func (sut *recordContentSUT) upload(u *upload, vendor, path string, body *multipartBody) error {
 	body.close()
 	u.sent = body.buf.Bytes()
 	target, login := "https://api.openai.com"+path, openAILogin
@@ -320,8 +320,8 @@ func partsOf(body []byte, boundary string) []sentPart {
 
 // keepInFull is the integration's lines for content full, cut at limit
 // bytes when one is given, with a file exporter writing to calls.
-func (sut *specChecksSUT) keepInFull(limit string) string {
-	sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+func (sut *recordContentSUT) keepInFull(limit string) string {
+	sut.fileExport.add("calls", "")
 	extra := "    content: full\n"
 	if limit != "" {
 		extra += "    maxBodySize: " + limit + "\n"

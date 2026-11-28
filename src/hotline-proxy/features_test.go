@@ -104,11 +104,14 @@ type scenario struct {
 	ledger            *ledgerSUT
 	listeners         *listenersSUT
 	forward           *forwardSUT
-	specChecks        *specChecksSUT
+	requestChecks     *requestChecksSUT
+	recordContent     *recordContentSUT
+	checkQueue        *checkQueueSUT
 	streamedResponses *streamedResponseSUT
 	webSocket         *webSocketSUT
 	probe             *probeSUT
 	configFile        *configFileSUT
+	reload            *reloadSUT
 }
 
 // area is a sut with steps of its own.
@@ -134,11 +137,14 @@ func newScenario(ports *reservedPorts, example *exampleApp) *scenario {
 	s.ledger = newLedgerSUT(s.proxy, s.vendors, s.certs, s.app, s.apis, s.otlp, s.fileExport, s.telemetry)
 	s.listeners = newListenersSUT(s.proxy, s.vendors, s.certs, s.app, s.tlsIngress, s.connect, s.telemetry, s.capture)
 	s.forward = newForwardSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.tlsIngress)
-	s.specChecks = newSpecChecksSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console, s.aws, s.telemetry)
+	s.requestChecks = newRequestChecksSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.aws)
+	s.recordContent = newRecordContentSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console)
+	s.checkQueue = newCheckQueueSUT(s.proxy, s.vendors, s.app, s.otlp, s.telemetry)
 	s.streamedResponses = newStreamedResponseSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console)
 	s.webSocket = newWebSocketSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.console, s.connect, s.capture)
 	s.probe = newProbeSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.fileExport, s.console, s.ledger)
-	s.configFile = newConfigFileSUT(s.proxy, s.vendors, s.certs, s.app, s.apis, s.otlp, s.tlsIngress, s.connect,
+	s.configFile = newConfigFileSUT(s.proxy, s.vendors, s.app, s.apis, s.otlp, s.listeners, s.ledger)
+	s.reload = newReloadSUT(s.proxy, s.vendors, s.certs, s.app, s.apis, s.otlp, s.tlsIngress, s.connect,
 		s.telemetry, s.capture, s.transparent, s.listeners)
 	return s
 }
@@ -147,7 +153,8 @@ func newScenario(ports *reservedPorts, example *exampleApp) *scenario {
 func (s *scenario) areas() []area {
 	return []area{
 		s.otlp, s.fileExport, s.console, s.tlsIngress, s.aws, s.connect, s.telemetry, s.capture, s.transparent,
-		s.ledger, s.listeners, s.forward, s.specChecks, s.streamedResponses, s.webSocket, s.probe, s.configFile,
+		s.ledger, s.listeners, s.forward, s.requestChecks, s.recordContent, s.checkQueue,
+		s.streamedResponses, s.webSocket, s.probe, s.configFile, s.reload,
 	}
 }
 

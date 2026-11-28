@@ -91,10 +91,11 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 		return nil
 	})
 	sc.Step(`^the certs are:$`, func(doc *godog.DocString) error {
-		sut.certs.certEntries = "certs:\n"
+		var entries []string
 		for _, line := range strings.Split(doc.Content, "\n") {
-			sut.certs.certEntries += "  " + line + "\n"
+			entries = append(entries, "  "+line+"\n")
 		}
+		sut.certs.replaceEntries(entries...)
 		return nil
 	})
 	sc.Step(`^the app calls Talon.One through the listener (\S+)$`, func(listener string) error {
@@ -109,9 +110,9 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 	sc.Step(`^an app that trusts the interception certificate authority (?:opens|has opened) TLS to the (socket )?listener (\S+) asking for (?:the name (\S+)|no name)$`, func(socket, listener, name string) error {
 		return sut.through(listener, func() error {
 			roots := x509.NewCertPool()
-			roots.AddCert(sut.certs.interception.cert)
-			if sut.certs.second != nil {
-				roots.AddCert(sut.certs.second.cert)
+			roots.AddCert(sut.certs.interceptionAuthority().cert)
+			if sut.certs.replacement() != nil {
+				roots.AddCert(sut.certs.replacement().cert)
 			}
 			network, address := "tcp", sut.proxy.addr
 			if socket != "" {
@@ -156,7 +157,7 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 		if len(leaf.IPAddresses) != 1 || !leaf.IPAddresses[0].Equal(net.IPv4(127, 0, 0, 1)) {
 			return failf("the certificate names the IPs %v", leaf.IPAddresses)
 		}
-		return leaf.CheckSignatureFrom(sut.certs.interception.cert)
+		return leaf.CheckSignatureFrom(sut.certs.interceptionAuthority().cert)
 	})
 	sc.Step(`^the app sees a certificate for the name localhost signed by the interception certificate authority$`, func() error {
 		if sut.app.tunnelErr != nil {
@@ -166,7 +167,7 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 		if len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "localhost" {
 			return failf("the certificate names %v", leaf.DNSNames)
 		}
-		return leaf.CheckSignatureFrom(sut.certs.interception.cert)
+		return leaf.CheckSignatureFrom(sut.certs.interceptionAuthority().cert)
 	})
 	sc.Step(`^hotline.certificate.not_after is reported for (.+)$`, func(uses string) error {
 		if err := sut.proxy.start(); err != nil {
@@ -204,8 +205,7 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 		})
 	})
 	sc.Step(`^the capture listener has protocol tcp and no cert$`, func() error {
-		sut.capture.captureFile = sut.proxy.dir + "/capture.sock"
-		sut.capture.captureProtocol, sut.capture.captureAuthority = "    protocol: tcp\n", " "
+		sut.capture.overTCPWithNoCert(sut.proxy.dir + "/capture.sock")
 		return nil
 	})
 	sc.Step(`^the admin port has tls: \{ cert: (\S+) \}$`, func(cert string) error {
@@ -246,7 +246,7 @@ func listenerSteps(sc *godog.ScenarioContext, sut *listenersSUT) {
 		return nil
 	})
 	sc.Step(`^the admin port shows the renewed certificate$`, func() error {
-		renewed, _ := x509.ParseCertificate(sut.tlsIngress.renewed.Certificate[0])
+		renewed, _ := x509.ParseCertificate(sut.tlsIngress.renewedCertificate().Certificate[0])
 		if got := sut.app.tlsState.PeerCertificates[0]; !got.Equal(renewed) {
 			return failf("the admin port shows the certificate valid to %s", got.NotAfter)
 		}
@@ -309,3 +309,8 @@ func (sut *listenersSUT) adminSection() string {
 	address := cmp.Or(sut.adminAddr, "127.0.0.1:0")
 	return fmt.Sprintf("admin:\n  address: %q\n%s", cmp.Or(sut.adminRaw, "tcp://"+address), sut.adminTLS)
 }
+
+// useAdminAddress gives the admin port address, and leaveOutAdmin leaves
+// the admin section out.
+func (sut *listenersSUT) useAdminAddress(address string) { sut.adminAddr = address }
+func (sut *listenersSUT) leaveOutAdmin()                 { sut.noAdmin = true }

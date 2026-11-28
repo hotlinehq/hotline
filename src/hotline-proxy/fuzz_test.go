@@ -47,7 +47,7 @@ func fuzzWorld(f *testing.F, setup func(s *scenario)) *scenario {
 	if err := s.open(); err != nil {
 		setupFailed(f, err)
 	}
-	s.proxy.checkWorkers = 1
+	s.checkQueue.checkWorkers = 1
 	setup(s)
 	if err := s.proxy.start(); err != nil {
 		setupFailed(f, err)
@@ -111,7 +111,7 @@ func (s *scenario) forget() {
 	for _, v := range s.vendors.vendors {
 		v.forget()
 	}
-	for _, r := range append(s.otlp.receivers, s.telemetry.receiver) {
+	for _, r := range append(s.otlp.all(), s.telemetry.receiver) {
 		if r != nil {
 			r.forget()
 		}
@@ -221,7 +221,7 @@ func FuzzRequestBody(f *testing.F) {
 		s.apis.addIntegration(integration("talon-shop-a",
 			s.apis.specAPI("api.shop.test", string(shop), ""), s.apis.specAPI(filesHost, string(files), "")))
 	})
-	s.specChecks.filesAnswer(200, "application/xml", "<DeleteResult/>")
+	s.requestChecks.filesAnswer(200, "application/xml", "<DeleteResult/>")
 	f.Add(uint8(0), []byte(`{"item":"A1","quantity":1,"lines":[{"sku":"s"}]}`))
 	f.Add(uint8(1), []byte("amount=5&currency=eur&metadata[order]=6735&items[0][price]=p1&items[0][quantity]=2"))
 	f.Add(uint8(2), []byte(`<Delete><Quiet>true</Quiet><Object><Key>a</Key></Object></Delete>`))
@@ -263,7 +263,7 @@ func FuzzResponse(f *testing.F) {
 	f.Add("application/xml", []byte(`<Error><Code>NoSuchBucket</Code></Error>`))
 	f.Add("application/json", []byte(`{"Name":"shop-invoices"}`))
 	f.Fuzz(func(t *testing.T, mediaType string, body []byte) {
-		s.specChecks.filesAnswer(200, mediaType, string(body))
+		s.requestChecks.filesAnswer(200, mediaType, string(body))
 		s.tryTwice(t, func() time.Duration {
 			start := time.Now()
 			_ = s.app.send(request{method: "GET", target: "https://" + filesHost + "/?list-type=2", headers: []string{basic("talon-shop-a:x")}, length: -1})
@@ -283,8 +283,7 @@ func FuzzStreamedResponse(f *testing.F) {
 		if err != nil {
 			f.Fatal(err)
 		}
-		s.streamedResponses.streaming = &streamingVendor{spec: string(spec), at: len(s.apis.integrations)}
-		s.apis.addIntegration("")
+		s.streamedResponses.streaming = &streamingVendor{spec: string(spec)}
 		s.streamedResponses.writeStreamingSpec()
 		s.vendors.vendor(anthropicHost).setAnswer(s.streamedResponses.streamingVendor)
 	})
@@ -301,10 +300,10 @@ func FuzzStreamedResponse(f *testing.F) {
 		s.streamedResponses.streaming.mu.Unlock()
 		s.tryTwice(t, func() time.Duration {
 			start := time.Now()
-			streams := len(s.otlp.receivers[0].streamRecords())
+			streams := len(s.otlp.first().streamRecords())
 			_ = s.app.send(anthropicRequest(true))
 			took := s.recordTime(start)
-			for len(s.otlp.receivers[0].streamRecords()) <= streams && time.Since(start) <= fuzzWait {
+			for len(s.otlp.first().streamRecords()) <= streams && time.Since(start) <= fuzzWait {
 				pause(time.Millisecond)
 			}
 			return max(took, time.Since(start))
@@ -317,7 +316,7 @@ func FuzzStreamedResponse(f *testing.F) {
 // wait cut off at fuzzWait counts as longer.
 func (s *scenario) recordTime(start time.Time) time.Duration {
 	for {
-		if s.otlp.receivers[0].takenCalls() >= s.app.sent {
+		if s.otlp.first().takenCalls() >= s.app.sent {
 			return time.Since(start)
 		}
 		if time.Since(start) > fuzzWait {

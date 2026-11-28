@@ -34,14 +34,14 @@ func diskQueueSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 		sut.receivers[0].setBusy(busy != "")
 		// Each send gives up after its first try, so the test sees the
 		// sender's own waits between tries.
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		sut.proxy.stopTime = 2 * time.Second
 		return nil
 	})
 	sc.Step(`^the exporter keeps a disk queue(, and its collector is busy)?$`, func(busy string) error {
 		sut.exporterExtra = []string{"      queueFolder: queue\n      queueDisk: 64MiB\n"}
 		sut.receivers[0].setBusy(busy != "")
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		sut.proxy.stopTime = 2 * time.Second
 		return nil
 	})

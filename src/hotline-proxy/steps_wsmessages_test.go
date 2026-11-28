@@ -32,8 +32,6 @@ type scriptedVendor struct {
 	// id, host and path are the integration, the vendor's host and the
 	// address the app opens.
 	id, host, path string
-	// at is the place of the integration in the config.
-	at int
 	// send are the messages the vendor sends once the WebSocket opens;
 	// answer are the ones it sends once the app's first message comes.
 	send, answer [][]byte
@@ -211,7 +209,7 @@ actions:
 		if err != nil {
 			return err
 		}
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == r.spanID })
 		if i < 0 {
 			return failf("no span has message record %d's span id", n)
@@ -265,11 +263,11 @@ actions:
 	})
 	sc.Step(`^each message record's span is a "websocket message" span under the "websocket session" span$`, func() error {
 		messages := sut.messageRecords()
-		sessions := sut.otlp.receivers[0].sessionRecords()
+		sessions := sut.otlp.first().sessionRecords()
 		if len(sessions) != 1 || len(messages) == 0 {
 			return failf("there are %d session records and %d message records", len(sessions), len(messages))
 		}
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		for _, m := range messages {
 			i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == m.spanID })
 			switch {
@@ -283,7 +281,7 @@ actions:
 	})
 	sc.Step(`^each "websocket message" span has a "message spec check" span under it, with a "wait for check worker" span under that$`, func() error {
 		sut.proxy.settle()
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		under := func(parent, name string) (receivedSpan, bool) {
 			i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.parent == parent && s.name == name })
 			if i < 0 {
@@ -308,9 +306,9 @@ actions:
 	sc.Step(`^a message record and a "websocket message" span arrive while the WebSocket is open$`, func() error {
 		defer func() { _ = sut.socket.conn.Close() }()
 		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
-			spans := sut.otlp.receivers[0].spans()
-			if len(sut.otlp.receivers[0].messageRecords()) > 0 && slices.ContainsFunc(spans, func(s receivedSpan) bool { return s.name == "websocket message" }) {
-				if sessions := sut.otlp.receivers[0].sessionRecords(); len(sessions) > 0 {
+			spans := sut.otlp.first().spans()
+			if len(sut.otlp.first().messageRecords()) > 0 && slices.ContainsFunc(spans, func(s receivedSpan) bool { return s.name == "websocket message" }) {
+				if sessions := sut.otlp.first().sessionRecords(); len(sessions) > 0 {
 					return failf("the session ended before its message was sent")
 				}
 				return nil
@@ -323,7 +321,7 @@ actions:
 		if err != nil {
 			return err
 		}
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		i := slices.IndexFunc(spans, func(s receivedSpan) bool { return s.spanID == session.spanID })
 		if i < 0 {
 			return failf("no span has the session record's span id")
@@ -463,9 +461,7 @@ func setAt(node *yaml.Node, path []string, value *yaml.Node) error {
 // useScripted makes v the scenario's WebSocket vendor, with its
 // integration and spec.
 func (sut *webSocketSUT) useScripted(v *scriptedVendor) {
-	v.at = len(sut.apis.integrations)
 	sut.scripted = v
-	sut.apis.addIntegration("")
 	sut.writeScriptedSpec()
 	sut.vendors.vendor(v.host).setAnswer(sut.scriptedVendor)
 }
@@ -474,7 +470,7 @@ func (sut *webSocketSUT) useScripted(v *scriptedVendor) {
 // its place.
 func (sut *webSocketSUT) writeScriptedSpec() {
 	v := sut.scripted
-	sut.apis.integrations[v.at] = integration(v.id, sut.apis.specAPI(v.host, v.spec, v.extra))
+	sut.apis.setIntegration(v.id, integration(v.id, sut.apis.specAPI(v.host, v.spec, v.extra)))
 }
 
 // script adds the messages, joined with ", then ", to a list of what the
@@ -661,7 +657,7 @@ func (sut *webSocketSUT) appMessage(message []byte, pack bool) error {
 // has sent everything.
 func (sut *webSocketSUT) messageRecords() []receivedRecord {
 	sut.proxy.settle()
-	records := sut.otlp.receivers[0].messageRecords()
+	records := sut.otlp.first().messageRecords()
 	slices.SortFunc(records, func(a, b receivedRecord) int {
 		return strings.Compare(fmt.Sprintf("%09v", a.attrs["hotline.websocket.message.index"]), fmt.Sprintf("%09v", b.attrs["hotline.websocket.message.index"]))
 	})

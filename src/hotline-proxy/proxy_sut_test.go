@@ -37,13 +37,9 @@ type proxySUT struct {
 	env        map[string]string
 	processEnv []string
 	logs       *syncBuffer
-	// checkWorkers is how many spec checks run at once; 0 is one per core.
-	checkWorkers int
-	// exportTimeout is how long one send may take; 2s unless set, so a slow
-	// first connection under the race detector still gets through.
-	exportTimeout time.Duration
-	// topExtra is added to the config's top level.
-	topExtra string
+	// changeMarks counts the steps that changed the config without changing
+	// what it says, each written as a comment line.
+	changeMarks int
 	// rawConfig, when set, replaces the generated config file.
 	rawConfig  string
 	configPath string
@@ -136,7 +132,11 @@ const (
 	configProxyListener
 	configExporters
 	configTelemetry
-	// configLedger is lines of the ledger section.
+	// configRecords, configSpecChecks and configLedger are the records,
+	// specChecks and ledger sections, each written whole by the one area
+	// that owns it.
+	configRecords
+	configSpecChecks
 	configLedger
 	// configApis is the apis and the integrations.
 	configApis
@@ -175,9 +175,30 @@ func (sut *proxySUT) configText() string {
 	b.WriteString("listeners:\n" + sut.section(configListeners) + sut.section(configIngressListeners))
 	b.WriteString("exporters:\n" + sut.section(configExporters))
 	b.WriteString(sut.section(configTelemetry))
-	b.WriteString(sut.topSections())
+	b.WriteString(sut.section(configRecords))
+	b.WriteString(sut.section(configSpecChecks))
+	b.WriteString(sut.section(configLedger))
 	b.WriteString(sut.section(configApis))
+	b.WriteString(strings.Repeat("# changed\n", sut.changeMarks))
 	return b.String()
+}
+
+// rewriteConfigIfChanged writes the config file again when the proxy
+// wrote it from the scenario and what the scenario says has changed since.
+func (sut *proxySUT) rewriteConfigIfChanged() {
+	if !sut.wroteConfig {
+		return
+	}
+	text := sut.configText()
+	if old, err := os.ReadFile(filepath.Join(sut.dir, "hotline-proxy.yaml")); err == nil && string(old) == text {
+		return
+	}
+	sut.replaceFile("hotline-proxy.yaml", text)
+}
+
+// markChanged changes the config file without changing what it says.
+func (sut *proxySUT) markChanged() {
+	sut.changeMarks++
 }
 
 // certsSection is the certs section: the certificate authorities and
@@ -210,20 +231,6 @@ func (sut *proxySUT) proxyListener() string {
 		}
 	}
 	return b.String()
-}
-
-// topSections are the config's other top sections, with the lines the
-// areas add to the ledger section put in it, or in one of its own.
-func (sut *proxySUT) topSections() string {
-	top := sut.topExtra
-	ledger := sut.section(configLedger)
-	if ledger == "" {
-		return top
-	}
-	if strings.Contains(top, "ledger:\n") {
-		return strings.Replace(top, "ledger:\n", "ledger:\n"+ledger, 1)
-	}
-	return top + "ledger:\n" + ledger
 }
 
 func (sut *proxySUT) writeFile(name, content string) string {
@@ -302,21 +309,16 @@ func (sut *proxySUT) startOnce() error {
 		}
 		sut.configPath = sut.writeFile(name, content)
 	}
-	if sut.exportTimeout == 0 {
-		sut.exportTimeout = 2 * time.Second
-	}
 	var clock proxy.Clock = proxy.SystemClock{}
 	if sut.clock != nil {
 		clock = sut.clock
 	}
 	options := proxy.Options{
-		ConfigPath:    sut.configPath,
-		Clock:         clock,
-		Logger:        slog.New(slog.NewTextHandler(sut.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		ExportTimeout: sut.exportTimeout,
-		CheckWorkers:  sut.checkWorkers,
-		Version:       "1.0.0-test",
-		InstanceID:    fmt.Sprintf("proxy-test-%d", sut.runs+1),
+		ConfigPath: sut.configPath,
+		Clock:      clock,
+		Logger:     slog.New(slog.NewTextHandler(sut.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Version:    "1.0.0-test",
+		InstanceID: fmt.Sprintf("proxy-test-%d", sut.runs+1),
 		LookupEnv: func(name string) (string, bool) {
 			v, ok := sut.env[name]
 			return v, ok

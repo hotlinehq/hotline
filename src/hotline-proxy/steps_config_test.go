@@ -12,7 +12,7 @@ import (
 
 func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 	sc.Step(`^a valid config file$`, func() error {
-		sut.otlp.receivers = append(sut.otlp.receivers, newReceiver())
+		sut.otlp.addExporter()
 		return nil
 	})
 	sc.Step(`^the proxy (?:loads|reports) (?:it|the config|the problem)$`, func() error {
@@ -55,7 +55,7 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 	})
 	sc.Step(`^every OTLP exporter is read with its endpoint$`, func() error {
 		sut.proxy.settle()
-		for _, r := range sut.otlp.receivers {
+		for _, r := range sut.otlp.all() {
 			if records := r.got(); len(records) != 1 {
 				return failf("the exporter at %s got %d records", r.endpoint, len(records))
 			}
@@ -156,7 +156,7 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 		return nil
 	})
 	sc.Step(`^calls from the first and the last of them use the Talon.One spec$`, func() error {
-		last := fmt.Sprintf("shop-%d", len(sut.apis.integrations))
+		last := fmt.Sprintf("shop-%d", sut.apis.integrationCount())
 		for _, id := range []string{"shop-1", last} {
 			sut.app.appID = id
 			if err := sut.app.call("PUT", "https://api.talon.one/v2/customer_sessions/1"); err != nil {
@@ -237,7 +237,7 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 		return nil
 	})
 	sc.Step(`^a config file with exporters but no integrations$`, func() error {
-		sut.apis.noIntegrations = true
+		sut.apis.leaveOutDefaultIntegrations()
 		return nil
 	})
 	sc.Step(`^it is accepted and every call uses the not-passed settings$`, func() error {
@@ -270,7 +270,7 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 		return failf("no warning names %s; the log is %s", name, sut.proxy.logs.String())
 	})
 	sc.Step(`^a config file with three problems$`, func() error {
-		sut.apis.noIntegrations = true
+		sut.apis.leaveOutDefaultIntegrations()
 		sut.proxy.rawConfig = sut.apis.raw("listeners:\n  apps:\n    address: \"tcp://127.0.0.1:0\"\n",
 			integration("a", sut.apis.apiFor("api.x.com", "    vendorTimeout: 0s\n"))+
 				integration("a", sut.apis.apiFor("api.y.com", "")))
@@ -281,7 +281,7 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 	})
 	sc.Step(`^a broken config file with an exporter token read from a file$`, func() error {
 		key := sut.proxy.writeFile("keys/otlp-token", "k3y-s3cr3t-value")
-		sut.otlp.exporterExtra = []string{"      headers:\n        Authorization: { file: " + key + " }\n"}
+		sut.otlp.setFirstExporterLines("      headers:\n        Authorization: { file: " + key + " }\n")
 		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.api("talon-one", "    hosts: [api.talon.one]\n    spec: ./specs/missing.yaml\n")))
 		return nil
 	})
@@ -301,8 +301,8 @@ func configSteps(sc *godog.ScenarioContext, sut *configFileSUT) {
 	sc.Step(`^another program listens on the admin address$`, func() error {
 		l := listenLocal()
 		sut.proxy.opened = append(sut.proxy.opened, l)
-		sut.listeners.adminAddr = l.Addr().String()
-		sut.proxy.busy = sut.listeners.adminAddr
+		sut.listeners.useAdminAddress(l.Addr().String())
+		sut.proxy.busy = l.Addr().String()
 		return nil
 	})
 	sc.Step(`^the proxy does not start, and says the address is in use$`, func() error {
@@ -355,9 +355,9 @@ func (sut *proxySUT) refusedWith(parts ...string) error {
 // brokenConfig writes a config with one problem and remembers the words the
 // refusal must hold.
 func (sut *configFileSUT) brokenConfig(problem string) error {
-	exporters := "exporters:\n  - otlp:\n      endpoint: " + sut.otlp.receivers[0].endpoint + "\n"
+	exporters := "exporters:\n  - otlp:\n      endpoint: " + sut.otlp.first().endpoint + "\n"
 	start := "listeners:\n  apps:\n    address: \"tcp://127.0.0.1:0\"\n"
-	ownTelemetry := "telemetry:\n  otlp:\n    endpoint: " + sut.otlp.receivers[0].endpoint + "\n"
+	ownTelemetry := "telemetry:\n  otlp:\n    endpoint: " + sut.otlp.first().endpoint + "\n"
 	one := func(extra string) string {
 		return sut.apis.raw(start+exporters, integration("shop", sut.apis.apiFor("api.x.com", extra)))
 	}
@@ -582,12 +582,8 @@ func (sut *configFileSUT) waitsFor(seconds int) error {
 	wait := time.Duration(seconds) * time.Second
 	// The ledger closes batches on the same clock: keep its timers out of
 	// the count of timers that fired.
-	if !strings.Contains(sut.proxy.topExtra, "ledger:") {
-		sut.proxy.topExtra += "ledger:\n  batch:\n    every: 1h\n"
-		if sut.proxy.wroteConfig {
-			sut.proxy.replaceFile("hotline-proxy.yaml", sut.proxy.configText())
-		}
-	}
+	sut.ledger.closeBatchesHourly()
+	sut.proxy.rewriteConfigIfChanged()
 	early := make(chan int, 1)
 	sut.vendors.vendor("api.talon.one").setAnswer(func(_ http.ResponseWriter, r *http.Request) {
 		early <- sut.proxy.clock.pass(wait - time.Second)
@@ -607,28 +603,22 @@ func (sut *configFileSUT) waitsFor(seconds int) error {
 }
 
 // configFileSUT is the config file itself: what the proxy reads from it,
-// what it refuses, and how it reloads a changed one.
+// and what it refuses.
 type configFileSUT struct {
-	proxy       *proxySUT
-	vendors     *vendorsSUT
-	certs       *certsSUT
-	app         *appSUT
-	apis        *apisSUT
-	otlp        *otlpSUT
-	tlsIngress  *tlsIngressSUT
-	connect     *connectSUT
-	telemetry   *telemetrySUT
-	capture     *captureSUT
-	transparent *transparentSUT
-	listeners   *listenersSUT
+	proxy     *proxySUT
+	vendors   *vendorsSUT
+	app       *appSUT
+	apis      *apisSUT
+	otlp      *otlpSUT
+	listeners *listenersSUT
+	ledger    *ledgerSUT
 }
 
-func newConfigFileSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, tlsIngress *tlsIngressSUT, connect *connectSUT, telemetry *telemetrySUT, capture *captureSUT, transparent *transparentSUT, listeners *listenersSUT) *configFileSUT {
-	return &configFileSUT{proxy: root, vendors: vendors, certs: certs, app: app, apis: apis, otlp: otlp, tlsIngress: tlsIngress, connect: connect, telemetry: telemetry, capture: capture, transparent: transparent, listeners: listeners}
+func newConfigFileSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, listeners *listenersSUT, ledger *ledgerSUT) *configFileSUT {
+	return &configFileSUT{proxy: root, vendors: vendors, app: app, apis: apis, otlp: otlp, listeners: listeners, ledger: ledger}
 }
 
 // AddSteps adds the steps of the config file.
 func (sut *configFileSUT) AddSteps(sc *godog.ScenarioContext) {
 	configSteps(sc, sut)
-	reloadSteps(sc, sut)
 }

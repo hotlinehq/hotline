@@ -13,7 +13,7 @@ import (
 
 const filesHost = "api.files.test"
 
-func xmlSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func xmlSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the XML files spec$`, func() error {
 		spec, err := os.ReadFile(filepath.Join("testdata", "xml", "files.openapi.yaml"))
 		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(filesHost, string(spec), "")))
@@ -64,7 +64,7 @@ func xmlSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 }
 
 // filesAnswer makes the files vendor answer every call with one response.
-func (sut *specChecksSUT) filesAnswer(status int, mediaType, body string) {
+func (sut *requestChecksSUT) filesAnswer(status int, mediaType, body string) {
 	sut.vendors.vendor(filesHost).setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		rw.Header().Set("Content-Type", mediaType)

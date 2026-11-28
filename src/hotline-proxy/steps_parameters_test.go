@@ -34,7 +34,7 @@ paths:
 %s`, route, params, headers)
 }
 
-func parameterSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func parameterSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the things spec with the parameter (.+)$`, func(param string) error {
 		sut.apis.useSpec(thingsSpec(param, "", ""))
 		return nil

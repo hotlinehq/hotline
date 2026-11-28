@@ -205,7 +205,7 @@ func shopNewerSteps(sc *godog.ScenarioContext, sut *awsSUT, api *string) {
 		for _, r := range sut.otlp.records() {
 			all = append(all, fmt.Sprint(r.attrs))
 		}
-		for _, s := range sut.otlp.receivers[0].spans() {
+		for _, s := range sut.otlp.first().spans() {
 			all = append(all, fmt.Sprint(s.attrs))
 		}
 		if len(all) == 0 {

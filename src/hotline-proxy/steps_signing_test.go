@@ -113,12 +113,7 @@ func (sut *ledgerSUT) useSigningAuthority(a *signingAuthority) {
 	sut.proxy.writeFile("batches/cert.pem", certs.String())
 	sut.proxy.writeFile("batches/key.pem", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})))
 	sut.proxy.writeFile("root.pem", string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.root().Raw})))
-	if sut.certs.certEntries == "" {
-		sut.certs.certEntries = "certs:\n"
-	}
-	if !strings.Contains(sut.certs.certEntries, "  batches:") {
-		sut.certs.certEntries += "  batches: { cert: ./batches/cert.pem, key: ./batches/key.pem }\n"
-	}
+	sut.certs.addOnce("batches", "  batches: { cert: ./batches/cert.pem, key: ./batches/key.pem }\n")
 }
 
 // authoritiesOf are the certificates a batch record's
@@ -264,7 +259,7 @@ func signingSteps(sc *godog.ScenarioContext, sut *ledgerSUT, result *verified) {
 		return nil
 	})
 	sc.Step(`^a cert named batches in certs whose files do not exist$`, func() error {
-		sut.certs.certEntries = "certs:\n  batches: { cert: ./batches/missing.pem, key: ./batches/missing-key.pem }\n"
+		sut.certs.replaceEntries("  batches: { cert: ./batches/missing.pem, key: ./batches/missing-key.pem }\n")
 		return nil
 	})
 	sc.Step(`^it prints that checkout's batches lead to the root authority hotline test batch authority$`, func() error {

@@ -85,7 +85,7 @@ func s3Steps(sc *godog.ScenarioContext, sut *awsSUT, app *exampleApp) {
 		sut.proxy.addr = sut.proxy.ports.take()
 		config, err := shopConfig(
 			[2]string{"tcp://:8080", "tcp://" + sut.proxy.addr},
-			[2]string{"http://localhost:4318", sut.otlp.receivers[0].endpoint},
+			[2]string{"http://localhost:4318", sut.otlp.first().endpoint},
 		)
 		sut.proxy.rawConfig = config
 		if err != nil {

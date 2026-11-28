@@ -58,7 +58,7 @@ components:
         Message: { type: string }
 `
 
-func bodyRouteSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func bodyRouteSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the SNS-like spec$`, func() error {
 		sut.apis.addIntegration(integration("talon-shop-a", sut.apis.specAPI(snsHost, snsLikeSpec, "")))
 		return nil
@@ -108,7 +108,7 @@ func bodyRouteSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 
 // snsCall sends one call to the fake SNS, the way the AWS SDK does: POST /
 // with the action in the body.
-func (sut *specChecksSUT) snsCall(kind, body string) error {
+func (sut *requestChecksSUT) snsCall(kind, body string) error {
 	contentType := map[string]string{
 		"form": "application/x-www-form-urlencoded",
 		"json": "application/json",

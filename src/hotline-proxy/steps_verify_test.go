@@ -37,7 +37,7 @@ type verified struct {
 // ledger: the records it dropped, and batch records that wait.
 func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	sc.Step(`^an OTLP exporter and a file exporter$`, func() error {
-		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+		sut.fileExport.add("calls", "")
 		return nil
 	})
 	sc.Step(`^the file exporter's queue is full for one record$`, func() error {
@@ -47,7 +47,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^the file exporter's queue is full(?: for 1,025 records)?$`, func() error {
 		sut.fileExporterOnce()
-		sut.fileExport.exporters[0].extra = "      queueMemory: 1\n"
+		sut.fileExport.setExporterLines(0, "      queueMemory: 1\n")
 		return nil
 	})
 	sc.Step(`^the queue has room again$`, func() error { return nil })
@@ -57,14 +57,14 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 			return err
 		}
 		// The stop that settles the run sends one more, empty, last batch.
-		otlp := sut.otlp.receivers[0].ledger()
+		otlp := sut.otlp.first().ledger()
 		if len(file) == 0 || len(file) != len(otlp) {
 			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
 		}
 		for _, b := range []struct {
 			got  receivedRecord
 			name string
-		}{{file[0], sut.fileExport.exporters[0].path}, {otlp[0], sut.otlp.receivers[0].endpoint}} {
+		}{{file[0], sut.fileExport.folder(0)}, {otlp[0], sut.otlp.first().endpoint}} {
 			if b.got.severityText != "INFO" {
 				return failf("the batch record of %s is at level %s", b.name, b.got.severityText)
 			}
@@ -79,7 +79,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		for _, b := range append(file, sut.otlp.receivers[0].ledger()...) {
+		for _, b := range append(file, sut.otlp.first().ledger()...) {
 			if got, ok := b.attrs["hotline.batch.dropped_records"].([]any); !ok || len(got) != 0 {
 				return failf("hotline.batch.dropped_records is %v", b.attrs["hotline.batch.dropped_records"])
 			}
@@ -91,7 +91,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		otlp := sut.otlp.receivers[0].ledger()
+		otlp := sut.otlp.first().ledger()
 		if len(file) == 0 || len(otlp) == 0 {
 			return failf("the file got %d batch records and the OTLP exporter %d", len(file), len(otlp))
 		}
@@ -107,7 +107,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		for _, b := range append(file, sut.otlp.receivers[0].ledger()...) {
+		for _, b := range append(file, sut.otlp.first().ledger()...) {
 			if err := checkSigned(b); err != nil {
 				return err
 			}
@@ -129,7 +129,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if batches[0].severityText != "WARN" {
 			return failf("the batch record is at level %s", batches[0].severityText)
 		}
-		otlp := sut.otlp.receivers[0].got()
+		otlp := sut.otlp.first().got()
 		third := otlp[len(otlp)-1].attrs
 		want := []any{map[string]any{"index": int64(2), "hash": third["hotline.record.hash"]}}
 		if got := batches[0].attrs["hotline.batch.dropped_records"]; fmt.Sprint(got) != fmt.Sprint(want) {
@@ -166,7 +166,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the OTLP exporter's batch record lists no dropped record$`, func() error {
-		otlp := sut.otlp.receivers[0].ledger()
+		otlp := sut.otlp.first().ledger()
 		if len(otlp) == 0 {
 			return failf("the OTLP exporter got no batch record")
 		}
@@ -185,7 +185,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 				return failf("the file got a drop record")
 			}
 		}
-		if drops := sut.otlp.receivers[0].dropRecords(); len(drops) > 0 {
+		if drops := sut.otlp.first().dropRecords(); len(drops) > 0 {
 			return failf("the OTLP exporter got %d drop records", len(drops))
 		}
 		return nil
@@ -204,7 +204,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return hasNo(batches[0].attrs, "hotline.batch.dropped_records")
 	})
 	sc.Step(`^that batch cannot be rebuilt from the file's copy$`, func() error {
-		result := sut.verify(proxy.VerifyOptions{Folder: sut.fileExport.exporters[0].path})
+		result := sut.verify(proxy.VerifyOptions{Folder: sut.fileExport.folder(0)})
 		if result.code != 1 || !strings.Contains(result.out, "cannot be proven from this copy") {
 			return failf("verify gave %d: %s", result.code, result.out)
 		}
@@ -221,18 +221,18 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the OTLP exporter's collector is busy$`, func() error {
-		sut.otlp.receivers[0].setBusy(true)
+		sut.otlp.first().setBusy(true)
 		return nil
 	})
 	sc.Step(`^the collector is no longer busy$`, func() error {
-		sut.otlp.receivers[0].setBusy(false)
+		sut.otlp.first().setBusy(false)
 		return nil
 	})
 	sc.Step(`^the collector got all (\d+) batch records, in order$`, func(n int) error {
 		if _, err := sut.waitBatches(n); err != nil {
 			return err
 		}
-		for i, b := range sut.otlp.receivers[0].ledger()[:n] {
+		for i, b := range sut.otlp.first().ledger()[:n] {
 			if err := has(b.attrs, "hotline.batch.sequence", int64(i)); err != nil {
 				return err
 			}
@@ -240,7 +240,7 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^none of them has hotline.batch.lost_batches$`, func() error {
-		for _, b := range sut.otlp.receivers[0].ledger() {
+		for _, b := range sut.otlp.first().ledger() {
 			if err := hasNo(b.attrs, "hotline.batch.lost_batches"); err != nil {
 				return err
 			}
@@ -252,8 +252,8 @@ func exporterLedgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 
 // fileExporterOnce adds a file exporter when the scenario has none yet.
 func (sut *ledgerSUT) fileExporterOnce() {
-	if len(sut.fileExport.exporters) == 0 {
-		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+	if sut.fileExport.count() == 0 {
+		sut.fileExport.add("calls", "")
 	}
 }
 
@@ -262,7 +262,7 @@ func (sut *ledgerSUT) fileExporterOnce() {
 // have a header of 20KiB, which the record keeps, so that record alone does
 // not fit.
 func (sut *ledgerSUT) fullForEveryThird() {
-	sut.fileExport.exporters[0].extra = "      queueMemory: 10KiB\n"
+	sut.fileExport.setExporterLines(0, "      queueMemory: 10KiB\n")
 	var n atomic.Int64
 	sut.vendors.vendor("api.shop.test").setAnswer(func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -282,9 +282,9 @@ func (sut *ledgerSUT) fullForEveryThird() {
 func (sut *ledgerSUT) twoFilesDropping(both bool, batches int) error {
 	sut.fullForEveryThird()
 	if !both {
-		sut.fileExport.exporters[0].extra = ""
+		sut.fileExport.setExporterLines(0, "")
 	}
-	sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls2"), extra: "      queueMemory: 10KiB\n"})
+	sut.fileExport.add("calls2", "      queueMemory: 10KiB\n")
 	for i := range batches {
 		if i > 0 {
 			sut.proxy.clock.pass(10 * time.Second)
@@ -301,7 +301,7 @@ func (sut *ledgerSUT) twoFilesDropping(both bool, batches int) error {
 // its batch lines, once the proxy has stopped.
 func (sut *ledgerSUT) fileLedger() ([]map[string]any, []map[string]any, error) {
 	sut.proxy.settle()
-	data, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
+	data, err := os.ReadFile(filepath.Join(sut.fileExport.folder(0), "calls.jsonl"))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -338,8 +338,8 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	var changedSpan string
 	signingSteps(sc, sut, &result)
 	sc.Step(`^a file exporter writing to the folder calls$`, func() error {
-		sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
-		if len(sut.apis.integrations) == 0 {
+		sut.fileExport.add("calls", "")
+		if sut.apis.integrationCount() == 0 {
 			// The folder's calls are checkout's, with the shop spec.
 			line, err := sut.apis.shopAPI("", "")
 			if err != nil {
@@ -351,7 +351,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the file exporter starts a new file past 1 KiB and compresses the old ones$`, func() error {
-		sut.fileExport.exporters[0].extra = "      maxFileSize: 1KiB\n      maxFiles: 200\n"
+		sut.fileExport.setExporterLines(0, "      maxFileSize: 1KiB\n      maxFiles: 200\n")
 		return nil
 	})
 	sc.Step(`^the folder calls from a stopped proxy(?:, with (\d+) calls)?(, with calls in 3 batch windows)?$`, func(calls, windows string) error {
@@ -376,7 +376,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	sc.Step(`^the folder calls from a proxy that was killed$`, func() error {
 		// What a killed proxy leaves is its folder as it was while it ran:
 		// the folder is copied then, and the proxy writes on elsewhere.
-		sut.fileExport.exporters[0].path = filepath.Join(sut.proxy.dir, "running")
+		sut.fileExport.moveFirst("running")
 		if err := sut.ordersTimes(2); err != nil {
 			return err
 		}
@@ -402,14 +402,14 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		if len(sut.fileExport.exporters) == 0 || !strings.Contains(sut.fileExport.exporters[0].path, "running") {
+		if sut.fileExport.count() == 0 || !strings.Contains(sut.fileExport.folder(0), "running") {
 			sut.proxy.settle()
 		}
 		result = sut.verify(o)
 		return nil
 	})
 	sc.Step(`^the file writes hotline.recorded.shop.order.weight as 2.0 and as 1.5$`, func() error {
-		data, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
+		data, err := os.ReadFile(filepath.Join(sut.fileExport.folder(0), "calls.jsonl"))
 		if err != nil {
 			return err
 		}
@@ -430,7 +430,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return result.prints("checkout's 5 records and their traces in 2 batches check out", "the run ended with a clean stop")
 	})
 	sc.Step(`^it read every file in the folder, in order$`, func() error {
-		entries, _ := os.ReadDir(sut.fileExport.exporters[0].path)
+		entries, _ := os.ReadDir(sut.fileExport.folder(0))
 		gz := 0
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".gz") {
@@ -614,7 +614,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the file exporter's queue was full for 1,025 records of batch 0$`, func() error {
-		sut.fileExport.exporters[0].extra = "      queueMemory: 1\n"
+		sut.fileExport.setExporterLines(0, "      queueMemory: 1\n")
 		if err := sut.ordersTimes(1025); err != nil {
 			return err
 		}
@@ -660,10 +660,10 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return sut.writeLines(append(lines, theirs))
 	})
 	sc.Step(`^it prints that the batch record of batch 0 is from the exporter calls2, and this copy's other batch records from calls$`, func() error {
-		return result.prints(fmt.Sprintf("the batch record of batch 0 is from the exporter %s, and this copy's other batch records from %s", sut.fileExport.exporters[1].path, sut.fileExport.exporters[0].path))
+		return result.prints(fmt.Sprintf("the batch record of batch 0 is from the exporter %s, and this copy's other batch records from %s", sut.fileExport.folder(1), sut.fileExport.folder(0)))
 	})
 	sc.Step(`^it prints that batch 0 has more than one batch record in this copy: one is from the exporter calls2$`, func() error {
-		return result.prints("batch 0 has more than one batch record in this copy: one is from the exporter " + sut.fileExport.exporters[1].path)
+		return result.prints("batch 0 has more than one batch record in this copy: one is from the exporter " + sut.fileExport.folder(1))
 	})
 	sc.Step(`^it prints that 1 problem was found$`, func() error {
 		return result.prints("1 problem found")
@@ -672,7 +672,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return result.prints("the batch record of batch 0 lists index 2, which this copy holds")
 	})
 	sc.Step(`^it prints that the folder is the copy of the exporter calls$`, func() error {
-		return result.prints("the folder is the copy of the exporter " + sut.fileExport.exporters[0].path)
+		return result.prints("the folder is the copy of the exporter " + sut.fileExport.folder(0))
 	})
 	sc.Step(`^its summary names the exporter calls$`, func() error {
 		report, err := result.json()
@@ -680,7 +680,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 			return err
 		}
 		summary, _ := report["summary"].(map[string]any)
-		if summary["exporter"] != sut.fileExport.exporters[0].path {
+		if summary["exporter"] != sut.fileExport.folder(0) {
 			return failf("the summary names the exporter %v", summary["exporter"])
 		}
 		return nil
@@ -761,7 +761,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		sut.apis.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: " + size + "\n"}
+		sut.apis.onlyIntegration(integration("checkout", line) + "    content: full\n    maxBodySize: " + size + "\n")
 		sut.app.appID = "checkout"
 		return nil
 	})
@@ -856,7 +856,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^the checkout integration's shop spec has the overlay (\S+)$`, func(name string) error {
 		line, err := sut.apis.shopAPI("", "    overlays: [./specs/"+name+"]\n")
-		sut.apis.integrations = []string{integration("checkout", line)}
+		sut.apis.onlyIntegration(integration("checkout", line))
 		return err
 	})
 	var namedBatch string
@@ -909,7 +909,7 @@ func verifySteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		if err != nil {
 			return err
 		}
-		sut.apis.integrations = []string{integration("checkout", line) + "    content: full\n    maxBodySize: 1KiB\n"}
+		sut.apis.onlyIntegration(integration("checkout", line) + "    content: full\n    maxBodySize: 1KiB\n")
 		body := `{"item":"` + strings.Repeat("A", 3<<10) + `","quantity":2}`
 		if err := sut.app.shopCall("POST", "/orders", true, "Idempotency-Key: k1", "json", body); err != nil {
 			return err
@@ -1054,7 +1054,7 @@ func (sut *ledgerSUT) badInput(what string) error {
 	folder := filepath.Join(sut.proxy.dir, "calls")
 	switch what {
 	case "a folder that does not exist":
-		sut.fileExport.exporters = nil
+		sut.fileExport.removeAll()
 		return os.RemoveAll(folder)
 	case "a line with no time":
 		_ = os.MkdirAll(folder, 0o750)

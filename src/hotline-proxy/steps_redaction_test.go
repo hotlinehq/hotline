@@ -8,7 +8,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func redactionSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func redactionSteps(sc *godog.ScenarioContext, sut *recordContentSUT) {
 	sc.Step(`^the (Talon.One|Stripe) spec$`, func(vendor string) error {
 		if vendor == "Stripe" {
 			sut.apis.addIntegration(integration("talon-shop-a", sut.apis.stripeAPI("")))
@@ -82,7 +82,7 @@ func (sut *apisSUT) useSpec(spec string) {
 	sut.app.method, sut.app.target = "GET", "https://api.x.com/v1/things"
 }
 
-func headerSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func headerSteps(sc *godog.ScenarioContext, sut *recordContentSUT) {
 	sc.Step(`^a call carries (?:the header )?"([^:]+): ([^"]*)"$`, func(name, value string) error {
 		if isResponseHeader(name) {
 			sut.vendors.vendor(hostOf(sut.app.target)).setAnswer(func(rw http.ResponseWriter, _ *http.Request) {

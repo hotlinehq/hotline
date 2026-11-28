@@ -10,11 +10,11 @@ import (
 
 func traceSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	sc.Step(`^the integration's traceFormat is (\w+)$`, func(format string) error {
-		sut.apis.integrations[len(sut.apis.integrations)-1] += "    traceFormat: " + format + "\n"
+		sut.apis.addToLastIntegration("    traceFormat: " + format + "\n")
 		return nil
 	})
 	sc.Step(`^the integration's traceForward is on, with traceFormat (\w+)$`, func(format string) error {
-		sut.apis.integrations[len(sut.apis.integrations)-1] += "    traceForward: true\n    traceFormat: " + format + "\n"
+		sut.apis.addToLastIntegration("    traceForward: true\n    traceFormat: " + format + "\n")
 		return nil
 	})
 	sc.Step(`^a not-passed entry with traceFormat (\w+)$`, func(format string) error {
