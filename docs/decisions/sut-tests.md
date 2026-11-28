@@ -11,5 +11,5 @@ SUT means system under test: the part a test drives and checks. Here it is also 
 
 ## Tripwires (2026-11-28)
 
-- Confirmation: every `Describe` in a new or changed Ginkgo test file holds a `sut`, except fuzz tests, benchmarks and one-function tables (see the skill).
+- Confirmation: the `sut-tests` skill still names the type `<area>SUT` (the `sut-tests` scenario in `decisions.feature`). Once the Ginkgo rework is done, this check grows to every `Describe` holding a `sut`.
 - Revisit if the Ginkgo rework shows the pattern does not make the tests easier to read, before the `world` split starts.
