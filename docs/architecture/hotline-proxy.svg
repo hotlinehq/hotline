@@ -191,8 +191,8 @@
     <rect x="620" y="696" width="330" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
   </g>
   <text x="785" y="734" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Evidence ledger</text>
-  <text x="785" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">one chain per integration</text>
-  <text x="785" y="781" font-size="14" fill="#1E3A8A" text-anchor="middle">batch every 10 s, signed Ed25519</text>
+  <text x="785" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">one chain per integration, every 10 s</text>
+  <text x="785" y="781" font-size="14" fill="#1E3A8A" text-anchor="middle">each exporter signs: Ed25519 or ML-DSA</text>
 
   <rect x="1022" y="680" width="300" height="110" rx="14" fill="#E0EAFF" stroke="#93B4F5" stroke-width="1.5"/>
   <rect x="1014" y="688" width="300" height="110" rx="14" fill="#E8F0FF" stroke="#93B4F5" stroke-width="1.5"/>
@@ -200,7 +200,7 @@
     <rect x="1006" y="696" width="300" height="110" rx="14" fill="#EEF4FF" stroke="#2563EB" stroke-width="2"/>
   </g>
   <text x="1156" y="734" font-size="20" font-weight="700" fill="#1E40AF" text-anchor="middle">Exporters</text>
-  <text x="1156" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">one bounded queue each</text>
+  <text x="1156" y="760" font-size="14" fill="#1E3A8A" text-anchor="middle">memory queue, disk queue for otlp</text>
   <text x="1156" y="781" font-size="14" fill="#1E3A8A" text-anchor="middle" font-family="'SF Mono', Menlo, Consolas, monospace">otlp · file · console</text>
   <path d="M950,751 L1002,751" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#arrowBlue)"/>
   <text x="976" y="740" font-size="13" fill="#1D4ED8" text-anchor="middle">batch</text>

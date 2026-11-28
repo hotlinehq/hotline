@@ -8,8 +8,9 @@ The Hotline proxy sits between your apps and those vendors. For every call it:
 
 - checks the request and the response against the vendor's OpenAPI spec (path, query, headers, cookies, and JSON or XML bodies);
 - times each step (DNS lookup, connect, TLS, waiting for the vendor) as an OpenTelemetry trace;
-- writes a record of the call, with secrets taken out, signed so it can't be quietly changed later;
-- sends it all over OTLP (the OpenTelemetry protocol) to the tools you already use, such as Grafana.
+- writes a record of the call, with secrets taken out, and copies the values your spec marks under `hotline.recorded.*`;
+- signs the records in batches, with keys it makes itself or under your own certificate authority, so they can't be quietly changed later;
+- sends it all over OTLP (the OpenTelemetry protocol) to the tools you already use, such as Grafana. When the collector is busy or down, the records wait in a queue, on disk if you name a folder, and go out in order once it is back.
 
 Apps reach the proxy through the ingress that suits them: as an HTTP proxy, with `CONNECT`, with the vendor address in the path, by Host header, or by a transparent redirect. Signed AWS calls stay valid.
 
@@ -148,7 +149,9 @@ records:                                # how every record is built, before its 
 exporters:                              # one or more; each gets the same records and spans
   - otlp:                               # plain HTTP
       endpoint: http://otel-collector.observability:4318
-      queueSize: 10000                  # records waiting; when full, new ones are refused and counted
+      queueSize: 10000                  # records waiting in memory; when full, new ones are refused and counted
+      queueFolder: ./otlp-queue         # optional, with queueDisk: what no longer fits in memory waits here
+      queueDisk: 1GiB                   # the most the disk queue may hold, at least 64MiB
       logInterval: 15s
       traceInterval: 15s
       # h2c: true                       # HTTP/2 without TLS, when the collector takes it
