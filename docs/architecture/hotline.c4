@@ -110,7 +110,6 @@ model {
 
     config = store 'Config and specs' 'hotline-proxy.yaml, vendor OpenAPI specs, overlays, certs'
     folder = store 'Records folder' 'File exporter output: every call as a line of JSON'
-    diskQueue = store 'Disk queue folder' 'queueFolder of an otlp exporter: records and spans waiting for the collector, at most queueDisk'
   }
 
   apps -> hotline.proxy.ingress 'vendor calls and WebSockets: HTTP proxy, CONNECT, URL in path, Host header'
@@ -123,7 +122,6 @@ model {
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
   hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
   hotline.proxy.exporters -> hotline.folder 'JSON lines'
-  hotline.proxy.exporters -> hotline.diskQueue 'what does not fit in memory'
   hotline.proxy.exporters -> terminal 'two lines per call'
   hotline.proxy.telemetry -> otlpBackend 'own metrics, OTLP'
   runner -> hotline.proxy.admin 'health checks'
