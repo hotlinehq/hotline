@@ -62,14 +62,18 @@ model {
         technology 'internal/spec, one worker per core'
         description 'Checks each side, each WebSocket message and each stream item against the OpenAPI 3.2 spec beside the call; waiting copies capped by specChecks.queueMemory'
       }
-      recorder = component 'Record builder' 'Redacts secrets, builds the records and spans (per call, WebSocket session and message, stream and stream item), hashes each record with SHA-256'
+      recorder = component 'Record builder' 'Redacts secrets, builds the records and spans (per call, WebSocket session and message, stream and stream item), writes values the spec marks to copy under hotline.recorded.*, hashes each record with SHA-256'
       ledger = component 'Evidence ledger' {
         technology 'internal/ledger'
-        description 'One chain per integration; a batch every 10 seconds, signed with Ed25519'
+        description 'One chain per integration; a batch every 10 seconds, handed to every exporter with a signer from the vault'
+      }
+      vault = component 'Vault' {
+        technology 'internal/vault'
+        description 'Makes hourly signing keys in memory (Ed25519, or ML-DSA by choice), each with a certificate: self-signed, or signed by the authority ledger.signing.cert names'
       }
       exporters = component 'Exporters' {
         technology 'internal/export'
-        description 'otlp, file and console; one bounded queue each'
+        description 'otlp, file and console. Each sends the records.transform labels as the resource, has a memory queue and signs its own batch record. An otlp exporter tries a busy collector again, and with queueFolder keeps on disk what does not fit in memory'
       }
       configLoader = component 'Config loader' {
         technology 'internal/config'
@@ -92,7 +96,8 @@ model {
       probes -> exporters 'probe record, trace'
       recorder -> ledger 'record hash'
       recorder -> exporters 'record, trace'
-      ledger -> exporters 'signed batch'
+      vault -> ledger 'signer, made under ledger.signing'
+      ledger -> exporters 'batch and signer'
       configLoader -> ingress 'listeners, integrations'
       configLoader -> checker 'specs, overlays'
       configLoader -> admin 'ready or not'
@@ -100,11 +105,12 @@ model {
 
     verify = container 'hotline-proxy verify' {
       technology 'Same Go program'
-      description 'Checks a records folder: hashes, chains and signatures, with no config, key or network'
+      description 'Checks a records folder: hashes, chains, signatures and their authorities up to a trusted root, with no config, key or network'
     }
 
     config = store 'Config and specs' 'hotline-proxy.yaml, vendor OpenAPI specs, overlays, certs'
     folder = store 'Records folder' 'File exporter output: every call as a line of JSON'
+    diskQueue = store 'Disk queue folder' 'queueFolder of an otlp exporter: records and spans waiting for the collector, at most queueDisk'
   }
 
   apps -> hotline.proxy.ingress 'vendor calls and WebSockets: HTTP proxy, CONNECT, URL in path, Host header'
@@ -117,6 +123,7 @@ model {
   hotline.proxy.configLoader -> hotline.config 'reads, watches'
   hotline.proxy.exporters -> otlpBackend 'records, traces, OTLP'
   hotline.proxy.exporters -> hotline.folder 'JSON lines'
+  hotline.proxy.exporters -> hotline.diskQueue 'what does not fit in memory'
   hotline.proxy.exporters -> terminal 'two lines per call'
   hotline.proxy.telemetry -> otlpBackend 'own metrics, OTLP'
   runner -> hotline.proxy.admin 'health checks'
