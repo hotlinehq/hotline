@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -137,4 +138,56 @@ func (sut *apisSUT) useRepositorySpec(host, path string, status int, contentType
 		_, _ = rw.Write([]byte(body))
 	})
 	return nil
+}
+
+// integrationCount is how many integrations the config has.
+func (sut *apisSUT) integrationCount() int { return len(sut.integrations) }
+
+// onlyIntegration makes yaml the config's one integration.
+func (sut *apisSUT) onlyIntegration(yaml string) { sut.integrations = []string{yaml} }
+
+// addToLastIntegration adds lines to the integration added last.
+func (sut *apisSUT) addToLastIntegration(lines string) {
+	sut.integrations[len(sut.integrations)-1] += lines
+}
+
+// setIntegration puts yaml, the integration whose id is id, in the
+// config: in the place of the one with that id, or after the others.
+func (sut *apisSUT) setIntegration(id, yaml string) {
+	at := slices.IndexFunc(sut.integrations, func(old string) bool { return strings.Contains(old, "id: "+id+"\n") })
+	if at < 0 {
+		sut.integrations = append(sut.integrations, yaml)
+		return
+	}
+	sut.integrations[at] = yaml
+}
+
+// removeIntegration leaves out the integration whose id is id.
+func (sut *apisSUT) removeIntegration(id string) {
+	sut.integrations = slices.DeleteFunc(sut.integrations, func(yaml string) bool {
+		return strings.Contains(yaml, "id: "+id+"\n")
+	})
+}
+
+// removeIntegrations leaves every integration out of the config, and
+// removeIntegrationsAndAPIs every api too.
+func (sut *apisSUT) removeIntegrations()        { sut.integrations = nil }
+func (sut *apisSUT) removeIntegrationsAndAPIs() { sut.integrations, sut.entries = nil, nil }
+
+// leaveOutDefaultIntegrations writes the config with no integrations, not even
+// the default ones.
+func (sut *apisSUT) leaveOutDefaultIntegrations() { sut.noIntegrations = true }
+
+// addToEveryAPI adds lines to every api, and addToFirstAPI to the first.
+func (sut *apisSUT) addToEveryAPI(lines string) {
+	for i := range sut.entries {
+		sut.entries[i].yaml += lines
+	}
+}
+func (sut *apisSUT) addToFirstAPI(lines string) { sut.entries[0].yaml += lines }
+
+// renameFirstSpec makes the first api name the spec file to in place of
+// from.
+func (sut *apisSUT) renameFirstSpec(from, to string) {
+	sut.entries[0].yaml = strings.Replace(sut.entries[0].yaml, from, to, 1)
 }

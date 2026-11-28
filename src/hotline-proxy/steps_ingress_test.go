@@ -108,8 +108,7 @@ func ingressSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 		return hasNo(record, "server.address")
 	})
 	sc.Step(`^the proxy port uses TLS with a certificate the app trusts$`, func() error {
-		sut.tlsIngress.proxyCert = sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(24*time.Hour), false)
-		sut.tlsIngress.writeKeyPair(sut.tlsIngress.proxyCert, sut.tlsIngress.proxyCert)
+		sut.tlsIngress.useCertificateValidFor(24 * time.Hour)
 		sut.tlsIngress.useAppCertificate()
 		sut.app.appTLS = sut.tlsIngress.appTLSConfig()
 		return nil

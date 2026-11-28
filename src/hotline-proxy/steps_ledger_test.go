@@ -400,7 +400,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return checkSigned(batches[0])
 	})
 	sc.Step(`^ledger batches hold at most (\d+) records$`, func(n int) error {
-		sut.proxy.topExtra += fmt.Sprintf("ledger:\n  batch:\n    maxRecords: %d\n", n)
+		sut.batch = fmt.Sprintf("    maxRecords: %d\n", n)
 		return nil
 	})
 	sc.Step(`^the first 3 records are in one batch and the 4th in the next$`, func() error {
@@ -429,7 +429,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^no integration sent a batch record for the windows without calls$`, func() error {
 		pause(200 * time.Millisecond)
-		if batches := sut.otlp.receivers[0].ledger(); len(batches) != 1 {
+		if batches := sut.otlp.first().ledger(); len(batches) != 1 {
 			return failf("the exporter got %d batch records", len(batches))
 		}
 		return nil
@@ -471,7 +471,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return checkChain(batches)
 	})
 	sc.Step(`^the integrations? (\S+)(?: and (\S+))?$`, func(first, second string) error {
-		sut.apis.integrations = nil
+		sut.apis.removeIntegrations()
 		for _, id := range []string{first, second} {
 			if id == "" {
 				continue
@@ -574,11 +574,11 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^refunds is removed from the config and reloaded$`, func() error {
-		sut.apis.integrations = slices.DeleteFunc(sut.apis.integrations, func(yaml string) bool { return strings.Contains(yaml, "id: refunds\n") })
+		sut.apis.removeIntegration("refunds")
 		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the config is changed and reloaded$`, func() error {
-		sut.proxy.topExtra += "# changed\n"
+		sut.proxy.markChanged()
 		return sut.proxy.reloadConfig()
 	})
 	sc.Step(`^the (refunds|checkout) chain starts at sequence 0$`, func(chain string) error {
@@ -664,12 +664,12 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^the OTLP exporter's Authorization header is read from a file$`, func() error {
 		file := sut.proxy.writeFile("keys/otlp-token", "Bearer first-token\n")
-		sut.otlp.exporterExtra = []string{"      headers:\n        Authorization: { file: " + file + " }\n"}
+		sut.otlp.setFirstExporterLines("      headers:\n        Authorization: { file: " + file + " }\n")
 		return nil
 	})
 	sc.Step(`^the file's token changes and the proxy restarts$`, func() error {
 		sut.proxy.settle()
-		batches := sut.otlp.receivers[0].ledger()
+		batches := sut.otlp.first().ledger()
 		if len(batches) == 0 {
 			return failf("the first run sent no batch record")
 		}
@@ -679,7 +679,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^hotline.batch.config is the same as before$`, func() error {
 		sut.proxy.settle()
-		batches := sut.otlp.receivers[0].ledger()
+		batches := sut.otlp.first().ledger()
 		last := batches[len(batches)-1].attrs
 		if last["hotline.batch.instance"] == before["hotline.batch.instance"] {
 			return failf("the proxy did not restart")
@@ -871,16 +871,13 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the records transform labels service.instance.id \{ env: POD_NAME \} and POD_NAME is (\S+)$`, func(name string) error {
-		if sut.proxy.env == nil {
-			sut.proxy.env = map[string]string{}
-		}
-		sut.proxy.env["POD_NAME"] = name
-		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        service.instance.id: { env: POD_NAME }\n"
+		sut.proxy.setEnv("POD_NAME", name)
+		sut.otlp.addLabels("service.instance.id: { env: POD_NAME }")
 		return nil
 	})
 	sc.Step(`^both runs' batches have hotline.batch.instance (\S+)$`, func(name string) error {
 		sut.proxy.settle()
-		for _, b := range sut.otlp.receivers[0].ledger() {
+		for _, b := range sut.otlp.first().ledger() {
 			if err := has(b.attrs, "hotline.batch.instance", name); err != nil {
 				return err
 			}
@@ -911,8 +908,8 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 	})
 	sc.Step(`^the last batch record has hotline.batch.last true and covers that call$`, func() error {
 		sut.proxy.settle()
-		batches := sut.otlp.receivers[0].ledger()
-		records := sut.otlp.receivers[0].got()
+		batches := sut.otlp.first().ledger()
+		records := sut.otlp.first().got()
 		if len(batches) == 0 || len(records) == 0 {
 			return failf("the exporter got %d batch records and %d records", len(batches), len(records))
 		}
@@ -923,7 +920,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return has(records[len(records)-1].attrs, "hotline.batch.id", last.attrs["hotline.batch.id"])
 	})
 	sc.Step(`^no other batch has hotline.batch.last$`, func() error {
-		batches := sut.otlp.receivers[0].ledger()
+		batches := sut.otlp.first().ledger()
 		for _, b := range batches[:len(batches)-1] {
 			if err := hasNo(b.attrs, "hotline.batch.last"); err != nil {
 				return err
@@ -932,7 +929,7 @@ func ledgerSteps(sc *godog.ScenarioContext, sut *ledgerSUT) {
 		return nil
 	})
 	sc.Step(`^the last batch record has hotline.batch.records 0 and hotline.batch.last true$`, func() error {
-		batches := sut.otlp.receivers[0].ledger()
+		batches := sut.otlp.first().ledger()
 		if len(batches) < 2 {
 			return failf("the exporter got %d batch records", len(batches))
 		}
@@ -975,10 +972,10 @@ func (sut *ledgerSUT) ordersTimes(n int) error {
 
 // callsMade counts the call records the first receiver got or refused.
 func (sut *ledgerSUT) callsMade() int {
-	if len(sut.otlp.receivers) == 0 {
+	if !sut.otlp.hasExporters() {
 		return 0
 	}
-	return sut.otlp.receivers[0].callsMade()
+	return sut.otlp.first().callsMade()
 }
 
 // waitCalls waits a little until the first receiver has seen n call
@@ -1006,7 +1003,7 @@ func (sut *proxySUT) reloadConfig() error {
 // got at least n batch records, and gives them in sequence order per chain.
 func (sut *ledgerSUT) waitBatches(n int) ([]receivedRecord, error) {
 	var batches []receivedRecord
-	if !eventually(waitLimit, func() bool { batches = sut.otlp.receivers[0].ledger(); return len(batches) >= n }) {
+	if !eventually(waitLimit, func() bool { batches = sut.otlp.first().ledger(); return len(batches) >= n }) {
 		return nil, failf("the exporter got %d batch records, want %d", len(batches), n)
 	}
 	return batches, nil
@@ -1045,7 +1042,7 @@ func (sut *ledgerSUT) runBatches(n int) ([][]receivedRecord, error) {
 	sut.proxy.settle()
 	byRun := map[string][]receivedRecord{}
 	var order []string
-	for _, b := range sut.otlp.receivers[0].ledger() {
+	for _, b := range sut.otlp.first().ledger() {
 		// A named instance is the same in every run; the start time tells
 		// them apart.
 		run := sprint(b.attrs["hotline.batch.instance"]) + " " + sprint(b.attrs["hotline.batch.run_started"])
@@ -1067,7 +1064,7 @@ func (sut *ledgerSUT) runBatches(n int) ([][]receivedRecord, error) {
 // batchOf is the batch record a record names.
 func (sut *ledgerSUT) batchOf(r receivedRecord) (receivedRecord, error) {
 	sut.proxy.settle()
-	for _, b := range sut.otlp.receivers[0].ledger() {
+	for _, b := range sut.otlp.first().ledger() {
 		if b.attrs["hotline.batch.id"] == r.attrs["hotline.batch.id"] {
 			return b, nil
 		}
@@ -1366,20 +1363,39 @@ type ledgerSUT struct {
 	otlp       *otlpSUT
 	fileExport *fileExportSUT
 	telemetry  *telemetrySUT
-	// signing is the config's ledger.signing settings, each line indented
-	// under it, when it has any.
+	// signing and batch are the config's ledger.signing and ledger.batch
+	// settings, each line indented under them, when they have any.
 	signing string
+	batch   string
 }
 
 func newLedgerSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *appSUT, apis *apisSUT, otlp *otlpSUT, fileExport *fileExportSUT, telemetry *telemetrySUT) *ledgerSUT {
 	sut := &ledgerSUT{proxy: root, vendors: vendors, certs: certs, app: app, apis: apis, otlp: otlp, fileExport: fileExport, telemetry: telemetry}
-	root.addConfig(configLedger, func() string {
-		if sut.signing == "" {
-			return ""
-		}
-		return "  signing:\n" + sut.signing
-	})
+	root.addConfig(configLedger, sut.section)
 	return sut
+}
+
+// section is the ledger section, when it has any settings.
+func (sut *ledgerSUT) section() string {
+	if sut.signing == "" && sut.batch == "" {
+		return ""
+	}
+	text := "ledger:\n"
+	if sut.signing != "" {
+		text += "  signing:\n" + sut.signing
+	}
+	if sut.batch != "" {
+		text += "  batch:\n" + sut.batch
+	}
+	return text
+}
+
+// closeBatchesHourly closes batches only once an hour, unless the batches
+// already have a setting.
+func (sut *ledgerSUT) closeBatchesHourly() {
+	if sut.batch == "" {
+		sut.batch = "    every: 1h\n"
+	}
 }
 
 // AddSteps adds the steps of the ledger.

@@ -84,15 +84,15 @@ func transparentSteps(sc *godog.ScenarioContext, sut *transparentSUT) {
 		return nil
 	})
 	sc.Step(`^the connect part picks the certificate authority named customer$`, func() error {
-		sut.connect.listenConnect = "  connect: { cert: customer }\n"
+		sut.connect.setPart("  connect: { cert: customer }\n")
 		return nil
 	})
 	sc.Step(`^a second certificate authority named other, which the transparent listener picks$`, func() error {
 		second := newAuthority()
-		sut.certs.second = second
+		sut.certs.rememberReplacement(second)
 		sut.proxy.writeFile("ca/other-cert.pem", authorityCertPEM(second))
 		sut.proxy.writeFile("ca/other-key.pem", authorityKeyPEM(second))
-		sut.certs.certEntries += "  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
+		sut.certs.add("  other: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n")
 		sut.setting = &transparentConf{authority: "other"}
 		sut.app.tunnelRoots.AddCert(second.cert)
 		return nil
@@ -164,7 +164,7 @@ func transparentSteps(sc *godog.ScenarioContext, sut *transparentSUT) {
 		if !slices.ContainsFunc(leaf.IPAddresses, func(a net.IP) bool { got, _ := netip.AddrFromSlice(a); return got.Unmap() == ip }) {
 			return failf("the certificate names the IPs %v, want %s", leaf.IPAddresses, ip)
 		}
-		return leaf.CheckSignatureFrom(sut.certs.interception.cert)
+		return leaf.CheckSignatureFrom(sut.certs.interceptionAuthority().cert)
 	})
 	sc.Step(`^the connection is closed with no TLS set up$`, func() error {
 		if sut.app.tunnelErr == nil {
@@ -557,4 +557,10 @@ func newTransparentSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app
 // AddSteps adds the steps of the transparent ingress.
 func (sut *transparentSUT) AddSteps(sc *godog.ScenarioContext) {
 	transparentSteps(sc, sut)
+}
+
+// listenOn turns on the transparent listener at address, with the
+// certificate authority named authority.
+func (sut *transparentSUT) listenOn(address, authority string) {
+	sut.setting = &transparentConf{address: address, authority: authority}
 }

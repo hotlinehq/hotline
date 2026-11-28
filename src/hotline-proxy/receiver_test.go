@@ -205,6 +205,14 @@ func newReceiverWith(setup receiverSetup) *receiver {
 	return r
 }
 
+// answerNextLogExports gives the next log exports these answers, one each,
+// after any it was given before.
+func (r *receiver) answerNextLogExports(answers ...answer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.answers = append(r.answers, answers...)
+}
+
 // ServeHTTP takes protobuf exports on /v1/logs, /v1/metrics and /v1/traces,
 // after any path the endpoint has.
 func (r *receiver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {

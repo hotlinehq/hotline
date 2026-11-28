@@ -2,7 +2,7 @@ package proxy_test
 
 import "github.com/cucumber/godog"
 
-func routeSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func routeSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the S3-like routes spec$`, func() error {
 		sut.apis.useSpec(`openapi: 3.2.0
 paths:

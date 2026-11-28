@@ -1,9 +1,11 @@
 package proxy_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	proxy "hotline-proxy"
 	"net/http"
 	"slices"
 	"strings"
@@ -31,23 +33,21 @@ func exportSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 		return has(res, "service.instance.id", "proxy-test-1")
 	})
 	sc.Step(`^the records transform labels service.name invoices-proxy, service.instance.id from the env POD_NAME and deployment.environment.name from the file env-name$`, func() error {
-		sut.proxy.env = map[string]string{"POD_NAME": "invoices-proxy-7d9f"}
+		sut.proxy.setEnv("POD_NAME", "invoices-proxy-7d9f")
 		file := sut.proxy.writeFile("env-name", "production\n")
-		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n" +
-			"        service.name: invoices-proxy\n" +
-			"        service.instance.id: { env: POD_NAME }\n" +
-			"        deployment.environment.name: { file: " + file + " }\n"
+		sut.addLabels("service.name: invoices-proxy", "service.instance.id: { env: POD_NAME }",
+			"deployment.environment.name: { file: "+file+" }")
 		return nil
 	})
 	sc.Step(`^the records transform labels deployment.environment.name staging(, then deployment.environment.name production)?$`, func(then string) error {
-		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        deployment.environment.name: staging\n"
+		sut.addLabels("deployment.environment.name: staging")
 		if then != "" {
-			sut.proxy.topExtra += "    - labels:\n        deployment.environment.name: production\n"
+			sut.addLabels("deployment.environment.name: production")
 		}
 		return nil
 	})
 	sc.Step(`^the records transform labels service.name shop-proxy$`, func() error {
-		sut.proxy.topExtra += "records:\n  transform:\n    - labels:\n        service.name: shop-proxy\n"
+		sut.addLabels("service.name: shop-proxy")
 		return nil
 	})
 	sc.Step(`^its resource has deployment.environment.name production$`, func() error {
@@ -234,14 +234,14 @@ func exportSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 		sut.downEndpoints = []string{"http://" + sut.proxy.ports.take()}
 		// The down exporter retries until a send times out, which holds up
 		// the proxy's shutdown at the end of the scenario.
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
 	sc.Step(`^the other keeps receiving$`, func() error { return sut.waitForRecords(2) })
 
 	sc.Step(`^an exporter with no queue size set$`, func() error {
 		sut.receivers[0].hold = make(chan struct{})
-		sut.proxy.exportTimeout = time.Minute
+		sut.exportTimeout = time.Minute
 		sut.app.appID = ""
 		return nil
 	})
@@ -284,7 +284,7 @@ func exportSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	sc.Step(`^an exporter with queueSize 3 whose exporter is busy with the first record$`, func() error {
 		sut.exporterExtra = []string{"      queueSize: 3\n"}
 		sut.receivers[0].hold = make(chan struct{})
-		sut.proxy.exportTimeout = time.Minute
+		sut.exportTimeout = time.Minute
 		if err := sut.app.call("GET", "https://api.stripe.com/v1/payment_intents/pi_1"); err != nil {
 			return err
 		}
@@ -451,14 +451,43 @@ type otlpSUT struct {
 	// defaults apply. Otherwise everything is sent every 20ms, to keep
 	// tests quick.
 	unsetIntervals bool
-	// sentRecords are the records that arrived while the proxy runs.
-	sentRecords []receivedRecord
+	// exportTimeout is how long one send may take; 2s unless set, so a slow
+	// first connection under the race detector still gets through.
+	exportTimeout time.Duration
+	// labelSets are the records transform's steps, each the lines of one
+	// labels step.
+	labelSets []string
 }
 
 func newOTLPSUT(root *proxySUT, app *appSUT, vendors *vendorsSUT, apis *apisSUT) *otlpSUT {
 	sut := &otlpSUT{proxy: root, app: app, vendors: vendors, apis: apis}
 	root.addConfig(configExporters, sut.exporters)
+	root.addConfig(configRecords, sut.recordsSection)
+	root.addOption(func(o *proxy.Options) { o.ExportTimeout = cmp.Or(sut.exportTimeout, 2*time.Second) })
 	return sut
+}
+
+// addLabels adds a labels step to the records transform, with lines
+// such as "service.name: shop-proxy", one per label.
+func (sut *otlpSUT) addLabels(lines ...string) {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString("        " + line + "\n")
+	}
+	sut.labelSets = append(sut.labelSets, b.String())
+}
+
+// recordsSection is the records section, with the transform's steps.
+func (sut *otlpSUT) recordsSection() string {
+	if len(sut.labelSets) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("records:\n  transform:\n")
+	for _, labels := range sut.labelSets {
+		b.WriteString("    - labels:\n" + labels)
+	}
+	return b.String()
 }
 
 // Open starts the receiver of the first exporter.
@@ -529,4 +558,49 @@ func (sut *otlpSUT) waitForRecords(n int) error {
 		return failf("%d records did not arrive", n)
 	}
 	return nil
+}
+
+// first is the receiver of the first OTLP exporter, and second of the
+// second.
+func (sut *otlpSUT) first() *receiver  { return sut.receivers[0] }
+func (sut *otlpSUT) second() *receiver { return sut.receivers[1] }
+
+// all are the receivers of every OTLP exporter, in the order of the config.
+func (sut *otlpSUT) all() []*receiver { return sut.receivers }
+
+// hasExporters says whether the config has any OTLP exporter.
+func (sut *otlpSUT) hasExporters() bool { return len(sut.receivers) > 0 }
+
+// addExporter adds an OTLP exporter, with a receiver of its own.
+func (sut *otlpSUT) addExporter() { sut.receivers = append(sut.receivers, newReceiver()) }
+
+// replaceFirst gives the first OTLP exporter another receiver.
+func (sut *otlpSUT) replaceFirst(r *receiver) { sut.receivers[0] = r }
+
+// removeExporters stops every receiver and leaves the OTLP exporters out of
+// the config.
+func (sut *otlpSUT) removeExporters() {
+	for _, r := range sut.receivers {
+		r.stop()
+	}
+	sut.receivers = nil
+}
+
+// setFirstExporterLines gives the first OTLP exporter more lines of config.
+func (sut *otlpSUT) setFirstExporterLines(lines string) { sut.exporterExtra = []string{lines} }
+
+// addExporterThatIsDown adds an OTLP exporter whose endpoint nothing
+// listens on.
+func (sut *otlpSUT) addExporterThatIsDown() {
+	sut.downEndpoints = append(sut.downEndpoints, "http://"+sut.proxy.ports.take())
+}
+
+// checkResults are the record's spec check results on one side, each
+// written as "part place rule expected".
+func (sut *otlpSUT) checkResults(side string) ([]string, error) {
+	record, err := sut.record()
+	if err != nil {
+		return nil, err
+	}
+	return resultsOf(record, side)
 }

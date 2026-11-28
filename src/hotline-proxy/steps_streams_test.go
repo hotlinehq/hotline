@@ -35,8 +35,6 @@ type streamingVendor struct {
 	contentType string
 	// breaksOff says the vendor breaks off once it has sent everything.
 	breaksOff bool
-	// at is the place of the integration in the config.
-	at int
 	// events are the events it streams, each with the blank line that
 	// ends it; raw, when set, is sent instead, as written.
 	events [][]byte
@@ -121,8 +119,7 @@ func streamSteps(sc *godog.ScenarioContext, sut *streamedResponseSUT) {
 		if err != nil {
 			return err
 		}
-		sut.streaming = &streamingVendor{spec: string(spec), at: len(sut.apis.integrations)}
-		sut.apis.addIntegration("")
+		sut.streaming = &streamingVendor{spec: string(spec)}
 		sut.writeStreamingSpec()
 		sut.vendors.vendor(anthropicHost).setAnswer(sut.streamingVendor)
 		return nil
@@ -272,8 +269,8 @@ func streamSteps(sc *godog.ScenarioContext, sut *streamedResponseSUT) {
 	})
 	sc.Step(`^a call record and an stream item record arrive while the stream is open$`, func() error {
 		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(10 * time.Millisecond) {
-			if len(sut.otlp.receivers[0].got()) > 0 && len(sut.otlp.receivers[0].streamItemRecords()) > 0 {
-				if len(sut.otlp.receivers[0].streamRecords()) > 0 {
+			if len(sut.otlp.first().got()) > 0 && len(sut.otlp.first().streamItemRecords()) > 0 {
+				if len(sut.otlp.first().streamRecords()) > 0 {
 					return failf("the stream record arrived while the stream was open")
 				}
 				return nil
@@ -387,7 +384,7 @@ func streamSteps(sc *godog.ScenarioContext, sut *streamedResponseSUT) {
 	})
 	sc.Step(`^there is no stream record$`, func() error {
 		sut.proxy.settle()
-		if got := sut.otlp.receivers[0].streamRecords(); len(got) > 0 {
+		if got := sut.otlp.first().streamRecords(); len(got) > 0 {
 			return failf("there are %d stream records, want none", len(got))
 		}
 		return nil
@@ -449,7 +446,7 @@ func streamSteps(sc *godog.ScenarioContext, sut *streamedResponseSUT) {
 	})
 	sc.Step(`^each "stream item" span has an "item spec check" span under it, with a "wait for check worker" span under that$`, func() error {
 		sut.proxy.settle()
-		spans := sut.otlp.receivers[0].spans()
+		spans := sut.otlp.first().spans()
 		items := 0
 		for _, item := range spans {
 			if item.name != "stream item" {
@@ -487,7 +484,7 @@ func streamSteps(sc *godog.ScenarioContext, sut *streamedResponseSUT) {
 	})
 	sc.Step(`^no record or span holds the app's api key$`, func() error {
 		sut.proxy.settle()
-		r := sut.otlp.receivers[0]
+		r := sut.otlp.first()
 		var all strings.Builder
 		for _, list := range [][]receivedRecord{r.got(), r.streamRecords(), r.streamItemRecords()} {
 			for _, rec := range list {
@@ -556,7 +553,7 @@ func (sut *streamedResponseSUT) streamBytes(quoted string) error {
 // integration in its place.
 func (sut *streamedResponseSUT) writeStreamingSpec() {
 	v := sut.streaming
-	sut.apis.integrations[v.at] = integration(anthropicApp, sut.apis.specAPI(cmp.Or(v.host, anthropicHost), v.spec, v.extra)) + v.integration
+	sut.apis.setIntegration(anthropicApp, integration(anthropicApp, sut.apis.specAPI(cmp.Or(v.host, anthropicHost), v.spec, v.extra))+v.integration)
 }
 
 // streamingVendor answers as the fake Anthropic: the whole message, or its
@@ -709,7 +706,7 @@ func (sut *streamedResponseSUT) callRecord() (receivedRecord, error) {
 // everything.
 func (sut *streamedResponseSUT) streamRecord() (receivedRecord, error) {
 	sut.proxy.settle()
-	streams := sut.otlp.receivers[0].streamRecords()
+	streams := sut.otlp.first().streamRecords()
 	if len(streams) != 1 {
 		return receivedRecord{}, failf("there are %d stream records, want one", len(streams))
 	}
@@ -720,7 +717,7 @@ func (sut *streamedResponseSUT) streamRecord() (receivedRecord, error) {
 // sent everything.
 func (sut *streamedResponseSUT) streamItemRecords() []receivedRecord {
 	sut.proxy.settle()
-	records := sut.otlp.receivers[0].streamItemRecords()
+	records := sut.otlp.first().streamItemRecords()
 	slices.SortFunc(records, func(a, b receivedRecord) int {
 		return strings.Compare(fmt.Sprintf("%09v", a.attrs["hotline.stream.item.index"]), fmt.Sprintf("%09v", b.attrs["hotline.stream.item.index"]))
 	})
@@ -740,7 +737,7 @@ func (sut *streamedResponseSUT) streamItemRecord(n int) (receivedRecord, error) 
 // spanByID is the span with the id, nil when none arrived.
 func (sut *streamedResponseSUT) spanByID(id string) *receivedSpan {
 	sut.proxy.settle()
-	for _, s := range sut.otlp.receivers[0].spans() {
+	for _, s := range sut.otlp.first().spans() {
 		if s.spanID == id {
 			return &s
 		}

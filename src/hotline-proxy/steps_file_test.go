@@ -36,13 +36,13 @@ type fileExporter struct {
 
 func fileSteps(sc *godog.ScenarioContext, sut *fileExportSUT) {
 	sc.Step(`^two OTLP exporters and a file exporter$`, func() error {
-		sut.otlp.receivers = append(sut.otlp.receivers, newReceiver())
+		sut.otlp.addExporter()
 		sut.exporters = append(sut.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
 		return nil
 	})
 	sc.Step(`^both exporters get deployment.environment.name staging$`, func() error {
 		sut.proxy.settle()
-		for i, r := range sut.otlp.receivers {
+		for i, r := range sut.otlp.all() {
 			records := r.got()
 			if len(records) != 1 {
 				return failf("exporter %d got %d records", i+1, len(records))
@@ -78,10 +78,7 @@ func fileSteps(sc *godog.ScenarioContext, sut *fileExportSUT) {
 		return nil
 	})
 	sc.Step(`^no OTLP exporter$`, func() error {
-		for _, r := range sut.otlp.receivers {
-			r.stop()
-		}
-		sut.otlp.receivers = nil
+		sut.otlp.removeExporters()
 		return nil
 	})
 	sc.Step(`^the file exporter has maxFileSize (\S+) and maxFiles (\d+)$`, func(size, count string) error {
@@ -768,3 +765,28 @@ func (sut *fileExportSUT) section() string {
 	}
 	return b.String()
 }
+
+// add adds a file exporter writing to folder, a folder of the scenario's,
+// with extra as more lines of its config.
+func (sut *fileExportSUT) add(folder, extra string) {
+	sut.exporters = append(sut.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, folder), extra: extra})
+}
+
+// count is how many file exporters the config has.
+func (sut *fileExportSUT) count() int { return len(sut.exporters) }
+
+// folder is where the file exporter at place i writes.
+func (sut *fileExportSUT) folder(i int) string { return sut.exporters[i].path }
+
+// setExporterLines gives the file exporter at place i extra as the more lines of
+// its config, in place of the ones it had.
+func (sut *fileExportSUT) setExporterLines(i int, extra string) { sut.exporters[i].extra = extra }
+
+// moveFirst makes the first file exporter write to another folder of the
+// scenario's.
+func (sut *fileExportSUT) moveFirst(folder string) {
+	sut.exporters[0].path = filepath.Join(sut.proxy.dir, folder)
+}
+
+// removeAll leaves every file exporter out of the config.
+func (sut *fileExportSUT) removeAll() { sut.exporters = nil }

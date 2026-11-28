@@ -7,7 +7,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func methodsSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func methodsSteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the methods spec$`, func() error {
 		sut.apis.useSpec(`openapi: 3.2.0
 paths:

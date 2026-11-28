@@ -36,13 +36,13 @@ const newWebhookEndpoint = `{"id":"we_1Mr5","object":"webhook_endpoint","api_ver
 // deletedWebhookEndpoint is Stripe's answer to deleting one.
 const deletedWebhookEndpoint = `{"id":"we_1Mr5","object":"webhook_endpoint","deleted":true}`
 
-func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func webhookSteps(sc *godog.ScenarioContext, sut *recordContentSUT) {
 	sc.Step(`^the Stripe spec from specs, with Stripe answering (a new|a deleted) webhook endpoint(, content full and a file exporter)?$`, func(which, full string) error {
 		body := map[string]string{"a new": newWebhookEndpoint, "a deleted": deletedWebhookEndpoint}[which]
 		extra := ""
 		if full != "" {
 			extra = "    content: full\n"
-			sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
+			sut.fileExport.add("calls", "")
 		}
 		return sut.apis.useRepositorySpec("api.stripe.com", stripeSpec, http.StatusOK, "application/json", body, extra)
 	})
@@ -50,8 +50,8 @@ func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		extra := ""
 		if full != "" {
 			extra = "    content: full\n"
-			sut.fileExport.exporters = append(sut.fileExport.exporters, fileExporter{path: filepath.Join(sut.proxy.dir, "calls")})
-			sut.console.consoleExporter = "  - console: {}\n"
+			sut.fileExport.add("calls", "")
+			sut.console.addExporter()
 		}
 		return sut.apis.useRepositorySpec("hooks.slack.com", slackSpec, status, "text/html", text, extra)
 	})
@@ -65,7 +65,7 @@ func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 		return sut.app.post("https://hooks.slack.com/services/"+slackTeam+"/"+slackBot+"/"+slackToken, "application/json", message)
 	})
 	sc.Step(`^the one request result is body (\S+) enum, with Stripe's (\d+) event names$`, func(place string, count int) error {
-		got, err := sut.results("request")
+		got, err := sut.otlp.checkResults("request")
 		if err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 	sc.Step(`^no record, span, log, console line or file line holds any part of the webhook address$`, func() error {
 		sut.proxy.settle()
 		var all strings.Builder
-		for _, r := range sut.otlp.receivers {
+		for _, r := range sut.otlp.all() {
 			for _, record := range r.got() {
 				all.WriteString(sprint(record.attrs))
 			}
@@ -91,8 +91,8 @@ func webhookSteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
 			}
 		}
 		all.WriteString(sut.proxy.logs.String())
-		all.WriteString(sut.console.printed.String())
-		file, err := os.ReadFile(filepath.Join(sut.fileExport.exporters[0].path, "calls.jsonl"))
+		all.WriteString(sut.console.text())
+		file, err := os.ReadFile(filepath.Join(sut.fileExport.folder(0), "calls.jsonl"))
 		if err != nil {
 			return err
 		}

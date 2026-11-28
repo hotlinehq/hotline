@@ -310,3 +310,23 @@ func (sut *tlsIngressSUT) useAppCertificate() {
 func (sut *tlsIngressSUT) AddSteps(sc *godog.ScenarioContext) {
 	tlsSteps(sc, sut)
 }
+
+// useCertificateValidFor writes a certificate the app trusts, valid for
+// the given time, to the proxy's cert and key files.
+func (sut *tlsIngressSUT) useCertificateValidFor(valid time.Duration) {
+	sut.proxyCert = sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(valid), false)
+	sut.writeKeyPair(sut.proxyCert, sut.proxyCert)
+}
+
+// renewCertificateValidFor replaces the cert and key files with a new
+// certificate, valid for the given time.
+func (sut *tlsIngressSUT) renewCertificateValidFor(valid time.Duration) {
+	renewed := sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(valid), false)
+	sut.renewed = &renewed
+	sut.replaceKeyPair(renewed, renewed)
+}
+
+// certificate is what the proxy's cert and key files held first, and
+// renewedCertificate what replaced it.
+func (sut *tlsIngressSUT) certificate() tls.Certificate        { return sut.proxyCert }
+func (sut *tlsIngressSUT) renewedCertificate() tls.Certificate { return *sut.renewed }

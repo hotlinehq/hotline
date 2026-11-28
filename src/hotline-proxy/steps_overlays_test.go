@@ -9,7 +9,7 @@ import (
 	"github.com/cucumber/godog"
 )
 
-func overlaySteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func overlaySteps(sc *godog.ScenarioContext, sut *requestChecksSUT) {
 	sc.Step(`^the overlay (\S+):$`, func(name string, content *godog.DocString) error {
 		sut.proxy.writeFile("specs/"+name, content.Content)
 		return nil

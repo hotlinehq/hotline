@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func memorySteps(sc *godog.ScenarioContext, sut *specChecksSUT) {
+func memorySteps(sc *godog.ScenarioContext, sut *checkQueueSUT) {
 	var perCall uint64
 	// measure makes one call, which starts the proxy and reads its config,
 	// not part of a call's cost, then n more, and keeps the memory the

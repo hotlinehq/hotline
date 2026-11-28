@@ -37,7 +37,7 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 	})
 	sc.Step(`^an app that trusts the interception certificate authority$`, func() error {
 		sut.app.tunnelRoots = x509.NewCertPool()
-		sut.app.tunnelRoots.AddCert(sut.certs.interception.cert)
+		sut.app.tunnelRoots.AddCert(sut.certs.interceptionAuthority().cert)
 		return nil
 	})
 	sc.Step(`^an app that does not trust the interception certificate authority$`, func() error {
@@ -129,15 +129,13 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 		if err := sut.openTunnel("api.talon.one", "443", "talon-shop-a"); err != nil {
 			return err
 		}
-		for range 2 {
+		for i := range 2 {
 			if err := sut.app.callInTunnel("Host: api.talon.one"); err != nil {
 				return err
 			}
-			if err := sut.otlp.waitForRecords(len(sut.otlp.sentRecords) + 1); err != nil {
+			if err := sut.otlp.waitForRecords(i + 1); err != nil {
 				return err
 			}
-			records := sut.otlp.receivers[0].got()
-			sut.otlp.sentRecords = records
 		}
 		return nil
 	})
@@ -151,15 +149,13 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 			return errorsJoinTLS(err, sut.app.tlsErr)
 		}
 		sut.app.openConn = conn
-		for range 2 {
+		for i := range 2 {
 			if err := sut.tlsIngress.callOn(conn); err != nil {
 				return err
 			}
-			if err := sut.otlp.waitForRecords(len(sut.otlp.sentRecords) + 1); err != nil {
+			if err := sut.otlp.waitForRecords(i + 1); err != nil {
 				return err
 			}
-			records := sut.otlp.receivers[0].got()
-			sut.otlp.sentRecords = records
 		}
 		return nil
 	})
@@ -180,7 +176,7 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 		sut.proxy.replaceFile("ca/cert.pem", authorityCertPEM(second))
 		sut.proxy.replaceFile("ca/key.pem", authorityKeyPEM(second))
 		sut.app.tunnelRoots.AddCert(second.cert)
-		sut.certs.second = second
+		sut.certs.rememberReplacement(second)
 		return nil
 	})
 
@@ -253,9 +249,9 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 		return nil
 	})
 	sc.Step(`^the app sees a certificate for (\S+) signed by the (interception|second) certificate authority$`, func(host, which string) error {
-		signer := sut.certs.interception
+		signer := sut.certs.interceptionAuthority()
 		if which == "second" {
-			signer = sut.certs.second
+			signer = sut.certs.replacement()
 		}
 		if sut.app.tunnelErr != nil {
 			return failf("TLS inside the tunnel failed: %v", sut.app.tunnelErr)
@@ -316,7 +312,7 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 	sc.Step(`^the connect part has a cert file but no key file$`, func() error {
 		sut.proxy.problem = "cert customer needs both cert and key"
 		sut.listenConnect = "  connect: { cert: customer }\n"
-		sut.certs.certEntries = "certs:\n  customer: { cert: ./ca/cert.pem }\n"
+		sut.certs.replaceEntries("  customer: { cert: ./ca/cert.pem }\n")
 		return nil
 	})
 	sc.Step(`^the connect part names the cert "([^"]*)", which is not in certs$`, func(name string) error {
@@ -328,7 +324,7 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 	sc.Step(`^a certificate authority is written with no files$`, func() error {
 		sut.proxy.problem = "cert customer needs both cert and key"
 		sut.useInterceptionAuthority(newAuthority())
-		sut.certs.certEntries = "certs:\n  customer:\n"
+		sut.certs.replaceEntries("  customer:\n")
 		return nil
 	})
 	sc.Step(`^the connect part names no cert$`, func() error {
@@ -342,7 +338,7 @@ func connectSteps(sc *godog.ScenarioContext, sut *connectSUT) {
 		leaf := sut.vendors.authority.leaf("not-a-certificate-authority", time.Now().Add(24*time.Hour), false)
 		sut.proxy.writeFile("ca/other-cert.pem", certPEM(leaf))
 		sut.proxy.writeFile("ca/other-key.pem", keyPEM(leaf))
-		sut.certs.certEntries += "  unused: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n"
+		sut.certs.add("  unused: { cert: ./ca/other-cert.pem, key: ./ca/other-key.pem }\n")
 		return nil
 	})
 	sc.Step(`^the proxy logs a warning that the interception certificate authority is valid for more than a year$`, func() error {
@@ -618,3 +614,6 @@ func newConnectSUT(root *proxySUT, vendors *vendorsSUT, certs *certsSUT, app *ap
 func (sut *connectSUT) AddSteps(sc *godog.ScenarioContext) {
 	connectSteps(sc, sut)
 }
+
+// setPart sets the connect line of the proxy listener; empty leaves it out.
+func (sut *connectSUT) setPart(line string) { sut.listenConnect = line }

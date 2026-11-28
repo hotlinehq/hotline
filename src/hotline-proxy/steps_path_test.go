@@ -53,7 +53,7 @@ func (sut *probeSUT) pathSituation(situation string) error {
 // spansIn are the spans of one trace, in the order they were sent.
 func (sut *probeSUT) spansIn(traceID string) []receivedSpan {
 	var out []receivedSpan
-	for _, s := range sut.otlp.receivers[0].spans() {
+	for _, s := range sut.otlp.first().spans() {
 		if s.traceID == traceID {
 			out = append(out, s)
 		}

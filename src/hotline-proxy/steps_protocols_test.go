@@ -90,7 +90,7 @@ func protocolSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	sc.Step(`^a receiver over TLS whose certificate authority nobody trusts$`, func() error {
 		overTLS(newAuthority(), nil)
 		// Each send is tried again until its time runs out.
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
 	sc.Step(`^the receiver gets no record$`, func() error {
@@ -141,7 +141,7 @@ func protocolSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 			// of the value.
 			value = "{ file: " + sut.proxy.writeFile("otlp/token", secret+"\n") + " }"
 		case "an environment variable":
-			sut.proxy.env = map[string]string{"OTLP_TOKEN": secret}
+			sut.proxy.setEnv("OTLP_TOKEN", secret)
 			value = "{ env: OTLP_TOKEN }"
 		}
 		sut.exporterExtra = []string{"      headers:\n        Authorization: " + value + "\n"}
@@ -190,8 +190,8 @@ func protocolSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	})
 
 	sc.Step(`^a receiver that answers the first log send with (\d+)(?: with Retry-After (\d+))?$`, func(status int, retryAfter string) error {
-		sut.receivers[0].answers = []answer{{status: status, retryAfter: retryAfter}}
-		sut.proxy.exportTimeout = 5 * time.Second
+		sut.first().answerNextLogExports(answer{status: status, retryAfter: retryAfter})
+		sut.exportTimeout = 5 * time.Second
 		return nil
 	})
 	logSends := func() int {
@@ -215,18 +215,18 @@ func protocolSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 	}
 	sc.Step(`^a receiver that answers the first (\d+) log sends with 503, each longer than a send may take$`, func(n int) error {
 		for range n {
-			sut.receivers[0].answers = append(sut.receivers[0].answers, answer{status: http.StatusServiceUnavailable})
+			sut.first().answerNextLogExports(answer{status: http.StatusServiceUnavailable})
 		}
 		// Shorter than the first wait before a retry, so each send gives up
 		// after its first try.
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
 	sc.Step(`^a receiver that answers every log send with 503$`, func() error {
 		for range 1000 {
-			sut.receivers[0].answers = append(sut.receivers[0].answers, answer{status: http.StatusServiceUnavailable})
+			sut.first().answerNextLogExports(answer{status: http.StatusServiceUnavailable})
 		}
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
 	sc.Step(`^the record arrives on the third send$`, func() error {
@@ -284,7 +284,7 @@ func protocolSteps(sc *godog.ScenarioContext, sut *otlpSUT) {
 		}
 		use(setup)
 		// A send that cannot be read is tried again until its time runs out.
-		sut.proxy.exportTimeout = 300 * time.Millisecond
+		sut.exportTimeout = 300 * time.Millisecond
 		return nil
 	})
 	sc.Step(`^the exporter (does not set h2c|sets h2c to true)$`, func(sets string) error {

@@ -391,3 +391,8 @@ func newConsoleSUT(root *proxySUT, vendors *vendorsSUT, app *appSUT) *consoleSUT
 func (sut *consoleSUT) AddSteps(sc *godog.ScenarioContext) {
 	consoleSteps(sc, sut)
 }
+
+// addExporter adds a console exporter with no settings, and text is what
+// the console exporters printed.
+func (sut *consoleSUT) addExporter() { sut.consoleExporter = "  - console: {}\n" }
+func (sut *consoleSUT) text() string { return sut.printed.String() }

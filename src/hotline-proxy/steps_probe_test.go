@@ -29,7 +29,7 @@ func (sut *probeSUT) writeConfig() {
 	if sut.plainHTTP {
 		extra += "    tlsOrigination: false\n"
 	}
-	if len(sut.apis.integrations) == 0 {
+	if sut.apis.integrationCount() == 0 {
 		switch {
 		case sut.twoAPIs != nil:
 			sut.apis.addIntegration(integration(probeIDs()[0], sut.apis.talonAPI(extra+sut.twoAPIs[0])))
@@ -78,7 +78,7 @@ func (sut *probeSUT) acceptOn(port string) {
 func (sut *probeSUT) settleProbes() {
 	state := func() string {
 		lookups, dials := sut.vendors.network.counts()
-		return fmt.Sprint(lookups, dials, sut.proxy.clock.waiting(), len(sut.otlp.receivers[0].probeRecords()), len(sut.otlp.receivers[0].got()))
+		return fmt.Sprint(lookups, dials, sut.proxy.clock.waiting(), len(sut.otlp.first().probeRecords()), len(sut.otlp.first().got()))
 	}
 	last, since := state(), time.Now()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); pause(5 * time.Millisecond) {
@@ -94,7 +94,7 @@ func (sut *probeSUT) settleProbes() {
 
 // failingCall makes one call that fails to connect, and waits for its record.
 func (sut *probeSUT) failingCall(id string) error {
-	before := len(sut.otlp.receivers[0].got())
+	before := len(sut.otlp.first().got())
 	sut.app.appID = id
 	if err := sut.app.defaultCall(); err != nil {
 		return err
@@ -114,7 +114,7 @@ func (sut *probeSUT) probesOf(endpoint string) []receivedRecord {
 	sut.proxy.settle()
 	host, port, _ := net.SplitHostPort(endpoint)
 	var out []receivedRecord
-	for _, r := range sut.otlp.receivers[0].probeRecords() {
+	for _, r := range sut.otlp.first().probeRecords() {
 		if fmt.Sprint(r.attrs["server.address"]) == host && fmt.Sprint(r.attrs["server.port"]) == port {
 			out = append(out, r)
 		}
@@ -125,7 +125,7 @@ func (sut *probeSUT) probesOf(endpoint string) []receivedRecord {
 // onlyProbe is the scenario's only probe record.
 func (sut *probeSUT) onlyProbe() (receivedRecord, error) {
 	sut.proxy.settle()
-	probes := sut.otlp.receivers[0].probeRecords()
+	probes := sut.otlp.first().probeRecords()
 	if len(probes) != 1 {
 		return receivedRecord{}, failf("the receiver got %d probe records, want one", len(probes))
 	}
@@ -204,7 +204,7 @@ func minutes(list string) []int {
 // spansOfTrace are the spans of one trace, by name.
 func (sut *probeSUT) spansOfTrace(traceID string) map[string]receivedSpan {
 	out := map[string]receivedSpan{}
-	for _, s := range sut.otlp.receivers[0].spans() {
+	for _, s := range sut.otlp.first().spans() {
 		if s.traceID == traceID {
 			out[s.name] = s
 		}
@@ -338,9 +338,7 @@ func probeSteps(sc *godog.ScenarioContext, sut *probeSUT) {
 	})
 	sc.Step(`^a call to it fails after that$`, func() error { return sut.failingCall(probeIDs()[0]) })
 	sc.Step(`^the config is reloaded with "([^"]+)" on the api$`, func(setting string) error {
-		for i := range sut.apis.entries {
-			sut.apis.entries[i].yaml += probeLine(setting)
-		}
+		sut.apis.addToEveryAPI(probeLine(setting))
 		before := strings.Count(sut.proxy.logs.String(), "config reloaded")
 		if err := sut.proxy.reloadConfig(); err != nil {
 			return err
@@ -353,13 +351,13 @@ func probeSteps(sc *godog.ScenarioContext, sut *probeSUT) {
 
 	sc.Step(`^one probe of "([^"]+)" is exported$`, func(endpoint string) error {
 		if got := sut.probesOf(endpoint); len(got) != 1 {
-			return failf("the receiver got %d probes of %s, want one; it got %v", len(got), endpoint, sut.otlp.receivers[0].probeRecords())
+			return failf("the receiver got %d probes of %s, want one; it got %v", len(got), endpoint, sut.otlp.first().probeRecords())
 		}
 		return nil
 	})
 	sc.Step(`^no probe is exported$`, func() error {
 		sut.proxy.settle()
-		if got := sut.otlp.receivers[0].probeRecords(); len(got) != 0 {
+		if got := sut.otlp.first().probeRecords(); len(got) != 0 {
 			return failf("the receiver got %d probes, want none: %v", len(got), got[0].attrs)
 		}
 		return nil
@@ -467,7 +465,7 @@ func probeSteps(sc *godog.ScenarioContext, sut *probeSUT) {
 		if err := hasAll(r.attrs, "hotline.record.hash", "hotline.trace.hash"); err != nil {
 			return err
 		}
-		for _, b := range sut.otlp.receivers[0].ledger() {
+		for _, b := range sut.otlp.first().ledger() {
 			if b.attrs["hotline.batch.id"] == r.attrs["hotline.batch.id"] {
 				return has(b.attrs, "hotline.batch.integration", "hotline.probe")
 			}
@@ -633,12 +631,12 @@ func probeSteps(sc *godog.ScenarioContext, sut *probeSUT) {
 	})
 	sc.Step(`^the console prints a line with "PROBE", "api.talon.one:443", "vendor_side" and "refused the connection"$`, func() error {
 		sut.proxy.settle()
-		for _, line := range strings.Split(sut.console.printed.String(), "\n") {
+		for _, line := range strings.Split(sut.console.text(), "\n") {
 			if containsAll(line, []string{"PROBE", "api.talon.one:443", "vendor_side", "refused the connection"}) {
 				return nil
 			}
 		}
-		return failf("the console printed %q", sut.console.printed.String())
+		return failf("the console printed %q", sut.console.text())
 	})
 	sc.Step(`^its probe is running$`, func() error {
 		for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); pause(5 * time.Millisecond) {
@@ -653,15 +651,15 @@ func probeSteps(sc *godog.ScenarioContext, sut *probeSUT) {
 	})
 	sc.Step(`^the third line is the probe of the vendor, with "([^"]+)"$`, func(text string) error {
 		sut.proxy.settle()
-		lines := strings.Split(strings.TrimSuffix(sut.console.printed.String(), "\n"), "\n")
+		lines := strings.Split(strings.TrimSuffix(sut.console.text(), "\n"), "\n")
 		if len(lines) != 3 || !strings.Contains(lines[2], text) {
-			return failf("the console printed %q", sut.console.printed.String())
+			return failf("the console printed %q", sut.console.text())
 		}
 		return nil
 	})
 	sc.Step(`^hotline-proxy verify finds every record and batch of the file sound$`, func() error {
 		sut.proxy.settle()
-		result := sut.ledger.verify(proxy.VerifyOptions{Folder: sut.fileExport.exporters[0].path})
+		result := sut.ledger.verify(proxy.VerifyOptions{Folder: sut.fileExport.folder(0)})
 		if result.code != 0 {
 			return failf("verify gave %d: %s", result.code, result.out)
 		}

@@ -490,15 +490,15 @@ func timingSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 				return failf("%q has the resource %v", s.name, s.resource)
 			}
 		}
-		for _, seen := range sut.otlp.receivers[0].requests() {
+		for _, seen := range sut.otlp.first().requests() {
 			if seen.path == "/v1/traces" && seen.contentType == "application/x-protobuf" {
 				return nil
 			}
 		}
-		return failf("no export came to /v1/traces; the receiver got %v", sut.otlp.receivers[0].requests())
+		return failf("no export came to /v1/traces; the receiver got %v", sut.otlp.first().requests())
 	})
 	sc.Step(`^a second exporter$`, func() error {
-		sut.otlp.receivers = append(sut.otlp.receivers, newReceiver())
+		sut.otlp.addExporter()
 		return nil
 	})
 	sc.Step(`^both receivers get the same spans$`, func() error {
@@ -511,7 +511,7 @@ func timingSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 			sort.Strings(list)
 			return strings.Join(list, ", ")
 		}
-		first, second := ids(sut.otlp.receivers[0]), ids(sut.otlp.receivers[1])
+		first, second := ids(sut.otlp.first()), ids(sut.otlp.second())
 		if first == "" || first != second {
 			return failf("the receivers got %q and %q", first, second)
 		}
@@ -519,11 +519,12 @@ func timingSteps(sc *godog.ScenarioContext, sut *forwardSUT) {
 	})
 
 	sc.Step(`^the (first|second) call's trace has (?:an|no) "app tls handshake" span(?: at the start of "hotline call")?$`, func(which string) error {
-		if len(sut.otlp.sentRecords) != 2 {
-			return failf("got %d records, want two", len(sut.otlp.sentRecords))
-		}
 		sut.proxy.settle()
-		t := sut.otlp.traceOf(sut.otlp.sentRecords[map[string]int{"first": 0, "second": 1}[which]])
+		records := sut.otlp.first().got()
+		if len(records) != 2 {
+			return failf("got %d records, want two", len(records))
+		}
+		t := sut.otlp.traceOf(records[map[string]int{"first": 0, "second": 1}[which]])
 		if which == "second" {
 			return t.hasNone("app tls handshake")
 		}

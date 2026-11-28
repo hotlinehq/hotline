@@ -105,7 +105,7 @@ func telemetrySteps(sc *godog.ScenarioContext, sut *telemetrySUT) {
 	})
 	sc.Step(`^the product receiver gets no metric$`, func() error {
 		sut.proxy.settle()
-		if points := sut.otlp.receivers[0].metricPoints(); len(points) > 0 {
+		if points := sut.otlp.first().metricPoints(); len(points) > 0 {
 			return failf("the product receiver got %s", points[0].name)
 		}
 		return nil
@@ -293,25 +293,25 @@ func telemetrySteps(sc *godog.ScenarioContext, sut *telemetrySUT) {
 		return nil
 	})
 	sc.Step(`^a product exporter over HTTP that refuses every log export with 400$`, func() error {
-		sut.otlp.receivers[0].stop()
-		sut.otlp.receivers[0] = newReceiverWith(receiverSetup{})
+		sut.otlp.first().stop()
+		sut.otlp.replaceFirst(newReceiverWith(receiverSetup{}))
 		for range 100 {
-			sut.otlp.receivers[0].answers = append(sut.otlp.receivers[0].answers, answer{status: http.StatusBadRequest})
+			sut.otlp.first().answerNextLogExports(answer{status: http.StatusBadRequest})
 		}
 		return nil
 	})
 	sc.Step(`^a product exporter that is down$`, func() error {
-		sut.otlp.receivers[0].stop()
+		sut.otlp.first().stop()
 		// Nothing listens there yet.
-		sut.otlp.receivers[0] = &receiver{endpoint: "http://" + sut.proxy.ports.take()}
+		sut.otlp.replaceFirst(&receiver{endpoint: "http://" + sut.proxy.ports.take()})
 		return nil
 	})
 	sc.Step(`^the exporter comes back and another call ends$`, func() error {
-		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(sut.otlp.receivers[0].endpoint, "http://"))
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", strings.TrimPrefix(sut.otlp.first().endpoint, "http://"))
 		if err != nil {
 			return err
 		}
-		sut.otlp.receivers[0] = newReceiverWith(receiverSetup{listener: l})
+		sut.otlp.replaceFirst(newReceiverWith(receiverSetup{listener: l}))
 		return sut.app.defaultCall()
 	})
 
@@ -325,30 +325,27 @@ func telemetrySteps(sc *godog.ScenarioContext, sut *telemetrySUT) {
 
 	sc.Step(`^the proxy port takes TLS(?: with a certificate that expires in (\d+) days)?$`, func(days string) error {
 		n, _ := strconv.Atoi(days)
-		sut.tlsIngress.proxyCert = sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(max(n, 90))*24*time.Hour), false)
-		sut.tlsIngress.writeKeyPair(sut.tlsIngress.proxyCert, sut.tlsIngress.proxyCert)
+		sut.tlsIngress.useCertificateValidFor(time.Duration(max(n, 90)) * 24 * time.Hour)
 		sut.tlsIngress.useAppCertificate()
 		sut.app.appTLS = sut.tlsIngress.appTLSConfig()
 		return nil
 	})
 	sc.Step(`^the cert and key files are replaced with a certificate that expires in (\d+) days$`, func(days int) error {
-		renewed := sut.vendors.authority.leaf("hotline-proxy", time.Now().Add(time.Duration(days)*24*time.Hour), false)
-		sut.tlsIngress.renewed = &renewed
-		sut.tlsIngress.replaceKeyPair(renewed, renewed)
+		sut.tlsIngress.renewCertificateValidFor(time.Duration(days) * 24 * time.Hour)
 		return nil
 	})
 	sc.Step(`^hotline.certificate.not_after is that certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
-		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(sut.tlsIngress.proxyCert))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(sut.tlsIngress.certificate()))
 	})
 	sc.Step(`^hotline.certificate.not_after turns to the new certificate's expiry for hotline.certificate.use proxy.tls$`, func() error {
-		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(*sut.tlsIngress.renewed))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.tls", expiry(sut.tlsIngress.renewedCertificate()))
 	})
 	sc.Step(`^CONNECT is an ingress with a certificate authority that expires in (\d+) days$`, func(days int) error {
 		sut.connect.useInterceptionAuthority(newAuthorityValid(time.Now().Add(-time.Hour), time.Now().Add(time.Duration(days)*24*time.Hour)))
 		return nil
 	})
 	sc.Step(`^hotline.certificate.not_after is that certificate authority's expiry for hotline.certificate.use proxy.connect$`, func() error {
-		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(sut.certs.interception.cert.NotAfter.Unix()))
+		return sut.ownValue("hotline.certificate.not_after", "hotline.certificate.use proxy.connect", float64(sut.certs.interceptionAuthority().cert.NotAfter.Unix()))
 	})
 
 	sc.Step(`^an app that does not trust the proxy opens TLS$`, func() error {
@@ -499,7 +496,7 @@ func (sut *proxySUT) eventually(check func() error) error {
 // exporterLabels name the first product exporter, by its endpoint as the
 // config writes it.
 func (sut *telemetrySUT) exporterLabels() string {
-	return "hotline.exporter " + sut.otlp.receivers[0].endpoint
+	return "hotline.exporter " + sut.otlp.first().endpoint
 }
 
 // tryTLS opens TLS to the proxy, which may fail.
@@ -614,3 +611,13 @@ func (sut *telemetrySUT) section() string {
 	}
 	return b.String()
 }
+
+// turnOffMetrics turns off a metric in the telemetry section, and
+// turnOnProfilePages turns on the profile pages.
+func (sut *telemetrySUT) turnOffMetrics(metric string) {
+	sut.telemetryDisable = append(sut.telemetryDisable, metric)
+}
+func (sut *telemetrySUT) turnOnProfilePages() { sut.telemetryPprof = true }
+
+// metricPoints are the proxy's own metric points the receiver got.
+func (sut *telemetrySUT) metricPoints() []receivedPoint { return sut.receiver.metricPoints() }
