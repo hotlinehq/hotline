@@ -103,6 +103,9 @@ Feature: The code still follows the decision log
     Scenario: tests-in-ci. make test runs nothing under the race detector
       Then the Makefile's test target does not hold "-race"
 
+    Scenario: sut-tests. Tests are shaped around a SUT struct named after its area
+      Then the file .claude/skills/sut-tests/SKILL.md holds "The type is always named `<area>SUT`"
+
     Scenario: sqs-example. The SQS spec is made from AWS's model
       Then the file tools/aws-openapi/smithy/convert_test.go holds "made the committed SQS spec from the committed SQS model"
 

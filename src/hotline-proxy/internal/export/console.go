@@ -54,17 +54,17 @@ type consoleExporter struct {
 // newConsole starts the console's queue. Colour is used when the config
 // says always, or says auto and the output is a terminal and NO_COLOR is
 // not set.
-func newConsole(e *config.ConsoleExporter, out Console, setup queueSetup) *consoleExporter {
+func newConsole(e *config.ConsoleExporter, out Console, setup QueueSetup) *consoleExporter {
 	width, terminal := out.Terminal()
 	c := &consoleExporter{out: out, color: coloured(e, terminal, out.LookupEnv)}
 	c.columns.Store(int64(c.width(width, terminal)))
-	write := func(_ context.Context, calls [][]byte) error {
+	setup.Send = func(_ context.Context, calls [][]byte) error {
 		_, err := out.Out.Write(bytes.Join(calls, nil))
 		c.columns.Store(int64(c.width(out.Terminal())))
 		return err
 	}
-	c.queue = newQueue("calls", write, func(context.Context) error { return nil }, setup)
-	c.up, c.place = setup.up, attribute.NewSet(attribute.String("hotline.exporter", "console"))
+	c.queue = NewQueue(setup)
+	c.up, c.place = setup.ExporterUp, attribute.NewSet(attribute.String("hotline.exporter", "console"))
 	return c
 }
 

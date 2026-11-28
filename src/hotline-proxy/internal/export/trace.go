@@ -127,6 +127,6 @@ func (s *Exporters) trace(sc trace.SpanContext, spans []Span) {
 		start = end
 	}
 	for _, d := range s.exporters {
-		d.spans.add(items...)
+		d.spans.Add(items...)
 	}
 }
